@@ -43,6 +43,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -142,6 +143,14 @@ public class MTMVUtil {
         }
         if (expr instanceof org.apache.doris.analysis.DateLiteral) {
             return ((org.apache.doris.analysis.DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        }
+        if (expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+            org.apache.doris.analysis.TimeStampNsLiteral timestampNs
+                    = (org.apache.doris.analysis.TimeStampNsLiteral) expr;
+            if (timestampNs.isMinValue()) {
+                return Long.MIN_VALUE;
+            }
+            return ZonedDateTime.of(timestampNs.toLocalDateTime(), TimeUtils.getDorisZoneId()).toEpochSecond();
         }
         if (!dateFormatOptional.isPresent()) {
             throw new AnalysisException("expr is not DateLiteral and DateFormat is not present.");

@@ -17,11 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -33,6 +35,7 @@ import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 import java.util.Map;
@@ -149,4 +152,56 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         }
         return PartitionKeyDesc.createIn(partitionValues);
     }
+
+    @Test
+    public void testRollUpRangeTimestampNs() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("hour")));
+        new Expectations() {
+            {
+                mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);
+                minTimes = 0;
+                result = ScalarType.createTimeStampNsType();
+                mtmvPartitionInfo.getExpr();
+                minTimes = 0;
+                result = expr;
+                mtmvPartitionInfo.getPartitionType();
+                minTimes = 0;
+                result = MTMVPartitionType.EXPR;
+            }
+        };
+        MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+        relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                        Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000001"))),
+                Sets.newHashSet("one-nanosecond"));
+        relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                        Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224193"))),
+                Sets.newHashSet("minimum"));
+        relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                        Lists.newArrayList(PartitionValue.MAX_VALUE)),
+                Sets.newHashSet("maximum"));
+
+        Map<PartitionKeyDesc, Set<String>> result = generator.rollUpRange(relatedPartitionDescs,
+                mtmvPartitionInfo, null);
+
+        PartitionKeyDesc expectedOneNanosecond = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                Lists.newArrayList(new PartitionValue("2024-01-01 01:00:00.000000000")));
+        PartitionKeyDesc expectedMinimum = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                Lists.newArrayList(new PartitionValue("1677-09-21 01:00:00.000000000")));
+        PartitionKeyDesc expectedMaximum = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2262-04-11 23:00:00.000000000")),
+                Lists.newArrayList(PartitionValue.MAX_VALUE));
+
+        Assertions.assertEquals(3, result.size());
+        Assertions.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
+        Assertions.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
+        Assertions.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
+    }
+
 }

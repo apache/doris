@@ -28,6 +28,7 @@ import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
+import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -217,4 +218,27 @@ public class FlightSqlSchemaHelperArrowTypeTest {
                 FlightSqlSchemaHelper.getArrowType(PrimitiveType.VARBINARY, 0, 0));
     }
 
+    @Test
+    public void serializedSchemaDescribesScalarAndNestedTimestampNs() throws IOException {
+        byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Arrays.asList(
+                buildField(desc("ts", TPrimitiveType.TIMESTAMP_NS)),
+                buildField(desc("items", TPrimitiveType.ARRAY,
+                        desc("item", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("by_name", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.VARCHAR),
+                        desc("value", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("record", TPrimitiveType.STRUCT,
+                        desc("ts", TPrimitiveType.TIMESTAMP_NS)))));
+
+        Schema schema = MessageSerializer.deserializeSchema(
+                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
+        ArrowType.Timestamp timestampNs = new ArrowType.Timestamp(TimeUnit.NANOSECOND, null);
+        Assertions.assertEquals(timestampNs, schema.getFields().get(0).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(1).getChildren().get(0).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(2).getChildren().get(0).getChildren().get(1).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(3).getChildren().get(0).getType());
+    }
 }

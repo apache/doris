@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -27,10 +28,13 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TColumn;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -51,6 +55,37 @@ public class ColumnTest {
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
+
+    @Test
+    public void testSchemaChangeDefaultExpressionSerialization() throws Exception {
+        Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
+                "CURRENT_TIMESTAMP(9)", "", true, null, 1,
+                "2000-01-01 00:00:00.000000000");
+
+        TColumn thriftColumn = column.toThrift();
+
+        Assertions.assertEquals("2000-01-01 00:00:00.000000000", thriftColumn.getDefaultValue());
+        Assertions.assertEquals("CURRENT_TIMESTAMP(9)", thriftColumn.getDefaultValueExpr());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION,
+                thriftColumn.getColumnType().getPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, thriftColumn.getColumnType().getScale());
+
+        OlapFile.ColumnPB protobufColumn = column.toPb(null, null);
+        Assertions.assertEquals("2000-01-01 00:00:00.000000000",
+                protobufColumn.getDefaultValue().toStringUtf8());
+        Assertions.assertEquals("CURRENT_TIMESTAMP(9)", protobufColumn.getDefaultValueExpr().toStringUtf8());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, protobufColumn.getPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, protobufColumn.getFrac());
+
+        Column datetimeColumn = new Column("dt", ScalarType.createDatetimeV2Type(6), false, null, true,
+                "CURRENT_TIMESTAMP(6)", "", true, null, 2,
+                "2000-01-01 00:00:00.000000");
+        Assertions.assertFalse(datetimeColumn.toThrift().isSetDefaultValueExpr());
+        OlapFile.ColumnPB datetimeProtobufColumn = datetimeColumn.toPb(null, null);
+        Assertions.assertEquals("CURRENT_TIMESTAMP(6)", datetimeProtobufColumn.getDefaultValue().toStringUtf8());
+        Assertions.assertFalse(datetimeProtobufColumn.hasDefaultValueExpr());
+    }
+
 
     @Test
     public void testSerialization() throws Exception {

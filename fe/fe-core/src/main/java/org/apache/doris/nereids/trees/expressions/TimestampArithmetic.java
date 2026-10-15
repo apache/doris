@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -82,7 +83,7 @@ public class TimestampArithmetic extends Expression
     @Override
     public DataType getDataType() throws UnboundException {
         DataType childType = child(0).getDataType();
-        if (childType instanceof DateTimeV2Type) {
+        if (childType instanceof DateTimeV2Type || childType instanceof TimeStampNsType) {
             return childType;
         }
         // datev2

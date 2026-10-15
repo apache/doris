@@ -17,12 +17,17 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -72,6 +77,58 @@ public class DataTypeTest {
     @Test
     void testFromPrimitiveType() {
         Assertions.assertEquals(DataType.fromCatalogType(Type.STRING), StringType.INSTANCE);
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                DataType.fromCatalogType(Type.TIMESTAMP_NS));
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                DataType.legacyTypeToNereidsType().get(Type.TIMESTAMP_NS.getPrimitiveType()));
+    }
+
+    @Test
+    void testTimeStampNsValidation() {
+        DataType timestampNs = TimeStampNsType.INSTANCE;
+        Assertions.assertDoesNotThrow(timestampNs::validateDataType);
+        Assertions.assertInstanceOf(DateLikeType.class, timestampNs);
+        Assertions.assertInstanceOf(ScaleTimeType.class, timestampNs);
+        Assertions.assertTrue(timestampNs.isDateLikeType());
+        Assertions.assertTrue(timestampNs.isTimeStampNsType());
+        Assertions.assertFalse(timestampNs.isDateTimeV2Type());
+        Assertions.assertFalse(timestampNs.isTimeStampTzType());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, TimeStampNsType.INSTANCE.getScale());
+        Assertions.assertEquals(8, timestampNs.width());
+        Assertions.assertEquals("timestamp_ns", timestampNs.toSql());
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                TimeStampNsType.INSTANCE.scaleTypeForType(DateTimeV2Type.MAX));
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                TimeStampNsType.INSTANCE.forTypeFromString(
+                        new StringLiteral("2024-01-02 03:04:05.123456789")));
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class,
+                ((DateLikeType) timestampNs).fromString("2024-01-02 03:04:05.123456789"));
+        Assertions.assertEquals(86400, timestampNs.rangeLength(20240102000000D, 20240101000000D));
+        Assertions.assertEquals(DateTimeV2Type.of(4), DateTimeV2Type.forType(
+                DecimalV2Type.createDecimalV2Type(12, 4)));
+        Assertions.assertEquals(DateTimeV2Type.of(5), DateTimeV2Type.forType(
+                DecimalV3Type.createDecimalV3Type(12, 5)));
+    }
+
+    @Test
+    void testTimeV2PromotionKeepsMicrosecondPrecision() {
+        Assertions.assertEquals(
+                ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE),
+                TimeV2Type.of(6).getAllPromotions());
+    }
+
+    @Test
+    void testImplicitDateTimeV2PrecisionKeepsMicrosecondCompatibility() {
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(StringType.INSTANCE));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DecimalV3Type.createDecimalV3Type(18, 9)));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("1st Jun 2007 09:45:30"));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DateTimeV2Type.MAX));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("2024-01-01 00:00:00.123456789"));
     }
 
     @Test
@@ -121,6 +178,19 @@ public class DataTypeTest {
 
         // datetimev2
         Assertions.assertEquals(DateTimeV2Type.of(3), DataType.convertFromString("datetimev2(3)"));
+        Assertions.assertSame(TimeStampNsType.INSTANCE, DataType.convertFromString("timestamp_ns"));
+        for (String datetimeType : ImmutableList.of("datetime", "datetimev2")) {
+            for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+                int scale = invalidScale;
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> DataType.convertFromString(datetimeType + "(" + scale + ")"));
+            }
+        }
+        for (int invalidScale : ImmutableList.of(0, 1, 6, 7, 8, 9)) {
+            int scale = invalidScale;
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> DataType.convertFromString("timestamp_ns(" + scale + ")"));
+        }
         // hll
         Assertions.assertEquals(HllType.INSTANCE, DataType.convertFromString("hll"));
         // bitmap
@@ -131,10 +201,18 @@ public class DataTypeTest {
         Assertions.assertEquals(JsonType.INSTANCE, DataType.convertFromString("json"));
         // array
         Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), DataType.convertFromString("array<int>"));
+        Assertions.assertEquals(ArrayType.of(TimeStampNsType.INSTANCE),
+                DataType.convertFromString("array<timestamp_ns>"));
         // map
         Assertions.assertEquals(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), DataType.convertFromString("map<int, int>"));
+        Assertions.assertEquals(MapType.of(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
+                DataType.convertFromString("map<timestamp_ns, timestamp_ns>"));
         // struct
         Assertions.assertEquals(new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, ""))), DataType.convertFromString("struct<a: int>"));
+        Assertions.assertEquals(
+                new StructType(ImmutableList.of(
+                        new StructField("ts", TimeStampNsType.INSTANCE, true, ""))),
+                DataType.convertFromString("struct<ts: timestamp_ns>"));
 
     }
 
@@ -159,6 +237,10 @@ public class DataTypeTest {
         assertSafeCast(DateTimeV2Type.of(3), DateTimeV2Type.of(6));
         assertUnsafeCast(DateTimeV2Type.of(3), DateTimeType.INSTANCE);
         assertUnsafeCast(DateTimeType.INSTANCE, DateType.INSTANCE);
+        assertSafeCast(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        assertSafeCast(TimeStampNsType.INSTANCE, StringType.INSTANCE);
+        assertUnsafeCast(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX);
+        assertUnsafeCast(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE);
 
         assertSafeCast(VarcharType.createVarcharType(10), VarcharType.createVarcharType(20));
         assertSafeCast(VarcharType.createVarcharType(10), StringType.INSTANCE);

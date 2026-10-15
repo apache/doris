@@ -94,7 +94,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATEV2:
             case DATETIMEV2:
             case TIMESTAMPTZ:
-                literalExpr = new DateLiteral(value, type);
+            case TIMESTAMP_NS:
+                literalExpr = DateLiteralUtils.createLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);
@@ -129,6 +130,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 return DateLiteral.createMinValue(type);
+            case TIMESTAMP_NS:
+                return TimeStampNsLiteral.createMinValue();
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }
@@ -359,7 +362,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
-            case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
+            case DATE_LITERAL: Type literalType = Type.fromThrift(node.type);
+                return DateLiteralUtils.createLiteral(node.date_literal.value,
+                        literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");

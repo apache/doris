@@ -505,10 +505,7 @@ suite("test_date_function") {
     assertTrue(utc_timestamp_str[0].size() == 2)
     utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
-    test {
-        sql """ select utc_timestamp(7) """
-        exception "scale must be between 0 and 6"
-    }
+    sql """ select utc_timestamp(7) """
     test {
         sql """ SELECT UTC_TIMESTAMP(NULL); """
         exception "UTC_TIMESTAMP argument cannot be NULL."
@@ -935,11 +932,8 @@ suite("test_date_function") {
               birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
         """
     test {
-        sql"""select current_timestamp(7);"""
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql """select current_timestamp(10);"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
     }
     
     test {

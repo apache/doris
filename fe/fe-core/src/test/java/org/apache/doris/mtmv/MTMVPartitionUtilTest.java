@@ -17,13 +17,18 @@
 
 package org.apache.doris.mtmv;
 
+
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -31,12 +36,14 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 import java.util.Map;
@@ -316,6 +323,45 @@ public class MTMVPartitionUtilTest {
         Assert.assertEquals(literalNullName, MTMVPartitionUtil.generatePartitionName(literalNullDesc));
         Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(nullDesc), literalNullName);
         Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(legacySuffixCollisionDesc), literalNullName);
+    }
+
+    @Test
+    public void testGeneratePartitionNameFromDateTimeV2Range() throws AnalysisException {
+        List<Column> columns = Lists.newArrayList(
+                new Column("ts", ScalarType.createDatetimeV2Type(6)));
+        PartitionKey lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")), columns);
+        PartitionKey upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00")), columns);
+        PartitionKeyDesc rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(0, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")),
+                        Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00"))),
+                rangeDesc);
+        Assertions.assertEquals("p_20241026000000_20241027000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.123000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.654000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(3, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals("p_20241026000000123_20241027000000654",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        columns = Lists.newArrayList(new Column("ts", ScalarType.createTimeStampNsType()));
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.000000000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.000000000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals("p_20241026000000000000000_20241027000000000000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
     }
 
     @Test
