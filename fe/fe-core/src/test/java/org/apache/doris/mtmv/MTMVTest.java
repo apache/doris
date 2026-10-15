@@ -556,7 +556,7 @@ public class MTMVTest {
     }
 
     @Test
-    public void testDisabledCacheReusesPlanWithinSameStatement() throws Exception {
+    public void testDisabledCacheReusesPlanOnlyWithinCurrentGeneration() throws Exception {
         int originalMaxSize = Config.mtmv_cache_manage_num;
         try {
             Config.mtmv_cache_manage_num = 0;
@@ -565,7 +565,9 @@ public class MTMVTest {
 
             HookedMTMV mtmv = buildHookedMTMV();
             MTMVCache plan = Mockito.mock(MTMVCache.class);
+            MTMVCache refreshedPlan = Mockito.mock(MTMVCache.class);
             mtmv.lazyCaches.add(plan);
+            mtmv.lazyCaches.add(refreshedPlan);
 
             ConnectContext context = mockConnectContext();
             StatementContext statementContext = new StatementContext();
@@ -578,11 +580,18 @@ public class MTMVTest {
                 MTMVCache second = mtmv.getOrGenerateCache(context);
                 Assertions.assertSame(plan, first);
                 Assertions.assertSame(first, second);
+                Assertions.assertEquals(1, mtmv.lazyBuildCount);
+
+                // INSERT may plan again with this same StatementContext after releasing its table locks.
+                // A refresh between attempts must invalidate the local copy as well as the global cache.
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+                MTMVCache afterRefresh = mtmv.getOrGenerateCache(context);
+                Assertions.assertSame(refreshedPlan, afterRefresh);
+                Assertions.assertSame(afterRefresh, mtmv.getOrGenerateCache(context));
             }
 
-            Assertions.assertEquals(1, mtmv.lazyBuildCount);
+            Assertions.assertEquals(2, mtmv.lazyBuildCount);
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
-            Assertions.assertSame(plan, statementContext.getQueryLocalMtmvCache(mtmv.getId(), false));
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }
