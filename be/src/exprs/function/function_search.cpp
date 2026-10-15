@@ -902,13 +902,14 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         // of conditions the reader itself uses (its actual_similarity): the caller supplied a
         // similarity at all, and this query type scores on this index. Deciding it up front beats
         // inferring it afterwards from "the sink came back non-empty", and it keeps every clause
-        // that cannot be scored -- wildcard, regexp, EQUAL_QUERY, and the WILDCARD "*" shortcut
+        // that cannot be scored -- wildcard, regexp, and the WILDCARD "*" shortcut
         // that never calls the reader -- from allocating a CollectionSimilarity that reserves
         // 1024 entries in its constructor.
         const bool reader_will_score =
                 context->collection_similarity != nullptr &&
-                IndexReaderHelper::is_need_similarity_score(
-                        snii_query_type, &binding.inverted_reader->get_index_meta());
+                IndexReaderHelper::is_need_snii_similarity_score(
+                        snii_query_type, &binding.inverted_reader->get_index_meta(),
+                        binding.inverted_reader->type());
         std::shared_ptr<segment_v2::IndexQueryContext> reader_context = context;
         std::shared_ptr<CollectionSimilarity> score_sink;
         if (reader_will_score) {

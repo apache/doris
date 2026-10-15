@@ -21,14 +21,8 @@
 
 namespace doris::segment_v2 {
 
-/**
- * BM25 similarity scoring implementation for inverted index queries.
- * 
- * Note: Currently, BM25 scoring is only applied to tokenized indexes (e.g., standard, chinese analyzers)
- * and not to non-tokenized indexes (e.g., keyword analyzer). This differs from Elasticsearch, 
- * which applies scoring to keyword indexes as well. In Doris, keyword/non-tokenized indexes 
- * are primarily used for exact matching without relevance scoring.
- */
+// BM25 scoring for analyzed and keyword indexes. Keyword indexes without norms
+// use the Lucene default encoded norm of one.
 class BM25Similarity : public Similarity {
 public:
     BM25Similarity();

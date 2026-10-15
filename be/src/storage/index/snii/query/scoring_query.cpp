@@ -52,15 +52,6 @@ struct TermPosting {
     double score = 0.0;
 };
 
-// With no on-disk frequency region, BM25 tf is the term's position count, as in Lucene scoring.
-Status require_positions(const LogicalIndexReader& idx) {
-    if (!idx.has_positions()) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "scoring_query: BM25 scoring requires a positional index");
-    }
-    return Status::OK();
-}
-
 uint32_t term_frequency(const std::vector<uint32_t>& positions) {
     return static_cast<uint32_t>(positions.size());
 }
@@ -93,13 +84,20 @@ Status decode_slim(const LogicalIndexReader& idx, const DictEntry& entry, uint64
         RETURN_IF_ERROR(idx.resolve_frq_window(entry, frq_base, &frq_abs, &frq_len));
         RETURN_IF_ERROR(fetch_range(idx, frq_abs, frq_len, &frq_owned));
         dd_region = Slice(frq_owned);
-        uint64_t prx_abs = 0;
-        uint64_t prx_len = 0;
-        RETURN_IF_ERROR(idx.resolve_prx_window(entry, prx_base, &prx_abs, &prx_len));
-        RETURN_IF_ERROR(fetch_range(idx, prx_abs, prx_len, &prx_owned));
-        prx_window = Slice(prx_owned);
+        if (idx.has_positions()) {
+            uint64_t prx_abs = 0;
+            uint64_t prx_len = 0;
+            RETURN_IF_ERROR(idx.resolve_prx_window(entry, prx_base, &prx_abs, &prx_len));
+            RETURN_IF_ERROR(fetch_range(idx, prx_abs, prx_len, &prx_owned));
+            prx_window = Slice(prx_owned);
+        }
     }
     RETURN_IF_ERROR(format::decode_dd_region(dd_region, entry.dd_meta, /*win_base=*/0, docids));
+
+    if (!idx.has_positions()) {
+        tfs->assign(docids->size(), 1);
+        return Status::OK();
+    }
 
     std::vector<std::vector<uint32_t>> positions;
     ByteSource psrc(prx_window);
@@ -126,7 +124,13 @@ Status decode_windowed(const LogicalIndexReader& idx, const DictEntry& entry, ui
                        std::vector<uint32_t>* tfs) {
     reader::DecodedPosting posting;
     RETURN_IF_ERROR(reader::read_windowed_posting(idx, entry, frq_base, prx_base,
-                                                  /*want_positions=*/true, &posting));
+                                                  /*want_positions=*/idx.has_positions(),
+                                                  &posting));
+    if (!idx.has_positions()) {
+        *docids = std::move(posting.docids);
+        tfs->assign(docids->size(), 1);
+        return Status::OK();
+    }
     if (posting.positions.size() != posting.docids.size()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "scoring_query: windowed prx/frq doc-count mismatch");
@@ -157,8 +161,10 @@ Status score_decoded(const stats::SniiStatsProvider& stats, const ScorerContext&
     DCHECK_EQ(docids.size(), tfs.size());
     out->reserve(docids.size());
     for (size_t i = 0; i < docids.size(); ++i) {
-        uint8_t norm = 0;
-        RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
+        uint8_t norm = 1;
+        if (stats.has_norms()) {
+            RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
+        }
         out->push_back({docids[i], ctx.score(tfs[i], norm, avgdl, params)});
     }
     return Status::OK();
@@ -184,8 +190,10 @@ Status accumulate_decoded_candidate_scores(const stats::SniiStatsProvider& stats
             ++candidate_index;
             continue;
         }
-        uint8_t norm = 0;
-        RETURN_IF_ERROR(stats.encoded_norm(docids[doc_index], &norm));
+        uint8_t norm = 1;
+        if (stats.has_norms()) {
+            RETURN_IF_ERROR(stats.encoded_norm(docids[doc_index], &norm));
+        }
         scores[candidate_index] += scorer.score(tfs[doc_index], norm, avgdl, params);
         ++doc_index;
         ++candidate_index;
@@ -255,10 +263,13 @@ Status accumulate_windowed_candidate_scores(const LogicalIndexReader& idx,
         item.candidate_end = candidate_cursor;
 
         reader::WindowAbsRange range;
-        RETURN_IF_ERROR(reader::windowed_window_range(idx, entry, frq_base, prx_base, prelude,
-                                                      window, /*want_positions=*/true, &range));
+        RETURN_IF_ERROR(
+                reader::windowed_window_range(idx, entry, frq_base, prx_base, prelude, window,
+                                              /*want_positions=*/idx.has_positions(), &range));
         item.dd_handle = fetcher.add(range.dd_off, range.dd_len);
-        item.prx_handle = fetcher.add(range.prx_off, range.prx_len);
+        if (idx.has_positions()) {
+            item.prx_handle = fetcher.add(range.prx_off, range.prx_len);
+        }
         work.push_back(std::move(item));
     }
     RETURN_IF_ERROR(fetcher.fetch());
@@ -270,12 +281,17 @@ Status accumulate_windowed_candidate_scores(const LogicalIndexReader& idx,
         docids.clear();
         tfs.clear();
         positions.clear();
-        RETURN_IF_ERROR(reader::decode_window_slices(item.meta, fetcher.get(item.dd_handle),
-                                                     fetcher.get(item.prx_handle),
-                                                     /*want_positions=*/true, &docids, &positions));
-        tfs.reserve(positions.size());
-        for (const auto& doc_positions : positions) {
-            tfs.push_back(term_frequency(doc_positions));
+        RETURN_IF_ERROR(reader::decode_window_slices(
+                item.meta, fetcher.get(item.dd_handle),
+                idx.has_positions() ? fetcher.get(item.prx_handle) : Slice {},
+                /*want_positions=*/idx.has_positions(), &docids, &positions));
+        if (idx.has_positions()) {
+            tfs.reserve(positions.size());
+            for (const auto& doc_positions : positions) {
+                tfs.push_back(term_frequency(doc_positions));
+            }
+        } else {
+            tfs.assign(docids.size(), 1);
         }
         const size_t candidate_count = item.candidate_end - item.candidate_begin;
         RETURN_IF_ERROR(accumulate_decoded_candidate_scores(
@@ -303,7 +319,7 @@ Status accumulate_resolved_candidate_scores(const LogicalIndexReader& idx,
 
     std::vector<uint32_t> docids;
     std::vector<uint32_t> tfs;
-    RETURN_IF_ERROR(decode_slim(idx, entry, frq_base, prx_base, &docids, &tfs));
+    RETURN_IF_ERROR(decode_term(idx, entry, frq_base, prx_base, &docids, &tfs));
     return accumulate_decoded_candidate_scores(stats, scorer, avgdl, params, docids, tfs,
                                                candidates, *scores);
 }
@@ -327,7 +343,6 @@ Status scoring_query_candidates(const LogicalIndexReader& idx,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "scoring_query_candidates: collection avgdl must be positive");
     }
-    RETURN_IF_ERROR(require_positions(idx));
 
     std::vector<uint32_t> candidate_docids;
     candidate_docids.reserve(final_candidates.cardinality());
@@ -374,7 +389,6 @@ Status scoring_query_exhaustive(const LogicalIndexReader& idx,
     if (k == 0) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(require_positions(idx));
 
     std::unordered_map<uint32_t, double> scores;
     for (const auto& term : terms) {

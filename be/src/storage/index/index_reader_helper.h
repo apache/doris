@@ -103,6 +103,20 @@ public:
         return false;
     }
 
+    // SEARCH and the native reader must agree before allocating the private score sink.
+    static bool is_need_snii_similarity_score(InvertedIndexQueryType query_type,
+                                              const TabletIndex* index_meta,
+                                              InvertedIndexReaderType reader_type) {
+        if (reader_type == InvertedIndexReaderType::STRING_TYPE &&
+            (query_type == InvertedIndexQueryType::EQUAL_QUERY ||
+             query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+             query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY)) {
+            return true;
+        }
+        return is_need_similarity_score(query_type, index_meta);
+    }
+
     static bool is_need_similarity_score(TExprOpcode::type query_type,
                                          const TabletIndex* index_meta) {
         if (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||

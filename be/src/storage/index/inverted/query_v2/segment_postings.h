@@ -49,9 +49,11 @@ class SegmentPostings : public Postings {
 public:
     using IterVariant = std::variant<std::monostate, TermDocsPtr, TermPositionsPtr>;
 
-    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring, SimilarityPtr similarity)
+    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring, SimilarityPtr similarity,
+                             bool has_norms = true)
             : _iter(std::move(iter)),
               _enable_scoring(enable_scoring),
+              _has_norms(has_norms),
               _similarity(std::move(similarity)) {
         if (auto* p = std::get_if<TermDocsPtr>(&_iter)) {
             _raw_iter = p->get();
@@ -59,9 +61,11 @@ public:
         _init_doc();
     }
 
-    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring, SimilarityPtr similarity)
+    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring, SimilarityPtr similarity,
+                             bool has_norms = true)
             : _iter(std::move(iter)),
               _enable_scoring(enable_scoring),
+              _has_norms(has_norms),
               _has_positions(true),
               _similarity(std::move(similarity)) {
         if (auto* p = std::get_if<TermPositionsPtr>(&_iter)) {
@@ -120,7 +124,7 @@ public:
     }
 
     uint32_t norm() const override {
-        if (!_enable_scoring || !_block.norm_many || _cursor == 0) {
+        if (!_enable_scoring || !_has_norms || !_block.norm_many || _cursor == 0) {
             return 1;
         }
         return (*_block.norm_many)[_cursor - 1];
@@ -194,24 +198,28 @@ public:
             return _block_max_score_cache;
         }
         int32_t max_block_freq = _raw_iter->getMaxBlockFreq();
-        int32_t max_block_norm = _raw_iter->getMaxBlockNorm();
+        int32_t max_block_norm = _has_norms ? _raw_iter->getMaxBlockNorm() : 1;
         if (max_block_freq >= 0 && max_block_norm >= 0) {
             _block_max_score_cache = _similarity->score(static_cast<float>(max_block_freq),
                                                         static_cast<int64_t>(max_block_norm));
             return _block_max_score_cache;
         }
-        return _similarity->max_score();
+        return max_score();
     }
 
     float max_score() const {
         if (!_enable_scoring || !_similarity) {
             return std::numeric_limits<float>::max();
         }
+        // Missing norms have a fixed length of one, including for WAND bounds.
+        if (!_has_norms) {
+            return _similarity->score(std::numeric_limits<float>::max(), 1);
+        }
         return _similarity->max_score();
     }
 
     int32_t max_block_freq() const { return _raw_iter->getMaxBlockFreq(); }
-    int32_t max_block_norm() const { return _raw_iter->getMaxBlockNorm(); }
+    int32_t max_block_norm() const { return _has_norms ? _raw_iter->getMaxBlockNorm() : 1; }
 
 private:
     bool _refill() {
@@ -241,6 +249,7 @@ private:
     lucene::index::TermDocs* _raw_iter = nullptr;
     uint32_t _doc = TERMINATED;
     bool _enable_scoring = false;
+    bool _has_norms = true;
     bool _has_positions = false;
 
     DocRange _block;
@@ -253,13 +262,15 @@ private:
 using SegmentPostingsPtr = std::shared_ptr<SegmentPostings>;
 
 inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring,
-                                                SimilarityPtr similarity) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
+                                                SimilarityPtr similarity, bool has_norms = true) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity,
+                                             has_norms);
 }
 
 inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter, bool enable_scoring,
-                                                SimilarityPtr similarity) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
+                                                SimilarityPtr similarity, bool has_norms = true) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity,
+                                             has_norms);
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

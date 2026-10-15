@@ -29,8 +29,8 @@
 
 // scoring_query -- BM25 scoring over one logical index for one or more query
 // terms. The on-disk format stores no term frequencies: tf is the number of
-// positions the term has in the document (the Lucene-family definition), so scoring
-// needs a positional index with norms.
+// positions the term has in the document. Docs-only keyword indexes use tf=1,
+// and an absent norms section uses the Lucene default norm of one.
 //   - scoring_query_candidates(): scores an externally computed candidate set
 //     with collection-scoped idf / avgdl (the production path).
 //   - scoring_query_exhaustive(): scores every document containing any query

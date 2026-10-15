@@ -725,3 +725,79 @@ TEST(SniiScoringQuery, ExhaustiveMatchesReferenceWithTiesAndWindowedTerms) {
 
     std::remove(path.c_str());
 }
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand into branches.
+TEST(SniiScoringQuery, KeywordWithoutPositionsOrNormsHasValidScores) {
+    const std::string path = TempPath();
+    SniiIndexInput input;
+    input.index_id = 1;
+    input.index_suffix = "body";
+    input.config = IndexConfig::kDocsOnly;
+    input.doc_count = 128257;
+    for (const auto& [term, count] : std::vector<std::pair<std::string, uint32_t>> {
+                 {"Alpha beta", 1}, {"apple", 10}, {"banana", 501}}) {
+        TermPostings posting;
+        posting.term = term;
+        for (uint32_t docid = 0; docid < count; ++docid) {
+            posting.docids.push_back(docid * 256);
+            posting.freqs.push_back(1);
+            posting.positions_flat.push_back(0);
+        }
+        input.terms.push_back(std::move(posting));
+    }
+    {
+        io::LocalFileWriter writer;
+        ASSERT_TRUE(writer.open(path).ok());
+        SniiCompoundWriter compound_writer(&writer);
+        const auto write_status = compound_writer.add_logical_index(input);
+        ASSERT_TRUE(write_status.ok()) << write_status;
+        ASSERT_TRUE(compound_writer.finish().ok());
+    }
+    io::LocalFileReader file_reader;
+    ASSERT_TRUE(file_reader.open(path).ok());
+    reader::SniiSegmentReader segment_reader;
+    ASSERT_TRUE(reader::SniiSegmentReader::open(&file_reader, &segment_reader).ok());
+    reader::LogicalIndexReader logical_reader;
+    ASSERT_TRUE(segment_reader.open_index(1, "body", &logical_reader).ok());
+    EXPECT_FALSE(logical_reader.has_positions());
+    EXPECT_FALSE(logical_reader.has_norms());
+    SniiStatsProvider stats;
+    ASSERT_TRUE(SniiStatsProvider::open(&logical_reader, &stats).ok());
+    for (const auto& posting : input.terms) {
+        std::vector<ScoredDoc> scored;
+        roaring::Roaring candidates;
+        for (uint32_t docid : posting.docids) {
+            candidates.add(docid);
+        }
+        const std::vector<query::CollectionScoringTerm> clauses {
+                {.physical_term = posting.term, .idf = 2.0}};
+        ASSERT_TRUE(query::scoring_query_candidates(logical_reader, stats, clauses, candidates, 1.0,
+                                                    Bm25Params {}, &scored)
+                            .ok());
+        ASSERT_EQ(scored.size(), posting.docids.size());
+        for (size_t i = 0; i < scored.size(); ++i) {
+            EXPECT_EQ(scored[i].docid, posting.docids[i]);
+            EXPECT_NEAR(scored[i].score, 2.0, 1e-6);
+        }
+        roaring::Roaring sparse_candidates;
+        sparse_candidates.add(posting.docids.back());
+        ASSERT_TRUE(query::scoring_query_candidates(logical_reader, stats, clauses,
+                                                    sparse_candidates, 1.0, Bm25Params {}, &scored)
+                            .ok());
+        ASSERT_EQ(scored.size(), 1);
+        EXPECT_EQ(scored.front().docid, posting.docids.back());
+        EXPECT_NEAR(scored.front().score, 2.0, 1e-6);
+        ASSERT_TRUE(query::scoring_query_exhaustive(logical_reader, stats, {posting.term}, 1,
+                                                    Bm25Params {}, &scored)
+                            .ok());
+        ASSERT_EQ(scored.size(), 1);
+        EXPECT_EQ(scored.front().docid, 0);
+        EXPECT_GT(scored.front().score, 0.0);
+    }
+    std::vector<ScoredDoc> unmatched;
+    ASSERT_TRUE(query::scoring_query_exhaustive(logical_reader, stats, {"alpha beta"}, 10,
+                                                Bm25Params {}, &unmatched)
+                        .ok());
+    EXPECT_TRUE(unmatched.empty());
+    std::remove(path.c_str());
+}

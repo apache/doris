@@ -279,12 +279,6 @@ Status validate_search_bm25_index(FieldType field_type, const TabletIndex& index
                 "search field={}",
                 field_name);
     }
-    if (!InvertedIndexAnalyzer::should_analyzer(index_meta.properties())) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "Index statistics collection failed: BM25 scoring requires an analyzed inverted "
-                "index for search field={}",
-                field_name);
-    }
     return Status::OK();
 }
 
@@ -552,13 +546,14 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     const auto* index_meta = *selected_index;
     RETURN_IF_ERROR(validate_search_bm25_index(candidates.field_type, *index_meta, field_name));
 
-    const auto& analysis_properties = index_meta->properties();
-    auto analyzer_ctx = DORIS_TRY(analyzer_context_from_properties(analysis_properties));
     std::vector<TermInfo> term_infos;
-    if (clause_type == "MATCH" ||
+    if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
+        clause_type == "MATCH" ||
         (category == ClauseTypeCategory::NON_TOKENIZED && clause_type != "TERM")) {
+        // Keyword indexes store the whole value, including whitespace and case.
         term_infos.emplace_back(value);
     } else {
+        auto analyzer_ctx = DORIS_TRY(analyzer_context_from_properties(index_meta->properties()));
         term_infos = DORIS_TRY(analyze_plain_query(value, analyzer_ctx));
     }
 

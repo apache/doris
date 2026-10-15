@@ -144,7 +144,8 @@ std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
 
 bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
                                        const InvertedIndexQueryInfo& query_info) {
-    return query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+    return query_type == InvertedIndexQueryType::EQUAL_QUERY ||
+           query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
            (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY &&
             query_info.term_infos.size() == 1);
@@ -643,8 +644,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     }
 
     const bool actual_similarity =
-            context->collection_similarity &&
-            IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
+            context->collection_similarity && IndexReaderHelper::is_need_snii_similarity_score(
+                                                      query_type, &_index_meta, _reader_type);
     const int32_t max_expansions =
             context->runtime_state == nullptr
                     ? 50
