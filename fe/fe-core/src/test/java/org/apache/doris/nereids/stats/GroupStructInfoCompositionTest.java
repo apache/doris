@@ -112,6 +112,12 @@ public class GroupStructInfoCompositionTest {
                 "a group was described again after it had been built");
     }
 
+    private static String tokenOf(String canonical) {
+        int start = canonical.indexOf("S{");
+        Assertions.assertTrue(start >= 0, "no scan token in " + canonical);
+        return canonical.substring(start + 2, canonical.indexOf('}', start));
+    }
+
     @Test
     void testTheFingerprintIsTheSha256OfTheShape() {
         Memo memo = joinChainMemo();
@@ -122,9 +128,15 @@ public class GroupStructInfoCompositionTest {
         Assertions.assertEquals(Hashing.sha256().hashString(shape, StandardCharsets.UTF_8).toString(),
                 root.getFingerprint(NO_LITERAL),
                 "the fingerprint of a group is not the sha256 of its shape");
-        // the canonical string carries the data state of the scans, the shape does not
+        // the canonical string carries the data state of the scans, the shape does not: the token of the
+        // shape is the table alone (the fingerprint must not move when rows are loaded)
         Assertions.assertTrue(root.getCanonical(NO_LITERAL).contains("S{"),
                 "the canonical string has no scan token");
+        Assertions.assertFalse(tokenOf(shape).contains(","),
+                "the shape of a scan carries a data state: " + tokenOf(shape));
+        Assertions.assertTrue(tokenOf(root.getCanonical(NO_LITERAL)).contains(","),
+                "the canonical string of a scan carries no data state: "
+                        + tokenOf(root.getCanonical(NO_LITERAL)));
     }
 
     @Test
@@ -229,10 +241,16 @@ public class GroupStructInfoCompositionTest {
         Memo memo = joinChainMemo();
         GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
         Assertions.assertTrue(root.isValid(), root.getSkipReason());
-        // the chain of the members below the root is collected once and remembered on those groups
-        Assertions.assertTrue(memo.getGroups().stream()
-                        .anyMatch(group -> group.getHboChainInfoOrNull() != null),
-                "no group memoized the chain it is the root of");
+        // the chain of the members below the root is collected once and remembered on those groups: the
+        // inner join is the root of a chain of its own, a leaf group never is
+        Group innerJoin = memo.getGroups().stream()
+                .filter(group -> group != memo.getRoot())
+                .filter(group -> !group.getLogicalExpressions().isEmpty())
+                .filter(group -> group.getLogicalExpressions().get(0).getPlan() instanceof LogicalJoin)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the memo has no inner join group"));
+        Assertions.assertNotNull(innerJoin.getHboChainInfoOrNull(),
+                "the inner join memoized no chain although it is the root of one");
     }
 
     @Test
@@ -243,6 +261,11 @@ public class GroupStructInfoCompositionTest {
         // first logical expression, so the key of a group does not move when a plan is chosen (the read
         // side looks the key up while the plan is still being optimized, before anything is chosen)
         chosenMemo.getRoot().setChosenGroupExpressionId(9999);
+        // the gate: an implementation which prefers the recorded choice would return the chosen
+        // expression, or null when its id resolves to nothing (9999 is no expression of the group)
+        Assertions.assertSame(chosenMemo.getRoot().getLogicalExpressions().get(0),
+                GroupStructInfo.getRepresentativeExpression(chosenMemo.getRoot()),
+                "the described expression of a group follows the recorded choice");
         GroupStructInfo withChoice = GroupStructInfo.describeGroup(chosenMemo.getRoot());
         Assertions.assertTrue(withoutChoice.isValid(), withoutChoice.getSkipReason());
         Assertions.assertTrue(withChoice.isValid(), withChoice.getSkipReason());

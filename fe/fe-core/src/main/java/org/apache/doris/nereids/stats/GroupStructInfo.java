@@ -496,9 +496,10 @@ public class GroupStructInfo {
      * logical plan abstracts away (the two staged aggregation of a {@code count(*)}, for instance), which
      * would move the key of every such group and make a pinned entry miss. The expression the plan chooser
      * picked is deliberately not consulted for the same reason - a key must not depend on when it is
-     * computed.
+     * computed. The method is package visible so that a test can pin that the recorded choice of the plan
+     * chooser is not consulted.
      */
-    private static GroupExpression getRepresentativeExpression(Group group) {
+    static GroupExpression getRepresentativeExpression(Group group) {
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             return logical;
