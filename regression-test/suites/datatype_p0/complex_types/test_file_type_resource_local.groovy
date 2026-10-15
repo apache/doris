@@ -23,6 +23,8 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.URI
 import java.net.URLDecoder
+import java.sql.PreparedStatement
+import java.sql.ResultSet
 import java.util.concurrent.CopyOnWriteArrayList
 
 // Like test_http_tvf, the fixture runs inside the regression JVM. No external S3 service is used.
@@ -67,6 +69,7 @@ suite("test_file_type_resource_local") {
             }
             def path = exchange.requestURI.rawPath
             requests.add([method: exchange.requestMethod, path: path, query: query,
+                          authorization: exchange.requestHeaders.getFirst("Authorization"),
                           checksumMode: exchange.requestHeaders.getFirst("x-amz-checksum-mode")])
             exchange.responseHeaders.set("x-amz-request-id", "file-type-local-request")
             if (exchange.requestMethod == "HEAD") {
@@ -165,6 +168,33 @@ suite("test_file_type_resource_local") {
         }
         assertEquals(["/file-type-local/full.bin", "/file-type-local/etag.txt",
                       "/file-type-local/missing.bin"], requests.collect { it.path })
+        assertTrue(handlerErrors.isEmpty(), handlerErrors.toString())
+
+        requests.clear()
+        def database = (sql "SELECT DATABASE()")[0][0].toString()
+        def preparedUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, database)
+        connect(context.config.jdbcUser, context.config.jdbcPassword, preparedUrl) {
+            try (PreparedStatement statement = prepareStatement(
+                    "SELECT ELEMENT_AT(TO_FILE('file_type_local_s3', ?), 'size')")) {
+                assertTrue(statement instanceof com.mysql.cj.jdbc.ServerPreparedStatement)
+                statement.setString(1, "s3://file-type-local/etag.txt")
+                try (ResultSet result = statement.executeQuery()) {
+                    while (result.next()) {}
+                }
+                connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+                    sql """ALTER RESOURCE 'file_type_local_s3' PROPERTIES(
+                        "AWS_ACCESS_KEY"="fake-file-type-next-key", "s3_validity_check"="false")"""
+                }
+                try (ResultSet result = statement.executeQuery()) {
+                    while (result.next()) {}
+                }
+            }
+        }
+        assertEquals(["fake-file-type-key", "fake-file-type-next-key"], requests.collect {
+            def credential = it.authorization =~ /Credential=([^\/]+)\//
+            assertTrue(credential.find(), "Missing S3 signing credential")
+            credential.group(1)
+        })
         assertTrue(handlerErrors.isEmpty(), handlerErrors.toString())
 
     } finally {

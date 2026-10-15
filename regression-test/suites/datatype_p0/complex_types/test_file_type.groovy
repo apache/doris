@@ -328,9 +328,13 @@ suite("test_file_type") {
     }
     sql "SET enable_strict_cast = true"
 
+    test {
+        sql fileQuery("SELECT ELEMENT_AT(f, 'unknown') FROM test_file_type_values")
+        exception "the specified field name unknown was not found"
+    }
+
     for (def query in [
         "SELECT CAST('s3://bucket/file' AS FILE)",
-        "SELECT ELEMENT_AT(f, 'unknown') FROM test_file_type_values",
         "SELECT ELEMENT_AT(f, id) FROM test_file_type_values",
         "SELECT ELEMENT_AT(f, CAST(id AS STRING)) FROM test_file_type_values",
         "SELECT f = f FROM test_file_type_values",
