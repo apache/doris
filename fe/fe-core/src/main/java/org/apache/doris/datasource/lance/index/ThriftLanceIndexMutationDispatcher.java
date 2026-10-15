@@ -30,6 +30,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * The production {@link LanceIndexMutationDispatcher}: the blocking thrift client from the
  * shared backend pool, following the established borrow/call/return-or-invalidate discipline.
@@ -62,6 +64,12 @@ public final class ThriftLanceIndexMutationDispatcher implements LanceIndexMutat
     @Override
     public TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
             long timeoutMillis) throws Exception {
+        return dispatch(request, backend, timeoutMillis, () -> true);
+    }
+
+    @Override
+    public TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
+            long timeoutMillis, BooleanSupplier sendPermit) throws Exception {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
         // The borrow is the judgment seam between provable pre-send failures and
         // possible-send failures: everything borrowObject can throw belongs to connection
@@ -87,6 +95,16 @@ public final class ThriftLanceIndexMutationDispatcher implements LanceIndexMutat
         // indeterminate at the classifier.
         boolean callCompleted = false;
         try {
+            long remainingMs = request.getDeadlineMs() - System.currentTimeMillis();
+            if (remainingMs <= 0 || !sendPermit.getAsBoolean()) {
+                throw new PreDispatchTransportException(new IllegalStateException(
+                        "the statement expired or was cancelled while acquiring the backend connection"));
+            }
+            TTransport transport = client.getOutputProtocol().getTransport();
+            if (transport instanceof TSocket) {
+                ((TSocket) transport).setTimeout((int) Math.max(1L,
+                        Math.min(Math.min(timeoutMillis, remainingMs), Integer.MAX_VALUE)));
+            }
             TLanceIndexMutationResult result = client.lanceIndexMutate(request);
             callCompleted = true;
             return result;

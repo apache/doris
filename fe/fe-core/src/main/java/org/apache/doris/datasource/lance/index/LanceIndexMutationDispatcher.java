@@ -21,6 +21,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TLanceIndexMutationRequest;
 import org.apache.doris.thrift.TLanceIndexMutationResult;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * The dispatch seam of the synchronous Lance index mutation path: one request handed to one
  * backend, one blocking answer. This is the only network edge of the path and the seam a later
@@ -34,9 +36,10 @@ import org.apache.doris.thrift.TLanceIndexMutationResult;
  *     answer all terminate the invocation. Retrying is structurally impossible to make safe
  *     here (a resend can commit twice or replace an index the first send created), so the
  *     executor relies on this seam never producing a second send.
- * <li><b>Budget-bounded wait.</b> {@code timeoutMillis} is the caller's remaining statement
- *     budget and must bound the whole call. The production implementation applies it as the
- *     pooled connection's socket timeout.
+ * <li><b>Statement deadline.</b> The executor bounds the caller's wait. Connection acquisition
+ *     uses the shared pool's connect timeout and may outlive it; the production dispatcher
+ *     checks the deadline and send permit after acquisition, before writing anything, and
+ *     applies the remaining budget to the socket read.
  * <li><b>Interrupt awareness, best-effort.</b> The blocking thrift read cannot be interrupted:
  *     a cancelled statement cannot unblock an in-flight call, and cancelling never rolls back
  *     a possibly-committed mutation. The executor honors its cancel signal only at phase
@@ -46,8 +49,8 @@ import org.apache.doris.thrift.TLanceIndexMutationResult;
  *     everything the borrow can throw, connection establishment (the pool factory's
  *     {@code transport.open()}) and pool admission included - propagates wrapped in
  *     {@link PreDispatchTransportException}: the invocation was never written to any socket,
- *     so the classifier maps it to a confirmed failure. Every failure after the borrow
- *     succeeded propagates unwrapped to the classifier ({@link LanceIndexMutationExecutor}),
+ *     so the classifier maps it to a confirmed failure. A stopped send after acquisition
+ *     uses the same marker. Failures of the actual call propagate unwrapped to the classifier,
  *     which keeps it indeterminate because the send may have started; message text never
  *     participates in classification.
  * </ul>
@@ -71,10 +74,21 @@ public interface LanceIndexMutationDispatcher {
 
     /**
      * Sends one mutation request to {@code backend} and blocks for its answer, bounded by
-     * {@code timeoutMillis}. Returns the backend's complete answer (whose own status decides
+     * the statement deadline (connection acquisition retains its pool timeout). Returns the backend's answer
      * the classification), or throws whatever transport or protocol failure occurred - the
      * pre-send failures wrapped as {@link PreDispatchTransportException}, the rest raw.
      */
     TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
             long timeoutMillis) throws Exception;
+
+    /** Acquires permission at the send boundary, after any non-invoking connection work. */
+    default TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
+            long timeoutMillis, BooleanSupplier sendPermit) throws Exception {
+        if (System.currentTimeMillis() >= request.getDeadlineMs() || !sendPermit.getAsBoolean()) {
+            throw new PreDispatchTransportException(new IllegalStateException(
+                    "the statement expired or was cancelled before the send"));
+        }
+        return dispatch(request, backend, Math.min(timeoutMillis,
+                Math.max(1L, request.getDeadlineMs() - System.currentTimeMillis())));
+    }
 }

@@ -38,6 +38,7 @@ import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
+import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -61,6 +62,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Command rewiring coverage for Lance index admission: with the gate off the typed rejection is
@@ -293,6 +296,36 @@ public class AlterTableCommandLanceAdmissionTest {
     // ------------------------------------------------------------------
     // Gate off: 5102 from validate(), no metadata read, no id allocation
     // ------------------------------------------------------------------
+
+    @Test
+    public void mutationCapBoundsInitialReadAndDoesNotReturnLateNoOpSuccess() throws Exception {
+        int originalCap = Config.lance_index_mutation_budget_cap_seconds;
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            Config.enable_lance_index_mutation = true;
+            Config.lance_index_mutation_budget_cap_seconds = 1;
+            connectContext.setUserQueryTimeout(10);
+            LanceIndexAdmissionSnapshot snapshot = fixture.respondWithSnapshot(
+                    Collections.emptyList(), Collections.emptyList());
+            Mockito.when(fixture.catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
+                    .thenAnswer(call -> LanceIndexInspectionExecutor.execute(() -> {
+                        started.countDown();
+                        release.await(30, TimeUnit.SECONDS);
+                        return snapshot;
+                    }));
+            long start = System.currentTimeMillis();
+            AnalysisException failure = runAndGetCommonAnalysisException(fixture.executor,
+                    "DROP INDEX IF EXISTS absent ON " + CTL + "." + DB + "." + TBL);
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED, failure.getMysqlErrorCode());
+            Assertions.assertEquals(0L, started.getCount());
+            Assertions.assertTrue(System.currentTimeMillis() - start < 3_000L);
+            Mockito.verify(fixture.extMetaCacheMgr, Mockito.never()).invalidateTableCache(Mockito.any());
+        } finally {
+            release.countDown();
+            Config.lance_index_mutation_budget_cap_seconds = originalCap;
+        }
+    }
 
     @Test
     public void gateOffRejectsCreateIndexAsDisabled() throws Exception {

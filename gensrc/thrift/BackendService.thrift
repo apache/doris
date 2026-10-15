@@ -412,8 +412,7 @@ enum TLanceIndexMutationType {
 // for different meanings. Field ids are additive-only from here on: never
 // renumber, never reuse a retired id, only append.
 //
-// Single-send contract: the FE generates invocation_id, records it in the
-// in-memory active-name entry, and sends this request at most once per
+// Single-send contract: the FE generates invocation_id and sends this request at most once per
 // invocation_id to a single backend. No path - forwarding, reconnect, timeout,
 // or cancellation - ever produces a second send of the same invocation. The
 // backend must likewise treat one invocation_id as one execution.
@@ -457,6 +456,11 @@ struct TLanceIndexMutationRequest {
     // contract as TLanceScanParams.lance_storage_options (PlanNodes.thrift).
     // Never persisted, logged, or echoed back.
     14: optional map<string, string> storage_options
+    // Original SQL spelling for a newly created logical index, preserving display
+    // case. For REPLACE/DROP, the worker first resolves index_name uniquely in
+    // the admitted physical snapshot and uses its stored spelling. REPLACE of
+    // an absent name uses this field; an older request without it uses index_name.
+    15: optional string index_display_name
 }
 
 // Typed result of one synchronous Lance index mutation invocation, returned on

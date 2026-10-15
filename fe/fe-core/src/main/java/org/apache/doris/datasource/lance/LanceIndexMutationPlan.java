@@ -54,6 +54,7 @@ public final class LanceIndexMutationPlan {
     private final String datasetUri;
     private final long admittedDatasetVersion;
     private final String normalizedIndexName;
+    private final String displayIndexName;
     private final String columnName;
     private final String indexType;
     private final Map<String, String> properties;
@@ -63,7 +64,7 @@ public final class LanceIndexMutationPlan {
     private final LanceIndexMutationExecutor.FinalPreflight finalPreflight;
 
     LanceIndexMutationPlan(LanceExternalCatalog catalog, TLanceIndexMutationType mutationType,
-            String datasetUri, long admittedDatasetVersion, String normalizedIndexName,
+            String datasetUri, long admittedDatasetVersion, String normalizedIndexName, String displayIndexName,
             String columnName, String indexType, Map<String, String> properties,
             boolean ifNotExists, boolean ifExists, LanceIndexSchemaContract schemaContract,
             LanceIndexMutationExecutor.FinalPreflight finalPreflight) {
@@ -72,6 +73,7 @@ public final class LanceIndexMutationPlan {
         this.datasetUri = datasetUri;
         this.admittedDatasetVersion = admittedDatasetVersion;
         this.normalizedIndexName = normalizedIndexName;
+        this.displayIndexName = displayIndexName;
         this.columnName = columnName;
         this.indexType = indexType;
         this.properties = properties;
@@ -103,9 +105,14 @@ public final class LanceIndexMutationPlan {
         return admittedDatasetVersion;
     }
 
-    /** The normalized (case-folded) index name — the durable logical identity. */
+    /** The normalized (case-folded) index name used for the in-memory busy guard. */
     public String getNormalizedIndexName() {
         return normalizedIndexName;
+    }
+
+    /** The SQL spelling used when the worker creates a new name. */
+    public String getDisplayIndexName() {
+        return displayIndexName;
     }
 
     /** The stored column name for CREATE/REPLACE (never the raw user spelling); empty for DROP. */
@@ -154,6 +161,7 @@ public final class LanceIndexMutationPlan {
     public LanceIndexMutationExecutor.MutationRequest.Builder populate(
             LanceIndexMutationExecutor.MutationRequest.Builder builder) {
         return builder.setColumnName(columnName)
+                .setDisplayIndexName(displayIndexName)
                 .setIndexType(indexType)
                 .setProperties(properties)
                 .setIfNotExists(ifNotExists)

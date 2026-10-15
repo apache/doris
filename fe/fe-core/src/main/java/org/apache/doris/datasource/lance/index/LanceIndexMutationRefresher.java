@@ -66,6 +66,22 @@ public interface LanceIndexMutationRefresher {
      */
     String invalidateTableMetadata();
 
+    /** Shares the statement deadline; the mutation fact is independent of this diagnostic. */
+    default String invalidateTableMetadata(long deadlineMs) {
+        if (System.currentTimeMillis() >= deadlineMs) {
+            return "the statement budget elapsed before local table metadata invalidation";
+        }
+        String failure;
+        try {
+            failure = invalidateTableMetadata();
+        } catch (Exception e) {
+            // Refresh cannot discard a known commit, and provider text is not a safe diagnostic.
+            return "local table metadata invalidation failed: " + e.getClass().getSimpleName();
+        }
+        return failure != null ? failure : System.currentTimeMillis() >= deadlineMs
+                ? "local table metadata invalidation did not complete within the statement budget" : null;
+    }
+
     /**
      * The production refresher: {@link ExternalMetaCacheMgr#invalidateTableCache(ExternalTable)}
      * with a bounded retry (the invalidation is local and non-blocking, so the retry needs no
@@ -87,9 +103,14 @@ public interface LanceIndexMutationRefresher {
         static final int MAX_ATTEMPTS = 3;
 
         private final ExternalTable table;
+        private final ExternalMetaCacheMgr manager;
 
         private LocalTableInvalidation(ExternalTable table) {
             this.table = table;
+            // Capture the authorized statement's local manager before handing the obligation
+            // to the bounded executor; refresh does not need its caller's thread-local context.
+            Env env = Env.getCurrentEnv();
+            this.manager = env == null ? null : env.getExtMetaCacheMgr();
         }
 
         @Override
@@ -97,8 +118,6 @@ public interface LanceIndexMutationRefresher {
             Exception last = null;
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 try {
-                    Env env = Env.getCurrentEnv();
-                    ExternalMetaCacheMgr manager = env == null ? null : env.getExtMetaCacheMgr();
                     if (manager == null) {
                         throw new IllegalStateException("the external metadata cache manager"
                                 + " is not available");

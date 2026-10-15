@@ -560,6 +560,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         long statementStartMs = System.currentTimeMillis();
         validate(ctx);
         if (!lanceIndexOps.isEmpty()) {
+            long deadlineMs = LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs);
             // A top-level CREATE/DROP INDEX statement carries exactly one operation.
             Preconditions.checkState(lanceIndexOps.size() == 1,
                     "a top-level Lance index statement must carry exactly one operation");
@@ -569,12 +570,12 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
                 plan = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
-                        indexDef.isIfNotExists());
+                        indexDef.isIfNotExists(), deadlineMs);
             } else {
                 DropIndexOp dropIndexOp = (DropIndexOp) op;
                 plan = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
-                        dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
+                        dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists(), deadlineMs);
             }
             // An IF preflight no-op completes with the default OK packet, exactly as before
             // the synchronous execution path existed - but it still owes the same bounded
@@ -583,14 +584,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             // is the typed no-op refresh error: nothing was mutated, so it is neither a
             // build failure nor an ambiguity.
             if (plan == null) {
-                String refreshFailure = LanceIndexMutationRefresher
-                        .forTable((LanceExternalTable) tableIf).invalidateTableMetadata();
-                if (refreshFailure != null) {
-                    throw new AnalysisException(
-                            ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED.formatErrorMsg(
-                                    "the admission no-op completed, but " + refreshFailure),
-                            ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED);
-                }
+                LanceIndexMutationExecutor.completeAdmissionNoOp(
+                        LanceIndexMutationRefresher.forTable((LanceExternalTable) tableIf), deadlineMs);
                 return;
             }
             // Execute outside the admission critical section (capture -> bounded execution ->
@@ -602,7 +597,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     plan.populate(LanceIndexMutationExecutor.MutationRequest.newBuilder(
                             plan.getCatalog(), plan.getMutationType(), plan.getDatasetUri(),
                             plan.getAdmittedDatasetVersion(), plan.getNormalizedIndexName(),
-                            LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs)))
+                            deadlineMs))
                             .setCancelSignal(lanceMutationCancelled::get)
                             .setTable((LanceExternalTable) tableIf)
                             .build());

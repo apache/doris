@@ -176,6 +176,7 @@ public final class LanceIndexMutationExecutor {
         private final LanceExternalCatalog catalog;
         private final TLanceIndexMutationType mutationType;
         private final String normalizedIndexName;
+        private final String displayIndexName;
         private final String columnName;
         private final String indexType;
         private final Map<String, String> properties;
@@ -193,6 +194,7 @@ public final class LanceIndexMutationExecutor {
             this.catalog = builder.catalog;
             this.mutationType = builder.mutationType;
             this.normalizedIndexName = builder.normalizedIndexName;
+            this.displayIndexName = builder.displayIndexName;
             this.columnName = builder.columnName;
             this.indexType = builder.indexType;
             this.properties = builder.properties;
@@ -227,6 +229,7 @@ public final class LanceIndexMutationExecutor {
             private final long admittedDatasetVersion;
             private final String normalizedIndexName;
             private final long deadlineMs;
+            private String displayIndexName;
             private String columnName = "";
             private String indexType = "";
             private Map<String, String> properties = null;
@@ -245,11 +248,17 @@ public final class LanceIndexMutationExecutor {
                 this.datasetUri = datasetUri;
                 this.admittedDatasetVersion = admittedDatasetVersion;
                 this.normalizedIndexName = normalizedIndexName;
+                this.displayIndexName = normalizedIndexName;
                 this.deadlineMs = deadlineMs;
             }
 
             public Builder setColumnName(String columnName) {
                 this.columnName = columnName;
+                return this;
+            }
+
+            public Builder setDisplayIndexName(String displayIndexName) {
+                this.displayIndexName = displayIndexName;
                 return this;
             }
 
@@ -335,6 +344,28 @@ public final class LanceIndexMutationExecutor {
         return execute(request, ThriftLanceIndexMutationDispatcher.INSTANCE, EXECUTOR);
     }
 
+    /** Completes the admission no-op's local obligation with the same bounded wait as entry no-ops. */
+    public static void completeAdmissionNoOp(LanceIndexMutationRefresher refresher, long deadlineMs)
+            throws AnalysisException {
+        MutationEntry entry = new MutationEntry();
+        entry.recordNoOp();
+        Future<LanceIndexMutationOutcome> future;
+        try {
+            future = EXECUTOR.submit(() -> {
+                String failure = refresher.invalidateTableMetadata(deadlineMs);
+                if (failure != null) {
+                    throw refreshFailed("the admission no-op completed, but " + failure);
+                }
+                LanceIndexMutationOutcome outcome = LanceIndexMutationOutcome.success();
+                entry.recordCompletion(outcome);
+                return outcome;
+            });
+        } catch (RejectedExecutionException e) {
+            throw refreshFailed("the no-op local metadata invalidation capacity is exhausted");
+        }
+        waitForOutcome(deadlineMs, future, entry);
+    }
+
     @VisibleForTesting
     static LanceIndexMutationOutcome execute(MutationRequest request,
             LanceIndexMutationDispatcher dispatcher, ExecutorService executor) throws AnalysisException {
@@ -357,29 +388,25 @@ public final class LanceIndexMutationExecutor {
             throw busy("the mutation execution capacity (running plus queued) is exhausted;"
                     + " this statement was not queued");
         }
-        return waitForOutcome(request, future);
+        return waitForOutcome(request.deadlineMs, future, entry);
     }
 
     /**
      * The statement side of the wait: bounded by the remaining budget, never cancelling the
-     * entry task. A timeout or interruption does not know whether the send already happened,
-     * so both surface indeterminate - the underlying task still converges on its own (an
-     * un-dispatched task is stopped by its own budget re-check) and releases the entry.
+     * entry task. The entry records the send boundary and the mutation fact independently
+     * of refresh completion. Expiry prevents any future send; an already known result keeps
+     * its classification. The task still owns cleanup and releases the entry when it ends.
      */
-    private static LanceIndexMutationOutcome waitForOutcome(MutationRequest request,
-            Future<LanceIndexMutationOutcome> future) throws AnalysisException {
-        long waitMillis = Math.max(1L, request.deadlineMs - System.currentTimeMillis());
+    private static LanceIndexMutationOutcome waitForOutcome(long deadlineMs,
+            Future<LanceIndexMutationOutcome> future, MutationEntry entry) throws AnalysisException {
+        long waitMillis = Math.max(1L, deadlineMs - System.currentTimeMillis());
         try {
             return future.get(waitMillis, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            return LanceIndexMutationOutcome.indeterminate(0,
-                    "the statement budget elapsed before a complete trusted result arrived;"
-                    + " the mutation may or may not have been dispatched");
+            return entry.stopWaiting("the statement budget elapsed");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return LanceIndexMutationOutcome.indeterminate(0,
-                    "the statement was interrupted while waiting for the mutation result;"
-                    + " the mutation may or may not have committed");
+            return entry.stopWaiting("the statement was interrupted");
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof AnalysisException) {
@@ -398,7 +425,9 @@ public final class LanceIndexMutationExecutor {
             LanceIndexMutationDispatcher dispatcher, String key, MutationEntry entry)
             throws AnalysisException {
         try {
-            return runEntryPhases(request, dispatcher);
+            LanceIndexMutationOutcome outcome = runEntryPhases(request, dispatcher, entry);
+            entry.recordCompletion(outcome);
+            return outcome;
         } finally {
             releaseEntry(key, entry);
         }
@@ -411,22 +440,22 @@ public final class LanceIndexMutationExecutor {
      * after the send started that is not a complete trusted answer is indeterminate.
      */
     private static LanceIndexMutationOutcome runEntryPhases(MutationRequest request,
-            LanceIndexMutationDispatcher dispatcher) throws AnalysisException {
+            LanceIndexMutationDispatcher dispatcher, MutationEntry entry) throws AnalysisException {
         if (request.cancelSignal.getAsBoolean()) {
             return cancelledBeforeDispatch("before the entry task began");
         }
         // 1. Budget fast convergence: a task whose budget elapsed while it was queued
         // converges immediately. The authoritative preflight read below is the most expensive
         // pre-dispatch step (a JNI snapshot read) and cannot change this outcome - the
-        // statement side has already surfaced its own indeterminate result, so skipping the
+        // statement side can already prove nothing was sent, so skipping the
         // read only stops the abandoned task sooner. A task that starts with budget left
-        // still reaches the budget-free no-op verdict below.
+        // still reaches the no-op verdict and its budget-bounded refresh below.
         if (request.deadlineMs - System.currentTimeMillis() <= 0) {
             return LanceIndexMutationOutcome.confirmedFailure(0,
                     "the statement budget was exhausted before the dispatch; nothing was sent");
         }
-        // 2. Entry-internal final preflight: the authoritative no-op verdict. A no-op never
-        // spends budget and never dispatches - there is nothing to send. A typed rejection
+        // 2. Entry-internal final preflight: a no-op never dispatches, but its read and refresh
+        // share the statement budget. A typed rejection
         // keeps its own error code; any other failure of the preflight read is a reachable
         // production failure (storage hiccup, JNI failure - the snapshot read chain surfaces
         // them as plain RuntimeExceptions, not wiring bugs), and it too strictly predates the
@@ -443,6 +472,7 @@ public final class LanceIndexMutationExecutor {
                             + " nothing was sent: " + boundedDescription(e));
         }
         if (preflight == PreflightResult.NO_OP) {
+            entry.recordNoOp();
             return completeNoOp(request);
         }
         // 3. Budget check before anything is spent on the send (re-read: the preflight spent
@@ -474,7 +504,7 @@ public final class LanceIndexMutationExecutor {
         // 6. The single dispatch. The call itself is the wait, bounded by the remaining budget.
         TLanceIndexMutationResult result;
         try {
-            result = dispatcher.dispatch(wireRequest, backend, remainingMs);
+            result = dispatcher.dispatch(wireRequest, backend, remainingMs, () -> entry.beginDispatch(request));
         } catch (TApplicationException e) {
             if (e.getType() == TApplicationException.UNKNOWN_METHOD) {
                 // An old backend in a rolling upgrade provably never served the call - the
@@ -489,13 +519,13 @@ public final class LanceIndexMutationExecutor {
             // admission: the invocation was never written to any socket, so it is a clean
             // pre-dispatch rejection, not an ambiguity.
             return LanceIndexMutationOutcome.confirmedFailure(0,
-                    "the backend connection could not be established before the send ("
+                    "the dispatch was stopped before the send ("
                             + boundedDescription(e.getCause()) + "); nothing was sent");
         } catch (Exception e) {
             return indeterminateAfterDispatch(e);
         }
         // 7. Classification (the refresh obligations hang off the trusted classes).
-        return classify(request, result);
+        return classify(request, result, entry);
     }
 
     /**
@@ -507,7 +537,7 @@ public final class LanceIndexMutationExecutor {
      */
     private static LanceIndexMutationOutcome completeNoOp(MutationRequest request)
             throws AnalysisException {
-        String refreshFailure = request.refresher.invalidateTableMetadata();
+        String refreshFailure = request.refresher.invalidateTableMetadata(request.deadlineMs);
         if (refreshFailure != null) {
             throw refreshFailed("the no-op completed, but " + refreshFailure);
         }
@@ -521,7 +551,7 @@ public final class LanceIndexMutationExecutor {
      * denied, and never retried by this statement.
      */
     private static LanceIndexMutationOutcome completeWithCommitRefresh(MutationRequest request) {
-        String refreshFailure = request.refresher.invalidateTableMetadata();
+        String refreshFailure = request.refresher.invalidateTableMetadata(request.deadlineMs);
         if (refreshFailure == null) {
             return LanceIndexMutationOutcome.success();
         }
@@ -537,7 +567,7 @@ public final class LanceIndexMutationExecutor {
      * a confirmed failure.
      */
     private static LanceIndexMutationOutcome classify(MutationRequest request,
-            TLanceIndexMutationResult result) {
+            TLanceIndexMutationResult result, MutationEntry entry) {
         if (result == null || !result.isSetStatus() || result.getStatus().getStatusCode() == null) {
             return LanceIndexMutationOutcome.indeterminate(0,
                     "the dispatch returned no complete status");
@@ -554,6 +584,7 @@ public final class LanceIndexMutationExecutor {
         }
         int lanceResultCode = result.getLanceErrorCode();
         if (lanceResultCode == LanceIndexMutationOutcome.LANCE_RESULT_OK) {
+            entry.recordOutcome(LanceIndexMutationOutcome.success());
             return completeWithCommitRefresh(request);
         }
         if (lanceResultCode == LANCE_ERR_COMMIT_CONFLICT) {
@@ -561,9 +592,10 @@ public final class LanceIndexMutationExecutor {
             // confirmed failure. Another writer advanced the dataset metadata, so the local
             // caches get a best-effort refresh whose failure only attaches a diagnostic -
             // the classification never changes because a refresh failed.
-            String refreshFailure = request.refresher.invalidateTableMetadata();
             String message = "typed lance commit conflict: another writer advanced the dataset"
                     + " metadata first";
+            entry.recordOutcome(LanceIndexMutationOutcome.confirmedFailure(lanceResultCode, message));
+            String refreshFailure = request.refresher.invalidateTableMetadata(request.deadlineMs);
             if (refreshFailure != null) {
                 message += "; the best-effort refresh of the externally advanced metadata"
                         + " also failed: " + refreshFailure;
@@ -619,6 +651,7 @@ public final class LanceIndexMutationExecutor {
         wireRequest.setDeadlineMs(request.deadlineMs);
         wireRequest.setMutationType(request.mutationType);
         wireRequest.setIndexName(request.normalizedIndexName);
+        wireRequest.setIndexDisplayName(request.displayIndexName);
         wireRequest.setColumnName(request.columnName == null ? "" : request.columnName);
         wireRequest.setIndexType(request.indexType == null ? "" : request.indexType);
         if (request.properties != null && !request.properties.isEmpty()) {
@@ -734,6 +767,57 @@ public final class LanceIndexMutationExecutor {
      * ownership), never persisted, so a restart or master switch self-heals.
      */
     private static final class MutationEntry {
+        private boolean dispatchStarted;
+        private boolean dispatchStopped;
+        private boolean noOp;
+        private boolean completed;
+        private LanceIndexMutationOutcome knownOutcome;
+
+        synchronized boolean beginDispatch(MutationRequest request) {
+            if (dispatchStopped || request.cancelSignal.getAsBoolean()
+                    || System.currentTimeMillis() >= request.deadlineMs) {
+                return false;
+            }
+            dispatchStarted = true;
+            return true;
+        }
+
+        synchronized void recordOutcome(LanceIndexMutationOutcome outcome) {
+            knownOutcome = outcome;
+        }
+
+        synchronized void recordNoOp() {
+            noOp = true;
+        }
+
+        synchronized void recordCompletion(LanceIndexMutationOutcome outcome) {
+            knownOutcome = outcome;
+            completed = true;
+        }
+
+        synchronized LanceIndexMutationOutcome stopWaiting(String reason) throws AnalysisException {
+            dispatchStopped = true;
+            if (completed) {
+                return knownOutcome;
+            }
+            if (noOp) {
+                throw refreshFailed(reason + " before the no-op cache invalidation completed");
+            }
+            if (knownOutcome != null) {
+                if (knownOutcome.getKind() == LanceIndexMutationOutcome.Kind.SUCCESS) {
+                    return LanceIndexMutationOutcome.committedRefreshIncomplete(0,
+                            reason + " before the commit refresh completed; the commit stands");
+                }
+                return knownOutcome;
+            }
+            if (!dispatchStarted) {
+                return LanceIndexMutationOutcome.confirmedFailure(0,
+                        reason + " before dispatch; nothing was sent");
+            }
+            return LanceIndexMutationOutcome.indeterminate(0,
+                    reason + " before a complete trusted result arrived; the mutation may or may not have committed");
+        }
+
         /** Lifecycle of one guard entry: active while the mutation owns the name. */
         private enum Status {
             ACTIVE,
