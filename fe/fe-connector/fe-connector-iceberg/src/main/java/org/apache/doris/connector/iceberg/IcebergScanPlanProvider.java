@@ -2838,7 +2838,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
+            deleteFiles.addAll(manifestCacheGet(manifest, table, specsById, statsQueryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .schemasById(table.schemas())
@@ -2864,10 +2864,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
-    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
+    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById, String statsQueryId) {
         return statsQueryId != null
-                ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
-                : manifestCache.getManifestCacheValue(manifest, table);
+                ? manifestCache.getManifestCacheValue(manifest, table, specsById, statsQueryId)
+                : manifestCache.getManifestCacheValue(manifest, table, specsById);
     }
 
     /**
@@ -2956,7 +2957,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 currentResidual = residual;
                 currentSpecJson = PartitionSpecParser.toJson(spec);
-                dataFileIt = manifestCacheGet(manifest, table, statsQueryId).getDataFiles().iterator();
+                dataFileIt = manifestCacheGet(manifest, table, specsById, statsQueryId).getDataFiles().iterator();
             }
         }
 
