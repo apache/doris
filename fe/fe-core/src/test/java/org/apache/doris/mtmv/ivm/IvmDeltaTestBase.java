@@ -293,17 +293,32 @@ abstract class IvmDeltaTestBase {
     }
 
     protected MTMV buildMtmvFromPlan(List<Slot> output) {
+        return buildMtmv(output, KeysType.UNIQUE_KEYS, true, false);
+    }
+
+    /**
+     * Builds an append-only detail MV over the same output: a plain DUP table, with no merge-on-write
+     * property, no sequence column and no delete sign, which is the table model of that MV.
+     */
+    protected MTMV buildDupMtmvFromPlan(List<Slot> output) {
+        return buildMtmv(output, KeysType.DUP_KEYS, false, true);
+    }
+
+    private MTMV buildMtmv(List<Slot> output, KeysType keysType, boolean mergeOnWrite, boolean enableIvm) {
         List<Column> schema = output.stream().map(this::toColumn).collect(Collectors.toList());
-        schema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
-                AggregateType.NONE, false, "", false, -1));
-        schema.add(new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
-                AggregateType.NONE, false, "", false, -1));
+        if (mergeOnWrite) {
+            // Only the unique-key model maintains a row through a delete sign and a sequence column.
+            schema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
+                    AggregateType.NONE, false, "", false, -1));
+            schema.add(new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
+                    AggregateType.NONE, false, "", false, -1));
+        }
 
         MTMV mtmv = (MTMV) new OlapTableFactory().init(TableType.MATERIALIZED_VIEW, false)
                 .withTableId(1L)
                 .withTableName("test_mv")
                 .withSchema(schema)
-                .withKeysType(KeysType.UNIQUE_KEYS)
+                .withKeysType(keysType)
                 .withPartitionInfo(new SinglePartitionInfo())
                 .withDistributionInfo(new RandomDistributionInfo(1))
                 .withQuerySql("select 1")
@@ -312,7 +327,7 @@ abstract class IvmDeltaTestBase {
         mtmv.setQualifiedDbName("test_db");
         mtmv.setState(OlapTableState.NORMAL);
         mtmv.setBaseIndexId(1L);
-        mtmv.setIndexMeta(1L, "test_mv", schema, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        mtmv.setIndexMeta(1L, "test_mv", schema, 0, 0, (short) 0, TStorageType.COLUMN, keysType);
         mtmv.rebuildFullSchema();
         mtmv.setRefreshInfo((MTMVRefreshInfo) null);
         mtmv.setStatus(new MTMVStatus());
@@ -323,8 +338,13 @@ abstract class IvmDeltaTestBase {
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
         TableProperty tableProperty = new TableProperty(new HashMap<>());
-        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        if (mergeOnWrite) {
+            tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        }
         mtmv.setTableProperty(tableProperty);
+        if (enableIvm) {
+            mtmv.getIvmInfo().setEnableIvm(true);
+        }
         return mtmv;
     }
 
