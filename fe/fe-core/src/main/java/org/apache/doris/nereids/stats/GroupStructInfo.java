@@ -171,6 +171,10 @@ public class GroupStructInfo {
             new GroupStructInfo(false, "", Collections.emptyList(), INVALID_SCANS);
 
     private static final String SEP = ";";
+
+    private static final String NO_LOOKUP_PATH_REASON =
+            "storage layer aggregate: the read side applies the row count of the aggregation above it";
+
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
 
     /**
@@ -363,6 +367,9 @@ public class GroupStructInfo {
      * Resolve the group fingerprint of a plan node in the given literal mode.
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, LiteralMode mode) {
+        if (hasNoHboLookupPath(planNode)) {
+            return Optional.empty();
+        }
         Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
         return fingerprintOfGroup(group, mode);
     }
@@ -383,6 +390,9 @@ public class GroupStructInfo {
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById,
             LiteralMode mode) {
+        if (hasNoHboLookupPath(planNode)) {
+            return Optional.empty();
+        }
         return fingerprintOfGroup(resolveGroup(planNode, groupsById), mode);
     }
 
@@ -398,6 +408,11 @@ public class GroupStructInfo {
      */
     public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
+        if (hasNoHboLookupPath(planNode)) {
+            // the annotation asks for the struct info first: without this guard the node would advertise
+            // a key which no read path ever looks up (see hasNoHboLookupPath)
+            return Optional.empty();
+        }
         return structInfoOfGroup(resolveGroup(planNode, groupsById));
     }
 
@@ -1580,6 +1595,15 @@ public class GroupStructInfo {
         if (plan instanceof OlapScan) {
             scanCount = 1;
             relations.add(((OlapScan) plan).getTable().getNameWithFullQualifiers());
+        } else if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
+            // an external table is described by the token of its table (see appendFileScan), so it is a
+            // relation of the summary as well: with an empty relation list the prefilter of the pinned
+            // entries rejects an entry of such a filter before its fingerprint is ever looked up
+            scanCount = 1;
+            TableIf fileTable = plan instanceof LogicalFileScan
+                    ? ((LogicalFileScan) plan).getTable()
+                    : ((PhysicalFileScan) plan).getTable();
+            relations.add(fileTable.getNameWithFullQualifiers());
         }
         // the summary counts what the description renders: an anchor describes its consumer side, which
         // is its second child (the first one is the producer, and counting it would report scans and
@@ -1625,6 +1649,18 @@ public class GroupStructInfo {
     }
 
     /**
+     * A storage layer aggregate reads the row count of its relation directly and the read side applies a
+     * pinned or a learned row count at filter, join and aggregation nodes only - never at this wrapper
+     * (the translator delegates it to the relation it embeds, and the aggregation above it looks up its
+     * own logical key). An advertised key of such a node is accepted and stored by
+     * {@code HBO SET STATISTICS} but can never be applied, so the node is neither advertised nor
+     * published: the applicable key is the one of the aggregation above it.
+     */
+    private static boolean hasNoHboLookupPath(AbstractPlan planNode) {
+        return planNode instanceof PhysicalStorageLayerAggregate;
+    }
+
+    /**
      * Why the struct info of the group of {@code planNode} is missing, when the reason is known: the
      * group is too wide for {@code hbo_max_scans_per_group}, it contains an operator the canonical form
      * does not describe, its table name carries a struct info delimiter, the data state of one of its
@@ -1633,6 +1669,9 @@ public class GroupStructInfo {
      */
     public static Optional<String> skipReasonOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
+        if (hasNoHboLookupPath(planNode)) {
+            return Optional.of(NO_LOOKUP_PATH_REASON);
+        }
         Group group = resolveGroup(planNode, groupsById);
         if (group == null) {
             return Optional.empty();
