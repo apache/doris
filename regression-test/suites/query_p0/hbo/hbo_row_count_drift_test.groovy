@@ -137,7 +137,10 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
         def partitionFingerprint = partitionMatcher.group(1)
         def partitionStruct = partitionMatcher.group(2)
         // the scan token records the pruned selection (1 of the 2 partitions, 1000 rows)
-        assertTrue(normalizeRows(partitionStruct).contains("S{internal.hbo_test.hbo_dr_p,v3,r1000,p1/2}"),
+        // the identity of a scan names the partitions it selects (their stable ids), so a query which
+        // reads p1 only is not compared with one which reads p2
+        assertTrue((normalizeRows(partitionStruct) =~
+                /S\{internal\.hbo_test\.hbo_dr_p#pt:\d+,v3,r1000,p1\/2\}/).find(),
                 partitionStruct)
         sql """ HBO SET STATISTICS VALUE=600 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${partitionFingerprint}'
                 STRUCT='${partitionStruct}'; """
