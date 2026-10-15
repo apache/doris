@@ -1861,18 +1861,20 @@ TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAMaxThatCarriedPastItsEnd) 
 
 // Exercise the public serializer so both page and segment writers share the tested contract.
 template <PrimitiveType Type>
-void check_binary_zone_map_bounds(typename PrimitiveTypeTraits<Type>::StorageFieldType low,
+// GTest assertions inflate the score; keep the per-type persistence contract together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void check_binary_zone_map_bounds(const std::string& directory,
+                                  typename PrimitiveTypeTraits<Type>::StorageFieldType low,
                                   typename PrimitiveTypeTraits<Type>::StorageFieldType high,
                                   int precision = 0, int scale = 0) {
-    using Cpp = typename PrimitiveTypeTraits<Type>::CppType;
     for (bool nullable : {false, true}) {
         const auto type =
                 DataTypeFactory::instance().create_data_type(Type, nullable, precision, scale);
         ZoneMap source;
         source.has_not_null = true;
         source.has_null = nullable;
-        source.min_value = Field::create_field<Type>(Cpp(low));
-        source.max_value = Field::create_field<Type>(Cpp(high));
+        source.min_value = Field::create_field_from_olap_value<Type>(low);
+        source.max_value = Field::create_field_from_olap_value<Type>(high);
         ZoneMapPB pb;
         source.to_proto(&pb, type, true);
         ASSERT_EQ(1, pb.value_encoding());
@@ -1901,41 +1903,152 @@ void check_binary_zone_map_bounds(typename PrimitiveTypeTraits<Type>::StorageFie
         EXPECT_FALSE(result.pass_all);
         EXPECT_EQ(source.min_value.get<Type>(), result.min_value.get<Type>());
         EXPECT_EQ(source.max_value.get<Type>(), result.max_value.get<Type>());
+
+        // Exercise the storage-to-Field conversion and both persisted index levels, too.
+        const bool saved = config::enable_binary_zone_map;
+        Defer restore([saved] { config::enable_binary_zone_map = saved; });
+        config::enable_binary_zone_map = true;
+        TabletColumn column;
+        column.set_type(type->get_storage_field_type());
+        column.set_is_nullable(nullable);
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        ASSERT_TRUE(ZoneMapIndexWriter::create(type, &column, writer).ok());
+        const typename PrimitiveTypeTraits<Type>::StorageFieldType values[] = {low, high};
+        writer->add_values(values, 2);
+        ASSERT_TRUE(writer->flush().ok());
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file;
+        const auto path = directory + "/binary_type_" + std::to_string(Type) +
+                          (nullable ? "_nullable" : "_required");
+        ASSERT_TRUE(fs->create_file(path, &file).ok());
+        ColumnIndexMetaPB meta;
+        ASSERT_TRUE(writer->finish(file.get(), &meta).ok());
+        ASSERT_TRUE(file->close().ok());
+        io::FileReaderSPtr reader;
+        ASSERT_TRUE(fs->open_file(path, &reader).ok());
+        ZoneMapIndexReader index(reader, meta.zone_map_index().page_zone_maps());
+        ASSERT_TRUE(index.load(false, false).ok());
+        ASSERT_EQ(1, index.num_pages());
+        for (const auto* bounds :
+             {&meta.zone_map_index().segment_zone_map(), index.page_zone_maps().data()}) {
+            EXPECT_EQ(1, bounds->value_encoding());
+            ASSERT_TRUE(ZoneMap::from_proto(*bounds, type, result).ok());
+            EXPECT_EQ(source.min_value.get<Type>(), result.min_value.get<Type>());
+            EXPECT_EQ(source.max_value.get<Type>(), result.max_value.get<Type>());
+            ComparisonPredicateBase<Type, PredicateType::EQ> present(0, "", source.min_value);
+            EXPECT_TRUE(present.evaluate_and(result));
+        }
+        pb.set_value_encoding(1);
+        pb.set_min(std::string(sizeof(low) - 1, '\0'));
+        EXPECT_FALSE(ZoneMap::from_proto(pb, type, result).ok());
     }
 }
 
+TEST_F(ColumnZoneMapTest, BinaryDateTimeBoundsRoundTrip) {
+    const VecDateTimeValue date_low(false, TIME_DATE, 0, 0, 0, 0, 1, 1);
+    const VecDateTimeValue date_high(false, TIME_DATE, 0, 0, 0, 9999, 12, 31);
+    check_binary_zone_map_bounds<TYPE_DATE>(kTestDir, date_low.to_olap_date(),
+                                            date_high.to_olap_date());
+    const VecDateTimeValue datetime_low(false, TIME_DATETIME, 0, 0, 0, 0, 1, 1);
+    const VecDateTimeValue datetime_high(false, TIME_DATETIME, 23, 59, 59, 9999, 12, 31);
+    check_binary_zone_map_bounds<TYPE_DATETIME>(kTestDir, datetime_low.to_olap_datetime(),
+                                                datetime_high.to_olap_datetime());
+    const DateV2Value<DateV2ValueType> low_date(0, 1, 1, 0, 0, 0, 0);
+    const DateV2Value<DateV2ValueType> high_date(9999, 12, 31, 0, 0, 0, 0);
+    check_binary_zone_map_bounds<TYPE_DATEV2>(kTestDir, low_date.to_date_int_val(),
+                                              high_date.to_date_int_val());
+    for (int scale : {0, 3, 6}) {
+        const DateV2Value<DateTimeV2ValueType> low(0, 1, 1, 0, 0, 0, 0);
+        const DateV2Value<DateTimeV2ValueType> high(9999, 12, 31, 23, 59, 59,
+                                                    scale == 6 ? 999999 : 0);
+        check_binary_zone_map_bounds<TYPE_DATETIMEV2>(kTestDir, low.to_date_int_val(),
+                                                      high.to_date_int_val(), 0, scale);
+        check_binary_zone_map_bounds<TYPE_TIMESTAMPTZ>(kTestDir, low.to_date_int_val(),
+                                                       high.to_date_int_val(), 0, scale);
+    }
+    check_binary_zone_map_bounds<TYPE_TIMESTAMP_NS>(kTestDir, INT64_MIN, INT64_MAX);
+    check_binary_zone_map_bounds<TYPE_TIMESTAMP_NS>(kTestDir, -1, 1);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryIpUuidAndLegacyDecimalBoundsRoundTrip) {
+    check_binary_zone_map_bounds<TYPE_IPV4>(kTestDir, 0, UINT32_MAX);
+    check_binary_zone_map_bounds<TYPE_IPV6>(kTestDir, 0, std::numeric_limits<UInt128>::max());
+    check_binary_zone_map_bounds<TYPE_UUID>(kTestDir, 0, std::numeric_limits<UInt128>::max());
+    check_binary_zone_map_bounds<TYPE_DECIMALV2>(
+            kTestDir, decimal12_t {.integer = -999999999999999999LL, .fraction = -999999999},
+            decimal12_t {.integer = 999999999999999999LL, .fraction = 999999999}, 27, 9);
+    check_binary_zone_map_bounds<TYPE_DECIMALV2>(kTestDir,
+                                                 decimal12_t {.integer = 0, .fraction = -1},
+                                                 decimal12_t {.integer = 0, .fraction = 1}, 27, 9);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryAdditionalTypesHaveCanonicalBytes) {
+    auto check = [&]<PrimitiveType Type>(const Field& field, const std::string& expected) {
+        const auto type = DataTypeFactory::instance().create_data_type(Type, false, 27, 9);
+        ZoneMap source;
+        source.has_not_null = true;
+        source.min_value = field;
+        source.max_value = field;
+        ZoneMapPB pb;
+        source.to_proto(&pb, type, true);
+        EXPECT_EQ(expected, pb.min());
+        EXPECT_EQ(expected, pb.max());
+        ZoneMap decoded;
+        ASSERT_TRUE(ZoneMap::from_proto(pb, type, decoded).ok());
+        EXPECT_EQ(field.get<Type>(), decoded.min_value.get<Type>());
+    };
+    const VecDateTimeValue date(false, TIME_DATE, 0, 0, 0, 2026, 10, 15);
+    check.template operator()<TYPE_DATE>(Field::create_field<TYPE_DATE>(date),
+                                         std::string("\x4f\xd5\x0f", 3));
+    check.template operator()<TYPE_DECIMALV2>(
+            Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(-2, -3)),
+            std::string("\xfe\xff\xff\xff\xff\xff\xff\xff\xfd\xff\xff\xff", 12));
+    check.template operator()<TYPE_IPV4>(Field::create_field<TYPE_IPV4>(0x01020304),
+                                         std::string("\x04\x03\x02\x01", 4));
+    const UInt128 wide =
+            (static_cast<UInt128>(0x0102030405060708ULL) << 64) | 0x1112131415161718ULL;
+    const std::string expected(
+            "\x18\x17\x16\x15\x14\x13\x12\x11"
+            "\x08\x07\x06\x05\x04\x03\x02\x01",
+            16);
+    check.template operator()<TYPE_IPV6>(Field::create_field<TYPE_IPV6>(wide), expected);
+    check.template operator()<TYPE_UUID>(Field::create_field<TYPE_UUID>(wide), expected);
+    check.template operator()<TYPE_TIMESTAMP_NS>(
+            Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1)), std::string(8, '\xff'));
+}
+
 TEST_F(ColumnZoneMapTest, BinaryNumericBoundsRoundTrip) {
-    check_binary_zone_map_bounds<TYPE_BOOLEAN>(0, 1);
-    check_binary_zone_map_bounds<TYPE_TINYINT>(INT8_MIN, INT8_MAX);
-    check_binary_zone_map_bounds<TYPE_SMALLINT>(INT16_MIN, INT16_MAX);
-    check_binary_zone_map_bounds<TYPE_INT>(INT32_MIN, INT32_MAX);
-    check_binary_zone_map_bounds<TYPE_BIGINT>(INT64_MIN, INT64_MAX);
-    check_binary_zone_map_bounds<TYPE_LARGEINT>(std::numeric_limits<Int128>::lowest(),
+    check_binary_zone_map_bounds<TYPE_BOOLEAN>(kTestDir, 0, 1);
+    check_binary_zone_map_bounds<TYPE_TINYINT>(kTestDir, INT8_MIN, INT8_MAX);
+    check_binary_zone_map_bounds<TYPE_SMALLINT>(kTestDir, INT16_MIN, INT16_MAX);
+    check_binary_zone_map_bounds<TYPE_INT>(kTestDir, INT32_MIN, INT32_MAX);
+    check_binary_zone_map_bounds<TYPE_BIGINT>(kTestDir, INT64_MIN, INT64_MAX);
+    check_binary_zone_map_bounds<TYPE_LARGEINT>(kTestDir, std::numeric_limits<Int128>::lowest(),
                                                 std::numeric_limits<Int128>::max());
-    check_binary_zone_map_bounds<TYPE_FLOAT>(-std::numeric_limits<float>::max(),
+    check_binary_zone_map_bounds<TYPE_FLOAT>(kTestDir, -std::numeric_limits<float>::max(),
                                              std::numeric_limits<float>::max());
-    check_binary_zone_map_bounds<TYPE_DOUBLE>(-std::numeric_limits<double>::max(),
+    check_binary_zone_map_bounds<TYPE_DOUBLE>(kTestDir, -std::numeric_limits<double>::max(),
                                               std::numeric_limits<double>::max());
-    check_binary_zone_map_bounds<TYPE_FLOAT>(-0.0F, 0.0F);
-    check_binary_zone_map_bounds<TYPE_DOUBLE>(-0.0, 0.0);
+    check_binary_zone_map_bounds<TYPE_FLOAT>(kTestDir, -0.0F, 0.0F);
+    check_binary_zone_map_bounds<TYPE_DOUBLE>(kTestDir, -0.0, 0.0);
 }
 
 TEST_F(ColumnZoneMapTest, BinaryDecimalBoundsRoundTrip) {
-    check_binary_zone_map_bounds<TYPE_DECIMAL32>(-999999999, 999999999, 9, 3);
-    check_binary_zone_map_bounds<TYPE_DECIMAL64>(-999999999999999999LL, 999999999999999999LL, 18,
-                                                 9);
+    check_binary_zone_map_bounds<TYPE_DECIMAL32>(kTestDir, -999999999, 999999999, 9, 3);
+    check_binary_zone_map_bounds<TYPE_DECIMAL64>(kTestDir, -999999999999999999LL,
+                                                 999999999999999999LL, 18, 9);
     Int128 large = 1;
     for (int digit = 0; digit < 38; ++digit) {
         large *= 10;
     }
     --large;
-    check_binary_zone_map_bounds<TYPE_DECIMAL128I>(-large, large, 38, 17);
+    check_binary_zone_map_bounds<TYPE_DECIMAL128I>(kTestDir, -large, large, 38, 17);
     wide::Int256 wide_value = 1;
     for (int digit = 0; digit < 76; ++digit) {
         wide_value *= 10;
     }
     --wide_value;
-    check_binary_zone_map_bounds<TYPE_DECIMAL256>(-wide_value, wide_value, 76, 37);
+    check_binary_zone_map_bounds<TYPE_DECIMAL256>(kTestDir, -wide_value, wide_value, 76, 37);
 }
 
 TEST_F(ColumnZoneMapTest, BinaryBoundsUseCanonicalLittleEndian) {

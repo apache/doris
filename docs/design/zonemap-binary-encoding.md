@@ -41,12 +41,60 @@ min/max 的解释由该字段决定，每个 ZoneMap 自描述，允许同一索
 schema 中的逻辑类型决定宽度与解释，Decimal 的 precision/scale 仍由列 schema 提供，
 不在每个 min/max 内重复。编码不是排序键，必须解码后按现有类型比较，禁止 memcmp 判大小。
 
-首批编码：BOOL/TINYINT 1B、SMALLINT 2B、INT/FLOAT/DECIMAL32 4B、
-BIGINT/DOUBLE/DECIMAL64 8B、LARGEINT/DECIMAL128 16B、DECIMAL256 32B。
-整数保存二补码位模式，浮点保存 IEEE 位模式，Decimal 保存未缩放整数；
-256 位整数按低位到高位的四个 64 位 limb 分别小端编码，不依赖结构体布局。
-字符串/CHAR/VARCHAR、旧 DECIMALV2、日期时间/IP/UUID 等其他类型本阶段继续使用 0。
-后续扩展必须逐类审计执行类型与 StorageFieldType 的差异，尤其 DATE V1/DECIMALV2。
+## 全部定长类型审计（2026-10-15 补齐）
+
+此前仅纳入 12 种数值类型，是首轮审计范围过窄，并不是其他类型不适合二进制编码。
+本次对照 PrimitiveType、PrimitiveTypeTraits、FieldType、两方向类型映射和
+ZoneMapIndexWriter::create 的完整分支，覆盖现有 writer 支持的全部 22 种定长类型：
+
+| 逻辑类型 | 边界宽度 | 执行值 → 持久化值 / 编码规则 |
+|---|---:|---|
+| BOOLEAN | 1 B | UInt8，沿用既有布尔值语义 |
+| TINYINT | 1 B | Int8 二补码 |
+| SMALLINT | 2 B | Int16 二补码，小端 |
+| INT | 4 B | Int32 二补码，小端 |
+| BIGINT | 8 B | Int64 二补码，小端 |
+| LARGEINT | 16 B | Int128 二补码，小端 |
+| FLOAT | 4 B | IEEE 位模式，小端，保留负零；NaN/Inf 标记不变 |
+| DOUBLE | 8 B | IEEE 位模式，小端，保留负零；NaN/Inf 标记不变 |
+| DECIMAL32 | 4 B | 未缩放 Int32，scale 来自 schema |
+| DECIMAL64 | 8 B | 未缩放 Int64，scale 来自 schema |
+| DECIMAL128I | 16 B | 未缩放 Int128，scale 来自 schema |
+| DECIMAL256 | 32 B | 未缩放 Int256；四个 64 位 limb 从低到高分别小端编码 |
+| DATE（V1） | 3 B | VecDateTimeValue.to_olap_date()，year<<9 / month<<5 / day，显式写 3 个字节 |
+| DATETIME（V1） | 8 B | to_olap_datetime() 的 YYYYMMDDhhmmss 整数，小端；不是执行层对象位布局 |
+| DATEV2 | 4 B | to_date_int_val() 的打包日期 UInt32，小端 |
+| DATETIMEV2 | 8 B | to_date_int_val() 的打包年月日时分秒微秒 UInt64，小端；不是 epoch 微秒 |
+| TIMESTAMPTZ | 8 B | 现有 UTC DATETIMEV2 打包值，小端；不另存时区，不做会话时区转换 |
+| TIMESTAMP_NS | 8 B | 有符号 epoch 纳秒 Int64，小端；包括负数及全部 Int64 范围 |
+| IPv4 | 4 B | 已有 UInt32 地址值，小端；不是网络字节序 |
+| IPv6 | 16 B | 已有 UInt128 地址值，小端；不是网络字节序 |
+| UUID | 16 B | 规范 UUID 对应的 UInt128 数值，小端；不调用外部 big-endian 字节接口 |
+| DECIMALV2（旧类型） | 12 B | int_value 的 Int64 + frac_value 的 Int32，各自小端；包括负数和负小数 |
+
+旧 DATE/DECIMALV2 的执行值与存储值不同，不能按 sizeof(CppType) 直接复制。
+旧类型写入复用现有 StorageLayout::to_storage，避免重复实现历史存储布局。
+解码统一复用 Field::create_field_from_olap_value，和 writer materialize 路径一致。
+DecimalV2 虽然属于旧类型，但存量 writer/read 路径仍存在，因此本次也覆盖，不假定它不存在。
+
+其他看似定长的类型也已逐项检查：
+
+| 类型或枚举 | 当前代码事实 | 本次处理 |
+|---|---|---|
+| TIMEV2 | 执行层 Float64；有 FieldType 映射，但 ZoneMap writer 工厂没有对应分支 | 不新增此前不存在的持久化 ZoneMap 能力，保留文本路径 |
+| UINT32 / UINT64 | 内部 offset 类型，分别映射 UNSIGNED_INT / UNSIGNED_BIGINT；writer 无对应分支 | 不纳入新磁盘编码 |
+| UNSIGNED_TINYINT / UNSIGNED_SMALLINT | 遗留存储枚举，反向逻辑类型映射不支持，writer 也不支持 | 不扩展为用户列类型 |
+| DISCRETE_DOUBLE | 遗留存储枚举，类型反向映射和 writer 不支持 | 不扩展 |
+| FIXED_LENGTH_OBJECT | 执行层固定宽对象，可有不同对象宽度；没有通用逻辑值语义及 FieldType 映射 | 不按对象内存宽度强行序列化 |
+| NULL / NONE | 没有非 NULL 最值，不能定义普通 min/max | 沿用 has_null / has_not_null，无有效边界 |
+| CHAR(n) | SQL 声明定长，但 Field 是字符串；ZoneMap 有截断、补零和最大值进位规则 | 与 VARCHAR/STRING 一起保留原字符串编码 |
+| 旧 TYPE_DECIMAL / TYPE_TIME / LAMBDA_FUNCTION | 废弃逻辑枚举，类型映射不支持；不同于仍支持的 DECIMALV2 / TIMEV2 | 不新增实现 |
+| BINARY / VARBINARY | 不是固定数值边界；TYPE_BINARY 注明未实现，不能按字符串对象 sizeof 判断 | 不纳入 |
+| ARRAY / MAP / STRUCT / JSONB / VARIANT / HLL / BITMAP / QUANTILE_STATE / AGG_STATE | 对象本体可能有固定大小的句柄，但载荷或元素并非固定宽标量 | 不复制句柄或对象内存；既有路径保持 |
+| INVALID / UNKNOWN | 非有效列值类型 | 不定义编码 |
+
+因此“全部定长类型”按可持久化 ZoneMap 的标量值定义，而不是 C++ 对象的 sizeof。
+现有 writer 工厂的全部非字符串分支均有二进制 codec，不再剩下日期/IP/UUID 的待扩展缺口。
 
 不持久化 C++ 对象、Field tag、指针、padding 或宿主端序。优先复用 util/coding.h 的
 定宽小端编码和 unaligned 工具。空页、全 NULL、pass_all 的 min/max 无效，仍写旧编码空边界。
@@ -80,7 +128,7 @@ from_proto 自动区分两种编码，支持新读旧；未知版本或支持类
 
 ## 验证与衡量
 
-1. codec：所有首批类型、最小/最大值、负数、零、Decimal256 四个 limb、非零 scale，
+1. codec：全部 22 种支持类型、最小/最大值、负数、零、Decimal256 四个 limb、非零 scale，
    精确小端 golden bytes、浮点负零、反向读取、长度损坏与未知版本。
 2. 兼容：历史文本/缺省字段、显式 0、二进制/文本混合；开关关闭时写入字节保持旧行为；
    Unsupported 类型不改变；全 NULL/空/pass_all、NaN/Inf 标记不变；同一个 PB 重用不残留编码。
@@ -108,12 +156,11 @@ from_proto 自动区分两种编码，支持新读旧；未知版本或支持类
 
 ## 后续阶段
 
-首阶段完成双格式读写、灰度开关和正确性验证后，再分别评估：
+全部定长标量完成双格式读写、灰度开关和正确性验证后，再分别评估：
 - 对小整数采用 ZigZag/varint 的新编码（必须分配新的编码版本，不能改变编码 1）。
 - 合并页级标记或列式存储边界，减少每页 protobuf 固定开销。
 - 索引加载后缓存类型化边界，减少重复解码；明确额外内存、生命周期及 MemTracker 归属。
 - 压缩索引页；单独衡量随机读取、解压 CPU 与空间，不与编码改动混合归因。
-- 日期/IP/UUID 等类型编码扩展；不能未经审计直接序列化 C++ struct。
 这些均不混入本次实现，以便测出独立收益、缩小兼容面。
 
 ## 自审关键检查点
@@ -129,7 +176,7 @@ from_proto 自动区分两种编码，支持新读旧；未知版本或支持类
 | Proto id | 已逐一核对 3.1/4.0/4.1/4.2，optional field 9 未冲突 |
 | 平行路径 | page flush 和 Segment finish 均接入同一 to_proto；读路径统一 from_proto |
 | 条件分支 | 损坏长度和未知编码有可复现负例并返回错误，不猜测恢复格式 |
-| 覆盖范围 | 数值/Decimal256、NULL/pass_all、浮点特殊值、PB 重用、文件索引及配置快照 |
+| 覆盖范围 | 全部 22 种 writer 定长类型、旧日期/DecimalV2转换、NULL/pass_all、浮点特殊值、PB 重用、双层文件索引及配置快照 |
 | 结果文件 | 未手写回归 .out；新增的是 BE UT，protobuf 空间证据由生成消息计算 |
 | 可观测性 | 既有 Status 含编码/长度/类型错误，编码保存在 PB 中；无逐页 INFO 日志 |
 | 事务与持久化 | 仍随既有 Segment/index 写入及 rowset 提交，不修改 EditLog/事务协议 |
@@ -138,7 +185,7 @@ from_proto 自动区分两种编码，支持新读旧；未知版本或支持类
 | 性能和内存 | 去掉数字文本转换；沿用 Field/PB 内存模型；小整数可能膨胀，需按分布测量 |
 | 其他风险 | 大端机器未实测，固定 golden bytes/limb 布局可静态验证；新格式启用后降级需要重写 |
 
-## 本次落地与结果
+## 首轮落地与结果（全类型补齐前）
 
 实现文件：
 - gensrc/proto/segment_v2.proto：optional value_encoding=9。
@@ -181,3 +228,26 @@ clang-tidy 对 ZoneMap 实现、配置实现和 UT 的改动行检查通过，�
 validation/clang-tidy-final.log。头文件的新增声明也由这些翻译单元及完整 UT 编译验证。
 环境和测试产物保留在 worktree 的 validation/、thirdparty/、be/ut_build_ASAN/，
 用于复现，不纳入提交。
+
+## 全定长类型补齐验证
+
+补齐日期时间六种、IPv4/IPv6、UUID、DecimalV2 共十种类型。共同测试 helper 现在针对
+全部 22 种类型及 nullable / non-nullable 两种 schema 验证：文本向后兼容、二进制 PB
+往返、真实 writer 输入存储值、写出并重新加载页级索引与 Segment 索引、最值相等及
+EQ 谓词覆盖、截断边界拒绝。覆盖日期两端、DATETIMEV2/TIMESTAMPTZ 的 0/3/6 scale、
+TIMESTAMP_NS 的 Int64 极值和跨 epoch 零点、IP/UUID 全零/全一、旧 DecimalV2 负数和纯负小数。
+
+另有独立 golden bytes 验证 DATE 三字节、DecimalV2 的两个有符号分量、IPv4、IPv6、
+UUID 和负纳秒值，防止仅用同一组错误的 encoder/decoder 得到对称通过。
+新二进制编码仍默认关闭，升级限制不变；本地未发布的 encoding 1 现定义完整类型集合。
+本轮 ASAN_UT：37/37 PASS（整组 420 ms，不含构建）；新增 3 个测试，既有通用 helper 同时扩展到全部类型的文件索引验证。
+日志：validation/be-ut-fixed-types-final.log；标准 XML：be/ut_build_ASAN/gtest_output/doris_be_test.xml。
+本轮未运行 RELEASE 性能测试，也未新增通用 TIME/内部 offset 的磁盘 ZoneMap 能力。
+
+本轮静态检查复用首轮的 changed-line clang-tidy 配置。测试 helper 对
+readability-function-cognitive-complexity 单项标记 NOLINTNEXTLINE，并注明 GTest
+断言宏展开会夸大复杂度，保留每个类型完整的持久化验证契约；未放宽生产代码检查。
+实现检查日志：validation/clang-tidy-fixed-types-reuse.log；
+测试检查日志：validation/clang-tidy-fixed-types-test-final.log。
+
+本轮最终 clang-tidy：实现和测试改动行检查均通过，无新增诊断；格式、构建卫生和 diff 检查通过。
