@@ -56,6 +56,8 @@ import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -85,13 +87,19 @@ import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -139,6 +147,35 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /**
+     * Date arithmetic can throw for values outside its valid range. Keep it above a lower
+     * condition, join, limit, or CTE consumer so that those operators can reject rows first.
+     * A date add/subtract with literal zero is an identity and remains safe to push through.
+     */
+    public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic(expr))
+                && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
+    }
+
+    private static boolean isUnsafeDateArithmetic(Expression expression) {
+        if (expression instanceof DateCeilFloorMonotonic) {
+            return true;
+        }
+        if (!(expression instanceof DateAddSubMonotonic)) {
+            return false;
+        }
+        DateAddSubMonotonic dateArithmetic = (DateAddSubMonotonic) expression;
+        int dateChildIndex = dateArithmetic.getMonotonicFunctionChildIndex();
+        for (int i = 0; i < expression.children().size(); i++) {
+            if (i != dateChildIndex && !(expression.child(i) instanceof NumericLiteral
+                    && ((NumericLiteral) expression.child(i)).getDouble() == 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** Whether evaluating these expressions can produce results unsuitable for reuse across queries. */
     public static boolean containsNonCacheableExpression(Collection<? extends Expression> expressions) {
