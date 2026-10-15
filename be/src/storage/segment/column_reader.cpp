@@ -24,7 +24,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -357,46 +356,6 @@ private:
 };
 
 } // namespace
-
-Status prepare_dependent_read_ahead(const ColumnReadAheadContext* context,
-                                    std::initializer_list<ColumnIterator*> iterators,
-                                    const roaring::Roaring& rowids, bool reverse) {
-    if (context == nullptr || rowids.isEmpty()) {
-        return Status::OK();
-    }
-
-    std::vector<rowid_t> current_rowids;
-    current_rowids.reserve(cast_set<size_t>(rowids.cardinality()));
-    for (uint32_t rowid : rowids) {
-        current_rowids.push_back(rowid);
-    }
-    const ColumnReadAheadRequest request {
-            .current_rowids = current_rowids.data(),
-            .current_rowid_count = current_rowids.size(),
-            .scan_rowids = &rowids,
-            .context = context,
-            .role = ColumnReadAheadRole::LAZY,
-            .reverse = reverse,
-    };
-    std::vector<ColumnReadAheadPlan> plans;
-    for (auto* iterator : iterators) {
-        DORIS_CHECK(iterator != nullptr);
-        if (iterator->need_to_read()) {
-            const auto status = iterator->prepare_read_ahead(request, &plans);
-            if (!status.ok()) {
-                LOG_EVERY_N(WARNING, 100)
-                        << "failed to prepare dependent column read-ahead; use the original read "
-                           "path: "
-                        << status;
-            }
-        }
-    }
-    if (!plans.empty()) {
-        DORIS_CHECK(context->segment != nullptr);
-        static_cast<void>(context->segment->apply_plans(std::move(plans)));
-    }
-    return Status::OK();
-}
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
@@ -1465,33 +1424,6 @@ Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& param
     return Status::OK();
 }
 
-Status MapFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                                 std::vector<ColumnReadAheadPlan>* plans) {
-    DORIS_CHECK(plans != nullptr);
-    if (!need_to_read()) {
-        return Status::OK();
-    }
-    request.sanity_check();
-    _read_ahead_context = request.context;
-    _read_ahead_reverse = request.reverse;
-    if (read_null_map_only()) {
-        if (_map_reader->is_nullable()) {
-            DORIS_CHECK(_null_iterator != nullptr);
-            return _null_iterator->prepare_read_ahead(request, plans);
-        }
-        return Status::OK();
-    }
-
-    if (need_to_read_meta_columns()) {
-        RETURN_IF_ERROR(_offsets_iterator->prepare_read_ahead(request, plans));
-        if (_map_reader->is_nullable()) {
-            DORIS_CHECK(_null_iterator != nullptr);
-            RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
-        }
-    }
-    return Status::OK();
-}
-
 void MapFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -1594,15 +1526,6 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
 
     if (num_items > 0) {
-        if (!read_offset_only()) {
-            const auto first_item = _key_iterator->get_current_ordinal();
-            DORIS_CHECK(_val_iterator->get_current_ordinal() == first_item);
-            roaring::Roaring item_rowids;
-            item_rowids.addRange(first_item, cast_set<uint64_t>(first_item) + num_items);
-            RETURN_IF_ERROR(prepare_dependent_read_ahead(_read_ahead_context,
-                                                         {_key_iterator.get(), _val_iterator.get()},
-                                                         item_rowids, _read_ahead_reverse));
-        }
         auto key_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
         auto val_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
         Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(key_ptr); }};
@@ -1847,34 +1770,34 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         return Status::OK();
     };
 
-    std::vector<std::pair<ordinal_t, size_t>> item_ranges;
-    ordinal_t last_idx = 0;
-    roaring::Roaring item_rowids;
-    for (size_t i = 0; i < count; ++i) {
-        const size_t sz = sizes[i];
+    size_t this_run = sizes[0];
+    auto start_idx = starts_data[0];
+    auto last_idx = starts_data[0] + this_run;
+    for (size_t i = 1; i < count; ++i) {
+        size_t sz = sizes[i];
         if (sz == 0) {
             continue;
         }
-        const auto start_idx = cast_set<ordinal_t>(starts_data[i]);
-        item_rowids.addRange(start_idx, cast_set<uint64_t>(start_idx) + sz);
-        if (item_ranges.empty() || start_idx != last_idx) {
-            item_ranges.emplace_back(start_idx, sz);
-            last_idx = start_idx + sz;
+        auto start = static_cast<ordinal_t>(starts_data[i]);
+        if (start != last_idx) {
+            RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
+                                               fill_lazy_skipped_keys));
+            RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
+                                               fill_lazy_skipped_values));
+            start_idx = start;
+            this_run = sz;
+            last_idx = start + sz;
             continue;
         }
-        item_ranges.back().second += sz;
+
+        this_run += sz;
         last_idx += sz;
     }
 
-    RETURN_IF_ERROR(prepare_dependent_read_ahead(_read_ahead_context,
-                                                 {_key_iterator.get(), _val_iterator.get()},
-                                                 item_rowids, _read_ahead_reverse));
-    for (const auto& [start_idx, num_items] : item_ranges) {
-        RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, num_items,
-                                           fill_lazy_skipped_keys));
-        RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, num_items,
-                                           fill_lazy_skipped_values));
-    }
+    RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
+                                       fill_lazy_skipped_keys));
+    RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
+                                       fill_lazy_skipped_values));
     return Status::OK();
 }
 
@@ -2094,33 +2017,6 @@ Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return Status::OK();
 }
 
-Status StructFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                                    std::vector<ColumnReadAheadPlan>* plans) {
-    DORIS_CHECK(plans != nullptr);
-    if (!need_to_read()) {
-        return Status::OK();
-    }
-    request.sanity_check();
-    if (read_null_map_only()) {
-        if (_struct_reader->is_nullable()) {
-            DORIS_CHECK(_null_iterator != nullptr);
-            return _null_iterator->prepare_read_ahead(request, plans);
-        }
-        return Status::OK();
-    }
-
-    for (auto& column_iterator : _sub_column_iterators) {
-        if (column_iterator->need_to_read()) {
-            RETURN_IF_ERROR(column_iterator->prepare_read_ahead(request, plans));
-        }
-    }
-    if (_struct_reader->is_nullable() && need_to_read_meta_columns()) {
-        DORIS_CHECK(_null_iterator != nullptr);
-        RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
-    }
-    return Status::OK();
-}
-
 void StructFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2320,11 +2216,6 @@ Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return _offset_iterator->init_prefetcher(params);
 }
 
-Status OffsetFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                                    std::vector<ColumnReadAheadPlan>* plans) {
-    return _offset_iterator->prepare_read_ahead(request, plans);
-}
-
 void OffsetFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2492,13 +2383,6 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     if (num_items > 0) {
-        if (!read_offset_only()) {
-            const auto first_item = _item_iterator->get_current_ordinal();
-            roaring::Roaring item_rowids;
-            item_rowids.addRange(first_item, cast_set<uint64_t>(first_item) + num_items);
-            RETURN_IF_ERROR(prepare_dependent_read_ahead(
-                    _read_ahead_context, {_item_iterator.get()}, item_rowids, _read_ahead_reverse));
-        }
         auto column_items_ptr = IColumn::mutate(std::move(column_array.get_data_ptr()));
         Defer defer_items {[&] { column_array.get_data_ptr() = std::move(column_items_ptr); }};
         if (read_offset_only()) {
@@ -2539,33 +2423,6 @@ Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& par
     RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
-    }
-    return Status::OK();
-}
-
-Status ArrayFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                                   std::vector<ColumnReadAheadPlan>* plans) {
-    DORIS_CHECK(plans != nullptr);
-    if (!need_to_read()) {
-        return Status::OK();
-    }
-    request.sanity_check();
-    _read_ahead_context = request.context;
-    _read_ahead_reverse = request.reverse;
-    if (read_null_map_only()) {
-        if (_array_reader->is_nullable()) {
-            DORIS_CHECK(_null_iterator != nullptr);
-            return _null_iterator->prepare_read_ahead(request, plans);
-        }
-        return Status::OK();
-    }
-
-    if (need_to_read_meta_columns()) {
-        RETURN_IF_ERROR(_offset_iterator->prepare_read_ahead(request, plans));
-        if (_array_reader->is_nullable()) {
-            DORIS_CHECK(_null_iterator != nullptr);
-            RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
-        }
     }
     return Status::OK();
 }
@@ -3033,7 +2890,6 @@ Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& requ
         return Status::OK();
     }
     if (_read_ahead_segment != nullptr) {
-        // A split complex column can be visited in several read phases during initialization.
         DORIS_CHECK(request.page_driven);
         DORIS_CHECK(_read_ahead_segment == request.context->segment);
         DORIS_CHECK(_read_ahead->options() == request.options());

@@ -122,8 +122,10 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
-    // Install the read-ahead reader before column iterators capture their FileReader.
+    // Create the scalar read-ahead context before column iterators capture their FileReader.
     [[nodiscard]] Status _init_query_read_ahead();
+    // Complex columns retain their original reader and segment prefetcher.
+    bool _use_read_ahead_for_column(ColumnId cid) const;
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
     // Initialize eager and lazy page sequences after pruning and submit their first windows

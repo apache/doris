@@ -49,8 +49,8 @@ struct RowIdColumnRead {
     std::unique_ptr<ColumnIterator>* iterator {nullptr};
 };
 
-/// Initializes supported column iterators on the read-ahead reader and submits all of their data
-/// pages together. Variant columns keep using the original Segment path.
+/// Initializes top-level scalar iterators on the read-ahead reader and submits their data pages
+/// together. Complex columns and extracted variant paths keep the original Segment path.
 Status prepare_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSchema& schema,
                                                  const std::vector<uint32_t>& row_ids,
                                                  std::span<RowIdColumnRead> columns,
@@ -62,7 +62,7 @@ Status read_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSche
                                               std::span<RowIdColumnRead> columns,
                                               SegmentReadAhead& read_ahead);
 
-/// Reads a physical column whose TabletColumn is already known, such as the row-store column.
+/// Reads a physical scalar column whose TabletColumn is known, such as the row-store column.
 Status read_column_by_rowids_with_read_ahead(Segment& segment, const TabletColumn& column,
                                              const std::vector<uint32_t>& row_ids,
                                              MutableColumnPtr& result,

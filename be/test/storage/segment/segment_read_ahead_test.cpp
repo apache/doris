@@ -31,11 +31,16 @@
 
 #include "common/cast_set.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/page_handle.h"
@@ -253,6 +258,44 @@ TEST(SegmentReadAheadTest, ReadsSlotDefaultBeforeNewColumnReachesTabletSchema) {
     ASSERT_EQ(values.size(), 2);
     EXPECT_EQ(values[0], 42);
     EXPECT_EQ(values[1], 42);
+    EXPECT_EQ(source->read_calls(), 0);
+}
+
+TEST(SegmentReadAheadTest, PointReadPreparationLeavesComplexIteratorsOnOriginalPath) {
+    auto source = std::make_shared<TestFileReader>(std::string(256, 'x'));
+    auto scheduler = make_scheduler();
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = {}});
+    const auto integer = std::make_shared<DataTypeInt32>();
+    const DataTypes types {
+            std::make_shared<DataTypeArray>(integer),
+            std::make_shared<DataTypeMap>(integer, integer),
+            std::make_shared<DataTypeStruct>(DataTypes {integer}, Strings {"child"})};
+    for (const auto& type : types) {
+        SCOPED_TRACE(type->get_name());
+        auto slot_type = type->to_thrift();
+        auto slot_data = TSlotDescriptorBuilder()
+                                 .set_slotType(slot_type)
+                                 .column_name("complex_column")
+                                 .set_nullIndicatorBit(-1)
+                                 .build();
+        slot_data.__set_col_unique_id(123);
+        SlotDescriptor slot(slot_data);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->append_column(ReadSchema::tablet_column_from_slot(slot));
+        testing::StrictMock<MockSegment> segment(schema);
+        OlapReaderStatistics stats;
+        StorageReadOptions options(stats);
+        std::unique_ptr<ColumnIterator> iterator;
+        RowIdColumnRead column {.slot = &slot, .read_options = &options, .iterator = &iterator};
+        const std::vector<uint32_t> row_ids {0, 2};
+        ASSERT_TRUE(prepare_columns_by_rowids_with_read_ahead(
+                            segment, *schema, row_ids, std::span<RowIdColumnRead>(&column, 1),
+                            *read_ahead)
+                            .ok());
+        EXPECT_EQ(iterator, nullptr);
+    }
     EXPECT_EQ(source->read_calls(), 0);
 }
 
