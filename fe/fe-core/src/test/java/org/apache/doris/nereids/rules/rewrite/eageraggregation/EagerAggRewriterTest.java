@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.DecimalMultiplyForSum;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -72,6 +75,48 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    }
+
+    @Test
+    void testDecimalSumMultiplicityPreservesScale() throws Exception {
+        createTable("CREATE TABLE decimal_sum_l (k VARCHAR(20), v DECIMAL(38,18))"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        createTable("CREATE TABLE decimal_sum_r (k VARCHAR(20), w BIGINT)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        int oldMode = connectContext.getSessionVariable().getEagerAggregationMode();
+        boolean oldReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        boolean oldDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().setEagerAggregationMode(1);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+            for (boolean decimal256 : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableDecimal256 = decimal256;
+                DecimalV3Type expected = DecimalV3Type.createDecimalV3Type(decimal256 ? 76 : 38, 18);
+                Plan plan = PlanChecker.from(connectContext)
+                        .analyze("SELECT l.k AS g, SUM(l.v) AS sv, SUM(r.w) AS sw"
+                                + " FROM decimal_sum_l l JOIN decimal_sum_r r ON l.k=r.k GROUP BY l.k")
+                        .rewrite().getPlan();
+                Assertions.assertEquals(expected, plan.getOutput().get(1).getDataType());
+                AtomicInteger compensationCount = new AtomicInteger();
+                plan.foreach(node -> ((Plan) node).getExpressions().forEach(expression ->
+                        expression.foreach(child -> {
+                            if (child instanceof DecimalMultiplyForSum) {
+                                DecimalMultiplyForSum multiply = (DecimalMultiplyForSum) child;
+                                Assertions.assertEquals(expected, multiply.getDataType());
+                                Assertions.assertEquals(expected,
+                                        multiply.withChildren(multiply.children()).getDataType());
+                                compensationCount.incrementAndGet();
+                            }
+                        })));
+                Assertions.assertTrue(compensationCount.get() > 0, plan.treeString());
+            }
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(oldMode);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldReorder);
+            connectContext.getSessionVariable().enableDecimal256 = oldDecimal256;
+        }
     }
 
     @Test
