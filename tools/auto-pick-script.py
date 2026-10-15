@@ -103,6 +103,10 @@ try:
             base=TARGET_BRANCH
         )
         print(f"Created a new PR #{new_pr.number} for cherry-picked changes.")
+        if output_path := os.getenv('GITHUB_OUTPUT'):
+            with open(output_path, 'a') as output:
+                output.write(f"pr_number={new_pr.number}\n")
+                output.write(f"head_sha={new_pr.head.sha}\n")
     else:
         print(f"Commit {merge_commit_sha} was not found in {new_branch_name} after cherry-picking.")
 

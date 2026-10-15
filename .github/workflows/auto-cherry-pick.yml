@@ -25,6 +25,7 @@ on:
     branches:
       - master
 permissions:
+  actions: write
   checks: write
   contents: write
   pull-requests: write
@@ -50,7 +51,7 @@ jobs:
       - name: Check SHA
         id: check_sha
         run: |
-            expected_sha="5439ca6304c986a5b26e8f48d528253909b417597088fe98969afee5c2eccbe6d60c5cd1eb03d452eb8082ce2a8ff4ea18854770375487a30bd4af7af9afd322"
+            expected_sha="528eabe0941e95bba64751e85dfd6c1539edad7cdf5753267d5f9d991b2359d065dfc76bcb8a69e904f25cb07e16dbc620d01f3a4f40d006f106ff34553d75aa"
             calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
             if [ "$calculated_sha" != "$expected_sha" ]; then
               echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
@@ -78,6 +79,7 @@ jobs:
           python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-4.1
 
       - name: Auto cherry-pick to branch-4.2
+        id: auto_pick_42
         if: >-
           ${{ !cancelled() && steps.check_sha.outcome == 'success' &&
               contains(github.event.pull_request.labels.*.name, 'dev/4.2.x') &&
@@ -89,3 +91,15 @@ jobs:
           CONFLICT_LABEL: dev/4.2.x-conflict
         run: |
           python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-4.2
+
+      - name: Run buildall for the branch-4.2 PR
+        if: ${{ !cancelled() && steps.auto_pick_42.outputs.pr_number != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTO_PICK_PR_NUMBER: ${{ steps.auto_pick_42.outputs.pr_number }}
+          AUTO_PICK_HEAD_SHA: ${{ steps.auto_pick_42.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/workflows/comment-to-trigger-teamcity.yml/dispatches" \
+            -f ref=master -f "inputs[pr_number]=${AUTO_PICK_PR_NUMBER}" \
+            -f "inputs[head_sha]=${AUTO_PICK_HEAD_SHA}"

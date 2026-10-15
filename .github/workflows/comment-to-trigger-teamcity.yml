@@ -20,6 +20,16 @@ name: Comment to trigger teamcity
 on:
   issue_comment:
     types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Branch-4.2 auto-pick PR number
+        required: true
+        type: string
+      head_sha:
+        description: Auto-pick PR head SHA at creation
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -33,9 +43,10 @@ jobs:
     # A generic "run" match also catches performance reports such as "Total hot run time".
     if: >-
       ${{
-        github.event.issue.pull_request &&
-        !startsWith(github.event.comment.body, '/review') &&
-        (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.issue.pull_request &&
+         !startsWith(github.event.comment.body, '/review') &&
+         (
           contains(github.event.comment.body, 'run buildall') ||
           contains(github.event.comment.body, 'run compile') ||
           contains(github.event.comment.body, 'run beut') ||
@@ -52,14 +63,15 @@ jobs:
           contains(github.event.comment.body, 'run performance') ||
           contains(github.event.comment.body, 'skip buildall') ||
           contains(github.event.comment.body, 'skip check_coverage')
-        )
+         ))
       }}
 
     # Serialize duplicate commands for one PR. The next run then sees the build
     # queued by the previous run and can safely skip an identical PR revision.
     concurrency:
       group: >-
-        comment-to-trigger-teamcity-${{ github.event.issue.number }}-${{
+        comment-to-trigger-teamcity-${{ github.event.issue.number || inputs.pr_number }}-${{
+          github.event_name == 'workflow_dispatch' && 'buildall' ||
           contains(github.event.comment.body, 'run buildall') && 'buildall' ||
           contains(github.event.comment.body, 'run compile') && 'compile' ||
           contains(github.event.comment.body, 'run beut') && 'beut' ||
@@ -81,8 +93,11 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_BODY: ${{ github.event_name == 'workflow_dispatch' && 'run buildall' || github.event.comment.body }}
       COMMENT_USER_ID: ${{ github.event.comment.user.id }}
+      PULL_REQUEST_NUM: ${{ github.event.issue.number || inputs.pr_number }}
+      DISPATCH_HEAD_SHA: ${{ inputs.head_sha }}
+      TRIGGER_EVENT: ${{ github.event_name }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -90,9 +105,23 @@ jobs:
       id: parse
       run: |
         COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
-        PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
-        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
-        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
+        [[ "${PULL_REQUEST_NUM}" =~ ^[0-9]+$ ]] || exit 1
+        pr_json="$(curl -fsS -H "Authorization:Bearer ${GITHUB_TOKEN}" \
+          "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUM}")"
+        COMMIT_ID_FROM_TRIGGER="$(jq -r '.head.sha' <<< "$pr_json")"
+        TARGET_BRANCH="$(jq -r '.base.ref' <<< "$pr_json")"
+        if [[ "${TRIGGER_EVENT}" == 'workflow_dispatch' ]]; then
+          [[ "${DISPATCH_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          jq -e --arg sha "${DISPATCH_HEAD_SHA}" --arg repo "${GITHUB_REPOSITORY}" '
+            .state == "open" and .base.ref == "branch-4.2" and
+            .head.sha == $sha and .head.repo.full_name == $repo and
+            (.head.ref | test("^auto-pick-[0-9]+-branch-4[.]2$")) and
+            .user.login == "github-actions[bot]"
+          ' <<< "$pr_json" > /dev/null || {
+            echo 'Workflow dispatch must identify the current head of an open branch-4.2 auto-pick PR.'
+            exit 1
+          }
+        fi
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
