@@ -535,7 +535,16 @@ WorkerMutationOutcome execute_worker_mutation(LanceDataset* pinned_dataset,
     int64_t observed_latest = 0;
     {
         uint64_t latest_version = lance_dataset_latest_version(pinned_dataset);
-        if (latest_version != 0 && latest_version > admitted_dataset_version) {
+        if (latest_version == 0) {
+            // A failed observation is 0, never an inference - and it must not
+            // leave a residual thread-local error code either: lance-c only
+            // clears the slot on a successful guarded call, so read-and-clear
+            // it here. Otherwise a later mutating call that fails without
+            // setting a code of its own (the unknown-code state the native
+            // return decision below defends against) could resurrect THIS
+            // call's stale code as a trusted fact of the mutation.
+            (void)save_lance_error();
+        } else if (latest_version > admitted_dataset_version) {
             observed_latest = static_cast<int64_t>(latest_version);
         }
     }
@@ -667,21 +676,46 @@ WorkerMutationOutcome execute_worker_mutation(LanceDataset* pinned_dataset,
                 pinned_dataset, dispatch.column_name.c_str(), name.c_str(), &native_params,
                 replace);
     }
-    LanceErrorCode native_code = LANCE_OK;
+    // The typed code passes through verbatim, but only when one exists. A
+    // failed native call that left no typed thread-local code is an
+    // unknown-code state - exactly like a code outside the pinned ABI's value
+    // set - and either way there is no trusted fact: no result frame, nonzero
+    // exit, the handler synthesizes indeterminate. A code-0 trusted
+    // NATIVE_RETURN is reachable ONLY through the call's own success
+    // sentinel, never inferred from a failure (the same no-typed-code =
+    // no-trusted-fact discipline as the listing call site above).
+    LanceErrorCode saved_code = LANCE_OK;
     if (native_result != 0) {
-        SavedLanceError saved = save_lance_error();
-        native_code = saved.code;
+        saved_code = save_lance_error().code;
     }
-    // The typed code passes through verbatim. A code outside the pinned ABI's
-    // value set (negative garbage, out-of-range) is no trusted fact: no
-    // result frame, nonzero exit - the handler synthesizes indeterminate.
-    if (native_code < LANCE_OK || native_code > LANCE_ERR_PANIC) {
+    const std::optional<LanceErrorCode> trusted_code =
+            trusted_native_return_code(native_result, saved_code);
+    if (!trusted_code.has_value()) {
         return outcome;
     }
     outcome.trusted = true;
     outcome.phase = TLanceIndexWorkerResultPhase::NATIVE_RETURN;
-    outcome.lance_error_code = static_cast<int32_t>(native_code);
+    outcome.lance_error_code = static_cast<int32_t>(*trusted_code);
     return outcome;
+}
+
+std::optional<LanceErrorCode> trusted_native_return_code(int32_t native_result,
+                                                         LanceErrorCode saved_code) {
+    if (native_result == 0) {
+        // The C ABI's success sentinel is its own typed fact; no thread-local
+        // error is expected or consulted on this path.
+        return LANCE_OK;
+    }
+    if (saved_code == LANCE_OK) {
+        // Failed call, no typed code: unknown code, never an inferred success.
+        return std::nullopt;
+    }
+    if (saved_code < LANCE_OK || saved_code > LANCE_ERR_PANIC) {
+        // Outside the pinned ABI's value set: negative garbage or drift, no
+        // fact to forward.
+        return std::nullopt;
+    }
+    return saved_code;
 }
 
 int run_index_worker(const IndexWorkerParams& params) {
@@ -951,8 +985,17 @@ int run_index_worker(const IndexWorkerParams& params) {
     // phase consumes the same values.
     VectorIndexArguments build_arguments;
     if (is_create || is_replace) {
-        validate_and_map_properties(dispatch.properties_json, dispatch.max_num_partitions,
-                                    dispatch.max_num_sub_vectors, &build_arguments);
+        // Step 4 validated these exact bytes against these exact bounds; a
+        // divergent replay means no deterministic fact is left to build on
+        // (the function is pure, so this is unreachable until someone makes
+        // it otherwise). Refuse bare - no result frame, indeterminate -
+        // rather than letting an ignored failure feed all-zero defaults into
+        // the native call.
+        if (!validate_and_map_properties(dispatch.properties_json, dispatch.max_num_partitions,
+                                         dispatch.max_num_sub_vectors, &build_arguments)) {
+            diag(params.diag_fd, DIAG_UNTRUSTED_OUTCOME);
+            return 1;
+        }
     }
     WorkerMutationOutcome outcome =
             execute_worker_mutation(dataset.get(), admitted_version, dispatch, build_arguments);

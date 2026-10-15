@@ -511,6 +511,98 @@ TEST_F(LanceIndexWorkerServiceTest, BudgetRejectionDoesNotPoisonInvocationId) {
     EXPECT_TRUE(status_code_is(second, TStatusCode::INTERNAL_ERROR));
 }
 
+// The dedup guard is bounded (N3): at the entry cap a FRESH id is refused as
+// backpressure - never launched on the wire (non-OK), never executed, and
+// NOT retained (nothing executed, so a corrected retry stays free) - while an
+// already-retained id still gets its duplicate answer. The queue-full rail's
+// twin, not a duplicate ruling.
+TEST_F(LanceIndexWorkerServiceTest, DedupSaturationRefusesFreshIdsAsBackpressure) {
+    LanceIndexWorkerService service;
+    start_service(&service);
+    service.force_dedup_max_entries_for_test(2);
+
+    // Seed two live retention entries directly (the dedup map is the private
+    // seam the retention test above already drives).
+    const std::string retained_a = "sat-a-" + std::to_string(getpid());
+    const std::string retained_b = "sat-b-" + std::to_string(getpid());
+    {
+        std::lock_guard<std::mutex> lock(service._dedup_mutex);
+        service._dedup_erase_after_ms[retained_a] = epoch_millis() + 60000;
+        service._dedup_erase_after_ms[retained_b] = epoch_millis() + 60000;
+    }
+
+    // A fresh id at the cap: refused before enqueue, never launched.
+    const TLanceIndexMutationRequest saturated_req =
+            make_request("sat", epoch_millis() + 60000);
+    TLanceIndexMutationResult saturated;
+    service.lance_index_mutate(saturated, saturated_req);
+    EXPECT_TRUE(status_code_is(saturated, TStatusCode::TOO_MANY_TASKS));
+    EXPECT_FALSE(saturated.__isset.worker_phase) << "backpressure is never launched: no phase";
+    EXPECT_EQ(saturated.invocation_id, saturated_req.invocation_id);
+    EXPECT_EQ(saturated.be_process_epoch, saturated_req.be_process_epoch);
+    EXPECT_EQ(service.never_launched_total_for_test(), 1);
+
+    // The refusal retained nothing: the same fresh id is refused the same way
+    // again (still backpressure, not the duplicate answer).
+    TLanceIndexMutationResult saturated_again;
+    service.lance_index_mutate(saturated_again, saturated_req);
+    EXPECT_TRUE(status_code_is(saturated_again, TStatusCode::TOO_MANY_TASKS));
+    EXPECT_FALSE(saturated_again.__isset.worker_phase);
+    EXPECT_EQ(service.never_launched_total_for_test(), 2);
+
+    // A retained id is unaffected by the cap: the duplicate answer still is
+    // OK + phase 3, no code, no execution.
+    TLanceIndexMutationRequest duplicate_req = make_request("x", epoch_millis() + 60000);
+    duplicate_req.__set_invocation_id(retained_a);
+    TLanceIndexMutationResult duplicate;
+    service.lance_index_mutate(duplicate, duplicate_req);
+    EXPECT_TRUE(status_code_is(duplicate, TStatusCode::OK));
+    EXPECT_EQ(duplicate.worker_phase, TLanceIndexWorkerPhase::INDETERMINATE_AFTER_LAUNCH);
+    EXPECT_FALSE(duplicate.__isset.lance_error_code);
+    EXPECT_EQ(service.launched_total_for_test(), 0);
+}
+
+// The executor exception guard (N5): an exception escaping the execution path
+// (a bad_alloc in the dispatch build is the realistic shape; the fault point
+// stands in for it deterministically) is answered - OK + phase 3, no code -
+// and the executor thread survives to serve the next invocation. Before the
+// guard the escape crossed the thread entry and std::terminate'd the whole
+// BE process.
+TEST_F(LanceIndexWorkerServiceTest, ExecutorExceptionIsAnsweredAndSurvived) {
+    LanceIndexWorkerService service;
+    start_service(&service);
+    constexpr const char* kThrowPoint = "LanceIndexWorkerService.executor_throw";
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(kThrowPoint);
+
+    const TLanceIndexMutationRequest request = make_request("throw", epoch_millis() + 60000);
+    TLanceIndexMutationResult thrown;
+    service.lance_index_mutate(thrown, request);
+    EXPECT_TRUE(status_code_is(thrown, TStatusCode::OK));
+    EXPECT_TRUE(thrown.__isset.worker_phase);
+    EXPECT_EQ(thrown.worker_phase, TLanceIndexWorkerPhase::INDETERMINATE_AFTER_LAUNCH);
+    EXPECT_FALSE(thrown.__isset.lance_error_code) << "the guard never invents a code";
+    EXPECT_NE(thrown.message.find("executor failed"), std::string::npos);
+    EXPECT_EQ(thrown.invocation_id, request.invocation_id);
+    EXPECT_EQ(thrown.be_process_epoch, request.be_process_epoch);
+    EXPECT_EQ(service.indeterminate_total_for_test(), 1);
+
+    // The executor survived: with the point gone the next invocation runs the
+    // normal path through the SAME thread pool - here the isolation rail's
+    // never-launched answer (preflight was skipped by start_service).
+    DebugPoints::instance()->remove(kThrowPoint);
+    config::enable_debug_points = saved_debug_points;
+    TLanceIndexMutationResult recovered;
+    service.lance_index_mutate(recovered, make_request("recovered", epoch_millis() + 60000));
+    EXPECT_TRUE(status_code_is(recovered, TStatusCode::INTERNAL_ERROR));
+    EXPECT_FALSE(recovered.__isset.worker_phase);
+    EXPECT_EQ(service.never_launched_total_for_test(), 1);
+    EXPECT_EQ(service.indeterminate_total_for_test(), 1);
+    EXPECT_EQ(service.reserved_slots_for_test(), 0);
+    EXPECT_EQ(service.inflight_workers(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // Two-state slots (D4): reserved (direct release on pre-launch failure) vs
 // launched (released only after the domain-termination confirmation).

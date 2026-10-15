@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -601,6 +602,64 @@ TEST(LanceIndexWorkerSemanticsTest, NoOpCarriesNoLatestDiagnostic) {
     EXPECT_EQ(outcome.observed_latest_version, 0)
             << "the latest diagnostic is reserved for pre-invocation rejections";
     EXPECT_EQ(latest_index_names(uri).size(), 2U) << "the no-op committed nothing";
+}
+
+// ── execute_worker_mutation: the native-return code decision (SF1) ──
+
+// The decision seam of the single native mutating call, pinned as a matrix.
+// The load-bearing row is the provider contract violation no real lance-c
+// build produces - a FAILED call that left no typed thread-local code - which
+// the seam injects here as the fake "(returned nonzero, code 0)" FFI result.
+// Before the SF1 fix that shape fell through the value-range check as code 0
+// and was forwarded as a trusted native success (a fabricated committed
+// index); the guard must refuse it: no trusted fact, no result frame, the
+// handler synthesizes indeterminate.
+TEST(LanceIndexWorkerSemanticsTest, TrustedNativeReturnCodeMatrix) {
+    // The success sentinel is its own typed fact.
+    EXPECT_EQ(trusted_native_return_code(0, LANCE_OK),
+              std::optional<LanceErrorCode>(LANCE_OK));
+    // A success with a stale code still in the slot is still a success: the
+    // code is never consulted on the success path.
+    EXPECT_EQ(trusted_native_return_code(0, LANCE_ERR_COMMIT_CONFLICT),
+              std::optional<LanceErrorCode>(LANCE_OK));
+    // THE SF1 row: failed call, no typed code - unknown, never an inferred
+    // code-0 success.
+    EXPECT_EQ(trusted_native_return_code(-1, LANCE_OK), std::nullopt);
+    // A typed failure passes through verbatim.
+    EXPECT_EQ(trusted_native_return_code(-1, LANCE_ERR_COMMIT_CONFLICT),
+              std::optional<LanceErrorCode>(LANCE_ERR_COMMIT_CONFLICT));
+    EXPECT_EQ(trusted_native_return_code(-1, LANCE_ERR_IO),
+              std::optional<LanceErrorCode>(LANCE_ERR_IO));
+    // Outside the pinned ABI's value set: no fact, in both directions.
+    EXPECT_EQ(trusted_native_return_code(-1, static_cast<LanceErrorCode>(-7)), std::nullopt);
+    EXPECT_EQ(trusted_native_return_code(-1, static_cast<LanceErrorCode>(99)), std::nullopt);
+}
+
+// The real wiring of the same decision: a native call that fails with the
+// provider's TYPED code must pass that code through verbatim as a trusted
+// NATIVE_RETURN. Together with the matrix above this covers both sides of the
+// SF1 guard through the production call site: read the thread-local code only
+// on failure, forward it only when the decision seam says a fact exists.
+// The typed failure shape: an all-zero VectorIndexArguments (exactly what an
+// ignored properties-revalidation failure would feed the native call) - the
+// provider rejects num_partitions=0 with LANCE_ERR_INVALID_ARGUMENT, typed.
+TEST(LanceIndexWorkerSemanticsTest, TypedNativeFailurePassesThroughVerbatim) {
+    LanceTempDir tmp;
+    const std::string uri = copy_fixture_dataset("s14.lance", tmp.path);
+    LanceDatasetPtr pinned = open_dataset_path(uri, 1);
+    ASSERT_NE(pinned, nullptr);
+
+    TLanceIndexWorkerDispatch dispatch =
+            make_dispatch(TLanceIndexWorkerMutationType::CREATE, "idx_v");
+    VectorIndexArguments zeroed; // num_partitions = 0, num_sub_vectors = 0
+    WorkerMutationOutcome outcome =
+            execute_worker_mutation(pinned.get(), 1, dispatch, zeroed);
+    ASSERT_TRUE(outcome.trusted);
+    EXPECT_EQ(outcome.phase, TLanceIndexWorkerResultPhase::NATIVE_RETURN);
+    EXPECT_EQ(outcome.lance_error_code, static_cast<int32_t>(LANCE_ERR_INVALID_ARGUMENT));
+    EXPECT_FALSE(outcome.no_op);
+    // Nothing was committed by the failed build.
+    EXPECT_TRUE(latest_index_names(uri).empty());
 }
 
 } // namespace

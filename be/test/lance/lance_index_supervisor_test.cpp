@@ -715,6 +715,93 @@ TEST_F(LanceIndexSupervisorTest, StopNeverLaunchesNewWorkers) {
 }
 
 // ---------------------------------------------------------------------------
+// SF2: the stop()/launch race. The prelude between execute()'s entry
+// _stopping check and the in-flight registration spans real milliseconds
+// (frame encode, env build, four pipes, cgroup writes, fork, migration), and
+// the case above never exercises it - it waits for the worker's exec marker,
+// i.e. for the registration to have happened, before stopping. A stop() that
+// runs entirely INSIDE the window snapshots an empty registry: both kill
+// passes are no-ops, and the child registered afterwards used to escape them
+// both - riding its own wall-clock ceiling (an hour by default) while the
+// service's stop() joins the executor thread. The hang_before_launch fault
+// point pins execute() deterministically inside the window so the race needs
+// no timing luck: stop() must return promptly on the empty registry, and the
+// released execute() must kill its own just-registered child (the
+// post-registration _stopping recheck) and converge it - launched, killed,
+// reaped, indeterminate - in bounded time.
+// ---------------------------------------------------------------------------
+
+TEST_F(LanceIndexSupervisorTest, StopRacingTheLaunchPreludeStillKillsTheLateChild) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    config::lance_index_worker_term_grace_seconds = 1;
+    // Without the fix the child would ride this ceiling (8s) before its own
+    // ladder converges it; with the fix it dies immediately after the
+    // registration. The bound below (5s) separates the two by construction.
+    config::lance_index_worker_wallclock_limit_seconds = 8;
+    LanceIndexSupervisor supervisor;
+    const auto dispatch = make_dispatch("stop-race", epoch_millis() + 3600 * 1000);
+    preflight_supervisor(&supervisor, parent, {dispatch});
+    const std::string mark = test_dir_ + "/stop-race.marker";
+    supervisor.force_worker_exec_for_test(
+            fake_worker_path(), persona_args("mark_hang", {"mark=" + mark}));
+
+    constexpr const char* kPreludePoint = "LanceIndexSupervisor.hang_before_launch";
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(kPreludePoint);
+    Defer defer([saved_debug_points] {
+        DebugPoints::instance()->remove("LanceIndexSupervisor.hang_before_launch");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    Status flight_status = Status::InternalError("unset");
+    WorkerExecution flight_execution;
+    std::thread flight([&] {
+        flight_status = supervisor.execute(dispatch, kill_deadline_for(dispatch.deadline_ms),
+                                           &flight_execution);
+    });
+    // execute() is provably inside the launch prelude once the in-flight
+    // count rises: the block sits after the count guard and before any
+    // frame/pipe/cgroup/fork work, so a risen count can only mean a thread
+    // parked in the block - it already passed the entry _stopping check.
+    if (!wait_until([&] { return supervisor.inflight_count_for_test() >= 1; }, 15000)) {
+        DebugPoints::instance()->remove(kPreludePoint);
+        flight.join();
+        FAIL() << "execute() never reached the launch prelude";
+    }
+
+    // stop() against the provably still-empty registry: both kill snapshots
+    // see nothing and the drain check breaks at once - the exact escape
+    // window this test exists for.
+    const int64_t stop_started = steady_millis();
+    supervisor.stop();
+    EXPECT_LT(steady_millis() - stop_started, 5000) << "stop() hung on an empty registry";
+
+    // Release the prelude: launch -> registration -> the post-registration
+    // _stopping recheck must kill the group itself, and supervise_child then
+    // converges the invocation on this same thread.
+    DebugPoints::instance()->remove(kPreludePoint);
+    const int64_t released = steady_millis();
+    flight.join();
+    EXPECT_LT(steady_millis() - released, 5000)
+            << "the late-registered child escaped the recheck and rode its own ladder";
+
+    // The child was released past the barrier before the kill (a Cancelled
+    // never-launched answer would be a lie): the honest ending is the
+    // converged indeterminate WITH the reap proof - respond-after-reap holds
+    // on the raced path too. The recheck's KILL legitimately races the exec
+    // itself, so the marker file may or may not have appeared; the launched
+    // classification is the invariant, not the marker.
+    EXPECT_TRUE(flight_status.ok()) << flight_status.to_string();
+    EXPECT_EQ(flight_execution.kind, WorkerExecution::Kind::INDETERMINATE);
+    EXPECT_FALSE(flight_execution.result.has_value());
+    EXPECT_TRUE(flight_execution.child_reaped_proof);
+    EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+    EXPECT_EQ(::access(invocation_cgroup_dir(parent, dispatch).c_str(), F_OK), -1)
+            << "the raced invocation cgroup was left behind";
+}
+
+// ---------------------------------------------------------------------------
 // Preflight guards (no delegation needed).
 // ---------------------------------------------------------------------------
 

@@ -247,19 +247,24 @@ bool read_cgroup_event_value(const std::string& path, const char* key, int64_t* 
         std::string line = text.substr(pos, eol - pos);
         pos = eol + 1;
         if (line.compare(0, key_len, key) == 0 && line.size() > key_len && line[key_len] == ' ') {
-            int64_t value = 0;
+            uint64_t value = 0;
             bool digits = false;
             for (size_t i = key_len + 1; i < line.size(); ++i) {
                 if (line[i] < '0' || line[i] > '9') {
                     return false;
                 }
                 digits = true;
-                value = value * 10 + (line[i] - '0');
+                value = value * 10 + static_cast<uint64_t>(line[i] - '0');
+                // The same signed-wraparound guard read_cgroup_int64 applies:
+                // a corrupted kernel-file row is a parse failure, never UB.
+                if (value > static_cast<uint64_t>(INT64_MAX)) {
+                    return false;
+                }
             }
             if (!digits) {
                 return false;
             }
-            *out = value;
+            *out = static_cast<int64_t>(value);
             return true;
         }
     }
@@ -1366,6 +1371,15 @@ Supervision supervise_child(const std::string& cgroup_dir, const std::string& cg
                     if (phase == Phase::READ_RESULT) {
                         sup.failure_category = "malformed result frame";
                     } else {
+                        // Trust root of every pre_ffi_violation below (and of
+                        // the handshake-timeout variant): the exec target is
+                        // /proc/self/exe, so the handshake this binary's
+                        // run_index_worker writes precedes its first lance FFI
+                        // call in the SAME binary's program order - a
+                        // handshake-stage violation provably predates any
+                        // mutation. Relaxing the exec target (an external
+                        // worker image) voids this proof; revisit before
+                        // doing so.
                         sup.pre_ffi_violation = true;
                         sup.failure_category = "malformed handshake frame";
                     }
@@ -1730,6 +1744,18 @@ Status LanceIndexSupervisor::execute(const TLanceIndexWorkerDispatch& dispatch,
     _inflight_count.fetch_add(1);
     CountGuard count_guard {&_inflight_count};
 
+    // Fault-injection point (the launch-window race): blocks INSIDE the
+    // launch prelude - past execute()'s entry _stopping check and the
+    // in-flight accounting above (the count is the gauge, not the kill set;
+    // the registry entry comes only after a successful launch), before any
+    // frame/pipe/cgroup/fork work - so a test can observe the thread here
+    // via inflight_count, run stop() to completion against a still-empty
+    // in-flight REGISTRY, and then release this thread into the late
+    // registration that the post-registration _stopping recheck below must
+    // cover. Supervisor-side only: this name is never in the worker-fault
+    // allowlist, so it cannot cross the exec boundary.
+    DBUG_EXECUTE_IF("LanceIndexSupervisor.hang_before_launch", DBUG_BLOCK);
+
     // D3 dequeue rail: the caller computed kill_deadline once from the request
     // deadline; an invocation whose remaining kill budget cannot fund a minimal
     // worker run is rejected instead of launched into certain expiry.
@@ -1866,6 +1892,23 @@ Status LanceIndexSupervisor::execute(const TLanceIndexWorkerDispatch& dispatch,
         return never_launched(fail_category != nullptr ? fail_category : "launch failed");
     }
     _register_inflight_child(launch.pid);
+    // The late-registration window: the launch prelude above (frame encode,
+    // env build, four pipes, cgroup writes, fork) spans milliseconds between
+    // execute()'s entry _stopping check and this registration, and a stop()
+    // that ran entirely inside that window snapshotted an empty registry -
+    // its TERM pass and its KILL backstop both missed this child, which would
+    // then ride its own wall-clock deadline (the configured ceiling, an hour
+    // by default) while the service's stop() joins this thread. Recheck and
+    // kill the group ourselves; supervise_child below observes the death and
+    // converges the launched invocation to indeterminate - the honest answer,
+    // the child WAS released past the barrier - reaped and bounded. The
+    // recheck closes the window from both sides: either the registration
+    // preceded stop()'s snapshot (the child is in it) or this load already
+    // sees _stopping.
+    if (_stopping.load()) {
+        ::kill(-launch.pid, SIGKILL);
+        ::kill(launch.pid, SIGKILL);
+    }
 
     LaunchLimits limits {memory_limit,
                          pids_max,

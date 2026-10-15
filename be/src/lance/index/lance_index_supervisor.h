@@ -68,6 +68,17 @@ namespace doris::lance {
 // compile-time reap/populated bounds; raising the config above the default
 // breaks the reservation assumption above and is operator error (the config
 // comment repeats this).
+//
+// Clock assumption: the kill deadline and the service rails run on the wall
+// clock while the supervision ladder runs on the monotonic clock, and
+// kSkewMarginMs absorbs only ordinary cross-machine skew and NTP slewing -
+// NOT a large backward wall-clock step. A single backward step of more than
+// the margin (between the deadline computation and the reply) stretches the
+// real ladder past RESERVATION_MS: respond-after-reap itself still holds,
+// but the reply can then cross the FE socket timeout. Stepping the wall
+// clock backwards under load is therefore outside this contract's
+// assumptions (the IDL documents the cross-machine skew assumption the same
+// way).
 // ---------------------------------------------------------------------------
 inline constexpr int64_t kSkewMarginMs = 1000;
 inline constexpr int64_t kTermGraceMs = 10 * 1000;
@@ -181,14 +192,19 @@ public:
     Status execute(const TLanceIndexWorkerDispatch& dispatch, int64_t kill_deadline_ms,
                    WorkerExecution* execution);
 
-    // Best-effort shutdown (N4): closes the launch gate (execute() after
-    // stop() never starts a worker — a late launch would escape the kill
-    // snapshot), signals in-flight workers TERM then KILL after a bounded
-    // grace, and returns. In-flight execute() calls converge on their own
-    // caller threads (their ladders are bounded); stop() does not join them —
-    // their threads are not ours. Correctness never depends on stop(): the
-    // worker-side PR_SET_PDEATHSIG arm + getppid recheck is the real BE-loss
-    // backstop, and the default doris_main exit path skips all stop() calls.
+    // Best-effort shutdown (N4): closes the launch gate (execute() arriving
+    // after stop() never starts a worker) and signals in-flight workers TERM
+    // then KILL after a bounded grace. An execute() that was already inside
+    // its launch prelude when stop() ran may still complete the launch — its
+    // registry entry then missed both kill snapshots — so execute() itself
+    // rechecks _stopping right after the registration and kills its own
+    // child group (the launched invocation converges indeterminate, reaped
+    // and bounded; stop() never waits on it). In-flight execute() calls
+    // converge on their own caller threads (their ladders are bounded);
+    // stop() does not join them — their threads are not ours. Correctness
+    // never depends on stop(): the worker-side PR_SET_PDEATHSIG arm +
+    // getppid recheck is the real BE-loss backstop, and the default
+    // doris_main exit path skips all stop() calls.
     void stop();
 
     // Resolves the writable delegated parent cgroup: the configured value when

@@ -20,6 +20,7 @@
 #include <gen_cpp/BackendService_types.h>
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -113,6 +114,12 @@ public:
     // isolation unverified and every invocation rejected), samples the
     // structural config once, spawns the executor threads and registers the
     // metrics. Called before the thrift server starts accepting connections.
+    // Lifecycle note: start()/stop() are NOT synchronized with each other -
+    // the owner serializes them (the BE startup thread calls start(), the
+    // shutdown path and the destructor call stop(), never concurrently);
+    // a concurrent start()+stop() would race the executor vector. This is
+    // the same single-owner lifecycle discipline every BE component service
+    // uses, not an internal lock.
     Status start();
 
     // Drain-and-refuse shutdown (N4): every queued entry is answered with a
@@ -141,6 +148,12 @@ public:
     // force_* precedent). force_be_process_epoch_for_test pins the receipt
     // check's epoch instead of the heartbeat-sourced one.
     void force_be_process_epoch_for_test(int64_t epoch) { _forced_be_epoch.store(epoch); }
+    // Lowers the dedup guard's entry cap (see kMaxDedupEntries) so a unit
+    // test can reach the saturation refusal without admitting a full set;
+    // 0 = the production cap.
+    void force_dedup_max_entries_for_test(int64_t cap) {
+        _forced_dedup_max_entries.store(cap);
+    }
     int64_t reserved_slots_for_test() const { return _reserved_slots.load(); }
     int64_t launched_total_for_test() const { return _launched_total.load(); }
     int64_t never_launched_total_for_test() const { return _never_launched_total.load(); }
@@ -168,9 +181,19 @@ private:
     // Receive-rail steps. Each rejection helper fills the complete wire
     // result (status + identity echo) so no path can answer partially.
     Status _validate_request(const TLanceIndexMutationRequest& request) const;
-    // Returns true when the invocation_id is fresh (and now retained until
-    // deadline + kDuplicateRetentionMs); false when it is a duplicate.
-    bool _admit_invocation_id(const TLanceIndexMutationRequest& request);
+    // The dedup guard's ruling on one invocation_id.
+    enum class DedupDecision {
+        // Fresh: the id is now retained until its bounded erase-at.
+        ADMITTED,
+        // A live retention entry exists: refuse without executing (the
+        // single-send contract's duplicate answer).
+        DUPLICATE,
+        // The retained set is at its cap: refuse without executing and
+        // WITHOUT retaining (nothing executed, so a corrected retry of the
+        // same id stays free) - backpressure, the queue-full rail's twin.
+        SATURATED
+    };
+    DedupDecision _admit_invocation_id(const TLanceIndexMutationRequest& request);
     void _forget_invocation_id(const std::string& invocation_id);
 
     int64_t _be_process_epoch() const;
@@ -189,9 +212,19 @@ private:
                               const WorkerExecution& execution);
 
     // Executor-thread body: dequeue -> stop/budget rails -> two-state slot ->
-    // dispatch build -> supervisor execute -> answer.
+    // dispatch build -> supervisor execute -> answer. The per-entry work runs
+    // under an exception guard: an escape (a bad_alloc in the thrift
+    // copies/encodes is the realistic shape) would otherwise cross the thread
+    // entry and std::terminate the whole BE.
     void _executor_loop();
     void _execute_pending(const PendingPtr& pending);
+    // The guard's answer for one pending invocation after an exception
+    // escaped its execution path: conservatively OK + phase 3, no code (an
+    // escape after the native call leaves the commit status genuinely
+    // unknown; before it, indeterminate merely forgoes a sharper answer).
+    // Best-effort by design: an answer channel that itself fails is logged,
+    // never rethrown past the thread entry.
+    void _answer_after_executor_exception(const PendingPtr& pending, const char* what);
 
     // Mirrors the 15 semantic request fields into the internal dispatch frame
     // and injects the internal-only facts: bounds 16/17 from BE config (the
@@ -251,8 +284,21 @@ private:
     // request deadline plus a bounded window so a late redelivery of a
     // completed invocation can never re-execute external side effects.
     static constexpr int64_t kDuplicateRetentionMs = 10 * 60 * 1000;
+    // Hard cap on any single id's residency: deadline + retention, saturated
+    // to INT64_MAX by the addition below, is further capped at
+    // now + horizon so a pathological deadline_ms (near INT64_MAX) can never
+    // pin an id forever. No legitimate request deadline approaches a day.
+    static constexpr int64_t kDuplicateRetentionHorizonMs = 24 * 60 * 60 * 1000;
+    // Cap on the retained-entry count: a runaway (but authenticated) sender
+    // must not grow the set without limit; at the cap a fresh id is refused
+    // as backpressure (never executed, never retained). Multiple orders of
+    // magnitude above any real DDL mutation rate.
+    static constexpr size_t kMaxDedupEntries = 32 * 1024;
     std::mutex _dedup_mutex;
     std::unordered_map<std::string, int64_t> _dedup_erase_after_ms;
+    // Test-only cap override; 0 = kMaxDedupEntries. Plain atomic like the
+    // other force_* hooks: identical production codegen.
+    std::atomic<int64_t> _forced_dedup_max_entries {0};
 };
 
 } // namespace lance
