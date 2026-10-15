@@ -1195,6 +1195,7 @@ jobs:
             min_step_observations=0
           fi
 
+          # The helper checks upload acknowledgement; readback is opt-in for diagnostics.
           python3 "$helper" \
             --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
             --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
@@ -1215,11 +1216,7 @@ jobs:
             --max-payload-bytes 4000000 \
             --gzip \
             --min-observations "$min_observations" \
-            --min-step-observations "$min_step_observations" \
-            --verify-attempts 24 \
-            --verify-sleep-seconds 5 \
-            --verify-timeout-seconds 120 \
-            --verify
+            --min-step-observations "$min_step_observations"
 
       - name: Sync Codex sessions back to OSS
         if: ${{ always() }}
