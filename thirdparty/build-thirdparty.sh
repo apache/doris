@@ -2476,9 +2476,6 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    local rustc_version
-    rustc_version="$(env "${cargo_env[@]}" "${RUSTC:-rustc}" --version)"
-    echo "lance-c toolchain: ${rustc_version}; cargo ${cargo_version} (${cargo_bin})"
     # Enforce the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
@@ -2552,9 +2549,6 @@ build_paimon_rust() {
         echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    local rustc_version
-    rustc_version="$(env "${cargo_env[@]}" "${RUSTC:-rustc}" --version)"
-    echo "paimon-rust toolchain: ${rustc_version}; cargo ${cargo_version} (${cargo_bin})"
     # Enforce the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
