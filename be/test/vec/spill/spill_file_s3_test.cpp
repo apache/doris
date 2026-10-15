@@ -66,6 +66,7 @@
 #include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
 #include "util/slice.h"
@@ -967,6 +968,75 @@ TEST_F(SpillFileS3Test, PendingRemoteDeletesAreBoundedByGcWorkTime) {
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     for (int i = 0; i < 3; ++i) {
         ASSERT_TRUE(_query_objects(fmt::format("query_slow_delete_{}", i)).empty());
+    }
+}
+
+// The directories a time-sliced pass did not get to are queued again as one batch, in order,
+// and the ones queued while the pass ran are merged into them: a duplicate of a queued
+// directory adds no entry, a new directory does.
+TEST_F(SpillFileS3Test, PendingRemoteDeleteBacklogIsRequeuedInBulk) {
+    _create_manager();
+    std::mt19937 rng(129);
+    constexpr int kFiles = 16;
+    std::vector<SpillFileSPtr> files;
+    for (int i = 0; i < kFiles; ++i) {
+        Status status;
+        files.push_back(_write_blocks(fmt::format("query_bulk_requeue_{}/sort-1", i),
+                                      {_random_string_block(rng, 16, 100)}, &status));
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    _manager->stop();
+    mock_store().fail_deletes = true;
+    // Released in order, so the queue order is known.
+    for (auto& file : files) {
+        file.reset();
+    }
+    files.clear();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), kFiles);
+
+    // While the pass runs, a queued directory is queued once more and a new one arrives.
+    const bool previous_enable_debug_points = config::enable_debug_points;
+    constexpr auto after_drain_debug_point_name =
+            "fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain";
+    Defer restore_debug_points([&] {
+        DebugPoints::instance()->remove(after_drain_debug_point_name);
+        config::enable_debug_points = previous_enable_debug_points;
+    });
+    config::enable_debug_points = true;
+    auto after_drain_debug_point = std::make_shared<DebugPoint>();
+    after_drain_debug_point->execute_limit = 1;
+    after_drain_debug_point->callback = std::function<void()>([&]() {
+        const std::string spill_path = _data_dir->get_spill_data_path();
+        _manager->retry_spill_directory_deletion(_data_dir, _data_dir->fs(),
+                                                 spill_path + "/query_bulk_requeue_5/sort-1", 0, 0);
+        _manager->retry_spill_directory_deletion(
+                _data_dir, _data_dir->fs(), spill_path + "/query_bulk_requeue_new/sort-1", 0, 0);
+    });
+    DebugPoints::instance()->add(after_drain_debug_point_name, after_drain_debug_point);
+
+    // A slow, failing object store: the pass tries the first directory only.
+    mock_store().delete_delay_ms = 20;
+    _manager->gc(1);
+    ASSERT_EQ(after_drain_debug_point->execute_num.load(), 1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), kFiles + 1);
+    for (int i = 0; i < kFiles; ++i) {
+        ASSERT_FALSE(_query_objects(fmt::format("query_bulk_requeue_{}", i)).empty());
+    }
+    DebugPoints::instance()->remove(after_drain_debug_point_name);
+
+    // The order is kept: the untried directories come before the one that failed.
+    mock_store().fail_deletes = false;
+    _manager->gc(1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), kFiles);
+    ASSERT_FALSE(_query_objects("query_bulk_requeue_0").empty());
+    ASSERT_TRUE(_query_objects("query_bulk_requeue_1").empty());
+
+    mock_store().delete_delay_ms = 0;
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    for (int i = 0; i < kFiles; ++i) {
+        ASSERT_TRUE(_query_objects(fmt::format("query_bulk_requeue_{}", i)).empty());
     }
 }
 

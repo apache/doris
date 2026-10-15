@@ -230,12 +230,34 @@ public class ShowDataCommandTest {
         Mockito.verifyNoInteractions(systemInfo);
     }
 
-    // Only the master FE keeps the remote spill size reported by the BEs.
+    // Only the master FE keeps the remote spill size reported by the BEs: the two cloud listings
+    // that show it are forwarded, every other form is served locally.
     @Test
-    public void testForwardedToMaster() {
+    public void testForwardedToMasterOnlyForCloudWarehouseListings() {
+        Config.deploy_mode = "cloud";
+        Mockito.when(connectContext.getDatabase()).thenReturn("");
         Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
                 new ShowDataCommand(null, null, null, false).toRedirectStatus());
         Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
+                new ShowDataCommand(null, null, Map.of("entire_warehouse", "true"), false).toRedirectStatus());
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD,
+                new ShowDataCommand(null, null,
+                        Map.of("entire_warehouse", "true", "db_names", "db1"), false).toRedirectStatus());
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD,
+                new ShowDataCommand(tableNameInfo, null, null, false).toRedirectStatus());
+
+        // A database is selected: the tables of that database, served locally.
+        Mockito.when(connectContext.getDatabase()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD,
+                new ShowDataCommand(null, null, null, false).toRedirectStatus());
+        Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
+                new ShowDataCommand(null, null, Map.of("entire_warehouse", "true"), false).toRedirectStatus());
+
+        Config.deploy_mode = "";
+        Mockito.when(connectContext.getDatabase()).thenReturn("");
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD,
+                new ShowDataCommand(null, null, null, false).toRedirectStatus());
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD,
                 new ShowDataCommand(null, null, Map.of("entire_warehouse", "true"), false).toRedirectStatus());
     }
 

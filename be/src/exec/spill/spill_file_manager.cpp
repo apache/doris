@@ -631,10 +631,20 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
         failed_directories.emplace_back(std::move(pending_directory));
     }
 
-    for (auto& pending_directory : untried_directories) {
-        _add_pending_directory(std::move(pending_directory));
+    // The directories kept are already merged with each other, so they go back as one batch;
+    // only the ones queued while this pass ran are merged into them one by one. A backlog of
+    // many spill-file prefixes (an outage during a partitioned spill) thus costs one rescan
+    // per new entry, not one per kept entry.
+    std::vector<PendingSpillDirectory> queued_meanwhile;
+    {
+        std::lock_guard lock(_pending_spill_directories_mutex);
+        queued_meanwhile.swap(_pending_spill_directories);
+        _pending_spill_directories = std::move(untried_directories);
+        _pending_spill_directories.insert(_pending_spill_directories.end(),
+                                          std::make_move_iterator(failed_directories.begin()),
+                                          std::make_move_iterator(failed_directories.end()));
     }
-    for (auto& pending_directory : failed_directories) {
+    for (auto& pending_directory : queued_meanwhile) {
         _add_pending_directory(std::move(pending_directory));
     }
 }

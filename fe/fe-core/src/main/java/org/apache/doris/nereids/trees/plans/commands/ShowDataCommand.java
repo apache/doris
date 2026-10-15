@@ -596,7 +596,8 @@ public class ShowDataCommand extends ShowCommand {
 
     /**
      * Bytes of query spill currently held in object storage, summed over the alive BEs from their
-     * latest disk reports. Only the master FE keeps these values, so the command is forwarded to it.
+     * latest disk reports. Only the master FE keeps these values, so the listings that show them
+     * are forwarded to it (see toRedirectStatus).
      */
     private long getRemoteSpillSize() throws AnalysisException {
         long total = 0;
@@ -796,7 +797,16 @@ public class ShowDataCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        // The remote spill size reported by the BEs is only kept by the master FE.
-        return RedirectStatus.FORWARD_NO_SYNC;
+        // Only the two warehouse-level listings of cloud mode read the remote spill size, which the
+        // BEs report to the master FE alone; the other forms are served locally as before.
+        if (!Config.isCloudMode()) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (properties != null && "true".equals(properties.get(WAREHOUSE))) {
+            return properties.get(DB_LIST) == null ? RedirectStatus.FORWARD_NO_SYNC
+                    : RedirectStatus.NO_FORWARD;
+        }
+        return tableName == null && Strings.isNullOrEmpty(ConnectContext.get().getDatabase())
+                ? RedirectStatus.FORWARD_NO_SYNC : RedirectStatus.NO_FORWARD;
     }
 }
