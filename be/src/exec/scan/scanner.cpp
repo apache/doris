@@ -94,10 +94,10 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
-    // scheduled. Admission does not look at the LIMIT, so the scanner reports EOS itself with an
-    // empty block instead of reading on; the operator already has enough rows and cuts the rest.
-    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
-        *eos = true;
+    // scheduled. Admission does not look at the LIMIT, so the scanner returns an empty block
+    // instead of reading on. It does not report EOS: the operator already holds enough rows and
+    // stops the scanners after cutting the LIMIT itself.
+    if (_shared_scan_limit_exhausted()) {
         return Status::OK();
     }
     const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
@@ -119,8 +119,11 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
                         _shared_scan_limit->load(std::memory_order_acquire), 0, min_batch_size));
             }
             const auto block_max_bytes = state->preferred_block_size_bytes();
+            // Stop reading as soon as peers exhaust the shared LIMIT; the rows already held are
+            // still returned below.
             while (_padding_block.rows() < min_batch_size &&
-                   _padding_block.bytes() < block_max_bytes && !*eos) {
+                   _padding_block.bytes() < block_max_bytes && !*eos &&
+                   !_shared_scan_limit_exhausted()) {
                 RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
                 if (*eos) {
                     // For the final block, merge any padding directly and return eos in this call.
@@ -157,12 +160,10 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 
     // Only rows actually produced by this call consume the shared LIMIT. In particular, padding
     // kept for a later call must not make the context finish before that call can return it.
-    if (_shared_scan_limit) {
-        if (block->rows() > 0) {
-            _shared_scan_limit->fetch_sub(cast_set<int64_t>(block->rows()),
-                                          std::memory_order_acq_rel);
-        }
-        *eos = *eos || _shared_scan_limit->load(std::memory_order_acquire) <= 0;
+    // Exhausting the counter is not EOS either: the next call returns an empty block, and the
+    // scan operator stops this scanner once it has cut the LIMIT.
+    if (_shared_scan_limit != nullptr && block->rows() > 0) {
+        _shared_scan_limit->fetch_sub(cast_set<int64_t>(block->rows()), std::memory_order_acq_rel);
     }
     return Status::OK();
 }
@@ -170,14 +171,6 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-
-    // Stop early if other scanners have already collected enough rows
-    // for the SQL LIMIT. Skipped when _shared_scan_limit is null (topn
-    // path or no LIMIT).
-    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
-        *eof = true;
-        return Status::OK();
-    }
 
     // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
@@ -224,9 +217,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
-    // A peer may have returned enough rows while this scanner was reading. The caller can still
-    // project the current block, and the scan operator makes the final LIMIT cut.
-    *eof = *eof || (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0);
 
     return Status::OK();
 }

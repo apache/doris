@@ -866,7 +866,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     if (!_pending_tasks.empty()) {
         // Do not submit more pending scanners after the shared LIMIT is exhausted while
         // completed or in-flight tasks can still make progress. If neither exists, allow pending
-        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        // scanners to be submitted so they can complete without reading and wake the pipeline
+        // task, which finishes the context once nothing is in flight.
         if (_is_shared_scan_limit_exhausted() &&
             (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;

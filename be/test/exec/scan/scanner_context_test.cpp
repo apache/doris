@@ -748,9 +748,10 @@ TEST_F(ScannerContextTest, thread_pool_admission_ignores_shared_limit) {
 
     // The shared LIMIT is exhausted while a task is in flight and a completed result waits for the
     // operator. Admission only applies the concurrency limit: the pending scanner is still
-    // admitted and reports EOS itself in Scanner::get_block_after_projects(). Holding it back
-    // based on the in-flight or completed tasks is what can leave a context with nothing to
-    // wake the operator.
+    // admitted, and Scanner::get_block_after_projects() returns an empty block without reading
+    // (and without EOS, which the scan operator decides from the LIMIT). Holding it back based on
+    // the in-flight or completed tasks is what can leave a context with nothing to wake the
+    // operator.
     shared_limit.store(0);
     scanner_context->_in_flight_tasks_num = 1;
     auto completed_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
