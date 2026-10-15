@@ -133,7 +133,7 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   b. support Paimon default fixed-bucket routing in the external sink exchange.
 // 19: start from master
 //   a. support FILE types and six-child PBlock serialization.
-// Versions 14-17 are reserved for master features not backported to this branch.
+// Versions 14-18 are reserved for master features not backported to this branch.
 
 const int BeExecVersionManager::max_be_exec_version = SUPPORT_FILE_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;

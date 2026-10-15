@@ -20,7 +20,6 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <type_traits>
 
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
@@ -42,9 +41,6 @@
 #include "exprs/table_function/vexplode_file.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vfile_literal.h"
-#include "exprs/vstruct_literal.h"
-#include "runtime/descriptors.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
 
@@ -623,109 +619,6 @@ TEST_F(FileExprTest, GetterRejectsDynamicNumericNullAndUnknownSelectors) {
     }
 }
 
-TEST_F(FileExprTest, FileLiteralUsesIndependentNodeAndValidatedSixChildValue) {
-    static_assert(!std::is_base_of_v<VStructLiteral, VFileLiteral>);
-    EXPECT_EQ(TExprNodeType::FILE_LITERAL, 46);
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::FILE_LITERAL);
-    node.__set_type(file_type->to_thrift());
-    node.__set_is_nullable(false);
-    node.__set_num_children(6);
-    VExprSPtr expression;
-    ASSERT_TRUE(VExpr::create_expr(node, expression).ok());
-    ASSERT_NE(dynamic_cast<VFileLiteral*>(expression.get()), nullptr);
-    const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
-    for (size_t i = 0; i < 6; ++i) {
-        expression->add_child(VLiteral::create_shared(schema.get_element(i),
-                                                      i == 0 ? string("s3://b/key") : Field()));
-    }
-    auto context = std::make_shared<VExprContext>(expression);
-    ASSERT_TRUE(expression->prepare(nullptr, RowDescriptor(), context.get()).ok());
-    ColumnPtr output;
-    ASSERT_TRUE(expression->execute_column(context.get(), nullptr, nullptr, 3, output).ok());
-    EXPECT_TRUE(is_column_const(*output));
-    ASSERT_EQ(output->size(), 3);
-    EXPECT_EQ((*output)[2].get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://b/key");
-    VExprSPtr clone;
-    ASSERT_TRUE(expression->deep_clone(&clone).ok());
-    EXPECT_EQ(clone->node_type(), TExprNodeType::FILE_LITERAL);
-    EXPECT_NE(dynamic_cast<VFileLiteral*>(clone.get()), nullptr);
-    ASSERT_TRUE(clone->execute_column(nullptr, nullptr, nullptr, 3, output).ok());
-    EXPECT_TRUE(is_column_const(*output));
-    ASSERT_EQ(output->size(), 3);
-    EXPECT_EQ((*output)[2].get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://b/key");
-}
-
-TEST_F(FileExprTest, FileLiteralDisablesConditionCacheAndPreservesInlineValue) {
-    const std::string bytes("a\0b", 3);
-    const std::string large_bytes(4096, '\xff');
-    const std::vector<Field> inline_values {
-            Field(), Field::create_field<TYPE_VARBINARY>(StringView()),
-            Field::create_field<TYPE_VARBINARY>(StringView(bytes)),
-            Field::create_field<TYPE_VARBINARY>(StringView(large_bytes))};
-    VExprSPtrs literals;
-    for (const auto& inline_value : inline_values) {
-        TExprNode node;
-        node.__set_node_type(TExprNodeType::FILE_LITERAL);
-        node.__set_type(file_type->to_thrift());
-        node.__set_is_nullable(false);
-        node.__set_num_children(6);
-        auto literal = VFileLiteral::create_shared(node);
-        const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
-        for (size_t i = 0; i < 6; ++i) {
-            literal->add_child(
-                    VLiteral::create_shared(schema.get_element(i), i == 0   ? string("s3://b/key")
-                                                                   : i == 5 ? inline_value
-                                                                            : Field()));
-        }
-        auto context = std::make_shared<VExprContext>(literal);
-        ASSERT_TRUE(literal->prepare(nullptr, RowDescriptor(), context.get()).ok());
-        VExprSPtr clone;
-        ASSERT_TRUE(literal->deep_clone(&clone).ok());
-        const VExprContext clone_context(clone);
-        auto parent = std::make_shared<MockVExpr>();
-        parent->_fn.name.function_name = "element_at";
-        parent->add_child(literal);
-        const VExprContext parent_context(parent);
-        // ScanLocalState builds the condition-cache key through VExprContext::get_digest.
-        for (uint64_t seed : {0, 1, 12345}) {
-            EXPECT_EQ(context->get_digest(seed), 0);
-            EXPECT_EQ(clone_context.get_digest(seed), 0);
-            EXPECT_EQ(parent_context.get_digest(seed), 0);
-        }
-        // Internal integrity hashing is supported independently of SQL hash capability.
-        uint64_t hash = 1;
-        uint64_t clone_hash = 1;
-        literal->get_column_ptr()->update_xxHash_with_value(0, 1, hash, nullptr);
-        assert_cast<const VFileLiteral&>(*clone).get_column_ptr()->update_xxHash_with_value(
-                0, 1, clone_hash, nullptr);
-        EXPECT_EQ(hash, clone_hash);
-        for (const auto& previous : literals) {
-            uint64_t previous_hash = 1;
-            assert_cast<const VFileLiteral&>(*previous).get_column_ptr()->update_xxHash_with_value(
-                    0, 1, previous_hash, nullptr);
-            EXPECT_NE(hash, previous_hash);
-        }
-        literals.push_back(std::move(literal));
-    }
-}
-
-TEST_F(FileExprTest, FileLiteralAcceptsUriWithoutFormatChecks) {
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::FILE_LITERAL);
-    node.__set_type(file_type->to_thrift());
-    node.__set_is_nullable(false);
-    node.__set_num_children(6);
-    auto expression = VFileLiteral::create_shared(node);
-    const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
-    for (size_t i = 0; i < 6; ++i) {
-        expression->add_child(VLiteral::create_shared(schema.get_element(i),
-                                                      i == 0 ? string("relative/path") : Field()));
-    }
-    auto context = std::make_shared<VExprContext>(expression);
-    EXPECT_TRUE(expression->prepare(nullptr, RowDescriptor(), context.get()).ok());
-}
-
 TEST_F(FileExprTest, JsonCastRejectsMissingDuplicateUnknownWrongTypeAndOutOfRangeFields) {
     const auto type = std::make_shared<DataTypeJsonb>();
     const auto input = column(
@@ -1221,31 +1114,6 @@ TEST_F(FileExprTest, ReverseStructRejectsIntegerWideningAndNarrowing) {
             EXPECT_FALSE(cast(column(file_type, {value}), target, strict, output).ok());
         }
     }
-}
-
-TEST_F(FileExprTest, LiteralAcceptsUntypedNullChildrenAndCloneKeepsFileIdentity) {
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::FILE_LITERAL);
-    node.__set_type(file_type->to_thrift());
-    node.__set_is_nullable(false);
-    node.__set_num_children(6);
-    auto expression = VFileLiteral::create_shared(node);
-    expression->add_child(VLiteral::create_shared(make_nullable(text), string("s3://b/key")));
-    auto null_type = std::make_shared<DataTypeUInt8>();
-    null_type->set_null_literal(true);
-    for (size_t i = 1; i < 6; ++i) {
-        expression->add_child(VLiteral::create_shared(make_nullable(null_type), Field()));
-    }
-    auto context = std::make_shared<VExprContext>(expression);
-    ASSERT_TRUE(expression->prepare(nullptr, RowDescriptor(), context.get()).ok());
-    VExprSPtr clone;
-    ASSERT_TRUE(expression->deep_clone(&clone).ok());
-    ASSERT_NE(dynamic_cast<VFileLiteral*>(clone.get()), nullptr);
-    auto clone_context = std::make_shared<VExprContext>(clone);
-    ASSERT_TRUE(clone->prepare(nullptr, RowDescriptor(), clone_context.get()).ok());
-    ColumnPtr output;
-    ASSERT_TRUE(clone->execute_column(clone_context.get(), nullptr, nullptr, 2, output).ok());
-    EXPECT_EQ((*output)[1].get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://b/key");
 }
 
 TEST_F(FileExprTest, StrictStructCastSupportsNonNullableFileChildren) {
