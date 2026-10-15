@@ -66,7 +66,7 @@ public:
 
 TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     std::vector<iceberg::NestedField> fields;
-    fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampType>(true),
+    fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampTzType>(),
                         std::nullopt);
     auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
     auto spec = iceberg::PartitionSpecParser::from_json(
@@ -146,8 +146,8 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         protocol.writeString(std::string("null"));
         protocol.writeMapEnd();
         protocol.writeFieldEnd();
-        // Field 19 belongs to NaN counts; the reader skips NULL markers encoded under that ID.
-        protocol.writeFieldBegin("static_partition_null_keys", T_SET, 20);
+        // Master reserves field 19 for NULL keys; field 20 carries NaN-count field IDs.
+        protocol.writeFieldBegin("static_partition_null_keys", T_SET, 19);
         protocol.writeSetBegin(T_STRING, 1);
         protocol.writeString(std::string("key"));
         protocol.writeSetEnd();

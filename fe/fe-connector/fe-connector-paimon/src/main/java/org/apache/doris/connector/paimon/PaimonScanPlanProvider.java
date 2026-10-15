@@ -347,6 +347,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
+        if (!paimonHandle.isSystemTable() && PaimonTableDecorators.isChainTable(table)) {
+            // A chain table reads a partition its main branch lacks from its snapshot and delta branches.
+            // Doris plans neither those partitions nor the chain splits yet, so it would read them as empty.
+            throw new DorisConnectorException("Reading Paimon chain table " + paimonHandle.getDatabaseName() + "."
+                    + paimonHandle.getTableName() + " (chain-table.enabled) is not supported yet");
+        }
         return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
     }
 
@@ -568,10 +574,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Statement-scoped reuse: within one statement the identical scan (same table, same
         // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
         // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key.
+        // are constant within a statement and deliberately absent from the key. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request, generation);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
@@ -952,6 +959,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
         Map<FileStoreTable, Map<Long, Boolean>> crossFamilyTimestampSchemas = new java.util.IdentityHashMap<>();
         Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
+        // Native INT96/ORC materialization currently narrows these values to microseconds.
+        // JNI retains the source precision, including nested and filter-only timestamp fields.
+        boolean needsNanosecondReader = rowType.getFields().stream()
+                .anyMatch(field -> readFieldIds.contains(field.id()) && containsNanosecondTimestamp(field.type()));
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
                 () -> resolveSchemaDictTable(table, paimonHandle));
@@ -971,7 +982,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni(),
+            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
             boolean legacyOrcTimestamp = false;
             if (nativeEligible && containsTimestampType(rowType)) {
@@ -1018,9 +1029,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
+                // Lossless timestamp fallbacks can expose metadata through the SDK's physical iterator.
                 // Raw convertibility alone does not select the SDK raw reader: historical primary-key
                 // files without delete counts require merging and lose physical file/row positions.
-                if (requiresMetadataColumns && (!legacyOrcTimestamp || !supportsJniPhysicalMetadata(
+                if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
+                        || !supportsJniPhysicalMetadata(
                         legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
@@ -1658,18 +1671,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        return pinCatalogSnapshotOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable),
+                PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable pinCatalogSnapshotOfBranches(FileStoreTable target, FileStoreTable source) {
         if (source instanceof FallbackReadFileStoreTable) {
             if (!(target instanceof FallbackReadFileStoreTable)) {
                 throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
             }
             FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
-            return new FallbackReadFileStoreTable(
-                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
-                    PaimonReaderOptions.isWrappedFirst(targetPair));
+            // A chain table nests its snapshot and delta branches in a pair of their own; pin those too.
+            return PaimonTableDecorators.rebuildFallbackPair(targetPair,
+                    pinCatalogSnapshotOfBranches(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotOfBranches(targetPair.other(), sourcePair.other()));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1707,15 +1723,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (dataTable.catalogEnvironment().catalogLoader() == null) {
             return dataTable;
         }
-        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        if (undecorated instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
-            return new FallbackReadFileStoreTable(
-                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
-                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
+        return dropCatalogLoaderOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable dropCatalogLoaderOfBranches(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            // A chain table nests its snapshot and delta branches in a pair of their own; rebuild those too.
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    dropCatalogLoaderOfBranches(pair.wrapped()), dropCatalogLoaderOfBranches(pair.other()));
         }
-        return rebuildWithoutCatalogLoader(undecorated);
+        return rebuildWithoutCatalogLoader(table);
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
@@ -2088,6 +2106,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return physicalVariantSchemaIds;
+    }
+
+    static boolean containsNanosecondTimestamp(DataType type) {
+        if (type instanceof org.apache.paimon.types.TimestampType) {
+            return ((org.apache.paimon.types.TimestampType) type).getPrecision() > 6;
+        }
+        switch (type.getTypeRoot()) {
+            case ARRAY:
+                return containsNanosecondTimestamp(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return containsNanosecondTimestamp(map.getKeyType())
+                        || containsNanosecondTimestamp(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .anyMatch(field -> containsNanosecondTimestamp(field.type()));
+            default:
+                return false;
+        }
     }
 
     private static boolean containsVariant(DataType type) {

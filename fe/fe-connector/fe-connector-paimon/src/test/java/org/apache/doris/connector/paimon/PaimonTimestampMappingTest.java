@@ -26,9 +26,10 @@ class PaimonTimestampMappingTest {
     @Test
     void legacyFlagsCannotChangeTimestampSemantics() {
         for (boolean flag : new boolean[] {false, true}) {
-            for (int precision : new int[] {0, 3, 6, 9}) {
+            for (int precision : new int[] {0, 3, 6, 7, 8, 9}) {
                 PaimonTypeMapping.Options options = new PaimonTypeMapping.Options(flag, flag);
-                Assertions.assertEquals(ConnectorType.of("DATETIMEV2", Math.min(precision, 6), 0),
+                Assertions.assertEquals(precision > 6 ? ConnectorType.of("TIMESTAMP_NS")
+                                : ConnectorType.of("DATETIMEV2", precision, 0),
                         PaimonTypeMapping.toConnectorType(new org.apache.paimon.types.TimestampType(precision), options));
                 Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", Math.min(precision, 6), 0),
                         PaimonTypeMapping.toConnectorType(

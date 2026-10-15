@@ -734,6 +734,27 @@ public class IcebergNestedColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyNestedTimestamptzKeepsInstantTypeAndRejectsWallClock() {
+        // Restating the mapped TIMESTAMPTZ type is a no-op; DATETIMEV2 would drop the instant semantics.
+        Schema schema = new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "tz_value", Types.TimestampType.withZone(), "tz doc"))));
+        createTable("m_tz", schema);
+        ops.modifyNestedColumn("db1", "m_tz", path("info", "tz_value"),
+                change("tz_value", IcebergSchemaBuilder.buildColumnType(ConnectorType.of("TIMESTAMPTZ", 6, 0)),
+                        null, true), false, false, null);
+        Types.NestedField tzValue = reload("m_tz").findField("info").type().asStructType().field("tz_value");
+        Assertions.assertEquals(Types.TimestampType.withZone(), tzValue.type());
+        Assertions.assertEquals("tz doc", tzValue.doc());
+
+        assertFailsLoud(() -> ops.modifyNestedColumn("db1", "m_tz", path("info", "tz_value"),
+                        change("tz_value", IcebergSchemaBuilder.buildColumnType(
+                                ConnectorType.of("DATETIMEV2", 6, 0)), null, true), false, false, null),
+                "Cannot change column type: info.tz_value");
+        Assertions.assertEquals(Types.TimestampType.withZone(),
+                reload("m_tz").findField("info").type().asStructType().field("tz_value").type());
+    }
+
+    @Test
     public void testModifyNestedPrimitivePromotionDisallowedFailsLoud() {
         // BIGINT -> INT is not an iceberg-representable promotion.
         createTable("m_narrow", requiredNestedSchema());

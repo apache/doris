@@ -22,6 +22,7 @@
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
@@ -53,6 +54,30 @@ public:
     ArrowSchemaUtilTest() = default;
     virtual ~ArrowSchemaUtilTest() = default;
 };
+
+TEST(ArrowSchemaUtilTest, TimestampKindsPreserveUnitAndTimezone) {
+    const char* names[] = {"timestamp", "timestamptz", "timestamp_ns", "timestamptz_ns"};
+    const arrow::TimeUnit::type units[] = {arrow::TimeUnit::MICRO, arrow::TimeUnit::MICRO,
+                                           arrow::TimeUnit::NANO, arrow::TimeUnit::NANO};
+    const char* zones[] = {"", "Asia/Shanghai", "", "Asia/Shanghai"};
+    for (int i = 0; i < 4; ++i) {
+        SCOPED_TRACE(names[i]);
+        const auto json = fmt::format(R"({{"type":"struct","fields":[
+            {{"id":1,"name":"ts","required":false,"type":"{0}"}},
+            {{"id":2,"name":"nested","required":false,"type":{{"type":"list",
+                "element-id":3,"element-required":false,"element":"{0}"}}}}]}})",
+                                      names[i]);
+        auto schema = SchemaParser::from_json(json);
+        IcebergArrowSchemaConvertor converter(*schema, "Asia/Shanghai", json);
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        ASSERT_TRUE(converter.get_arrow_schema(&arrow_schema).ok());
+        const auto expected = arrow::timestamp(units[i], zones[i]);
+        EXPECT_TRUE(arrow_schema->field(0)->type()->Equals(expected));
+        auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_schema->field(1)->type());
+        EXPECT_TRUE(list_type->value_type()->Equals(expected));
+        EXPECT_EQ(schema->columns()[0].field_type()->to_string(), names[i]);
+    }
+}
 
 TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     auto* env = ExecEnv::GetInstance();
@@ -135,7 +160,7 @@ TEST(ArrowSchemaUtilTest, test_simple_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(2, fields.size());
     EXPECT_EQ("field1", fields[0]->name());
@@ -193,7 +218,7 @@ TEST(ArrowSchemaUtilTest, test_stuct_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("st_col", fields[0]->name());
@@ -245,7 +270,7 @@ TEST(ArrowSchemaUtilTest, test_map_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("map_col", fields[0]->name());
@@ -292,7 +317,7 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("list_col", fields[0]->name());
@@ -316,7 +341,7 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    Status st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    Status st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(4, fields.size());
 
@@ -371,7 +396,7 @@ TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     auto arrow_schema = arrow::schema(fields);
 
     // create arrow table

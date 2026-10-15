@@ -423,6 +423,34 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void statementReuseLastsOnlyWhilePlanning() {
+        // Identical scans share their ranges only within one plan, so the memo is kept for planning only: once the
+        // engine ends planning no range is held, and a later plan of the statement plans the scan again.
+        // MUTATION: keeping the memo for the whole statement (computeIfAbsent) -> red.
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", scope);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+        List<ConnectorScanRange> planned = provider.planScan(session, request);
+
+        scope.endPlanning();
+
+        Assertions.assertFalse(scope.contains(HiveScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
+                "the planned ranges must not outlive planning");
+        List<ConnectorScanRange> replanned = provider.planScan(session, request);
+        Assertions.assertFalse(planned.isEmpty(), "the partition's file must plan a range");
+        Assertions.assertNotSame(planned, replanned, "a scan planned after planning ended plans again");
+        Assertions.assertEquals(planned.size(), replanned.size());
+    }
+
+    @Test
     public void statementReuseRetriesAListingThatFailedOnce() {
         FailOnceLister lister = new FailOnceLister();
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);

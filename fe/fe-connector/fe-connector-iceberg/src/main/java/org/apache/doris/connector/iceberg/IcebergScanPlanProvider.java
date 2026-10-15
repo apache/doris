@@ -463,10 +463,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // outer entry). The scope loader only constructs the memo map; planning then runs on that
             // separate map, so every scope call from planScanInternal is top-level again. The memo
             // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
-            // statement.
+            // statement. Every scan of a statement is planned within one plan, so the memo is dropped
+            // when planning ends.
             String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse =
-                    session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
+            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope()
+                    .computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
             IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);
             return scanReuse.computeIfAbsent(reuseKey,
                     k -> Collections.unmodifiableList(planScanInternal(session,
@@ -1049,8 +1050,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         if (filter.isPresent()) {
-            List<Expression> predicates = new IcebergPredicateConverter(
-                    metadataTable.schema(), resolveSessionZone(session)).convert(filter.get());
+            List<Expression> predicates = IcebergPredicateConverter.forTable(
+                    metadataTable, metadataTable.schema(), resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -1263,7 +1265,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Schema predicateSchema = handle.isSystemTable() && handle.hasSnapshotPin()
                     ? pinnedSchema(table, handle) : selectedSchema;
             List<Expression> predicates =
-                    new IcebergPredicateConverter(predicateSchema, resolveSessionZone(session)).convert(filter.get());
+                    IcebergPredicateConverter.forTable(table, predicateSchema, resolveSessionZone(session),
+                            IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -2128,8 +2131,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // IcebergScanNode `if (!pushdownIcebergPredicates.isEmpty())`).
         if (!systemTable && filter.isPresent()) {
             Schema predicateSchema = iceHandle.hasSnapshotPin() ? pinnedSchema(table, iceHandle) : table.schema();
-            List<Expression> pushed = new IcebergPredicateConverter(
-                    predicateSchema, resolveSessionZone(session)).convert(filter.get());
+            List<Expression> pushed = IcebergPredicateConverter.forTable(
+                    table, predicateSchema, resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             if (!pushed.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 for (Expression predicate : pushed) {
@@ -2810,7 +2814,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
         Schema scanSchema = scan.schema();
-        Expression filterExpr = combineFilter(filter, scanSchema, session);
+        Expression filterExpr = combineFilter(filter, table, scanSchema, session);
         Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
         boolean caseSensitive = true;
 
@@ -2834,7 +2838,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
+            deleteFiles.addAll(manifestCacheGet(manifest, table, specsById, statsQueryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .schemasById(table.schemas())
@@ -2860,10 +2864,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
-    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
+    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById, String statsQueryId) {
         return statsQueryId != null
-                ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
-                : manifestCache.getManifestCacheValue(manifest, table);
+                ? manifestCache.getManifestCacheValue(manifest, table, specsById, statsQueryId)
+                : manifestCache.getManifestCacheValue(manifest, table, specsById);
     }
 
     /**
@@ -2952,7 +2957,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 currentResidual = residual;
                 currentSpecJson = PartitionSpecParser.toJson(spec);
-                dataFileIt = manifestCacheGet(manifest, table, statsQueryId).getDataFiles().iterator();
+                dataFileIt = manifestCacheGet(manifest, table, specsById, statsQueryId).getDataFiles().iterator();
             }
         }
 
@@ -2968,12 +2973,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the T02 {@link IcebergPredicateConverter} on the scan-bound schema; an absent filter is
      * {@code alwaysTrue()} (scan everything).
      */
-    private Expression combineFilter(Optional<ConnectorExpression> filter, Schema schema, ConnectorSession session) {
+    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table,
+            Schema schema, ConnectorSession session) {
         if (!filter.isPresent()) {
             return Expressions.alwaysTrue();
         }
         List<Expression> predicates =
-                new IcebergPredicateConverter(schema, resolveSessionZone(session)).convert(filter.get());
+                IcebergPredicateConverter.forTable(table, schema, resolveSessionZone(session),
+                        IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
         Expression combined = Expressions.alwaysTrue();
         for (Expression predicate : predicates) {
             combined = Expressions.and(combined, predicate);
@@ -3193,9 +3200,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (auth == null) {
             return table;
         }
-        TableOperations rawOps = ((BaseTable) table).operations();
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        // Keep the table's metrics reporter: every scan of a Kerberos catalog runs on this wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name());
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter());
     }
 
     /**

@@ -34,6 +34,7 @@ import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.predicate.PredicateVisitor;
 import org.apache.paimon.reader.FileRecordIterator;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -893,6 +894,11 @@ public class PaimonJniScanner extends JniScanner {
             }
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
+            if (pair instanceof ChainGroupReadTable) {
+                // A chain table nests this group over its snapshot and delta branches. The group plans
+                // and reads the chain itself and is the only pair Paimon lets one nest inside another.
+                return new ChainGroupReadTable(main, other);
+            }
             return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
         }
 

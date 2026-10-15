@@ -658,8 +658,15 @@ public class DateTimeExtractAndTransform {
                 year = firstDayOfWeek.getYear();
                 month = firstDayOfWeek.getMonthValue();
                 day = firstDayOfWeek.getDayOfMonth();
-            default: // CHECKSTYLE IGNORE THIS LINE
                 break;
+            case "day":
+            case "hour":
+            case "minute":
+            case "second":
+                break;
+            default:
+                // not folded, so BE reports the illegal time unit
+                throw new AnalysisException("Illegal time unit of date_trunc: " + trunc);
         }
         switch (trunc.toLowerCase()) {
             case "year":

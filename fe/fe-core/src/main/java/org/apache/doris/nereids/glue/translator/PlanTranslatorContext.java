@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -171,27 +172,22 @@ public class PlanTranslatorContext {
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
-        this.connectContext = ctx.getConnectContext();
-        this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
-        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
-        this.topnFilterContext = ctx.getTopnFilterContext();
-        this.descTable = new DescriptorTable();
+        this(ctx, new DescriptorTable());
     }
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
+        ScanContext.Builder scanContextBuilder = ScanContext.builder();
+        if (statementContext.hasBeExecVersion()) {
+            scanContextBuilder.beExecVersion(statementContext.getBeExecVersion());
+        }
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            scanContextBuilder.clusterName(
+                    connectContext.getSessionVariable().resolveCloudClusterName(connectContext));
+        }
+        this.scanContext = scanContextBuilder.build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.descTable = descTable;
@@ -202,12 +198,22 @@ public class PlanTranslatorContext {
      */
     @VisibleForTesting
     public PlanTranslatorContext() {
+        this(Config.be_exec_version);
+    }
+
+    @VisibleForTesting
+    PlanTranslatorContext(int beExecVersion) {
         this.connectContext = null;
         this.statementContext = new StatementContext();
-        this.scanContext = ScanContext.EMPTY;
+        this.statementContext.initializeBeExecVersion(beExecVersion);
+        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         this.descTable = new DescriptorTable();
+    }
+
+    public int getBeExecVersion() {
+        return statementContext.getBeExecVersion();
     }
 
     /**
@@ -361,6 +367,23 @@ public class PlanTranslatorContext {
 
     public boolean isInFragmentMergeChild() {
         return fragmentMergeChildDepth > 0;
+    }
+
+    /**
+     * A distribute is an exchange boundary: the plan below it is translated into fragments
+     * of its own, so a fragment-merging ancestor (join / set operation / recursive union)
+     * cannot absorb a scan that sits below the exchange. Clears the fragment-merge child
+     * context while the child of the distribute is translated and returns the previous
+     * depth, which {@link #exitExchangeBoundary(int)} restores.
+     */
+    public int enterExchangeBoundary() {
+        int savedDepth = fragmentMergeChildDepth;
+        fragmentMergeChildDepth = 0;
+        return savedDepth;
+    }
+
+    public void exitExchangeBoundary(int savedDepth) {
+        fragmentMergeChildDepth = savedDepth;
     }
 
     /**

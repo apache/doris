@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -508,7 +507,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     }
 
     private void requireExternalWriterRoutingSupport() {
-        Preconditions.checkState(Config.be_exec_version
+        Preconditions.checkState(getWritePlanContext().getBeExecVersion()
                         >= DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION,
                 "External table sink distribution requires BE execution version %s or newer",
                 DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION);

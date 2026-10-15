@@ -88,14 +88,14 @@ public class IcebergTypeMappingReadTest {
     @Test
     public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
         // WHY (user decision 2026-07-13, DV-051): iceberg primitive types Doris cannot represent —
-        // TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
+        // Zoned TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
         // so the table still loads and only the exotic column is
         // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
         // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
         // This test PINS the graceful-degradation choice: MUTATION making either default arm throw -> red,
         // surfacing that the accepted deviation was reverted. (The write direction toIcebergPrimitive still
         // throws — see toIcebergPrimitiveRejectsUnrepresentableTypes if present / the connector's CREATE path.)
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
+        Assertions.assertEquals("TIMESTAMP_NS", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());

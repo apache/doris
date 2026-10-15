@@ -17,6 +17,7 @@
 
 #include "exec/operator/bucketed_aggregation_sink_operator.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -87,7 +88,7 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
             shared_state.aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
         }
 
-        // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
+        // Detect simple_count: exactly one COUNT(*) / COUNT(slot), with GROUP BY present.
         // Bucketed agg always has GROUP BY (without-key not supported).
         if (p._aggregate_evaluators.size() == 1 && p._aggregate_evaluators[0]->is_simple_count()) {
             shared_state.use_simple_count = true;
@@ -386,6 +387,10 @@ Status BucketedAggSinkLocalState::close(RuntimeState* state, Status exec_status)
     return Base::close(state, exec_status);
 }
 
+bool BucketedAggSinkLocalState::is_blockable() const {
+    return Base::_parent->template cast<BucketedAggSinkOperatorX>().has_blockable_aggregate();
+}
+
 // ============ BucketedAggSinkOperatorX ============
 
 BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -394,6 +399,11 @@ BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operato
         : DataSinkOperatorX<BucketedAggSinkLocalState>(operator_id, tnode, dest_id),
           _tuple_id(tnode.bucketed_agg_node.tuple_id),
           _pool(pool) {}
+
+bool BucketedAggSinkOperatorX::has_blockable_aggregate() const {
+    return std::any_of(_aggregate_evaluators.begin(), _aggregate_evaluators.end(),
+                       [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
 
 Status BucketedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<BucketedAggSinkLocalState>::init(tnode, state));

@@ -65,12 +65,12 @@ jobs:
           archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz "$archive"
-          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
           "$package/bin/codex" --version
           "$package/bin/codex" exec --help | grep -q -- '--goal'
           echo "CODEX_CANARY_BIN=$package/bin/codex" >> "$GITHUB_ENV"
@@ -115,15 +115,15 @@ jobs:
           echo "CODEX_HOME=$home" >> "$GITHUB_ENV"
 
       - name: Test ChatGPT model access and goal mode without GitHub writes
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: |
           set -uo pipefail
           run_model() {
-            local label="$1" model="$2" goal="$3"
+            local label="$1" model="$2" goal="$3" effort="${4:-low}"
             local events="$RUNNER_TEMP/codex-canary-$label.jsonl"
             local final="$RUNNER_TEMP/codex-canary-$label.txt"
             local args=(exec --skip-git-repo-check --json --model "$model"
-              --config model_reasoning_effort=low --sandbox read-only
+              --config "model_reasoning_effort=$effort" --sandbox read-only
               --color never --output-last-message "$final")
             if [ "$goal" = true ]; then
               args+=(--goal)
@@ -155,8 +155,16 @@ jobs:
             run_model sol-goal gpt-6-sol true
             goal_status=$?
           fi
-          echo "model_canary: gpt-6-sol=$sol_status gpt-5.6-sol=$prior_status gpt-6-sol-goal=$goal_status"
-          test "$sol_status" -eq 0 && test "$goal_status" -eq 0
+          run_model sol61 gpt-6.1-sol false xhigh
+          sol61_status=$?
+          sol61_goal_status=1
+          if [ "$sol61_status" -eq 0 ]; then
+            run_model sol61-goal gpt-6.1-sol true xhigh
+            sol61_goal_status=$?
+          fi
+          echo "model_canary: gpt-6-sol=$sol_status gpt-5.6-sol=$prior_status gpt-6-sol-goal=$goal_status gpt-6.1-sol-xhigh=$sol61_status gpt-6.1-sol-xhigh-goal=$sol61_goal_status"
+          test "$sol_status" -eq 0 && test "$goal_status" -eq 0 && \
+            test "$sol61_status" -eq 0 && test "$sol61_goal_status" -eq 0
 
       - name: Sync refreshed canary auth
         if: ${{ always() && steps.auth.outcome == 'success' }}
@@ -193,13 +201,20 @@ jobs:
 
   code-review:
     runs-on: ubuntu-24.04
+    # Serialize actual reviews of a PR, including comment and dispatch triggers.
+    # Keep every pending request rather than replacing the previous queued job.
+    concurrency:
+      group: code-review-pr-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: false
+      queue: max
     outputs:
       base_sha: ${{ steps.review_inputs.outputs.base_sha }}
       head_sha: ${{ steps.review_inputs.outputs.head_sha }}
       manage_status: ${{ steps.review_inputs.outputs.manage_status }}
+      review_state: ${{ steps.review.outputs.review_state }}
       pr_number: ${{ steps.review_inputs.outputs.pr_number }}
-    # Pre-finalization steps can use 218 minutes and auth sync can use 8 more,
-    # leaving 12 minutes for runner setup and post-job cleanup.
+    # Pre-finalization steps can use 220 minutes and auth sync can use 8 more,
+    # leaving 10 minutes for runner setup and post-job cleanup.
     timeout-minutes: 238
     if: >-
       inputs.runtime_canary != true &&
@@ -333,17 +348,17 @@ jobs:
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
             cp -f "$OSS_CODEX_PACKAGE_OBJECT" "$archive"
-          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
           echo "$package/bin" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz
+          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz
 
       - name: Verify pinned Codex runtime
         timeout-minutes: 2
@@ -351,7 +366,7 @@ jobs:
           set -euo pipefail
           codex_cmd="$(command -v codex)"
           test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
-          echo "e07e6d32e9333cbc52ba058195d6b225c6e072c8c438541d61ec97645b811906  $codex_cmd" | sha256sum --check
+          echo "a0d5ec053074d66570aa967129d350541f344f76671a199b5a7bc0d45366cdf7  $codex_cmd" | sha256sum --check
           codex --version
           codex exec --help | grep -q -- '--goal'
           codex exec --goal resume --help >/dev/null
@@ -681,8 +696,8 @@ jobs:
           This environment is only used for review operations, so do not attempt any builds or code modifications. However, temporary scripts you use for review purposes are exceptions.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
           You can comment on the pull request.
-          This review task is executed in Codex goal mode. Subsequent prompts and skill indicate all the review and commenting actions you need to perform. The current round can only be concluded after completing the main agent risk scan, the normal full-review subagent review for each round, and the risk-focused subagent scan (if applicable). The final GitHub review can only be submitted after all subagents return NO_NEW_VALUABLE_FINDINGS, and all candidate points from the subagents have been validated, deduplicated, accepted, or rejected by the main agent.
-          In addition, the number of iterations shall not exceed 3 rounds. If new subagents identify valuable candidate points after 3 rounds, the main agent must indicate in the final summary that the review is incomplete.
+          This review task is executed in Codex goal mode. The goal is to deliver one verified GitHub review within at most 3 review rounds, with an explicit convergence result. Delivery and convergence are separate: a review that reaches the round limit MUST still deliver its verified findings and describe its remaining limits. Follow this bounded delivery contract for stopping and submission.
+          A review is converged only when all assigned subagents in the latest round return NO_NEW_VALUABLE_FINDINGS, the required coverage is complete, and every candidate and risk focus has been verified and accepted, deduplicated, or dismissed with evidence. Otherwise continue until round 3. At round 3, perform the final sweep and submit with converged=false if any of these conditions still fail; do not start a fourth round, wait for an override, or mark the goal blocked solely because convergence was not reached.
 
           Context:
           - Repository: PLACEHOLDER_REPO
@@ -706,11 +721,11 @@ jobs:
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
           1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
           2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
-          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
+          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. Each subagent must investigate its assigned scope within the bounded review process, report every substantiated finding, and explicitly identify any remaining uncertainty or coverage gaps. You need assign each subagent a dedicated section in the shared ledger.
           4. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
-          5. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
-          6. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
-          7. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+          5. Read the shared ledger after every subagent result, independently verify and deduplicate candidates, and classify each as accepted, already covered, dismissed with evidence, or unresolved with a concrete remaining question. Keep unresolved candidates out of the inline findings until verified.
+          6. After each round, evaluate the convergence conditions above. If they hold, or if 3 rounds have executed, perform the final sweep and deliver the review using the trusted submission helper. At the round limit, publish all verified findings even if the review did not converge, and explicitly describe unresolved candidates or coverage limits. Otherwise continue the next round without resetting the shared ledger or round count.
+          7. Submit the GitHub review and verify that all accepted findings landed before marking the bounded delivery goal complete. Address the required skill checkpoints and user concerns, and report convergence separately. A verified non-converged delivery completes this execution while leaving the review check blocked.
 
           Subagent Constraints:
           - Every subagent appends only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
@@ -720,13 +735,13 @@ jobs:
           - Before returning, a further thought must be made—what problem, if any, might I have missed just now, and where? Then a thorough recheck should be conducted to confirm whether this potential issue is real and whether it needs to be reported.
 
           Main-agent Constraints:
-          - The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
+          - Before delivery, every suspicious point must have an explicit disposition in the ledger: a verified finding, already covered by an existing review, dismissed with concrete evidence, or unresolved. At round 3, disclose unresolved points as remaining questions in the summary and incomplete_reason; they prevent convergence but MUST NOT prevent delivery of verified findings.
           - The main initial risk scan MUST be written under `## Main Initial Risk Scan` in the shared ledger before any subagent is spawned. For every risk focus item, include: ID, changed files/lines involved, related mechanisms to inspect, why it is suspicious, required upstream/downstream files or paths, and the exact question the risk-focused subagent must answer.
           - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent.
           - The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item.
-          - Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review. At this stage, you can conduct final research on any part you still have doubts about or which may not have been fully investigated, ensuring that all potential issues have been thoroughly investigated and reported.
+          - Before submitting, do one final sweep over the changed-file list, candidate dispositions, and risk focus items. Confirm the evidence and anchors for every accepted finding and record any remaining coverage gaps. This sweep must respect the three-round limit. Remaining uncertainty at the cap sets converged=false and must be disclosed; do not claim it has been resolved or withhold the verified review.
 
-          Any agent MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
+          Any agent MUST NOT stop after finding the first blocking issue. Within the three-round limit, keep reviewing changed files, related control flow, tests, and parallel/special-case paths. Publish every verified bug and explicitly disclose remaining uncertainty at the limit.
 
           Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
           Required AGENTS.md files for this PR:
@@ -738,15 +753,15 @@ jobs:
           In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
 
           ## Final response format
-          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - After the required convergence rounds and final sweep, declare the COMPLETE final review in a JSON file with exactly these fields:
-            {"body":"<comprehensive summary>","comments":[{"path":"<file>","position":<diff_position>,"body":"[P1] <finding title and explanation>"}],"existing_blocking_comment_ids":[]}
+          - On delivery, provide a final summary opinion addressing every applicable critical checkpoint, user concerns, and any remaining coverage limits. State whether the review converged.
+          - After convergence or the third round and final sweep, declare the full set of verified findings for this invocation in a JSON file with exactly these fields:
+            {"body":"<comprehensive summary>","comments":[{"path":"<file>","position":<diff_position>,"body":"[P1] <finding title and explanation>"}],"existing_blocking_comment_ids":[],"converged":true,"rounds":1,"incomplete_reason":""}
           - Every new finding must be inline and start with [P0], [P1], [P2] or [P3]. Suggested changes are welcome for precise, self-contained fixes.
           - Include ALL accepted new findings in comments. Use an empty array when there are none. In existing_blocking_comment_ids, list the numeric IDs of every already-reported P0/P1 inline finding you independently confirmed still applies to this head. Do not duplicate those findings. Explain their disposition in the summary; use an empty array only if none still apply.
-          - Submit only after all review completion criteria are satisfied, using the trusted helper: python3 "$RUNNER_TEMP/submit_review.py" --context-dir PLACEHOLDER_CONTEXT_DIR --input-file <json_file>
-          - The helper pins the head, adds this invocation's completion marker, submits the review and verifies the entire summary and inline comment set. P0/P1 results request changes; other completed reviews are comments. This is the ONLY final GitHub submission path. Do not submit reviews or inline comments directly with gh.
+          - Set rounds to the actual total (1 through 3), never reset it on resume. Set converged=true only when all convergence conditions hold and use an empty incomplete_reason. At the cap without convergence, set converged=false, rounds=3, and a nonempty incomplete_reason explaining which conditions failed, remaining questions, and uncovered scope. Deliver in either case using the trusted helper: python3 "$RUNNER_TEMP/submit_review.py" --context-dir PLACEHOLDER_CONTEXT_DIR --input-file <json_file>
+          - The helper pins the head, adds this invocation's delivery marker and convergence statement, and verifies the summary and inline set. P0/P1 results request changes; other deliveries are comments. A non-converged delivery blocks the review check even with zero P0/P1. This is the ONLY GitHub submission path; do not submit reviews or inline comments directly with gh.
           - If the helper reports an error, inspect it and verify the outcome before proceeding. Do not change or delete its review-run.json or review-submission.json files. A retry with the identical JSON reads back a submitted review instead of posting it again.
-          - Mark the goal complete only after the helper reports the verified review ID. A completed review with P0/P1 is still a completed execution; the workflow applies the separate blocking verdict.
+          - Mark the bounded delivery goal complete only after the helper reports the verified review ID, including a non-converged delivery after round 3. The workflow applies the separate blocking verdict. A changed PR head, an unverified submission, or a helper error still prevents successful delivery.
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -880,12 +895,26 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-6-sol" \
-            --fallback-model "gpt-5.6-sol" \
+            --model "gpt-6.1-sol" \
+            --fallback-model "gpt-6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?
           set -e
+
+          # The runner has stopped Codex and reaped descendants. Treat an
+          # obsolete head as a handled outcome, without publishing a verdict.
+          if [ "$status" -eq 75 ]; then
+            jq -e --arg repo "$REPO" --arg pr "$PR_NUMBER" --arg head "$HEAD_SHA" '
+              .state == "superseded" and .repository == $repo and
+              (.pr_number | tostring) == $pr and .head_sha == $head and
+              (.superseding_head_sha | test("^[0-9a-f]{40}$")) and
+              .superseding_head_sha != $head' \
+              "$REVIEW_CONTEXT_DIR/review-result.json" > /dev/null
+            echo "review_state=superseded" >> "$GITHUB_OUTPUT"
+            jq -r '.message' "$REVIEW_CONTEXT_DIR/review-result.json" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
 
           failure_reason=""
           if [ "$status" -ne 0 ]; then
@@ -947,8 +976,21 @@ jobs:
           # Execution succeeded even when verified findings block the PR check.
           # This result is written only after the runner's own API readback.
           jq -er 'select(.state == "success" or .state == "failure") |
-            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)"' \
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve rejected final review
+        if: ${{ always() && steps.review_context.outcome == 'success' && steps.review.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: rejected-code-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
+          # The context directory is hidden; include only the explicit JSON above.
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Record invalid Codex auth
         id: auth_invalid_record
@@ -1072,7 +1114,8 @@ jobs:
           ${{
             always() &&
             steps.review_inputs.outcome == 'success' &&
-            steps.review_inputs.outputs.manage_status == 'true'
+            steps.review_inputs.outputs.manage_status == 'true' &&
+            steps.review.outputs.review_state != 'superseded'
           }}
         timeout-minutes: 2
         env:
@@ -1087,6 +1130,8 @@ jobs:
           REVIEW_STATE: ${{ steps.review.outputs.review_state }}
           REVIEW_P0: ${{ steps.review.outputs.p0 }}
           REVIEW_P1: ${{ steps.review.outputs.p1 }}
+          REVIEW_CONVERGED: ${{ steps.review.outputs.converged }}
+          REVIEW_ROUNDS: ${{ steps.review.outputs.rounds }}
         run: |
           state="pending"
           summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
@@ -1098,6 +1143,9 @@ jobs:
               success|failure)
                 state="$REVIEW_STATE"
                 summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                if [ "$REVIEW_CONVERGED" = "false" ]; then
+                  summary="Review did not converge after ${REVIEW_ROUNDS} rounds for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                fi
                 ;;
               *) echo "::error::Missing verified review verdict"; exit 1 ;;
             esac
@@ -1113,12 +1161,14 @@ jobs:
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
+        # Telemetry errors must not change the code review result.
         continue-on-error: true
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REVIEW_STATE: ${{ steps.review.outputs.review_state }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
@@ -1137,6 +1187,15 @@ jobs:
             > "$helper"
           chmod 700 "$helper"
 
+          min_observations=4
+          min_step_observations=2
+          if [ "$REVIEW_STATE" = "superseded" ]; then
+            # The head may have changed before the first model/tool request.
+            min_observations=1
+            min_step_observations=0
+          fi
+
+          # The helper checks upload acknowledgement; readback is opt-in for diagnostics.
           python3 "$helper" \
             --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
             --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
@@ -1155,12 +1214,9 @@ jobs:
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
-            --min-observations 4 \
-            --min-step-observations 2 \
-            --verify-attempts 24 \
-            --verify-sleep-seconds 5 \
-            --verify-timeout-seconds 120 \
-            --verify
+            --gzip \
+            --min-observations "$min_observations" \
+            --min-step-observations "$min_step_observations"
 
       - name: Sync Codex sessions back to OSS
         if: ${{ always() }}
@@ -1247,7 +1303,8 @@ jobs:
     if: >-
       always() &&
       needs.code-review.outputs.manage_status == 'true' &&
-      needs.code-review.outputs.head_sha != ''
+      needs.code-review.outputs.head_sha != '' &&
+      needs.code-review.outputs.review_state != 'superseded'
     uses: ./.github/workflows/code-review-aggregate-status.yml
     with:
       head_sha: ${{ needs.code-review.outputs.head_sha }}

@@ -24,6 +24,7 @@
 #include <boost/tokenizer.hpp>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <sstream>
@@ -143,6 +144,7 @@ public:
 
 size_t hash_of_path(const std::string& identifier, const std::string& path);
 Result<int> safe_stoi(const std::string& input, const std::string& name);
+Result<int64_t> safe_stoll(const std::string& input, const std::string& name);
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
 template <class T>

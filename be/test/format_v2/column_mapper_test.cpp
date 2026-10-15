@@ -2173,6 +2173,38 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
 }
 
+// DORIS-29685: an ID-less Parquet file is matched by positional ids, so a struct root can be
+// mapped while its children stay unmatched. Final materialization then substitutes NULL for those
+// children, which means the physical slot no longer carries the table value: a whole-root predicate
+// such as LIKE(CAST(s AS STRING), '%null%') must stay above TableReader instead of being evaluated
+// on the raw file slot (which would still see the child's physical value and drop the row).
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedStructRootPredicateStaysAboveFileReader) {
+    auto table_struct = struct_col("s", 1, {field_id_col("inner", 2, i32())});
+    // Positional fallback stamped the root only; the child keeps its physical name identifier.
+    auto file_struct = struct_col("s", 1, {name_col("inner", i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+
+    auto cast_to_string = cast_expr(table_slot(11, 0, table_struct.type, "s"), str());
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(like_expr(cast_to_string, "%null%")),
+            .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
+
+    // No file-local copy of the predicate: the row must be filtered on the materialized
+    // {"inner": null} value, not on the physical {"inner": <file value>}.
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     const auto binary_type = varbinary();
     const auto table_column = name_col("partition_key", binary_type);

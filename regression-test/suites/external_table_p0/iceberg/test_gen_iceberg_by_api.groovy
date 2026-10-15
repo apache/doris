@@ -48,12 +48,18 @@ suite("test_gen_iceberg_by_api", "p0,external") {
     def q01 = {
         qt_q01 """ select * from multi_partition2 order by val """
 
-        test {
-            sql """ select count(*) from table_with_append_file where MAN_ID is not null """
-            // This fixture has no field IDs or authoritative name mapping, so its required
-            // columns must be treated as missing instead of being matched by their current names.
-            exception "Missing required field: MAN_ID"
-        }
+        // This fixture has no field IDs and no authoritative name mapping. Iceberg's Parquet reader
+        // binds such a file by physical ordinals (ParquetSchemaUtil.addFallbackIds +
+        // pruneColumnsFallback), so a required column is no longer reported as missing and the
+        // appended record must stay readable. Exact values of ID-less fixtures are pinned by
+        // test_iceberg_migrated_nested_without_name_mapping.
+        def appendedRows = sql """ select count(*) from table_with_append_file """
+        assertTrue(appendedRows.size() == 1 && appendedRows[0][0].toString().toInteger() >= 1,
+                "ID-less append fixture must stay readable, got ${appendedRows}")
+
+        // The positional binding resolves MAN_ID to one of the file's physical columns; the query
+        // must no longer fail with "Missing required field: MAN_ID".
+        sql """ select count(*) from table_with_append_file where MAN_ID is not null """
     }
 
     q01()

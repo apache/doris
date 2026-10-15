@@ -1880,6 +1880,85 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
     }
 }
 
+TEST(MetaServiceTest, PrecommitTxnReplayDoesNotChangeTxnMetadata) {
+    auto meta_service = get_meta_service();
+    const int64_t db_id = 563413;
+    const int64_t table_id = 417417878;
+
+    brpc::Controller begin_cntl;
+    BeginTxnRequest begin_req;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB begin_info;
+    begin_info.set_db_id(db_id);
+    begin_info.set_label("precommit_replay_terminal_state");
+    begin_info.add_table_ids(table_id);
+    begin_info.set_timeout_ms(36000);
+    begin_req.mutable_txn_info()->CopyFrom(begin_info);
+    BeginTxnResponse begin_res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_cntl),
+                            &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK);
+    const int64_t txn_id = begin_res.txn_id();
+
+    PrecommitTxnRequest precommit_req;
+    precommit_req.set_cloud_unique_id("test_cloud_unique_id");
+    precommit_req.set_db_id(db_id);
+    precommit_req.set_txn_id(txn_id);
+    precommit_req.set_precommit_timeout_ms(36000);
+    brpc::Controller precommit_cntl;
+    PrecommitTxnResponse precommit_res;
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::OK);
+
+    const std::string info_key = txn_info_key({mock_instance, db_id, txn_id});
+    const std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string info_val;
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info;
+    ASSERT_TRUE(txn_info.ParseFromString(info_val));
+    ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    // A fixed old timestamp makes a replayed precommit write observable.
+    txn_info.set_precommit_time(1);
+    const std::string precommitted_info_val = txn_info.SerializeAsString();
+    txn->put(info_key, precommitted_info_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string running_val;
+    ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_OK);
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_PRECOMMITED);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(info_val, precommitted_info_val);
+    std::string replay_running_val;
+    ASSERT_EQ(txn->get(running_key, &replay_running_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(replay_running_val, running_val);
+
+    txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    const std::string visible_info_val = txn_info.SerializeAsString();
+    txn->put(info_key, visible_info_val);
+    txn->remove(running_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(info_val, visible_info_val);
+    ASSERT_EQ(txn->get(running_key, &replay_running_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
     int64_t table_id = 1234;

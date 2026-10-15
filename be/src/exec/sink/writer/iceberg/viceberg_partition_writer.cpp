@@ -25,10 +25,37 @@
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+namespace {
+bool contains_nanosecond_timestamp(const iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::TIMESTAMP_NS:
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        return true;
+    case iceberg::TypeID::STRUCT:
+        for (const auto& field : static_cast<const iceberg::StructType&>(type).fields()) {
+            if (contains_nanosecond_timestamp(*field.field_type())) {
+                return true;
+            }
+        }
+        return false;
+    case iceberg::TypeID::LIST:
+        return contains_nanosecond_timestamp(
+                *static_cast<const iceberg::ListType&>(type).element_field().field_type());
+    case iceberg::TypeID::MAP: {
+        const auto& map = static_cast<const iceberg::MapType&>(type);
+        return contains_nanosecond_timestamp(*map.key_field().field_type()) ||
+               contains_nanosecond_timestamp(*map.value_field().field_type());
+    }
+    default:
+        return false;
+    }
+}
+} // namespace
 
 VIcebergPartitionWriter::VIcebergPartitionWriter(
         const TDataSink& t_sink, std::vector<std::string> partition_values,
@@ -75,39 +102,22 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
+        auto parquet_compression_type =
+                ParquetBuildHelper::to_parquet_compression_type(_compress_type);
+        if (!parquet_compression_type.has_value()) {
+            // The target file is already created, so let the shared cleanup below remove it
+            // instead of returning early.
+            open_status = parquet_compression_type.error();
             break;
         }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
-            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            open_status = Status::InternalError("Unsupported compress type {} with parquet",
-                                                to_string(_compress_type));
-            break;
-        }
-        }
-        if (!open_status.ok()) {
-            break;
-        }
-        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
-                                              .parquet_version = TParquetVersion::PARQUET_1_0,
-                                              .parquet_disable_dictionary = false,
-                                              .enable_int96_timestamps = false};
+        // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
+        ParquetFileOptions parquet_options = {
+                .compression_type = parquet_compression_type.value(),
+                .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
+                                           ? TParquetVersion::PARQUET_2_LATEST
+                                           : TParquetVersion::PARQUET_1_0,
+                .parquet_disable_dictionary = false,
+                .enable_int96_timestamps = false};
         _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options, _iceberg_schema_json, _schema, _nan_count_field_ids);

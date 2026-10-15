@@ -36,6 +36,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
@@ -51,6 +52,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
@@ -374,20 +376,22 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
-TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
-                    .ok());
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
-                    .ok());
+TEST(FileScannerV2Test, ArrowVariantRequiresNativeCarrier) {
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true,
+                                                                "adbc")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW,
+                                                                false, "remote_doris")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET,
+                                                                true, "iceberg")
+                        .ok());
 
-    const auto status =
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    const auto status = FileScannerV2::TEST_validate_variant_projection(
+            TFileFormatType::FORMAT_ARROW, true, "remote_doris");
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
     EXPECT_NE(status.to_string().find(
-                      "External Variant is supported only for Parquet files in FileScannerV2; "
-                      "file format ARROW is not supported"),
+                      "External Variant Arrow reads require an ADBC native Variant carrier"),
               std::string::npos)
             << status;
 }
@@ -637,6 +641,41 @@ TEST(FileScannerV2Test, EveryFlussRangeGetsTheOneHybridReader) {
             range_with_format("fluss_union", TFileFormatType::FORMAT_PARQUET),
             &from_retired_format);
     EXPECT_TRUE(retired.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << retired;
+}
+
+TEST(FileScannerV2Test, TimestampPartitionUsesSessionTimezone) {
+    TimezoneUtils::load_timezones_to_cache();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("timestamp_partition");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    SlotDescriptor slot;
+    slot._type = std::make_shared<DataTypeTimeStampTz>();
+
+    for (const auto& [timezone, offset] :
+         std::vector<std::pair<std::string, std::string>> {{"UTC", "+00:00"},
+                                                           {"Asia/Shanghai", "+08:00"},
+                                                           {"America/Los_Angeles", "-08:00"}}) {
+        state.set_timezone(timezone);
+        Field local;
+        const auto status =
+                scanner._parse_partition_value(&slot, "2023-12-01 08:00:00", false, &local);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(local.get<TYPE_TIMESTAMPTZ>().to_string(state.timezone_obj()),
+                  "2023-12-01 08:00:00.000000" + offset);
+    }
+
+    // An offset in the partition value overrides the session zone, as it does for SQL literals.
+    state.set_timezone("UTC");
+    Field explicit_offset;
+    ASSERT_TRUE(scanner._parse_partition_value(&slot, "2023-12-01 08:00:00+08:00", false,
+                                               &explicit_offset)
+                        .ok());
+    EXPECT_EQ(explicit_offset.get<TYPE_TIMESTAMPTZ>().to_string(state.timezone_obj()),
+              "2023-12-01 00:00:00.000000+00:00");
+    Field null_value;
+    ASSERT_TRUE(scanner._parse_partition_value(&slot, "not a timestamp", true, &null_value).ok());
+    EXPECT_EQ(null_value.get_type(), TYPE_NULL);
+    EXPECT_FALSE(scanner._parse_partition_value(&slot, "not a timestamp", false, &null_value).ok());
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

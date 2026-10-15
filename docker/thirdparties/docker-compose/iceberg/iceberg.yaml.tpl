@@ -140,6 +140,9 @@ services:
   trino:
     image: trinodb/trino:482
     container_name: doris--iceberg-trino
+    # JDBC regressions connect from FE/BE outside this Compose network.
+    ports:
+      - ${TRINO_JDBC_PORT:-8080}:8080
     depends_on:
       rest:
         condition: service_started
@@ -149,7 +152,7 @@ services:
     networks:
       - doris--iceberg
     healthcheck:
-      test: ["CMD-SHELL", "test -d /etc/trino/catalog && command -v trino >/dev/null"]
+      test: ["CMD", "trino", "--server", "http://localhost:8080", "--execute", "SELECT 1"]
       interval: 5s
       timeout: 60s
       retries: 120
