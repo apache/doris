@@ -288,13 +288,8 @@ public class HboStructFreshness {
                 scanState = STATE_UNKNOWN;
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (threshold() <= 0) {
-                if (currentVersion == HboScanDescriptor.UNKNOWN || !recorded.hasVisibleVersion()) {
-                    // a temporary metadata failure must not look like a version mismatch: DELETE
-                    // STALE would remove an entry which a query can still apply
-                    scanState = STATE_UNKNOWN;
-                } else {
-                    scanState = currentVersion == recorded.getVisibleVersion() ? STATE_LIVE : STATE_STALE;
-                }
+                scanState = strictStateOf(recorded.hasVisibleVersion(), recorded.getVisibleVersion(),
+                        currentVersion);
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
                     && (currentRows == HboScanDescriptor.UNKNOWN
@@ -453,6 +448,24 @@ public class HboStructFreshness {
             rendered.add(entry.getKey() + (rows == HboScanDescriptor.UNKNOWN ? "" : ":r" + rows));
         }
         return String.join("; ", rendered);
+    }
+
+    /**
+     * The verdict of the catalog comparison in strict mode. A current version which cannot be read is
+     * unknown (a temporary metadata failure must not look like a version mismatch: {@code DELETE STALE}
+     * would remove an entry which a query can still apply), while an entry which records *no* version is
+     * stale - exactly what the read side decides, because no query can show that its data state is the
+     * recorded one ({@code hasSameVersion} is false). Without that agreement {@code DELETE STALE} without
+     * {@code OLDER_THAN} kept an entry which no query ever applies.
+     */
+    static String strictStateOf(boolean recordedHasVersion, long recordedVersion, long currentVersion) {
+        if (currentVersion == HboScanDescriptor.UNKNOWN) {
+            return STATE_UNKNOWN;
+        }
+        if (!recordedHasVersion) {
+            return STATE_STALE;
+        }
+        return currentVersion == recordedVersion ? STATE_LIVE : STATE_STALE;
     }
 
     /**

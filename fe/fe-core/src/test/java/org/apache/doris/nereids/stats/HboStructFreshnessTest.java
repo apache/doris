@@ -281,4 +281,31 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals("G{tf:[split](S{db.t})}",
                 GroupStructInfo.stripScanBaseline("G{tf:[split](S{db.t,v4,e20})}"));
     }
+
+    @Test
+    public void testAnEntryWithoutAVersionIsStaleInBothVerdicts() {
+        // the read side calls an entry which records no version stale in strict mode (hasSameVersion is
+        // false), so the catalog verdict of DELETE STALE STATISTICS has to agree - otherwise it keeps an
+        // entry which no query ever applies
+        double persist = Config.hbo_row_count_change_ratio;
+        Config.hbo_row_count_change_ratio = 0;
+        try {
+            Assertions.assertEquals(HboStructFreshness.STATE_STALE,
+                    HboStructFreshness.strictStateOf(false, HboScanDescriptor.UNKNOWN, 7));
+            // an unchanged version which the entry recorded is live, a different one is stale
+            Assertions.assertEquals(HboStructFreshness.STATE_LIVE,
+                    HboStructFreshness.strictStateOf(true, 7, 7));
+            Assertions.assertEquals(HboStructFreshness.STATE_STALE,
+                    HboStructFreshness.strictStateOf(true, 6, 7));
+            // a version which the catalog cannot read stays unknown: a temporary metadata failure must
+            // not delete an entry which a query can still apply
+            Assertions.assertEquals(HboStructFreshness.STATE_UNKNOWN,
+                    HboStructFreshness.strictStateOf(true, 7, HboScanDescriptor.UNKNOWN));
+            Assertions.assertEquals(HboStructFreshness.STATE_UNKNOWN,
+                    HboStructFreshness.strictStateOf(false, HboScanDescriptor.UNKNOWN,
+                            HboScanDescriptor.UNKNOWN));
+        } finally {
+            Config.hbo_row_count_change_ratio = persist;
+        }
+    }
 }
