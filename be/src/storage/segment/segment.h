@@ -243,14 +243,6 @@ public:
         }
     }
 
-    // The three hidden columns __DORIS_VERSION_COL__ / __DORIS_COMMIT_TSO_COL__ /
-    // __DORIS_BINLOG_TSO__ store a placeholder on disk and get their real value substituted at
-    // read time, so their on-disk zone map describes the placeholder, not the value rows come back
-    // with. The expression zone-map optimization is excluded from these columns until the
-    // substitution is wired through it. Matches by read-schema ordinal; returns false when the
-    // column is absent (the ordinal accessors return -1).
-    bool is_read_time_substituted_col(int cid, const ReadSchema& schema) const;
-
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);

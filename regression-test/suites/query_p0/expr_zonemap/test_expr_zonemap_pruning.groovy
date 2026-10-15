@@ -717,10 +717,9 @@ suite("test_expr_zonemap_pruning") {
     assertSameOnNanTable("lo < hi")
     qt_nan_lo_lt_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo < hi"""
 
-    // Read-time-substituted hidden columns (__DORIS_VERSION_COL__ / __DORIS_COMMIT_TSO_COL__ /
-    // __DORIS_BINLOG_TSO__) store a placeholder on disk, so their on-disk zone map describes the
-    // placeholder, not the value rows come back with. They are excluded from expr zone-map pruning;
-    // verify a version-column conjunct is not pruned against the on-disk [0,0] placeholder.
+    // __DORIS_VERSION_COL__ stores 0 on disk; a single-version segment reads it through a
+    // ConstantColumnReader whose zone map is the rowset version. Expr zone-map pruning must use that
+    // value, not the on-disk [0,0] placeholder.
     sql """ set show_hidden_columns = true """
     sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_hidden_col """
     sql """
@@ -750,8 +749,10 @@ suite("test_expr_zonemap_pruning") {
         return with_[0][0] as long
     }
     // Every row carries the version and `v = -1` matches nothing, so the compound is the full 2048
-    // rows. Without the exclusion the filter would prune the segment against the [0,0] placeholder.
+    // rows. Pruning against the [0,0] placeholder would drop the segment.
     assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1")
     qt_hidden_version_or_miss """SELECT COUNT(*) FROM test_expr_zonemap_pruning_hidden_col WHERE __DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1"""
+    // No row carries a different version, so this compound matches nothing either way.
+    assertEquals(0L, assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion + 1000} OR v = -1"))
     sql """ set show_hidden_columns = false """
 }
