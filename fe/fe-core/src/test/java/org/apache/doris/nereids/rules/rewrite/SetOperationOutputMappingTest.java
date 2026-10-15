@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
@@ -64,7 +65,7 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
     }
 
     @Test
-    void testMergeUnionComposesChildOutputMapping() {
+    void testMergeSetOperationsComposesChildOutputMapping() {
         Alias first = new Alias(new ExprId(101), new IntegerLiteral(10), "campaign");
         Alias second = new Alias(new ExprId(102), new IntegerLiteral(20), "country");
         LogicalOneRowRelation row = new LogicalOneRowRelation(
@@ -86,6 +87,27 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
         Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
                 rewritten.getRegularChildOutput(0));
         Assertions.assertEquals(ImmutableList.of(second, first), rewritten.getConstantExprsList().get(0));
+
+        Alias rightFirst = new Alias(new ExprId(105), new IntegerLiteral(30), "right_first");
+        Alias rightSecond = new Alias(new ExprId(106), new IntegerLiteral(40), "right_second");
+        LogicalOneRowRelation right = new LogicalOneRowRelation(
+                new RelationId(102), ImmutableList.of(rightFirst, rightSecond));
+        List<SlotReference> rightOutputs = ImmutableList.of(
+                (SlotReference) rightFirst.toSlot(), (SlotReference) rightSecond.toSlot());
+        LogicalExcept childExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(campaign, country),
+                ImmutableList.of(child.getRegularChildOutput(0), rightOutputs), ImmutableList.of(row, right));
+        LogicalExcept parentExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(country, campaign),
+                ImmutableList.of(ImmutableList.of(country, campaign), rightOutputs),
+                ImmutableList.of(childExcept, right));
+        LogicalExcept rewrittenExcept = (LogicalExcept) PlanChecker.from(
+                MemoTestUtils.createConnectContext(), parentExcept)
+                .applyTopDown(new MergeSetOperationsExcept()).getPlan();
+        Assertions.assertEquals(ImmutableList.of(row, right, right), rewrittenExcept.children());
+        Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
+                rewrittenExcept.getRegularChildOutput(0));
+        Assertions.assertEquals(ImmutableList.of(rightSecond.toSlot(), rightFirst.toSlot()),
+                rewrittenExcept.getRegularChildOutput(1));
+        Assertions.assertEquals(rightOutputs, rewrittenExcept.getRegularChildOutput(2));
     }
 
     @Test

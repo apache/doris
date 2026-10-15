@@ -130,7 +130,7 @@ public class MergeSetOperations implements RewriteRuleFactory {
                 newChildren.build(), newChildrenOutputs.build());
     }
 
-    private static List<Integer> getChildOutputOrder(
+    static List<Integer> getChildOutputOrder(
             LogicalSetOperation parent, int childIndex, LogicalSetOperation child) {
         Map<ExprId, Integer> outputIndexes = new HashMap<>();
         for (int i = 0; i < child.getOutput().size(); i++) {
@@ -145,7 +145,7 @@ public class MergeSetOperations implements RewriteRuleFactory {
         return order.build();
     }
 
-    private static <T> List<T> reorderOutputs(List<T> outputs, List<Integer> order) {
+    static <T> List<T> reorderOutputs(List<T> outputs, List<Integer> order) {
         ImmutableList.Builder<T> reordered = ImmutableList.builderWithExpectedSize(order.size());
         for (int index : order) {
             reordered.add(outputs.get(index));

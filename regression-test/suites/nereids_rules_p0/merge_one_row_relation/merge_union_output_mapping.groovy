@@ -67,4 +67,22 @@ LEFT JOIN e ON CASE
 END = e.country
 LEFT JOIN c b ON a.tag = b.tag
 GROUP BY a.country, a.dt"""
+    order_qt_except_reordered """
+        SELECT country, campaign FROM (
+            SELECT campaign, country FROM merge_union_output_mapping
+            EXCEPT
+            SELECT campaign, country FROM merge_union_output_mapping WHERE id < 0
+        ) u
+        EXCEPT
+        SELECT country, campaign FROM merge_union_output_mapping WHERE id < 0
+    """
+    order_qt_except_removed """
+        SELECT country, campaign FROM (
+            SELECT campaign, country FROM merge_union_output_mapping
+            EXCEPT
+            SELECT campaign, country FROM merge_union_output_mapping WHERE id < 0
+        ) u
+        EXCEPT
+        SELECT country, campaign FROM merge_union_output_mapping
+    """
 }
