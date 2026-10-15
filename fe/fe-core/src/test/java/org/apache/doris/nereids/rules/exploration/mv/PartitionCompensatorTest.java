@@ -506,16 +506,11 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         MTMVRelatedTableIf relatedTable1 = mockRelatedTableIf(
                 "t1", 10L, ImmutableList.of("cat", "db", "t1"), baseDb);
-        MTMVRelatedTableIf relatedTable2 = mockRelatedTableIf(
-                "t2", 20L, ImmutableList.of("cat", "db", "t2"), baseDb);
 
-        // Two MV valid partitions: mv_p1 maps to t1_p1, mv_p2 maps to t2_p2
+        // One MV valid partition, mapping t1_p1
         Partition mvP1 = Mockito.mock(Partition.class);
         Mockito.when(mvP1.getId()).thenReturn(101L);
         Mockito.when(mvP1.getName()).thenReturn("mv_p1");
-        Partition mvP2 = Mockito.mock(Partition.class);
-        Mockito.when(mvP2.getId()).thenReturn(102L);
-        Mockito.when(mvP2.getName()).thenReturn("mv_p2");
 
         Map<String, Set<String>> mappingForTable1 = new HashMap<>();
         mappingForTable1.put("mv_p1", ImmutableSet.of("t1_p1"));
@@ -525,7 +520,6 @@ public class PartitionCompensatorTest extends TestWithFeService {
         partitionMappings.put(relatedTable1, mappingForTable1);
 
         BaseColInfo colInfo1 = new BaseColInfo("date_col", new BaseTableInfo(relatedTable1));
-        BaseColInfo colInfo2 = new BaseColInfo("date_col", new BaseTableInfo(relatedTable2));
 
         // Separate catalog/db for the MV itself
         CatalogIf<?> mvCatalog = Mockito.mock(CatalogIf.class);
@@ -555,9 +549,9 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
         Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
 
-        // StatementContext: the MV's two valid partitions are available for rewrite
+        // StatementContext: the MV's valid partition is available for rewrite
         Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
-        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(mvP1, mvP2));
+        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(mvP1));
         StatementContext stmtCtx = Mockito.mock(StatementContext.class);
         Mockito.when(stmtCtx.getMvCanRewritePartitionsMap()).thenReturn(canRewriteMap);
 
