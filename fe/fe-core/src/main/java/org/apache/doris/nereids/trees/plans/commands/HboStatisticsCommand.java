@@ -24,6 +24,7 @@ import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.LiteralMode;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedType;
+import org.apache.doris.nereids.stats.HboScanDescriptor;
 import org.apache.doris.nereids.stats.HboStatisticsStore;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -149,9 +150,12 @@ public class HboStatisticsCommand extends Command {
                 // a fan-out factor relative to the larger input of the join: >= 1 means the join
                 // expands, < 1 means it filters (0.1 keeps 10% of that input), so only zero and
                 // negative values are meaningless
-                if (value <= 0) {
+                // `!(value > 0)` also rejects NaN, and a value which overflows a double parses to
+                // positive infinity: without the finiteness check such a factor would be accepted and
+                // the store would then try to persist `Infinity` as a SQL number
+                if (!(value > 0) || !Double.isFinite(value)) {
                     throw new AnalysisException(
-                            "hbo join expansion must be greater than 0: " + value);
+                            "hbo join expansion must be a finite number greater than 0: " + value);
                 }
             } else if (value < 0 || value != Math.floor(value) || value >= (double) Long.MAX_VALUE) {
                 // the VALUE of every other type is a row count; a double above Long.MAX_VALUE would
@@ -299,6 +303,14 @@ public class HboStatisticsCommand extends Command {
             throw new AnalysisException("a join row count entry is keyed by the group struct info,"
                     + " its STRUCT must be the group canonical: STRUCT='J{...}(...)'. A JE{...}"
                     + " condition canonical is only read by TYPE=JOIN_EXPANSION");
+        }
+        if (keyedEntry && type != PinnedType.JOIN_EXPANSION
+                && HboScanDescriptor.parseAll(canonicalFor(structCanonical, literalMode)).isEmpty()) {
+            // the lookup index of the pinned entries is keyed by the relations of an entry, and an entry
+            // without a scan at all can not be filtered by one: it would turn the pre filter into a no-op
+            // for every group, so it is reported instead of stored
+            throw new AnalysisException("a pinned row count entry must describe at least one scan:"
+                    + " copy the struct= value of a node above a scan from EXPLAIN");
         }
         if (keyedEntry && type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
             throw new AnalysisException("a join expansion entry is keyed by the constant agnostic"

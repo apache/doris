@@ -95,7 +95,9 @@ public class HboShowStatisticsCommand extends ShowCommand {
         super(PlanType.HBO_SHOW_STATISTICS_COMMAND);
         this.scope = scope == null || scope.isEmpty() ? null : scope.toLowerCase(Locale.ROOT);
         this.fullStructInfo = fullStructInfo;
-        this.likePattern = likePattern == null || likePattern.isEmpty() ? null : likePattern;
+        // only an absent LIKE clause disables the filter: an explicitly empty pattern matches no
+        // nonempty struct info, and treating it like an absent clause reported every entry
+        this.likePattern = likePattern;
         this.metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Kind", ScalarType.createVarchar(16)))
                 .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
