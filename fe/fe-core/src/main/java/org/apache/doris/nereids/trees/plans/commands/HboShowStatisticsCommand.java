@@ -190,9 +190,15 @@ public class HboShowStatisticsCommand extends ShowCommand {
         return metaData;
     }
 
+    /**
+     * The statement runs on the FE the session is connected to, it is not forwarded to the master: the
+     * pinned entries live in the in-memory cache of *that* FE (`HBO SET STATISTICS` writes it there and a
+     * query reads it there), so a forwarded SHOW would report the cache of another FE - one which had
+     * loaded its entries at startup and does not contain what this session just set.
+     */
     @Override
     public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        return RedirectStatus.NO_FORWARD;
     }
 
     @Override
