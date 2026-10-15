@@ -174,6 +174,17 @@ public class FlussLakeRangeTest {
         Assertions.assertEquals("fluss", FlussLakeRange.plain(new LakeSplit()).getTableFormatType());
     }
 
+    @Test
+    public void changingTailDoesNotChangeLakeFileIdentity() {
+        ConnectorScanRange lake = new LakeSplit();
+        FlussLakeRange first = FlussLakeRange.suppressed(lake,
+                new FlussLakeRange.Tail(DT_20260101, 2, 100L, 105L));
+        FlussLakeRange second = FlussLakeRange.suppressed(lake,
+                new FlussLakeRange.Tail(DT_20260101, 2, 100L, 205L));
+
+        Assertions.assertEquals(first.getSplitIdentity(), second.getSplitIdentity());
+    }
+
     /**
      * The payload is both halves, in their own thrift fields: whatever the sibling wrote, untouched, plus
      * the fluss descriptor. Asserted whole rather than by spot check — this is an untyped string map that

@@ -17,3 +17,12 @@
 -- !after_load_new_row --
 3	3777	42
 
+-- !added_complex_columns --
+3	3000	\N	\N	\N
+
+-- !complex_after_load_old_row --
+1	\N	\N	\N
+
+-- !complex_after_load_new_row --
+4	{"x":[1, 2]}	{"a":7, "b":"seven"}	[8, 9]
+

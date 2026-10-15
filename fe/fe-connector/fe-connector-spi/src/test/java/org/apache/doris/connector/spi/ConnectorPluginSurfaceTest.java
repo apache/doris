@@ -87,8 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 14 carries spatial metadata on ConnectorType.
-        Assertions.assertEquals("14.0", version.getProperty("api.version"));
+        // Major 15 adds spatial ConnectorType metadata after major 14 introduced split identity.
+        Assertions.assertEquals("15.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -104,6 +104,7 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,
