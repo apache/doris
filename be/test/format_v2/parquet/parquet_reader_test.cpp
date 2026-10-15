@@ -2760,6 +2760,76 @@ TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) 
     EXPECT_TRUE(repeated.children[0].project_all_children);
 }
 
+TEST_F(NewParquetReaderTest, ReadsAnnotatedVariantFallbackArrayLayouts) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    for (const auto* layout : {"required", "optional"}) {
+        SCOPED_TRACE(layout);
+        // Synthetic fixtures preserve the required binary element carrier without external data.
+        _file_path = std::string(source_root) +
+                     "/regression-test/data/external_table_p0/iceberg/variant_fallback_array_" +
+                     layout + ".parquet";
+        auto reader = create_reader();
+        reader->set_batch_size(2);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 2);
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns.push_back(
+                format::LocalColumnIndex::local(schema[1].local_id));
+        request->local_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                         format::LocalIndex(0));
+        ASSERT_TRUE(reader->open(request).ok());
+        size_t rows = 0;
+        bool eof = false;
+        while (!eof) {
+            Block block;
+            block.insert({schema[1].type->create_column(), schema[1].type, "payload"});
+            size_t batch_rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& variants =
+                    assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+            for (size_t row = 0; row < batch_rows; ++row, ++rows) {
+                if (rows == 2) {
+                    EXPECT_TRUE(nullable.is_null_at(row));
+                    continue;
+                }
+                ASSERT_FALSE(nullable.is_null_at(row));
+                const auto value = variants.get_value_ref(row);
+                if (rows == 3) {
+                    EXPECT_TRUE(value.is_null());
+                    continue;
+                }
+                VariantRef events;
+                if (rows == 5) {
+                    EXPECT_FALSE(value.object_find(StringRef("events"), &events));
+                    EXPECT_EQ(value.num_elements(), 0);
+                    continue;
+                }
+                ASSERT_TRUE(value.object_find(StringRef("events"), &events));
+                if (rows == 0) {
+                    ASSERT_EQ(events.num_elements(), 3);
+                    EXPECT_EQ(events.array_at(0).get_int(), 3);
+                    EXPECT_TRUE(events.array_at(1).is_null());
+                    EXPECT_EQ(events.array_at(2).get_int(), 4);
+                } else if (rows == 1) {
+                    EXPECT_EQ(events.num_elements(), 0);
+                } else {
+                    ASSERT_EQ(rows, 4);
+                    ASSERT_EQ(events.num_elements(), 1);
+                    EXPECT_TRUE(events.array_at(0).is_null());
+                }
+            }
+        }
+        EXPECT_EQ(rows, 6);
+        ASSERT_TRUE(reader->close().ok());
+    }
+}
+
 TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     const char* source_root = std::getenv("ROOT");
     ASSERT_NE(source_root, nullptr);
