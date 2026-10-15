@@ -205,9 +205,17 @@ public class HboStatisticsCommand extends Command {
     }
 
     /** The canonical the entry is keyed by: the pasted struct, folded for the agnostic mode. */
-    private static String canonicalFor(String structCanonical, LiteralMode literalMode) {
-        return literalMode == LiteralMode.NO_LITERAL
-                ? GroupStructInfo.toNoLiteral(structCanonical) : structCanonical;
+    private static String canonicalFor(String structCanonical, LiteralMode literalMode)
+            throws AnalysisException {
+        if (literalMode != LiteralMode.NO_LITERAL) {
+            return structCanonical;
+        }
+        try {
+            return GroupStructInfo.toNoLiteral(structCanonical);
+        } catch (IllegalArgumentException e) {
+            // report the text which cannot be folded instead of a fingerprint mismatch it would cause
+            throw new AnalysisException("hbo statistics STRUCT is not well formed: " + e.getMessage());
+        }
     }
 
     @Override

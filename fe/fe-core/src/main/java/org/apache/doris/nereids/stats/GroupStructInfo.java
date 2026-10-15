@@ -1438,6 +1438,13 @@ public class GroupStructInfo {
                 }
                 cursor++;
             }
+            if (depth != 0) {
+                // the parenthesis of `lit(` is never closed: folding would drop the rest of the text, the
+                // fingerprint of a pasted struct info would match nothing, and the statement would be
+                // rejected with a message about the fingerprint although the text itself is what is wrong
+                throw new IllegalArgumentException("an unbalanced parenthesis after 'lit(' at position "
+                        + start);
+            }
             index = cursor;
         }
         return sb.toString();

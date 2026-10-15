@@ -111,6 +111,11 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals("F{EqualTo(col(internal.db.t.b),lit(*))}(S{internal.db.t})",
                 GroupStructInfo.toNoLiteral("F{EqualTo(col(internal.db.t.b),lit(abc:VARCHAR(10)))}"
                         + "(S{internal.db.t})"));
+        // an unbalanced `lit(` is reported instead of folding the rest of the text away: a truncated
+        // result hashes to nothing the user could have copied, and the statement would then be rejected
+        // with a message about the fingerprint (or about a missing scan) instead of about the text
+        Assertions.assertThrows(IllegalArgumentException.class, () -> GroupStructInfo.toNoLiteral(
+                "F{EqualTo(col(internal.db.t.b),lit(1}(S{internal.db.t})"));
         // the simple rendering drops the catalog, the visible version and the rows, and keeps the
         // pruned partition count
         Assertions.assertEquals("F{b = 1}(S{db.t,p1/5})", SimpleStructInfo.render(FILTER_WITH_LITERAL
