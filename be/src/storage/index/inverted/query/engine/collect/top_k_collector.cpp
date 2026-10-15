@@ -38,7 +38,8 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
         threshold = collector.collect(doc_id, score);
         return threshold;
     };
-    if (use_wand && null_rows == nullptr) {
+    // A two-valued weight leaves no row UNKNOWN, so it keeps its own pruning.
+    if (use_wand && (null_rows == nullptr || weight->is_two_valued())) {
         weight->for_each_pruning(context, binding_key, initial_threshold, callback);
     } else {
         auto scorer = weight->scorer(context, binding_key);

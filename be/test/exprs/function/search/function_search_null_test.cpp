@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/search/function_search.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
@@ -158,6 +159,8 @@ struct EvaluateOptions {
     std::string default_operator;
     // How many of a TERM's analyzed terms a row must hold; 0 leaves it unset.
     int32_t minimum_should_match = 0;
+    // Let a TopK prune by block-max WAND, as the session option does by default.
+    bool wand = false;
 };
 
 // Options that score when `scoring` is set and keep the best `top_k` rows when it is non-zero.
@@ -219,6 +222,12 @@ public:
             context->collection_statistics = std::make_shared<FixedStatistics>();
             context->query_limit = options.top_k;
         }
+        if (options.wand) {
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_wand_query = true;
+            _runtime_state.set_query_options(query_options);
+            context->runtime_state = &_runtime_state;
+        }
         FunctionSearch search;
         return search.evaluate_inverted_index_with_search_param(
                 param(root, options), _types, _iterators, _row_count, *result, options.cache,
@@ -272,6 +281,7 @@ private:
     std::unordered_map<std::string, IndexIterator*> _iterators;
     std::vector<TSearchFieldBinding> _bindings;
     OlapReaderStatistics _stats;
+    RuntimeState _runtime_state;
 };
 
 TSearchClause leaf(const std::string& clause_type, const std::string& field,
@@ -477,6 +487,24 @@ TEST(FunctionSearchNullTest, DslCacheEntryWithoutItsNullRowsIsAMiss) {
     body.source->opened.clear();
     fixture.expect(root, options, rows({1, 2}), rows({3}));
     EXPECT_TRUE(body.source->opened.empty());
+}
+
+// A term threshold leaves no row UNKNOWN, so a TopK over it keeps the threshold's block-max WAND.
+// Once row 0 holds both terms, neither term alone can beat it, so WAND skips a lagging term's block.
+TEST(FunctionSearchNullTest, TopKOverATermThresholdKeepsWand) {
+    NullSearchFixture fixture(4);
+    auto& body = fixture.add_field("body");
+    using Posting = index_query::testing::FakeIndexSource::Posting;
+    body.source->add("foo", std::vector<Posting> {{.doc = 0, .positions = {0, 1, 2}},
+                                                  {.doc = 2, .positions = {0}}});
+    body.source->add("bar", std::vector<Posting> {{.doc = 0, .positions = {0, 1, 2}},
+                                                  {.doc = 3, .positions = {0}}});
+    EvaluateOptions options = scored_if(true, 1);
+    options.minimum_should_match = 1;
+    options.wand = true;
+
+    fixture.expect(leaf("TERM", "body", "foo/bar"), options, rows({0}), rows({}));
+    EXPECT_GT(body.source->shallow_seeks, 0U);
 }
 
 // A TopK takes the UNKNOWN rows from the scorer it ranks with instead of building and reading the

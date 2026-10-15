@@ -92,6 +92,9 @@ public:
         }
     }
 
+    // Whether every row is TRUE or FALSE for the weight, so it never reports UNKNOWN rows.
+    virtual bool is_two_valued() const { return false; }
+
     // Whether the weight lists its rows for a set of candidates itself, without a scorer, so
     // a conjunction runs it last on the rows the other clauses kept (see listed_rows).
     virtual bool lists_rows(const QueryExecutionContext& context,

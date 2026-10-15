@@ -59,7 +59,7 @@ public:
                        std::vector<Prefetch>* prefetches = nullptr,
                        std::vector<uint32_t> norms = {}, uint64_t position_work = 0,
                        std::vector<std::vector<uint32_t>>* streams = nullptr,
-                       LiveCursors* live = nullptr)
+                       LiveCursors* live = nullptr, size_t* shallow_seeks = nullptr)
             : _postings(std::move(postings)),
               _norms(std::move(norms)),
               _positions(positions),
@@ -67,7 +67,8 @@ public:
               _prefetches(prefetches),
               _position_work(position_work),
               _streams(streams),
-              _live(live) {
+              _live(live),
+              _shallow_seeks(shallow_seeks) {
         for (const Posting& posting : _postings) {
             _docs.push_back(posting.doc);
             _freqs.push_back(std::max<uint32_t>(1, posting.positions.size()));
@@ -134,6 +135,9 @@ public:
     }
 
     Status shallow_seek(uint32_t /*target*/, bool* moved) override {
+        if (_shallow_seeks != nullptr) {
+            ++*_shallow_seeks;
+        }
         *moved = false;
         return Status::OK();
     }
@@ -181,6 +185,7 @@ private:
     uint64_t _position_work;
     std::vector<std::vector<uint32_t>>* _streams;
     LiveCursors* _live;
+    size_t* _shallow_seeks;
     bool _read = false;
     size_t _current = 0;
     size_t _next_position = 0;
@@ -303,6 +308,8 @@ public:
     // The ordinals each term's cursor was asked to stream, block by block.
     std::map<std::string, std::vector<std::vector<uint32_t>>> streams;
     size_t fetches = 0;
+    // The block skips the cursors were asked for, as block-max WAND asks for them.
+    size_t shallow_seeks = 0;
     LiveCursors live;
 
 private:
@@ -317,7 +324,8 @@ private:
         }
         return std::make_unique<FakePostingsCursor>(
                 it->second, positions, scoring, &prefetches[std::string(term)],
-                std::move(posting_norms), position_work, &streams[std::string(term)], &live);
+                std::move(posting_norms), position_work, &streams[std::string(term)], &live,
+                &shallow_seeks);
     }
 
     std::map<std::string, std::vector<Posting>> _terms;

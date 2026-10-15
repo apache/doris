@@ -99,7 +99,8 @@ private:
 };
 
 // With `null_rows`, the rows the query leaves UNKNOWN are added to it, taken from the scorer the
-// TopK ranks with; that scorer runs without the weight's own pruning.
+// TopK ranks with; that scorer runs without the weight's own pruning unless the weight is
+// two-valued.
 void collect_multi_segment_top_k(
         const WeightPtr& weight, const QueryExecutionContext& context,
         const std::string& binding_key, size_t k, const std::shared_ptr<roaring::Roaring>& roaring,

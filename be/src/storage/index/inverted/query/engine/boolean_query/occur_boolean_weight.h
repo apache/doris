@@ -60,6 +60,8 @@ public:
                           PruningCallback callback) override;
     void for_each_pruning(const QueryExecutionContext& context, const std::string& binding_key,
                           float threshold, PruningCallback callback) override;
+    // A row the Boolean does not match is FALSE, even where a clause's field is NULL.
+    bool is_two_valued() const override { return true; }
 
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
