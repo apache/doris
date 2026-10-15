@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.DecimalMultiplyForSum;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -343,7 +344,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setMaxExpr(null).build();
         }
         // TODO: stat for multiply and divide produced by below algorithm may have huge deviation with reality.
-        if (binaryArithmetic instanceof Multiply) {
+        if (binaryArithmetic instanceof Multiply || binaryArithmetic instanceof DecimalMultiplyForSum) {
             double min = Math.min(
                     Math.min(
                             Math.min(leftMin * rightMin, leftMin * rightMax),
