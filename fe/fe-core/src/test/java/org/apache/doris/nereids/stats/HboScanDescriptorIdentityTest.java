@@ -40,7 +40,12 @@ public class HboScanDescriptorIdentityTest {
         return new HboScanDescriptor(table, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
                 selectedIds.size(), totalPartitions,
                 HboScanDescriptor.partitionIdentityOf(selectedIds, totalPartitions),
-                HboScanDescriptor.tabletIdentityOf(selectedTabletIds));
+                HboScanDescriptor.tabletIdentityOf(selectedTabletIds), "");
+    }
+
+    private static HboScanDescriptor rollupDescriptor(String table, long indexId) {
+        return new HboScanDescriptor(table, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
+                2, 2, "", "", String.valueOf(indexId));
     }
 
     @Test
@@ -131,5 +136,41 @@ public class HboScanDescriptorIdentityTest {
         Assertions.assertEquals("db.t#pt:10#tb:5001:5002", parsed.getShapeIdentity());
         Assertions.assertEquals("F{b = 1}(S{db.t#pt:10#tb:5001:5002})",
                 GroupStructInfo.stripScanBaseline("F{b = 1}(S{db.t#pt:10#tb:5001:5002,v3,r1000,p1/2})"));
+    }
+
+    @Test
+    public void testTheIndexIsPartOfTheIdentityWhenItIsNotTheBaseIndex() {
+        // an aggregate rollup holds fewer rows than the base index: an entry recorded for one of them must
+        // not be compared with the other, and the whole table query must keep the identity it had
+        HboScanDescriptor base = descriptor("db.t", Arrays.asList(1L, 2L), 2, Collections.emptyList());
+        Assertions.assertEquals("", base.getIndexIdentity());
+        Assertions.assertEquals("db.t", base.getShapeIdentity());
+        HboScanDescriptor rollup = rollupDescriptor("db.t", 4001L);
+        Assertions.assertEquals("4001", rollup.getIndexIdentity());
+        Assertions.assertEquals("db.t#ix:4001", rollup.getShapeIdentity());
+        HboScanDescriptor otherRollup = rollupDescriptor("db.t", 4002L);
+        Assertions.assertNotEquals(rollup.getShapeIdentity(), otherRollup.getShapeIdentity());
+    }
+
+    @Test
+    public void testTheIndexSurvivesTheTextRoundTrip() {
+        HboScanDescriptor parsed = HboScanDescriptor.parse(
+                rollupDescriptor("db.t", 4001L).render());
+        Assertions.assertEquals("db.t", parsed.getTable());
+        Assertions.assertEquals("4001", parsed.getIndexIdentity());
+        Assertions.assertEquals("db.t#ix:4001", parsed.getShapeIdentity());
+        Assertions.assertEquals("F{b = 1}(S{db.t#ix:4001})",
+                GroupStructInfo.stripScanBaseline("F{b = 1}(S{db.t#ix:4001,v3,r10})"));
+    }
+
+    @Test
+    public void testAllMarkedPartsSurviveTogether() {
+        HboScanDescriptor parsed = HboScanDescriptor.parse(
+                "db.t#pt:10:11#tb:5001#ix:4001,v3,r10,p2/2");
+        Assertions.assertEquals("db.t", parsed.getTable());
+        Assertions.assertEquals("10:11", parsed.getPartitionIdentity());
+        Assertions.assertEquals("5001", parsed.getTabletIdentity());
+        Assertions.assertEquals("4001", parsed.getIndexIdentity());
+        Assertions.assertEquals("db.t#pt:10:11#tb:5001#ix:4001", parsed.getShapeIdentity());
     }
 }

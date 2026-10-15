@@ -63,6 +63,7 @@ public class HboScanDescriptor {
     static final String PARTITION_IDENTITY_SEPARATOR = ":";
     private static final String PARTITION_IDENTITY_MARK = "#pt";
     private static final String TABLET_IDENTITY_MARK = "#tb";
+    private static final String INDEX_IDENTITY_MARK = "#ix";
 
     private final String table;
     private final long visibleVersion;
@@ -85,10 +86,18 @@ public class HboScanDescriptor {
      * the same row count.
      */
     private final String tabletIdentity;
+    /**
+     * The index this scan reads when it is not the base index of the table (a rollup), empty otherwise.
+     * It belongs to the identity as well: an aggregate rollup holds a different number of rows than the
+     * base index, so an entry recorded for one of them must never be compared with the other - a whole
+     * table query and a rollup query would otherwise share an entry, and the drift guard would judge the
+     * rollup's row count against the base index and report the entry as stale.
+     */
+    private final String indexIdentity;
 
     HboScanDescriptor(String table, long visibleVersion, long scanRows, RowsKind rowsKind,
             long selectedPartitions, long totalPartitions, String partitionIdentity,
-            String tabletIdentity) {
+            String tabletIdentity, String indexIdentity) {
         this.table = table;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
@@ -97,6 +106,13 @@ public class HboScanDescriptor {
         this.totalPartitions = totalPartitions;
         this.partitionIdentity = partitionIdentity;
         this.tabletIdentity = tabletIdentity;
+        this.indexIdentity = indexIdentity;
+    }
+
+    /** The id of the index a scan reads, empty when it reads the base index of its table. */
+    static String indexIdentityOf(OlapScan scan) {
+        long selectedIndexId = scan.getSelectedIndexId();
+        return selectedIndexId == scan.getTable().getBaseIndexId() ? "" : String.valueOf(selectedIndexId);
     }
 
     /** The stable ids of the explicitly selected tablets, ascending, empty when none were selected. */
@@ -197,7 +213,7 @@ public class HboScanDescriptor {
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size(),
                 partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()),
-                tabletIdentityOf(specifiedTabletIds));
+                tabletIdentityOf(specifiedTabletIds), indexIdentityOf(scan));
     }
 
     /**
@@ -207,7 +223,7 @@ public class HboScanDescriptor {
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), UNKNOWN, UNKNOWN,
-                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "");
+                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "", "");
     }
 
     /**
@@ -312,26 +328,24 @@ public class HboScanDescriptor {
             selected = total;
         }
         String identity = parts[0];
-        String table = identity;
+        int firstMark = identity.indexOf('#');
+        String table = firstMark < 0 ? identity : identity.substring(0, firstMark);
         String partitionIdentity = "";
         String tabletIdentity = "";
-        int partitionMark = identity.indexOf(PARTITION_IDENTITY_MARK);
-        if (partitionMark >= 0) {
-            table = identity.substring(0, partitionMark);
-            int end = identity.indexOf(TABLET_IDENTITY_MARK, partitionMark);
-            partitionIdentity = end < 0
-                    ? identity.substring(partitionMark + PARTITION_IDENTITY_MARK.length() + 1)
-                    : identity.substring(partitionMark + PARTITION_IDENTITY_MARK.length() + 1, end);
-        }
-        int tabletMark = identity.indexOf(TABLET_IDENTITY_MARK);
-        if (tabletMark >= 0) {
-            tabletIdentity = identity.substring(tabletMark + TABLET_IDENTITY_MARK.length() + 1);
-            if (partitionMark < 0) {
-                table = identity.substring(0, tabletMark);
+        String indexIdentity = "";
+        if (firstMark >= 0) {
+            for (String marked : identity.substring(firstMark + 1).split("#")) {
+                if (marked.startsWith(PARTITION_IDENTITY_MARK.substring(1) + ":")) {
+                    partitionIdentity = marked.substring(PARTITION_IDENTITY_MARK.length());
+                } else if (marked.startsWith(TABLET_IDENTITY_MARK.substring(1) + ":")) {
+                    tabletIdentity = marked.substring(TABLET_IDENTITY_MARK.length());
+                } else if (marked.startsWith(INDEX_IDENTITY_MARK.substring(1) + ":")) {
+                    indexIdentity = marked.substring(INDEX_IDENTITY_MARK.length());
+                }
             }
         }
         return new HboScanDescriptor(table, version, rows, kind, selected, total, partitionIdentity,
-                tabletIdentity);
+                tabletIdentity, indexIdentity);
     }
 
     /**
@@ -346,12 +360,20 @@ public class HboScanDescriptor {
         if (!tabletIdentity.isEmpty()) {
             sb.append(TABLET_IDENTITY_MARK).append(':').append(tabletIdentity);
         }
+        if (!indexIdentity.isEmpty()) {
+            sb.append(INDEX_IDENTITY_MARK).append(':').append(indexIdentity);
+        }
         return sb.toString();
     }
 
     /** The tablets the scan selects explicitly, as stable ids, empty when it reads whole partitions. */
     public String getTabletIdentity() {
         return tabletIdentity;
+    }
+
+    /** The index the scan reads, empty when it reads the base index of its table. */
+    public String getIndexIdentity() {
+        return indexIdentity;
     }
 
     /** The partitions the scan selects, as stable ids, empty when it reads the whole table. */
