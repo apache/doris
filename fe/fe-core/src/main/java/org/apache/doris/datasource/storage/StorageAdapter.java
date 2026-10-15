@@ -456,9 +456,10 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
-                // built inside fe-filesystem-azure). Routed out here so it never reaches the
-                // S3-family alignment below, exactly as before.
+                // Provider-owned, every auth type (the OAuth2 map is a hadoop Configuration dump
+                // built inside fe-filesystem-azure), including the neutral AZURE_* keys that
+                // AzureThriftAdapter turns into TAzureClientConfig. Routed out here so it never
+                // reaches the S3-family alignment below, exactly as before.
                 return spi.toBackendProperties()
                         .orElseThrow(() -> new IllegalStateException(
                                 "Provider " + providerKey + " exposes no backend properties"))

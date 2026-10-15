@@ -45,6 +45,7 @@ import org.apache.doris.datasource.split.FileSplitter;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.datasource.split.SplitSourceManager;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -570,6 +571,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
+            if (locationType == TFileType.FILE_S3) {
+                // Typed native Azure access; BE prefers it over the S3-style keys in the map,
+                // which is what lets SAS and OAuth2 reach the BE Azure client.
+                AzureThriftAdapter.fromBackendProperties(locationProperties)
+                        .ifPresent(params::setAzureClientConfig);
+            }
         }
 
         if (!params.isSetFileType()) {
