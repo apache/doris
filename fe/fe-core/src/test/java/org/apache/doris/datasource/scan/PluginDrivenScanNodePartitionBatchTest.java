@@ -19,8 +19,10 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitGenerator;
 import org.apache.doris.datasource.split.SplitProducer;
@@ -123,33 +125,33 @@ class PluginDrivenScanNodePartitionBatchTest {
                     Collections.emptyMap(), Collections.emptyList(), true, batchSize, 1);
             node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
             Deencapsulation.setField(node, "splitAssignment", assignment);
-            provider = Mockito.mock(ConnectorScanPlanProvider.class);
-            Mockito.when(provider.planScanForPartitionBatch(Mockito.any(), Mockito.any(), Mockito.any()))
-                    .thenAnswer(call -> {
-                        List<String> partitions = call.getArgument(2);
-                        loaded.add(new ArrayList<>(partitions));
-                        List<ConnectorScanRange> ranges = new ArrayList<>();
-                        for (String partition : partitions) {
-                            if (emptyPartitions.contains(partition)) {
-                                continue;
+            provider = Mockito.mock(ConnectorScanPlanProvider.class, Mockito.CALLS_REAL_METHODS);
+            Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);
+            Mockito.doAnswer(call -> {
+                List<String> partitions = call.getArgument(2);
+                loaded.add(new ArrayList<>(partitions));
+                List<ConnectorScanRange> ranges = new ArrayList<>();
+                for (String partition : partitions) {
+                    if (emptyPartitions.contains(partition)) {
+                        continue;
+                    }
+                    for (int offset = 0; offset < 3; offset++) {
+                        long identity = Long.parseLong(partition) * 10 + offset;
+                        ranges.add(new ConnectorScanRange() {
+                            @Override
+                            public long getStart() {
+                                return identity;
                             }
-                            for (int offset = 0; offset < 3; offset++) {
-                                long identity = Long.parseLong(partition) * 10 + offset;
-                                ranges.add(new ConnectorScanRange() {
-                                    @Override
-                                    public long getStart() {
-                                        return identity;
-                                    }
 
-                                    @Override
-                                    public Map<String, String> getProperties() {
-                                        return Collections.emptyMap();
-                                    }
-                                });
+                            @Override
+                            public Map<String, String> getProperties() {
+                                return Collections.emptyMap();
                             }
-                        }
-                        return ranges;
-                    });
+                        });
+                    }
+                }
+                return ranges;
+            }).when(provider).planScanForPartitionBatch(Mockito.any(), Mockito.any(), Mockito.any());
         }
 
         void start(int partitionCount, int partitionsPerBatch, int parallelism) {
@@ -159,8 +161,10 @@ class PluginDrivenScanNodePartitionBatchTest {
             }
             PluginDrivenScanNode.SubmittedTaskFinalizer finalizer =
                     new PluginDrivenScanNode.SubmittedTaskFinalizer(assignment::finishSchedule);
+            ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
+            }, Collections.emptyList()).build();
             for (SplitProducer.BatchSource source : node.createPartitionBatchSources(
-                    provider, null, partitions, partitionsPerBatch, parallelism)) {
+                    provider, request, partitions, partitionsPerBatch, parallelism)) {
                 finalizer.taskSubmitted();
                 new SplitProducer(assignment, executor, source, failure -> {
                     if (failure != null) {

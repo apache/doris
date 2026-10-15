@@ -106,8 +106,9 @@ public class HiveScanBatchModeTest {
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(), context,
                 new HiveReadTransactionManager(), cache);
         HiveTableHandle handle = parquetHandle(Collections.emptyList());
-        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), handle,
-                Collections.emptyList(), Optional.empty(), -1)) {
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
             Assertions.assertEquals(0, listings.get());
             for (int i = 0; i < 128; i++) {
                 Assertions.assertTrue(source.hasNext());
@@ -126,8 +127,9 @@ public class HiveScanBatchModeTest {
         HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
                 new HiveFileStatus(location + "/large.parquet", Long.MAX_VALUE, 1)));
         FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "1"));
-        try (ConnectorSplitSource source = provider.streamSplits(session, parquetHandle(Collections.emptyList()),
-                Collections.emptyList(), Optional.empty(), -1)) {
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(parquetHandle(Collections.emptyList()), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
             for (int i = 0; i < 3; i++) {
                 Assertions.assertTrue(source.hasNext());
                 HiveScanRange range = (HiveScanRange) source.next();
@@ -152,8 +154,9 @@ public class HiveScanBatchModeTest {
         List<ConnectorScanRange> synchronous = provider.planScan(session,
                 ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         List<ConnectorScanRange> streaming = new ArrayList<>();
-        try (ConnectorSplitSource source = provider.streamSplits(session, handle,
-                Collections.emptyList(), Optional.empty(), -1)) {
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
             while (source.hasNext()) {
                 streaming.add(source.next());
             }
@@ -185,8 +188,9 @@ public class HiveScanBatchModeTest {
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
         HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
                 part("year=2024/month=01"), part("year=2024/month=02"))).build();
-        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), handle,
-                Collections.emptyList(), Optional.empty(), -1)) {
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
             Assertions.assertEquals(0, lister.totalCalls);
             Assertions.assertTrue(source.hasNext());
             source.next();

@@ -63,6 +63,48 @@ public class ConnectorScanPlanProviderBatchScanTest {
     };
 
     @Test
+    public void partitionBatchSourceDefersScopedPlanningAndReleasesItsRanges() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        ConnectorScanRange range = () -> Collections.emptyMap();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                .requiredPartitions(Arrays.asList("pt=1", "pt=2"))
+                .backendCapabilities(Collections.singleton("capability"))
+                .aggregatePushdown(true).build();
+        ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
+            @Override
+            public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scoped) {
+                calls.incrementAndGet();
+                Assertions.assertEquals(Collections.singletonList("pt=2"), scoped.getRequiredPartitions());
+                Assertions.assertTrue(scoped.isAggregatePushdown());
+                Assertions.assertEquals(request.getBackendCapabilities(), scoped.getBackendCapabilities());
+                return Collections.singletonList(range);
+            }
+
+            @Override
+            public boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
+                return true;
+            }
+        };
+        ConnectorScanRequest scoped = request.withRequiredPartitions(Collections.singletonList("pt=2"));
+        try (ConnectorSplitSource source = provider.streamSplits(null, scoped)) {
+            Assertions.assertEquals(0, calls.get());
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertSame(range, source.next());
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertThrows(NoSuchElementException.class, source::next);
+            Assertions.assertEquals(1, calls.get());
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+        }
+        try (ConnectorSplitSource source = provider.streamSplits(null, scoped)) {
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertEquals(1, calls.get(), "Closing an unused source must not plan its batch");
+        }
+    }
+
+    @Test
     public void testSupportsBatchScanDefaultsFalse() {
         // Default MUST be false: any connector that does not opt in stays on the synchronous path.
         ConnectorScanPlanProvider provider = new RecordingProvider();
@@ -83,7 +125,9 @@ public class ConnectorScanPlanProviderBatchScanTest {
         // non-negative streamingSplitEstimate without implementing streamSplits, which is a connector bug.
         ConnectorScanPlanProvider provider = new RecordingProvider();
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> provider.streamSplits(null, null, Collections.emptyList(), Optional.empty(), -1L));
+                () -> provider.streamSplits(null,
+                        ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
     }
 
     @Test
@@ -122,48 +166,6 @@ public class ConnectorScanPlanProviderBatchScanTest {
         // which for a connector whose planning has a side effect on the source means EXPLAIN runs the
         // query. Losing it is invisible in the plan output.
         Assertions.assertTrue(forwarded.isExplainOnly());
-    }
-
-    @Test
-    public void testStreamingRequestDelegatesToExistingConnectorImplementation() {
-        ConnectorExpression filter = new ConnectorColumnRef("c1", ConnectorType.of("INT"));
-        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
-                .filter(Optional.of(filter)).limit(7).build();
-        AtomicInteger calls = new AtomicInteger();
-        ConnectorSplitSource marker = new ConnectorSplitSource() {
-            @Override
-            public boolean hasNext() {
-                return false;
-            }
-
-            @Override
-            public ConnectorScanRange next() {
-                throw new NoSuchElementException();
-            }
-
-            @Override
-            public void close() {
-            }
-        };
-        ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
-            @Override
-            public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scanRequest) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
-                    List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> remaining, long limit) {
-                calls.incrementAndGet();
-                Assertions.assertSame(HANDLE, handle);
-                Assertions.assertSame(request.getColumns(), columns);
-                Assertions.assertSame(filter, remaining.get());
-                Assertions.assertEquals(7, limit);
-                return marker;
-            }
-        };
-        Assertions.assertSame(marker, provider.streamSplits(null, request));
-        Assertions.assertEquals(1, calls.get());
     }
 
     @Test

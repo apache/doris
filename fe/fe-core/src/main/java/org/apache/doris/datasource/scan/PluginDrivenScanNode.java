@@ -104,7 +104,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1975,10 +1974,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return false;
         }
         boolean hasSlots = !desc.getSlots().isEmpty();
+        // Keep partition-listing concurrency for large partitioned scans. Each bounded producer
+        // streams within its claimed partition batch through the scoped request.
+        boolean supportsBatchScan = onPluginClassLoader(scanProvider,
+                () -> scanProvider.supportsBatchScan(connectorSession, currentHandle));
+        if (shouldUseBatchMode(selectedPartitions, hasSlots,
+                supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode())) {
+            return true;
+        }
         // Streaming (file-count) batch flavor (FIX-M3): the connector owns the whole decision (e.g.
         // Iceberg's matched-file count vs num_files_in_batch_mode); the engine only requires output slots
-        // (a scan with no slots needs no file ranges). Prefer streaming when a connector also supports
-        // partition batching, so file-heavy scans do not materialize a whole partition's ranges.
+        // (a scan with no slots needs no file ranges). Covers non-partitioned scans and partitioned
+        // scans below the partition-batch threshold.
         if (hasSlots) {
             boolean countPushdown = isTableLevelCountStarPushdown();
             long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
@@ -1989,12 +1996,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return true;
             }
         }
-        // Partition-count batch flavor (legacy MaxCompute): its connector odpsTable.getFileNum()>0 check is
-        // folded into supportsBatchScan; the partition threshold is evaluated generically.
-        boolean supportsBatchScan = onPluginClassLoader(scanProvider,
-                () -> scanProvider.supportsBatchScan(connectorSession, currentHandle));
-        return shouldUseBatchMode(selectedPartitions, hasSlots,
-                supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode());
+        return false;
     }
 
     /**
@@ -2190,11 +2192,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         AtomicInteger nextPartition = new AtomicInteger();
         int sourceCount = Math.min(parallelism, (partitions.size() - 1) / partitionsPerBatch + 1);
         List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
-        // A partition batch returns a fully materialized range list. Keep at most the old scheduler's
-        // parallelism worth of lists alive, even when full queues make producers yield their workers.
+        // Bound active partition batches even when full queues make producers yield their workers.
+        // Hive streams within each batch; the SPI adapter retains one list for older implementations.
         for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
             sources.add(new SplitProducer.BatchSource() {
-                private Iterator<ConnectorScanRange> ranges = Collections.emptyIterator();
+                private ConnectorSplitSource source;
 
                 @Override
                 public List<Split> getNextBatch() {
@@ -2202,20 +2204,40 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
                         while (splits.size() < splitAssignment.getSplitBatchSize()
                                 && splitAssignment.needMoreSplit()) {
-                            if (!ranges.hasNext()) {
-                                ranges = Collections.emptyIterator();
-                                int begin = nextPartition.getAndAdd(partitionsPerBatch);
-                                if (begin >= partitions.size()) {
-                                    break;
-                                }
-                                int end = Math.min(begin + partitionsPerBatch, partitions.size());
-                                ranges = scanProvider.planScanForPartitionBatch(connectorSession, request,
-                                        partitions.subList(begin, end)).iterator();
-                            } else {
-                                splits.add(toSplit(ranges.next()));
+                            if (source != null && source.hasNext()) {
+                                splits.add(toSplit(source.next()));
+                                continue;
                             }
+                            closeSource();
+                            int begin = nextPartition.getAndAdd(partitionsPerBatch);
+                            if (begin >= partitions.size()) {
+                                break;
+                            }
+                            int end = Math.min(begin + partitionsPerBatch, partitions.size());
+                            source = scanProvider.streamSplits(connectorSession,
+                                    request.withRequiredPartitions(partitions.subList(begin, end)));
                         }
                         return splits;
+                    });
+                }
+
+                private void closeSource() {
+                    if (source != null) {
+                        try {
+                            source.close();
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        } finally {
+                            source = null;
+                        }
+                    }
+                }
+
+                @Override
+                public void close() {
+                    onPluginClassLoader(scanProvider, () -> {
+                        closeSource();
+                        return null;
                     });
                 }
             });

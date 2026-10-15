@@ -262,11 +262,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         if (fileCount < 0) {
             return Math.max(DEFAULT_BATCH_THRESHOLD, fileThreshold);
         }
-        List<HmsPartitionInfo> partitions = hiveHandle.getPrunedPartitions();
-        int partitionCount = partitions == null ? 1 : partitions.size();
-        int partitionThreshold = sessionInt(session, "num_partitions_in_batch_mode", DEFAULT_BATCH_THRESHOLD);
-        boolean partitionBatch = partitionThreshold > 0 && partitionCount >= partitionThreshold;
-        return fileCount >= fileThreshold || partitionBatch ? fileCount : -1;
+        return fileCount >= fileThreshold ? fileCount : -1;
     }
 
     private long cachedFileCount(HiveTableHandle handle) {
@@ -289,12 +285,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             fileCount += count;
         }
         return fileCount;
-    }
-
-    @Override
-    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
-        return streamSplits(session, ConnectorScanRequest.builder(handle, columns).filter(filter).limit(limit).build());
     }
 
     @Override
