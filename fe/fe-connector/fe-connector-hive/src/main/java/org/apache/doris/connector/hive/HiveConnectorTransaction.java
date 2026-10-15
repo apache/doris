@@ -1138,7 +1138,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         try {
             Set<String> dirs = getFileSystem().listDirectories(Location.of(targetPath));
             for (String dir : dirs) {
-                if (excludedChildPath != null && HiveWriteUtils.pathsEqual(dir, excludedChildPath)) {
+                if (isExcludedPath(dir, excludedChildPath)) {
                     continue;
                 }
                 deleteDir(dir);
@@ -1149,7 +1149,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
             try (FileIterator iterator = getFileSystem().list(Location.of(targetPath))) {
                 while (iterator.hasNext()) {
                     FileEntry file = iterator.next();
-                    if (!file.isDirectory()) {
+                    if (!file.isDirectory() && !isExcludedPath(file.location().uri(), excludedChildPath)) {
                         files.add(file);
                     }
                 }
@@ -1160,6 +1160,13 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         } catch (IOException e) {
             throw new RuntimeException("Failed to list/delete contents under " + targetPath, e);
         }
+    }
+
+    private static boolean isExcludedPath(String path, String excludedChildPath) {
+        // Object-store listings can flatten descendants into ordinary files (or nested directories).
+        // Preserve the entire staging subtree until publication, not just its directory entry.
+        return excludedChildPath != null && (HiveWriteUtils.pathsEqual(path, excludedChildPath)
+                || HiveWriteUtils.isSubDirectory(excludedChildPath, path));
     }
 
     private void ensureDirectory(String path) {
