@@ -15,6 +15,9 @@
 -- !map_row_key_padded --
 1	1	[k ]	7
 
+-- !map_nested_map_key_padded --
+2	1	[k ]	10
+
 -- !partition_padded --
 1	[x  ]
 2	[y  ]

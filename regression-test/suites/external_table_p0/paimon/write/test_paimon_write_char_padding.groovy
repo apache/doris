@@ -156,6 +156,16 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'primary-key' = 'id',
             'bucket' = '1'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_map_nested_map_key;
+        CREATE TABLE paimon.${dbName}.t_char_map_nested_map_key (
+            id INT, m MAP<STRUCT<c: CHAR(2), m: MAP<STRING, INT>>, INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'file.format' = 'avro'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -231,6 +241,22 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_map_row_key_padded """
             SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
             FROM t_char_map_row_key
+        """
+
+        // Paimon compares maps regardless of the order of their entries, and its Avro reader keeps one of two keys
+        // whose nested maps differ only in that order, so such keys that padding makes equal fail the row too. A
+        // key holding a map is padded.
+        test {
+            sql """
+                INSERT INTO t_char_map_nested_map_key VALUES (1, map(named_struct('c', 'k', 'm', map('a', 1, 'b', 2)),
+                    10, named_struct('c', 'k ', 'm', map('b', 2, 'a', 1)), 20))
+            """
+            exception "into the same key"
+        }
+        sql """INSERT INTO t_char_map_nested_map_key VALUES (2, map(named_struct('c', 'k', 'm', map('a', 1)), 10))"""
+        order_qt_map_nested_map_key_padded """
+            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
+            FROM t_char_map_nested_map_key
         """
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a

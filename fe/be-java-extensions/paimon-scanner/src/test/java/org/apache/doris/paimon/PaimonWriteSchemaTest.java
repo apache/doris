@@ -510,6 +510,59 @@ public class PaimonWriteSchemaTest {
                 "'{k, [1]}' and '{k , [1]}' into the same key '{k , [1]}'");
     }
 
+    @Test
+    public void testMapsNestedInMapKeysAreComparedRegardlessOfTheirEntryOrder() throws Exception {
+        // Paimon compares maps regardless of the order of their entries, and its Avro reader puts the keys of a map in
+        // a hash map, so padding makes the keys (k, {a: 1, b: 2}) and (k , {b: 2, a: 1}) one key, though their bytes
+        // differ. Keys that were one key before padding are kept as they are, and keys whose nested maps differ stay
+        // distinct. MUTATION: comparing the keys without sorting the entries of their nested maps, or sorting them by
+        // bytes left in the serializer's reused buffer -> no error for the first two maps.
+        DataType innerMapType = DataTypes.MAP(DataTypes.STRING(), DataTypes.INT());
+        Map<InternalRow, Integer> reversed = new LinkedHashMap<>();
+        reversed.put(GenericRow.of(string("k"),
+                map(new Object[] {string("a"), string("b")}, new Object[] {1, 2})), 10);
+        reversed.put(GenericRow.of(string("k "),
+                map(new Object[] {string("b"), string("a")}, new Object[] {2, 1})), 20);
+        DataType keyType = DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "m", innerMapType));
+        assertCollidingKeysFailTheRow(keyType, reversed,
+                "'{k, {a -> 1, b -> 2}}' and '{k , {b -> 2, a -> 1}}' into the same key '{k , {b -> 2, a -> 1}}'");
+
+        Map<InternalRow, Integer> reversedInArray = new LinkedHashMap<>();
+        reversedInArray.put(GenericRow.of(string("k"), new GenericArray(new Object[] {
+                map(new Object[] {string("a"), string("b")}, new Object[] {1, 2})})), 10);
+        reversedInArray.put(GenericRow.of(string("k "), new GenericArray(new Object[] {
+                map(new Object[] {string("b"), string("a")}, new Object[] {2, 1})})), 20);
+        assertCollidingKeysFailTheRow(DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "a", DataTypes.ARRAY(innerMapType))), reversedInArray,
+                "'{k, [{a -> 1, b -> 2}]}' and '{k , [{b -> 2, a -> 1}]}' into the same key");
+
+        PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(keyType, DataTypes.INT())))),
+                new String[] {"labels"}, false, true);
+        Map<InternalRow, Integer> equalBeforePadding = new LinkedHashMap<>();
+        equalBeforePadding.put(GenericRow.of(string("k "),
+                map(new Object[] {string("a"), string("b")}, new Object[] {1, 2})), 10);
+        equalBeforePadding.put(GenericRow.of(string("k "),
+                map(new Object[] {string("b"), string("a")}, new Object[] {2, 1})), 20);
+        checkArrowTableRow(schema, GenericRow.of(new GenericMap(equalBeforePadding)), row -> {
+            InternalMap kept = row.getMap(0);
+            Assertions.assertEquals(2, kept.size());
+            Assertions.assertEquals("b", kept.keyArray().getRow(1, 2).getMap(1).keyArray().getString(0).toString());
+            Assertions.assertEquals(20, kept.valueArray().getInt(1));
+        });
+        Map<InternalRow, Integer> distinctNestedMaps = new LinkedHashMap<>();
+        distinctNestedMaps.put(GenericRow.of(string("k"), map(new Object[] {string("a")}, new Object[] {1})), 10);
+        distinctNestedMaps.put(GenericRow.of(string("k "), map(new Object[] {string("a")}, new Object[] {2})), 20);
+        checkArrowTableRow(schema, GenericRow.of(new GenericMap(distinctNestedMaps)), row -> {
+            InternalMap padded = row.getMap(0);
+            Assertions.assertEquals(2, padded.size());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(0, 2).getString(0).toString());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(1, 2).getString(0).toString());
+            Assertions.assertEquals(20, padded.valueArray().getInt(1));
+        });
+    }
+
     private static void assertCollidingKeysFailTheRow(DataType keyType, Map<?, Integer> keys, String collision)
             throws Exception {
         PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(

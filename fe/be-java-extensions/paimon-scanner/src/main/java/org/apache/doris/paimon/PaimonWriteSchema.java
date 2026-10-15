@@ -435,10 +435,11 @@ final class PaimonWriteSchema {
     /**
      * Pads the keys of one map, failing when padding makes two of its distinct keys one: a map holds one entry per
      * key, and Paimon's Avro reader, for one, keeps only one of them. Keys equal before padding are kept as they are.
-     * Keys are compared and printed through {@code keyFormat}, never by their own hashCode, equals or toString: a key
-     * of a nested type holds the columnar rows and arrays of the Arrow batch, which support none of them
-     * (ColumnarArray keeps identity equality), so hashing the key of a MAP<ROW<c CHAR(2), r ROW<i INT>>, INT> itself
-     * would fail even a map of one entry.
+     * Keys are equal as Paimon compares them: a map nested in a key is compared regardless of the order of its
+     * entries. Keys are compared and printed through {@code keyFormat}, never by their own hashCode, equals or
+     * toString: a key of a nested type holds the columnar rows and arrays of the Arrow batch, which support none of
+     * them (ColumnarArray keeps identity equality), so hashing the key of a MAP<ROW<c CHAR(2), r ROW<i INT>>, INT>
+     * itself would fail even a map of one entry.
      */
     private static InternalArray padMapKeys(InternalArray keys, InternalArray.ElementGetter keyGetter,
             CharPadder keyPadder, MapKeyFormat keyFormat, String column) {
@@ -464,20 +465,130 @@ final class PaimonWriteSchema {
         return new GenericArray(padded);
     }
 
-    /** Compares the keys of a map by their bytes and prints them as Paimon casts them to STRING, for any key type. */
+    /**
+     * Returns the sorter of a value of {@code type}, or null when the type holds no MAP. The sorter copies the value
+     * with the entries of each MAP in it, at any depth, sorted by the bytes of their keys: two values whose maps hold
+     * the same entries in another order, which Paimon takes as equal, then have the same bytes.
+     */
+    private static EntrySorter entrySorter(DataType type) {
+        switch (type.getTypeRoot()) {
+            case ARRAY: {
+                DataType elementType = ((ArrayType) type).getElementType();
+                EntrySorter elementSorter = entrySorter(elementType);
+                if (elementSorter == null) {
+                    return null;
+                }
+                InternalArray.ElementGetter elementGetter = InternalArray.createElementGetter(elementType.nullable());
+                return value -> new GenericArray(sortElements((InternalArray) value, elementGetter, elementSorter));
+            }
+            case MAP: {
+                MapType mapType = (MapType) type;
+                EntrySorter keySorter = entrySorter(mapType.getKeyType());
+                EntrySorter valueSorter = entrySorter(mapType.getValueType());
+                InternalArray.ElementGetter keyGetter =
+                        InternalArray.createElementGetter(mapType.getKeyType().nullable());
+                InternalArray.ElementGetter valueGetter =
+                        InternalArray.createElementGetter(mapType.getValueType().nullable());
+                InternalRowSerializer keySerializer = new InternalRowSerializer(mapType.getKeyType());
+                return value -> {
+                    InternalMap map = (InternalMap) value;
+                    Object[] keys = sortElements(map.keyArray(), keyGetter, keySorter);
+                    Object[] values = sortElements(map.valueArray(), valueGetter, valueSorter);
+                    byte[][] keyBytes = new byte[keys.length][];
+                    Integer[] order = new Integer[keys.length];
+                    for (int i = 0; i < keys.length; i++) {
+                        // Copied first: the serializer reuses its buffer, and toBytes returns that buffer itself when
+                        // the row fills it.
+                        keyBytes[i] = keySerializer.toBinaryRow(GenericRow.of(keys[i])).copy().toBytes();
+                        order[i] = i;
+                    }
+                    Arrays.sort(order, (left, right) -> compareBytes(keyBytes[left], keyBytes[right]));
+                    Object[] sortedKeys = new Object[keys.length];
+                    Object[] sortedValues = new Object[keys.length];
+                    for (int i = 0; i < keys.length; i++) {
+                        sortedKeys[i] = keys[order[i]];
+                        sortedValues[i] = values[order[i]];
+                    }
+                    return new PaddedMap(new GenericArray(sortedKeys), new GenericArray(sortedValues));
+                };
+            }
+            case ROW: {
+                List<DataField> fields = ((RowType) type).getFields();
+                EntrySorter[] fieldSorters = new EntrySorter[fields.size()];
+                InternalRow.FieldGetter[] fieldGetters = new InternalRow.FieldGetter[fields.size()];
+                boolean holdsMap = false;
+                for (int i = 0; i < fields.size(); i++) {
+                    fieldSorters[i] = entrySorter(fields.get(i).type());
+                    fieldGetters[i] = InternalRow.createFieldGetter(fields.get(i).type().nullable(), i);
+                    holdsMap |= fieldSorters[i] != null;
+                }
+                if (!holdsMap) {
+                    return null;
+                }
+                return value -> {
+                    InternalRow nested = (InternalRow) value;
+                    GenericRow sorted = new GenericRow(fieldGetters.length);
+                    for (int i = 0; i < fieldGetters.length; i++) {
+                        Object field = fieldGetters[i].getFieldOrNull(nested);
+                        sorted.setField(i, field == null || fieldSorters[i] == null
+                                ? field : fieldSorters[i].sort(field));
+                    }
+                    return sorted;
+                };
+            }
+            default:
+                return null;
+        }
+    }
+
+    /** The elements of {@code array}, each non-null one sorted by {@code sorter} unless the sorter is null. */
+    private static Object[] sortElements(InternalArray array, InternalArray.ElementGetter elementGetter,
+            EntrySorter sorter) {
+        Object[] elements = new Object[array.size()];
+        for (int i = 0; i < elements.length; i++) {
+            Object element = elementGetter.getElementOrNull(array, i);
+            elements[i] = element == null || sorter == null ? element : sorter.sort(element);
+        }
+        return elements;
+    }
+
+    /** Orders byte strings by their bytes, compared unsigned, then by their length. */
+    private static int compareBytes(byte[] left, byte[] right) {
+        for (int i = 0; i < Math.min(left.length, right.length); i++) {
+            int compared = Integer.compare(left[i] & 0xFF, right[i] & 0xFF);
+            if (compared != 0) {
+                return compared;
+            }
+        }
+        return Integer.compare(left.length, right.length);
+    }
+
+    /**
+     * Compares the keys of a map by their bytes and prints them as Paimon casts them to STRING, for any key type.
+     * Paimon compares maps regardless of the order of their entries ({@code GenericMap.equals}), and its Avro reader
+     * keeps one of two keys whose nested maps differ only in that order, so the entries of the maps nested in a key
+     * are sorted before the key is compared.
+     */
     private static final class MapKeyFormat {
         private final InternalRowSerializer serializer;
+        // Null when the key type holds no MAP.
+        private final EntrySorter entrySorter;
         private final CastExecutor<Object, Object> toText;
 
         @SuppressWarnings("unchecked")
         private MapKeyFormat(DataType keyType) {
             this.serializer = new InternalRowSerializer(keyType);
+            this.entrySorter = entrySorter(keyType);
             this.toText = (CastExecutor<Object, Object>) CastExecutors.resolveToString(keyType);
         }
 
-        /** The bytes of {@code key} as the only field of a row, copied since the serializer reuses its buffer. */
+        /**
+         * The bytes of {@code key}, with the entries of its nested maps sorted, as the only field of a row, copied
+         * since the serializer reuses its buffer.
+         */
         private BinaryRow bytes(Object key) {
-            return serializer.toBinaryRow(GenericRow.of(key)).copy();
+            Object sorted = key == null || entrySorter == null ? key : entrySorter.sort(key);
+            return serializer.toBinaryRow(GenericRow.of(sorted)).copy();
         }
 
         /** {@code key} as Paimon casts it to STRING: a ROW key (k, 1) prints as {k, 1}. */
@@ -491,7 +602,15 @@ final class PaimonWriteSchema {
         Object pad(Object value);
     }
 
-    /** A map over padded key and value arrays, which keeps the entries of the input map in their order. */
+    /** Copies one non-null value of a type that holds a MAP, with the entries of each MAP in it sorted. */
+    private interface EntrySorter {
+        Object sort(Object value);
+    }
+
+    /**
+     * A map over the given key and value arrays, in their order: the padded entries of an input map, which keep the
+     * order of its entries, or the sorted entries of a map nested in a key that is compared.
+     */
     private static final class PaddedMap implements InternalMap {
         private final InternalArray keys;
         private final InternalArray values;
