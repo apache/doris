@@ -941,6 +941,99 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testBoundOnlyTautologyWarmsUnfilteredPartitionViewBeforeLock() {
+        // `abs(1) = 1` is a tautology, but this classification runs on the PARSED plan, i.e. before function
+        // binding, and the folding rule has no implementation for an unbound function. The conjunct nevertheless
+        // references no column of the relation, so it cannot select a partition: it is either removed before
+        // pruning or it discards every row. Warming as filtered would leave the scan DEFERRED for the collector
+        // that runs while the internal read locks are held.
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select * from hive_catalog.db.hive_table where abs(1) = 1");
+        UnboundRelation relation = findUnboundRelation(plan);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(33L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            CollectRelation collectRelation = new CollectRelation(false);
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, plan, PhysicalProperties.ANY);
+            boolean hasInitialFilter = Deencapsulation.invoke(
+                    collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
+            org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
+                    "a conjunct that names no column of the relation cannot select its partitions");
+
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty(), hasInitialFilter);
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(33L).get().getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testJoinedBoundOnlyTautologyKeepsHiveWarmupBeforeLock() {
+        // The same conjunct below a JOIN: the logical selected view of the joined Hive reference must not be
+        // narrowed by a predicate that names none of its columns.
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select * from internal_catalog.db.internal_table i join "
+                        + "(select * from hive_catalog.db.hive_table where abs(1) = 1) h on i.id = h.id");
+        UnboundRelation relation = findUnboundRelationByName(plan, "hive_table");
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(34L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            CollectRelation collectRelation = new CollectRelation(false);
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, plan, PhysicalProperties.ANY);
+            boolean hasInitialFilter = Deencapsulation.invoke(
+                    collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
+            org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
+                    "a bound-only tautology below a join must not mark the Hive scan as filtered");
+
+            statementContext.getTables().put(ImmutableList.of("internal_catalog", "db", "internal_table"),
+                    internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(),
+                    Optional.empty(), hasInitialFilter);
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(34L).get().getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
     public void testDeferredScanPartitionViewIsSkippedWithoutInternalReadLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);

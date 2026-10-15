@@ -83,6 +83,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -103,6 +105,8 @@ import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongBiFunction;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -182,6 +186,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // zero seconds, never matching the stored Hive partition value).
     private static final DateTimeFormatter HIVE_DATETIME_SECONDS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // The rendered text of a hive DATE / DATETIME partition value as seen in a partition NAME. Hive keeps the
+    // partition value exactly as the DDL spelled it, so the components - not the digit widths - carry the value
+    // and a lenient pattern is what makes `2024-1-1` and `2024-01-01` the same day (see matchesAnyValue).
+    private static final Pattern HMS_DATE_TEXT = Pattern.compile("(\\d{1,4})-(\\d{1,2})-(\\d{1,2})");
+    private static final Pattern HMS_TIMESTAMP_TEXT = Pattern.compile(
+            "(\\d{1,4})-(\\d{1,2})-(\\d{1,2}) (\\d{1,2}):(\\d{1,2})(?::(\\d{1,2})(?:\\.(\\d{1,9}))?)?");
 
     // Hive input formats eligible for Top-N lazy materialization, replicating legacy
     // HMSExternalTable.SUPPORTED_HIVE_TOPN_LAZY_FILE_FORMATS (parquet/orc only). The match is on the EXACT
@@ -2728,6 +2739,42 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return typeName != null && "STRING".equals(typeName.toUpperCase(Locale.ROOT));
     }
 
+    private static boolean isHmsFloatType(String typeName) {
+        return typeName != null && "FLOAT".equals(typeName.toUpperCase(Locale.ROOT));
+    }
+
+    private static boolean isHmsDoubleType(String typeName) {
+        return typeName != null && "DOUBLE".equals(typeName.toUpperCase(Locale.ROOT));
+    }
+
+    private static boolean isHmsBooleanType(String typeName) {
+        return typeName != null && "BOOLEAN".equals(typeName.toUpperCase(Locale.ROOT));
+    }
+
+    /** {@code DATEV2} is the Doris type a hive {@code DATE} partition key maps to; legacy {@code DATE} is kept
+     * for a handle built by an older module. */
+    private static boolean isHmsDateType(String typeName) {
+        return isHmsTypeName(typeName, "DATE", "DATEV2");
+    }
+
+    /** The Doris types a hive {@code TIMESTAMP} partition key maps to (see {@code HmsTypeMapping}). */
+    private static boolean isHmsTimestampType(String typeName) {
+        return isHmsTypeName(typeName, "DATETIME", "DATETIMEV2", "TIMESTAMPTZ");
+    }
+
+    private static boolean isHmsTypeName(String typeName, String... names) {
+        if (typeName == null) {
+            return false;
+        }
+        String upper = typeName.toUpperCase(Locale.ROOT);
+        for (String name : names) {
+            if (name.equals(upper)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Decodes one rendered Hive partition name ({@code key1=val1/key2=val2}) into the DECLARED partition
      * keys, or {@code null} when the name cannot be bound to them.
@@ -2782,36 +2829,18 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether a rendered partition value matches one of the predicate literals for its key. Numeric keys are
-     * compared with the same value domain as the typed Nereids pruner, because this local prefilter's result is
-     * reused as the logical selected view: a raw text compare would silently drop a type-equal partition (and,
-     * in batch mode, omit it from the scan altogether). STRING and the remaining key types keep exact text
-     * comparison.
+     * Whether a rendered partition value matches one of the predicate literals for its key. Every typed key
+     * (numeric, boolean, date, timestamp) is compared in the same VALUE domain as the typed Nereids pruner,
+     * because this local prefilter's result is reused as the logical selected view: a raw text compare would
+     * silently drop a type-equal partition (and, in batch mode, omit it from the scan altogether). STRING and
+     * the remaining key types keep exact text comparison.
      */
     private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
-        if (typeName != null && "FLOAT".equals(typeName.toUpperCase(Locale.ROOT))) {
-            Float actual = parseFloatValue(actualValue);
-            if (actual != null) {
-                for (String allowed : allowedValues) {
-                    Float candidate = parseFloatValue(allowed);
-                    if (candidate != null ? Float.compare(candidate, actual) == 0 : allowed.equals(actualValue)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+        if (isHmsFloatType(typeName)) {
+            return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseFloatValue);
         }
-        if (typeName != null && "DOUBLE".equals(typeName.toUpperCase(Locale.ROOT))) {
-            Double actual = parseDoubleValue(actualValue);
-            if (actual != null) {
-                for (String allowed : allowedValues) {
-                    Double candidate = parseDoubleValue(allowed);
-                    if (candidate != null ? Double.compare(candidate, actual) == 0 : allowed.equals(actualValue)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+        if (isHmsDoubleType(typeName)) {
+            return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseDoubleValue);
         }
         if (isHmsIntegralType(typeName) || isHmsDecimalType(typeName)) {
             BigDecimal actual = parseDecimalValue(actualValue);
@@ -2825,7 +2854,116 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 return false;
             }
         }
+        // The remaining typed keys are compared by their VALUE, not by their rendered text: Hive keeps the
+        // partition value exactly as the DDL spelled it and the predicate literal as the type's canonical text,
+        // so `b=1` vs `b=true`, `d=2024-1-1` vs `d=2024-01-01`, and `ts` with a zero fractional suffix all
+        // denote the same value while differing textually. The typed Nereids pruner keeps them, so this
+        // prefilter - whose result IS the logical selected view - must too.
+        if (isHmsBooleanType(typeName)) {
+            return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseBooleanValue);
+        }
+        if (isHmsDateType(typeName)) {
+            return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseDateValue);
+        }
+        if (isHmsTimestampType(typeName)) {
+            return matchesParsedValue(actualValue, allowedValues, HiveConnectorMetadata::parseTimestampValue);
+        }
         return allowedValues.contains(actualValue);
+    }
+
+    /**
+     * Whether {@code actualValue} parses to the same value as one of {@code allowedValues}, with the typed
+     * comparison the Nereids pruner uses. A text {@code parse} cannot interpret - on either side - drops back to
+     * a plain string comparison for that value, exactly as the untyped branch does: this prefilter's result
+     * becomes the logical selected view, so a partition it cannot read may never be dropped (that loses rows),
+     * while keeping it only loses pruning.
+     */
+    private static <T> boolean matchesParsedValue(String actualValue, List<String> allowedValues,
+            Function<String, T> parse) {
+        T actual = parse.apply(actualValue);
+        if (actual == null) {
+            return allowedValues.contains(actualValue);
+        }
+        for (String allowed : allowedValues) {
+            T candidate = parse.apply(allowed);
+            if (candidate != null ? candidate.equals(actual) : allowed.equals(actualValue)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Parses the rendered text of a BOOLEAN partition value. Hive accepts {@code true}/{@code false} and
+     * {@code 1}/{@code 0} interchangeably for a boolean partition, and the predicate literal carries whichever
+     * spelling the query used, so both are the same value here.
+     */
+    private static Boolean parseBooleanValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "true":
+            case "1":
+                return Boolean.TRUE;
+            case "false":
+            case "0":
+                return Boolean.FALSE;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Parses the rendered text of a DATE partition value. The components, not the spelling, carry the value:
+     * {@code 2024-1-1} and the literal's canonical {@code 2024-01-01} are the same day.
+     */
+    private static LocalDate parseDateValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        Matcher matcher = HMS_DATE_TEXT.matcher(value.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        try {
+            return LocalDate.of(Integer.parseInt(matcher.group(1)),
+                    Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)));
+        } catch (DateTimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses the rendered text of a DATETIME/TIMESTAMP partition value ({@code yyyy-MM-dd HH:mm:ss[.fraction]}).
+     * A zero fractional suffix is the same instant as no fraction at all, which {@link #hiveDateTimeString}
+     * relies on when it renders a literal without one.
+     */
+    private static LocalDateTime parseTimestampValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        Matcher matcher = HMS_TIMESTAMP_TEXT.matcher(value.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.of(Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)),
+                    Integer.parseInt(matcher.group(3)), Integer.parseInt(matcher.group(4)),
+                    Integer.parseInt(matcher.group(5)),
+                    matcher.group(6) == null ? 0 : Integer.parseInt(matcher.group(6)),
+                    fractionToNanos(matcher.group(7)));
+        } catch (DateTimeException e) {
+            return null;
+        }
+    }
+
+    /** Scales a rendered fraction to the nano-of-second it denotes, right-filling with zeros. */
+    private static int fractionToNanos(String fraction) {
+        if (fraction == null) {
+            return 0;
+        }
+        return Integer.parseInt((fraction + "000000000").substring(0, 9));
     }
 
     /** Parses a rendered FLOAT value with the same binary-floating semantics as the typed partition pruner. */

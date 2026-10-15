@@ -363,14 +363,16 @@ public class CollectRelation implements AnalysisRuleFactory {
     private boolean isUnderInitialFilter(
             CascadesContext cascadesContext, Plan plan, UnboundRelation relation) {
         if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
-            // A filter that folds to TRUE is removed before partition pruning. Treating it as selective would
-            // skip the pre-lock full-view warmup, leave the bare scan DEFERRED and move connector enumeration
-            // into MV collection or physical finalization while table locks are held. Use the same constant
-            // folding rule as EliminateFilter so casts and other foldable tautologies follow the same decision.
+            // A filter that cannot survive as a selective predicate must not classify the relation as filtered:
+            // treating it as selective skips the pre-lock full-view warmup, leaves the bare scan DEFERRED and
+            // moves connector enumeration into MV collection or physical finalization while table locks are
+            // held. Constant folding is the first half of that decision (it uses the same rule as
+            // EliminateFilter, so casts and other foldable tautologies follow it); the conjunct's inputs are the
+            // second half, see isSelectiveConjunct.
             ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
             return ((LogicalFilter<?>) plan).getConjuncts().stream()
                     .map(conjunct -> FoldConstantRule.evaluate(conjunct, rewriteContext))
-                    .anyMatch(conjunct -> !BooleanLiteral.TRUE.equals(conjunct));
+                    .anyMatch(this::isSelectiveConjunct);
         }
         for (Plan child : plan.children()) {
             if (isUnderInitialFilter(cascadesContext, child, relation)) {
@@ -378,6 +380,23 @@ public class CollectRelation implements AnalysisRuleFactory {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a conjunct, as evaluated by constant folding, can still select something in the relation.
+     *
+     * <p>A conjunct that names no input slot is constant with respect to the relation: it is either TRUE - and is
+     * then removed before partition pruning - or it discards every row. Neither can narrow a partition set, so
+     * the relation must be warmed as if it were unfiltered.</p>
+     *
+     * <p>WHY the slot test and not folding alone: this classification runs on the parsed plan, BEFORE function
+     * binding, and the folding rule has no implementation for an unbound function. A bound-only tautology such as
+     * {@code abs(1) = 1} is therefore unfoldable here even though it folds to TRUE during rewrite. Judging it by
+     * the fold alone would keep it "selective" and leave the scan cold for the lock-held collector, which is
+     * exactly the cost this warmup exists to avoid.</p>
+     */
+    private boolean isSelectiveConjunct(Expression conjunct) {
+        return !BooleanLiteral.TRUE.equals(conjunct) && !conjunct.getInputSlots().isEmpty();
     }
 
     private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {

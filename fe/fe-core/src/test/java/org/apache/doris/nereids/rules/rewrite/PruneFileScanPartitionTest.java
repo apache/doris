@@ -24,11 +24,14 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,15 +46,79 @@ public class PruneFileScanPartitionTest {
         Map<String, PartitionItem> recordedView = new LinkedHashMap<>();
         recordedView.put("p=1", listItem(1));
         recordedView.put("p=2", listItem(2));
+        ExternalTable externalTable = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
 
         Optional<SortedPartitionRanges<String>> ranges = PruneFileScanPartition.fallbackSortedPartitionRanges(
-                SelectedPartitions.NOT_PRUNED, recordedView);
+                externalTable, scan, SelectedPartitions.NOT_PRUNED, recordedView);
 
         Assertions.assertTrue(ranges.isPresent());
-        List<String> rangeNames = ranges.get().sortedPartitions.stream()
+        List<String> rangeNames = rangeNames(ranges);
+        Assertions.assertEquals(List.of("p=1", "p=2"), rangeNames);
+        // A view whose generation is not a materialized connector snapshot must not consult the cross-query
+        // range cache: those ranges could have been built from another enumeration of the same table.
+        Mockito.verify(externalTable, Mockito.never()).getSortedPartitionRanges(Mockito.any());
+    }
+
+    @Test
+    public void testMaterializedConnectorViewReusesCachedRanges() throws AnalysisException {
+        Map<String, PartitionItem> recordedView = new LinkedHashMap<>();
+        recordedView.put("p=1", listItem(1));
+        recordedView.put("p=2", listItem(2));
+        ExternalTable externalTable = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        // The ranges of an immutable MVCC pin: same version token, so the cross-query cache entry describes
+        // exactly the partition set the recorded map came from.
+        SortedPartitionRanges<String> cached = SortedPartitionRanges.build(recordedView);
+        Mockito.when(externalTable.getSortedPartitionRanges(scan)).thenReturn(Optional.of(cached));
+        SelectedPartitions materializedPin = new SelectedPartitions(2, recordedView, true);
+
+        Optional<SortedPartitionRanges<String>> ranges = PruneFileScanPartition.fallbackSortedPartitionRanges(
+                externalTable, scan, materializedPin, recordedView);
+
+        Assertions.assertTrue(ranges.isPresent());
+        Assertions.assertSame(cached, ranges.get());
+        Assertions.assertEquals(List.of("p=1", "p=2"), rangeNames(ranges));
+    }
+
+    @Test
+    public void testMaterializedConnectorViewWithoutCacheEntryRebuildsRanges() throws AnalysisException {
+        Map<String, PartitionItem> recordedView = new LinkedHashMap<>();
+        recordedView.put("p=1", listItem(1));
+        ExternalTable externalTable = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(externalTable.getSortedPartitionRanges(scan)).thenReturn(Optional.empty());
+        SelectedPartitions materializedPin = new SelectedPartitions(1, recordedView, true);
+
+        Optional<SortedPartitionRanges<String>> ranges = PruneFileScanPartition.fallbackSortedPartitionRanges(
+                externalTable, scan, materializedPin, recordedView);
+
+        Assertions.assertTrue(ranges.isPresent());
+        Assertions.assertEquals(List.of("p=1"), rangeNames(ranges));
+    }
+
+    @Test
+    public void testRecordedRangesWinOverTheCacheLookup() throws AnalysisException {
+        Map<String, PartitionItem> recordedView = new LinkedHashMap<>();
+        recordedView.put("p=1", listItem(1));
+        ExternalTable externalTable = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        SortedPartitionRanges<String> recorded = SortedPartitionRanges.build(recordedView);
+        SelectedPartitions withRecordedRanges = new SelectedPartitions(1, recordedView, true, false,
+                Optional.of(recorded));
+
+        Optional<SortedPartitionRanges<String>> ranges = PruneFileScanPartition.fallbackSortedPartitionRanges(
+                externalTable, scan, withRecordedRanges, recordedView);
+
+        Assertions.assertTrue(ranges.isPresent());
+        Assertions.assertSame(recorded, ranges.get());
+        Mockito.verify(externalTable, Mockito.never()).getSortedPartitionRanges(Mockito.any());
+    }
+
+    private static List<String> rangeNames(Optional<SortedPartitionRanges<String>> ranges) {
+        return ranges.get().sortedPartitions.stream()
                 .map(partition -> partition.id)
                 .collect(Collectors.toList());
-        Assertions.assertEquals(List.of("p=1", "p=2"), rangeNames);
     }
 
     private static ListPartitionItem listItem(int value) throws AnalysisException {

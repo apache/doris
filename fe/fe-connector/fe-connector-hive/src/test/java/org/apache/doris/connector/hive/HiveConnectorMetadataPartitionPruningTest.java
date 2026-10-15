@@ -129,6 +129,54 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testLocalFallbackComparesBooleanValuesByValue() {
+        // Hive accepts `true`/`false` and `1`/`0` interchangeably for a boolean partition key, and the predicate
+        // literal carries whichever spelling the query used. `b = TRUE` and `b = 1` are the same predicate, so
+        // both must keep every partition stored under either spelling; a raw text compare drops all of them.
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(Arrays.asList("b=true", "b=false", "b=1", "b=0")),
+                HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = typedHandle("b", "BOOLEAN");
+
+        Assertions.assertEquals(Arrays.asList("b=true", "b=1"),
+                prunedLocations(applyFilter(metadata, handle, eq("b", "TRUE"))));
+        Assertions.assertEquals(Arrays.asList("b=true", "b=1"),
+                prunedLocations(applyFilter(metadata, handle, eq("b", "1"))));
+        Assertions.assertEquals(Arrays.asList("b=false", "b=0"),
+                prunedLocations(applyFilter(metadata, handle, eq("b", "false"))));
+    }
+
+    @Test
+    public void testLocalFallbackComparesDateValuesByValue() {
+        // The DDL may spell the partition value `2024-1-1` while the predicate's canonical text is
+        // `2024-01-01`. Both are the same day, and only the day is what the typed Nereids pruner compares.
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(Arrays.asList("d=2024-1-1", "d=2024-01-01", "d=2023-01-01")),
+                HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = typedHandle("d", "DATEV2");
+
+        Assertions.assertEquals(Arrays.asList("d=2024-1-1", "d=2024-01-01"),
+                prunedLocations(applyFilter(metadata, handle, eq("d", "2024-01-01"))));
+    }
+
+    @Test
+    public void testLocalFallbackComparesTimestampValuesByValue() {
+        // A literal without a sub-second part renders as `2024-01-01 10:00:00` (hiveDateTimeString), so a stored
+        // partition carrying an all-zero fractional suffix denotes the same instant and must survive. A real
+        // fractional part is a different instant and must still be pruned out.
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(Arrays.asList("ts=2024-01-01 10:00:00.000", "ts=2024-01-01 10:00:00",
+                        "ts=2024-01-01 10:00:00.500", "ts=2024-01-02 10:00:00")),
+                HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = typedHandle("ts", "DATETIMEV2");
+
+        Assertions.assertEquals(Arrays.asList("ts=2024-01-01 10:00:00.000", "ts=2024-01-01 10:00:00"),
+                prunedLocations(applyFilter(metadata, handle, eq("ts", "2024-01-01 10:00:00"))));
+        Assertions.assertEquals(Collections.singletonList("ts=2024-01-01 10:00:00.500"),
+                prunedLocations(applyFilter(metadata, handle, eq("ts", "2024-01-01 10:00:00.500000"))));
+    }
+
+    @Test
     public void testHmsFilterDeclinesReservedWordAndAllDigitPartitionKeys() {
         // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
         // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
@@ -575,6 +623,19 @@ public class HiveConnectorMetadataPartitionPruningTest {
             HiveTableHandle handle, ConnectorExpression expr) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HiveTestProperties.minimal(), new FakeConnectorContext());
+        return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
+    }
+
+    /** A handle over one declared partition key of {@code typeName}, as {@code HmsTypeMapping} names it. */
+    private HiveTableHandle typedHandle(String partitionKey, String typeName) {
+        return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList(partitionKey))
+                .partitionKeyTypes(Collections.singletonMap(partitionKey, typeName))
+                .build();
+    }
+
+    private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
+            HiveConnectorMetadata metadata, HiveTableHandle handle, ConnectorExpression expr) {
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 

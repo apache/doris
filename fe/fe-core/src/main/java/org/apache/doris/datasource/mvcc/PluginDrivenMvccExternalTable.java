@@ -715,9 +715,20 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 return Collections.emptyMap();
             }
             Optional<ExternalTablePreloadInfo> sharedView = sharedLatestPreloadInfo(snapshot);
-            if (sharedView.isPresent() && sharedView.get().hasScanPartitionView()
-                    && sharedView.get().getScanPartitionView().isPresent()) {
-                return sharedView.get().getScanPartitionView().get();
+            if (sharedView.isPresent()) {
+                if (sharedView.get().hasScanPartitionView()
+                        && sharedView.get().getScanPartitionView().isPresent()) {
+                    return sharedView.get().getScanPartitionView().get();
+                }
+                // A FILTERED latest scan deliberately leaves its scan view unwarmed so connector predicate
+                // pruning stays effective, but this per-name reader is also the async-MV compensation path
+                // (PartitionCompensator resolves each compensated base partition by name while planner locks
+                // are held). The pre-lock pass materializes the complete mapping view separately; reuse it
+                // rather than re-listing every partition under those locks.
+                if (sharedView.get().hasMtmvPartitionView()
+                        && sharedView.get().getMtmvPartitionView().isPresent()) {
+                    return sharedView.get().getMtmvPartitionView().get();
+                }
             }
             // The latest Hive query pin intentionally carries no partition map so selective scans can send a
             // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
@@ -825,8 +836,17 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * view also distinguishes UNAVAILABLE ({@link Optional#empty()}) from an authoritative empty map. A
      * supplied pin is accepted only when it is the statement's own latest pin; historical/time-travel pins and
      * calls without a statement context keep their existing snapshot semantics.</p>
+     *
+     * <p>Only a connector partition-pruning table can ever have a warmed view: both pre-lock warmups
+     * ({@code preloadDeferredScanPartitionView} / {@code preloadMtmvPartitionView}) return early for a table
+     * that does not declare {@code SUPPORTS_CONNECTOR_PARTITION_PRUNING}. Returning the record for such a table
+     * would make its consumers expect a view that was never materialized (and throw) even though the table's own
+     * MVCC pin already carries the complete map, so the capability is part of the lookup.</p>
      */
     private Optional<ExternalTablePreloadInfo> sharedLatestPreloadInfo(Optional<MvccSnapshot> snapshot) {
+        if (!supportsConnectorPartitionPruning()) {
+            return Optional.empty();
+        }
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
         if (statementContext == null) {

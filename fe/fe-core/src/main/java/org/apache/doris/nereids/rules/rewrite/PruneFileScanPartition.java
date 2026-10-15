@@ -86,14 +86,35 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     /**
      * Builds binary-search ranges for a connector-declined fallback from the partition map already recorded for
-     * this statement. The deferred partition view must not be enumerated a second time here: a remote mutation
-     * between the two listings could make the range generation disagree with the partition map and either abort
-     * planning or silently omit a matching partition.
+     * this statement.
+     *
+     * <p>A DEFERRED partition view must not be enumerated a second time here: a remote mutation between the two
+     * listings could make the range generation disagree with the partition map and either abort planning or
+     * silently omit a matching partition. A MATERIALIZED connector snapshot is different: its ranges and its
+     * version token are both derived from the SAME immutable MVCC pin the recorded map came from, so the
+     * cross-query {@link org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager} can serve them and
+     * skip a per-query O(N log N) rebuild of every partition on an unchanged, large table.</p>
      */
     static Optional<SortedPartitionRanges<String>> fallbackSortedPartitionRanges(
+            ExternalTable externalTable, LogicalFileScan scan,
             SelectedPartitions selectedPartitions, Map<String, PartitionItem> partitionItems) {
         return selectedPartitions.sortedPartitionRanges
+                .or(() -> materializedSortedPartitionRanges(externalTable, scan, selectedPartitions))
                 .or(() -> Optional.ofNullable(SortedPartitionRanges.build(partitionItems)));
+    }
+
+    /**
+     * The cross-query range cache lookup, only for a view whose ranges provably describe the same fact as the
+     * recorded map (a MATERIALIZED connector snapshot). A DEFERRED view keeps its recorded map untrusted by the
+     * cache: the map is the connector's single generation for this statement, while a cache entry could have
+     * been built from another enumeration.
+     */
+    private static Optional<SortedPartitionRanges<String>> materializedSortedPartitionRanges(
+            ExternalTable externalTable, LogicalFileScan scan, SelectedPartitions selectedPartitions) {
+        if (selectedPartitions.state != SelectedPartitions.State.MATERIALIZED) {
+            return Optional.empty();
+        }
+        return externalTable.getSortedPartitionRanges(scan);
     }
 
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
@@ -187,7 +208,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         if (enableBinarySearch && !partitionItems.isEmpty()) {
             sortedPartitionRanges = connectorFilteredPartitions
                     ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
-                    : fallbackSortedPartitionRanges(scan.getSelectedPartitions(), partitionItems);
+                    : fallbackSortedPartitionRanges(externalTable, scan,
+                            scan.getSelectedPartitions(), partitionItems);
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), partitionItems, ctx,
