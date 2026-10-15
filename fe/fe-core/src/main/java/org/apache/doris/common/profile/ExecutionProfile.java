@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -58,6 +59,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
+
+    private static final String FRAGMENT_LEVEL_PROFILE_PREFIX = "FragmentLevelProfile:";
 
     private final TUniqueId queryId;
     private long queryFinishTime = 0L;
@@ -167,20 +170,51 @@ public class ExecutionProfile {
         }
     }
 
-    private boolean updateMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
-            List<RuntimeProfile> taskProfile, boolean isDone) {
+    private void updateMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
+            List<RuntimeProfile> taskProfile, List<RuntimeProfile> profileNodes, boolean isDone) {
         multiBeProfileLock.writeLock().lock();
         try {
             if (!isDone && fragmentIdDoneBackends.get(fragmentId).contains(backendHBAddress)) {
-                return false;
+                return;
             }
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
+            // Publish the fragment snapshots before completion is visible to profile storage.
+            for (RuntimeProfile profileNode : profileNodes) {
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
+            }
             if (isDone) {
                 fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
             }
-            return true;
         } finally {
             multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    // Fragment-level profiles are cumulative snapshots, replaced by backend address on each report.
+    // Sum only their root counters: traversing pipeline tasks would multiply the same AI work.
+    void addAIFunctionSummaryCounters(RuntimeProfile summary) {
+        multiBeProfileLock.readLock().lock();
+        try {
+            for (RuntimeProfile fragment : fragmentProfiles.values()) {
+                for (RuntimeProfile backend : fragment.getChildMap().values()) {
+                    if (!backend.getName().startsWith(FRAGMENT_LEVEL_PROFILE_PREFIX)) {
+                        continue;
+                    }
+                    for (Entry<String, Counter> entry : backend.getCounterMap().entrySet()) {
+                        if (entry.getKey().startsWith("AIFunction")) {
+                            Counter source = entry.getValue();
+                            Counter total = summary.addCounter(entry.getKey(), source.getType(),
+                                    RuntimeProfile.ROOT_COUNTER);
+                            Preconditions.checkState(total.getType() == source.getType(),
+                                    "Inconsistent units for AI counter %s", entry.getKey());
+                            total.setLevel(source.getLevel());
+                            total.addValue(source);
+                        }
+                    }
+                }
+            }
+        } finally {
+            multiBeProfileLock.readLock().unlock();
         }
     }
 
@@ -282,7 +316,7 @@ public class ExecutionProfile {
                 boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
                 if (isFragmentLevel) {
                     // Fragment Level profile is also represented by TDetailedReportParams.
-                    name = "FragmentLevelProfile:" + suffix;
+                    name = FRAGMENT_LEVEL_PROFILE_PREFIX + suffix;
                 } else {
                     name = "Pipeline " + pipelineIdx + suffix;
                     pipelineIdx++;
@@ -303,12 +337,7 @@ public class ExecutionProfile {
                 profileNode.setIsDone(isDone);
                 profileNodes.add(profileNode);
             }
-            if (!updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, isDone)) {
-                continue;
-            }
-            for (RuntimeProfile profileNode : profileNodes) {
-                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
-            }
+            updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, profileNodes, isDone);
         }
 
         LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
