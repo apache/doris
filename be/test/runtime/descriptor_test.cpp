@@ -100,8 +100,7 @@ TEST_F(SlotDescriptorTest, CanonicalTypesWithoutPostConstructionConversion) {
     scalar.__set_precision(18);
     scalar.__set_scale(2);
     SlotDescriptor slot(tdesc);
-    auto type = slot.get_data_type_ptr();
-    EXPECT_EQ(type, slot.type());
+    auto type = slot.type();
     ASSERT_TRUE(type->is_nullable());
     const auto& decimal = assert_cast<const DataTypeDecimalV2&>(*remove_nullable(type));
     EXPECT_EQ(decimal.get_precision(), 27);
@@ -112,17 +111,17 @@ TEST_F(SlotDescriptorTest, CanonicalTypesWithoutPostConstructionConversion) {
     PSlotDescriptor pdesc;
     slot.to_protobuf(&pdesc);
     SlotDescriptor restored(pdesc);
-    EXPECT_TRUE(restored.get_data_type_ptr()->equals(*type));
+    EXPECT_TRUE(restored.type()->equals(*type));
 
     scalar.__set_type(TPrimitiveType::BINARY);
     SlotDescriptor binary(tdesc);
-    EXPECT_EQ(binary.get_data_type_ptr()->get_primitive_type(), TYPE_STRING);
-    EXPECT_TRUE(binary.get_data_type_ptr()->is_nullable());
+    EXPECT_EQ(binary.type()->get_primitive_type(), TYPE_STRING);
+    EXPECT_TRUE(binary.type()->is_nullable());
 
     scalar.__set_type(TPrimitiveType::VARBINARY);
     scalar.__set_len(32);
     SlotDescriptor varbinary(tdesc);
-    EXPECT_EQ(varbinary.get_data_type_ptr()->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(varbinary.type()->get_primitive_type(), TYPE_VARBINARY);
 }
 
 TEST_F(SlotDescriptorTest, VirtualColumnExprValid) {

@@ -135,7 +135,7 @@ Status WalReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>
     if (_tuple_descriptor) {
         for (auto* slot_desc : _tuple_descriptor->slots()) {
             if (_column_pos_map.contains(slot_desc->col_unique_id())) {
-                name_to_type->emplace(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+                name_to_type->emplace(slot_desc->col_name(), slot_desc->type());
             }
         }
     }

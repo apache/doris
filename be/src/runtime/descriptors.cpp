@@ -189,10 +189,6 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     }
 }
 
-DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    return type();
-}
-
 MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     if (this->get_virtual_column_expr() != nullptr) {
         return ColumnNothing::create(0);

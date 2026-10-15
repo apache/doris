@@ -157,8 +157,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                slot_desc->get_data_type_ptr(),
-                                                slot_desc->col_name()));
+                                                slot_desc->type(), slot_desc->col_name()));
         }
     }
 

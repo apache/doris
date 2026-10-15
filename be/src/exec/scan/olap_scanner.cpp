@@ -623,7 +623,7 @@ Status OlapScanner::_init_read_schema() {
         }
 
         read_columns.push_back(tablet_schema->columns()[index]);
-        expected_types.push_back(slot->get_data_type_ptr());
+        expected_types.push_back(slot->type());
         if (!slot->is_nullable() && tablet_schema->column(index).is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "slot(id: {}, name: {})'s nullable does not match "
