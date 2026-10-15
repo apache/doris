@@ -892,6 +892,20 @@ TEST_P(FileCacheLazyRestoreTest, RestoreAllFileBlocksBeforeBackgroundLoad) {
         expected_offset += block_size;
     }
     EXPECT_EQ(cache->_cur_cache_size, 2 * block_size);
+
+    {
+        std::lock_guard lock(mutex);
+        resume_background = true;
+    }
+    cv.notify_all();
+    auto* storage = static_cast<FSFileCacheStorage*>(cache->_storage.get());
+    storage->_cache_background_load_thread.join();
+    ASSERT_TRUE(cache->get_async_open_success());
+    std::lock_guard cache_lock(cache->_mutex);
+    EXPECT_EQ(cache->_cur_cache_size, 2 * block_size);
+    for (const auto& block : blocks) {
+        EXPECT_EQ(cache->_files.at(hash).at(block->offset()).file_block, block);
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(Startup, FileCacheLazyRestoreTest,
