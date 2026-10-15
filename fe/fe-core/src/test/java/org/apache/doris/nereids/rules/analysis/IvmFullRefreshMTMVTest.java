@@ -178,9 +178,9 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
                 baseTable, Optional.of(resetPartitionIds(Lists.newArrayList(partitionId))));
         JobContext jobContext = newJobContext(scan, rewriteContext);
 
-        Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        Plan secondResult = new IvmNormalizeMTMV().rewriteRoot(result, jobContext);
+        Plan secondResult = new IvmNormalizeUniqKeysMTMV().normalize(result, jobContext);
         Plan fullRefreshResult = rewrite(result, rewriteContext);
 
         Assertions.assertTrue(rewriteResult.isNormalizeRewritten());

@@ -27,7 +27,7 @@ import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeUniqKeysMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -149,7 +149,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     private PlanBundle normalizePlan(Plan plan) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(plan, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }

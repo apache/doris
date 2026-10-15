@@ -22,9 +22,13 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -37,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -55,6 +60,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * IVM (Incremental View Maintenance) utility class.
@@ -158,7 +164,7 @@ public class IvmUtil {
      * <p>Because the single-key path may return NULL, callers must treat row-ids as nullable
      * (e.g. use null-safe equality when joining on row-id).
      *
-     * <p>Used by both normalize (IvmNormalizeMTMV) and delta rewrite (IvmAggDeltaHandler)
+     * <p>Used by both normalize (IvmNormalizeUniqKeysMTMV) and delta rewrite (IvmAggDeltaHandler)
      * to ensure row-id derivation is identical.
      */
     public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {
@@ -310,5 +316,48 @@ public class IvmUtil {
             }
         }
         return found;
+    }
+
+    /** Whether the refresh reads this base table's changes while it is an excluded trigger table. */
+    public static boolean isExcludedTriggerTable(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (excludedTriggerTables.isEmpty()) {
+            return false;
+        }
+        OlapTable table = scan.getTable();
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            List<String> qualifier = scan.getQualifier();
+            String dbName = qualifier.isEmpty() ? table.getDBName() : qualifier.get(qualifier.size() - 1);
+            if (dbName == null) {
+                return false;
+            }
+            String ctlName = qualifier.size() >= 2 ? qualifier.get(qualifier.size() - 2)
+                    : InternalCatalog.INTERNAL_CATALOG_NAME;
+            tableNameInfo = new TableNameInfo(ctlName, dbName, table.getName());
+        }
+        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
+    }
+
+    /**
+     * Checks that this base table can produce the changes a refresh reads: it must have row binlog
+     * enabled, and it must not be a base table whose own refresh is a partition overwrite. An
+     * excluded trigger table produces no delta at all, so it is exempt from the first.
+     */
+    public static void validateBinlogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (isExcludedTriggerTable(excludedTriggerTables, scan)) {
+            return;
+        }
+        OlapTable table = scan.getTable();
+        if (!table.getBinlogConfig().isEnableForStreaming()) {
+            throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
+                    "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
+                            + table.getName()
+                            + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
+        }
+        if (table instanceof MTMV && !((MTMV) table).isIvm()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "INCREMENTAL materialized view cannot use non-IVM MTMV as a base table: "
+                            + table.getName() + ". The base MTMV is refreshed by partition overwrite.");
+        }
     }
 }

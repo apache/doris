@@ -48,7 +48,7 @@ public class IvmRewriteResult {
     // The key type -- and with it the table model, DUP or UNIQUE + merge-on-write -- the MV this
     // statement builds is created with. Fixed while the MV is created and read back from its own
     // key model on every later statement, which is why it is carried per statement: CREATE has no
-    // MV to read it from yet. See IvmNormalizeMTMV#judgeKeysType for what decides it.
+    // MV to read it from yet. See IvmNormalizeUniqKeysMTMV#judgeKeysType for what decides it.
     private KeysType keysType = KeysType.UNIQUE_KEYS;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
