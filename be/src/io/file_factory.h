@@ -24,6 +24,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/factory_creator.h"
@@ -42,6 +43,10 @@ struct FileSystemProperties {
     std::map<std::string, std::string> properties;
     THdfsParams hdfs_params;
     std::vector<TNetworkAddress> broker_addresses;
+    // Typed native Azure access for FILE_S3, copied from TFileScanRangeParams. When set,
+    // FileFactory builds the Azure client from it and ignores the S3-style Azure keys in
+    // `properties`.
+    std::optional<TAzureClientConfig> azure_client_config {};
 };
 
 struct FSPropertiesRef {

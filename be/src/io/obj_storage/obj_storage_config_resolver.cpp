@@ -19,6 +19,8 @@
 
 #include <variant>
 
+#include "io/obj_storage/azure_config_codec.h"
+#include "io/obj_storage/azure_config_validator.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -67,6 +69,20 @@ ObjClientConfig ObjStorageConfigResolver::from_client_conf(const S3ClientConf& c
             .usage = conf.is_internal_bucket ? ClientUsage::INTERNAL_STORAGE
                                              : ClientUsage::EXTERNAL_ACCESS,
             .backend = backend_from_client_conf(conf),
+    };
+}
+
+Result<ObjClientConfig> ObjStorageConfigResolver::from_azure_client_config(
+        const TAzureClientConfig& config, std::string_view location_container) {
+    auto azure = AzureConfigCodec::decode(config, location_container);
+    if (!azure.has_value()) {
+        return ResultError(std::move(azure).error());
+    }
+    RETURN_IF_ERROR_RESULT(AzureConfigValidator::validate(azure.value()));
+    return ObjClientConfig {
+            .connection = {},
+            .usage = ClientUsage::EXTERNAL_ACCESS,
+            .backend = std::move(azure).value(),
     };
 }
 

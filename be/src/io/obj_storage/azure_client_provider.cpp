@@ -22,7 +22,9 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "io/obj_storage/azure_credential_validator.h"
 #include "io/obj_storage/obj_client_factory.h"
+#include "util/time.h"
 
 #ifdef USE_AZURE
 #include <azure/core/http/curl_transport.hpp>
@@ -78,9 +80,43 @@ AzureCredentialOptions to_credential_options(const std::string& account,
     };
 }
 
+AzureCredentialOptions to_credential_options(const std::string& account,
+                                             const AzureSasConfig& sas) {
+    return {
+            .type = AzureCredentialType::SAS,
+            .account_name = account,
+            .account_key = "",
+            .sas_token = sas.token,
+    };
+}
+
+AzureCredentialOptions to_credential_options(const std::string& account,
+                                             const AzureClientSecretConfig& client_secret) {
+    return {
+            .type = AzureCredentialType::CLIENT_SECRET,
+            .account_name = account,
+            .account_key = "",
+            .tenant_id = client_secret.tenant_id,
+            .client_id = client_secret.client_id,
+            .client_secret = client_secret.client_secret,
+            .authority_host = client_secret.authority_host,
+    };
+}
+
 // The SharedKey pair is also reported as ak/sk endpoint info, as before the split.
 std::string account_key_for_endpoint_info(const AzureSharedKeyConfig& shared_key) {
     return shared_key.account_key;
+}
+
+// SAS and client secret have no account key. The endpoint info sk is what
+// AzureObjStorageClient falls back to for presigned URLs, so it stays empty instead of
+// exposing the token or secret there.
+std::string account_key_for_endpoint_info(const AzureSasConfig& /*sas*/) {
+    return "";
+}
+
+std::string account_key_for_endpoint_info(const AzureClientSecretConfig& /*client_secret*/) {
+    return "";
 }
 #endif
 
@@ -88,6 +124,9 @@ std::string account_key_for_endpoint_info(const AzureSharedKeyConfig& shared_key
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         const ObjClientConfig& config, const AzureClientConfig& azure) {
+    // Checked before the cache lookup so that a cached client never outlives its SAS: every
+    // reader or writer open passes through here, while range reads reuse the opened client.
+    RETURN_IF_ERROR_RESULT(AzureCredentialValidator::validate(azure.auth, UnixMillis()));
     if (auto cached = _cache.find(config)) {
         return cached;
     }

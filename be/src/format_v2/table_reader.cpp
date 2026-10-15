@@ -663,6 +663,9 @@ std::shared_ptr<io::FileSystemProperties> create_system_properties(
     }
     system_properties->system_type = scan_params->file_type;
     system_properties->properties = scan_params->properties;
+    if (scan_params->__isset.azure_client_config) {
+        system_properties->azure_client_config = scan_params->azure_client_config;
+    }
     system_properties->hdfs_params = scan_params->hdfs_params;
     if (scan_params->__isset.broker_addresses) {
         system_properties->broker_addresses.assign(scan_params->broker_addresses.begin(),

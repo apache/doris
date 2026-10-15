@@ -46,6 +46,16 @@ uint64_t hash_azure_auth(const std::string& account, const AzureSharedKeyConfig&
     return crc32_hash(account + shared_key.account_key);
 }
 
+uint64_t hash_azure_auth(const std::string& /*account*/, const AzureSasConfig& sas) {
+    return crc32_hash(sas.token) ^ static_cast<uint64_t>(sas.expires_at_ms.value_or(0));
+}
+
+uint64_t hash_azure_auth(const std::string& /*account*/, const AzureClientSecretConfig& secret) {
+    // Hash the identity triple together so that swapping fields does not collide.
+    return crc32_hash(secret.tenant_id + secret.client_id + secret.client_secret) ^
+           crc32_hash(secret.authority_host);
+}
+
 uint64_t hash_backend(const AzureClientConfig& azure) {
     uint64_t hash_code = 0;
     hash_code ^= static_cast<uint64_t>(ObjStorageProvider::AZURE);
@@ -69,6 +79,14 @@ std::string backend_to_string(const S3ClientConfig& s3) {
 
 const char* azure_auth_name(const AzureSharedKeyConfig&) {
     return "shared_key";
+}
+
+const char* azure_auth_name(const AzureSasConfig&) {
+    return "sas";
+}
+
+const char* azure_auth_name(const AzureClientSecretConfig&) {
+    return "client_secret";
 }
 
 std::string backend_to_string(const AzureClientConfig& azure) {

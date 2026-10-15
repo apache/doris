@@ -17,10 +17,14 @@
 
 #pragma once
 
+#include <string_view>
+
+#include "common/status.h"
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris {
 struct S3ClientConf;
+class TAzureClientConfig;
 } // namespace doris
 
 namespace doris::io {
@@ -39,6 +43,13 @@ public:
     // AzureClientConfig{account="acct", container="c1", auth=SharedKey{"key"}}; region,
     // token and role_arn are dropped because the Azure client never read them.
     static ObjClientConfig from_client_conf(const S3ClientConf& conf);
+
+    // Typed Azure input sent by FE. Unlike the legacy conf it can carry SAS and client secret
+    // credentials. location_container is the container of the file being accessed; see
+    // AzureConfigCodec::decode. The result is validated, so a missing or conflicting field
+    // fails here instead of at the first request.
+    static Result<ObjClientConfig> from_azure_client_config(const TAzureClientConfig& config,
+                                                            std::string_view location_container);
 };
 
 } // namespace doris::io

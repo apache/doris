@@ -265,7 +265,7 @@ TEST_F(ObjClientFactoryTest, HolderPublishesConfAndClientTogether) {
     ASSERT_TRUE(holder.init().ok());
     auto initial = holder.state();
     EXPECT_EQ(initial->generation, 1U);
-    EXPECT_EQ(initial->conf, conf);
+    EXPECT_EQ(initial->legacy_conf, conf);
     ASSERT_NE(initial->client, nullptr);
 
     auto rotated = conf;
@@ -273,11 +273,11 @@ TEST_F(ObjClientFactoryTest, HolderPublishesConfAndClientTogether) {
     ASSERT_TRUE(holder.reset(rotated).ok());
     auto current = holder.state();
     EXPECT_EQ(current->generation, 2U);
-    EXPECT_EQ(current->conf.sk, "rotated-sk");
+    EXPECT_EQ(current->legacy_conf->sk, "rotated-sk");
     EXPECT_NE(current->client, initial->client);
     EXPECT_EQ(holder.get(), current->client);
     // A request that took the old snapshot keeps its client and conf.
-    EXPECT_EQ(initial->conf.sk, "sk");
+    EXPECT_EQ(initial->legacy_conf->sk, "sk");
     EXPECT_NE(initial->client, nullptr);
 
     // An unchanged conf publishes nothing.
@@ -306,7 +306,38 @@ TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
     EXPECT_TRUE(outer_status.is<ErrorCode::ABORTED>()) << outer_status;
     auto current = holder.state();
     EXPECT_EQ(current->generation, 2U);
-    EXPECT_EQ(current->conf.sk, "inner-sk");
+    EXPECT_EQ(current->legacy_conf->sk, "inner-sk");
+}
+
+TEST_F(ObjClientFactoryTest, HolderBuildsTypedConfigThroughFactory) {
+    auto config =
+            ObjStorageConfigResolver::from_client_conf(make_s3_conf("holder-typed.example.com"));
+    ObjClientHolder holder(config);
+    ASSERT_TRUE(holder.init().ok());
+    auto current = holder.state();
+    // A typed holder has no legacy conf to merge into, so it is never reset.
+    EXPECT_FALSE(current->legacy_conf.has_value());
+    EXPECT_EQ(current->config, config);
+    EXPECT_NE(current->client, nullptr);
+    EXPECT_EQ(_s3_builds, 1);
+}
+
+TEST_F(ObjClientFactoryTest, ExpiredSasFailsBeforeAnyClientIsBuilt) {
+    ObjClientConfig config {.connection = {},
+                            .usage = ClientUsage::EXTERNAL_ACCESS,
+                            .backend = AzureClientConfig {
+                                    .endpoint = "https://acct.blob.core.windows.net",
+                                    .account = "",
+                                    .container = "container",
+                                    .auth = AzureSasConfig {.token = "se=1999-12-31&sig=abc",
+                                                            .expires_at_ms = std::nullopt},
+                            }};
+    ObjClientHolder holder(config);
+    auto status = holder.init();
+    // The credential check runs before the Azure SDK is touched, so the result is the same
+    // with or without BUILD_AZURE.
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_EQ(holder.get(), nullptr);
 }
 
 } // namespace doris::io

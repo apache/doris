@@ -32,6 +32,7 @@
 #include <future>
 #include <memory>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -45,6 +46,8 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/s3_uri.h"
@@ -73,7 +76,16 @@ Result<std::string> get_key(const Path& full_path) {
 
 ObjClientHolder::ObjClientHolder(S3ClientConf conf)
         : _state(std::make_shared<ObjClientState>(ObjClientState {
-                  .conf = std::move(conf),
+                  .config = ObjStorageConfigResolver::from_client_conf(conf),
+                  .legacy_conf = std::move(conf),
+                  .client = nullptr,
+                  .generation = 0,
+          })) {}
+
+ObjClientHolder::ObjClientHolder(ObjClientConfig config)
+        : _state(std::make_shared<ObjClientState>(ObjClientState {
+                  .config = std::move(config),
+                  .legacy_conf = std::nullopt,
                   .client = nullptr,
                   .generation = 0,
           })) {}
@@ -82,13 +94,27 @@ ObjClientHolder::~ObjClientHolder() = default;
 
 Status ObjClientHolder::init() {
     auto current = state();
-    auto client = DORIS_TRY(S3ClientFactory::instance().create(current->conf));
-    return _publish(current, current->conf, std::move(client));
+    std::shared_ptr<ObjStorageClient> client;
+    if (current->legacy_conf.has_value()) {
+        // A legacy conf still goes through S3ClientFactory, which applies the legacy
+        // validation rules (e.g. a non-empty region) and the test client hook.
+        client = DORIS_TRY(S3ClientFactory::instance().create(*current->legacy_conf));
+    } else {
+        client = DORIS_TRY(ObjClientFactory::instance().get_or_create(current->config));
+    }
+    return _publish(current, current->config, current->legacy_conf, std::move(client));
+}
+
+S3ClientConf ObjClientHolder::s3_client_conf() const {
+    auto current = state();
+    DORIS_CHECK(current->legacy_conf.has_value());
+    return *current->legacy_conf;
 }
 
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
     auto current = state();
-    S3ClientConf reset_conf = current->conf;
+    DORIS_CHECK(current->legacy_conf.has_value());
+    S3ClientConf reset_conf = *current->legacy_conf;
     reset_conf.ak = conf.ak;
     reset_conf.sk = conf.sk;
     reset_conf.token = conf.token;
@@ -106,7 +132,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     // Compare full-field equality of the merged conf, not get_hash(): the hash is
     // an XOR of crc32s and distinct configurations can collide, which would skip a
     // required client rebuild (e.g. a credential update).
-    if (reset_conf == current->conf) {
+    if (reset_conf == *current->legacy_conf) {
         return Status::OK(); // Same conf
     }
 
@@ -114,15 +140,18 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
 
     LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
-    return _publish(current, std::move(reset_conf), std::move(client));
+    auto config = ObjStorageConfigResolver::from_client_conf(reset_conf);
+    return _publish(current, std::move(config), std::move(reset_conf), std::move(client));
 }
 
 Status ObjClientHolder::_publish(const std::shared_ptr<const ObjClientState>& expected,
-                                 S3ClientConf conf, std::shared_ptr<ObjStorageClient> client) {
+                                 ObjClientConfig config, std::optional<S3ClientConf> legacy_conf,
+                                 std::shared_ptr<ObjStorageClient> client) {
     // Declared before the lock: after the swap below it holds the replaced state, and
     // possibly the last reference to its client, which is then released after unlocking.
     std::shared_ptr<const ObjClientState> next = std::make_shared<ObjClientState>(ObjClientState {
-            .conf = std::move(conf),
+            .config = std::move(config),
+            .legacy_conf = std::move(legacy_conf),
             .client = std::move(client),
             .generation = expected->generation + 1,
     });
@@ -163,7 +192,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
-    return fmt::format("{}/{}/{}", state()->conf.endpoint, bucket, key);
+    return fmt::format("{}/{}/{}", state()->config.endpoint(), bucket, key);
 }
 
 std::string S3FileSystem::full_s3_path(std::string_view key) const {
@@ -470,9 +499,12 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
     // Read the conf and the client from one snapshot so a concurrent reset cannot pair the
     // endpoint of one generation with the client of another.
     auto state = _client->state();
-    if (is_public_endpoint && state->conf.endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = state->conf;
-        new_s3_conf.endpoint.erase(state->conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+    if (is_public_endpoint && state->config.endpoint().ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        // An S3FileSystem is always created from an S3Conf, so its holder keeps the legacy
+        // conf that the public-endpoint client is derived from.
+        DORIS_CHECK(state->legacy_conf.has_value());
+        auto new_s3_conf = *state->legacy_conf;
+        new_s3_conf.endpoint.erase(new_s3_conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                                    LEN_OF_OSS_PRIVATE_SUFFIX);
         auto client_result = S3ClientFactory::instance().create(new_s3_conf);
         if (!client_result) {
