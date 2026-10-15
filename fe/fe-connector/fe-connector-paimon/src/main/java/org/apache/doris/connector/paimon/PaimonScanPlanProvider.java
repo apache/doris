@@ -952,6 +952,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Schema IDs are branch-local, even when both branches expose the same current row type.
         Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
         Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
+        // Native INT96/ORC materialization currently narrows these values to microseconds.
+        // JNI retains the source precision, including nested and filter-only timestamp fields.
+        boolean needsNanosecondReader = rowType.getFields().stream()
+                .anyMatch(field -> readFieldIds.contains(field.id()) && containsNanosecondTimestamp(field.type()));
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
                 () -> resolveSchemaDictTable(table, paimonHandle));
@@ -971,7 +975,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni(),
+            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
             boolean legacyOrcTimestamp = false;
             if (nativeEligible) {
@@ -1015,9 +1019,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
+                // Lossless timestamp fallbacks can expose metadata through the SDK's physical iterator.
                 // Raw convertibility alone does not select the SDK raw reader: historical primary-key
                 // files without delete counts require merging and lose physical file/row positions.
-                if (requiresMetadataColumns && (!legacyOrcTimestamp || !supportsJniPhysicalMetadata(
+                if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
+                        || !supportsJniPhysicalMetadata(
                         legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
@@ -1933,6 +1939,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return physicalVariantSchemaIds;
+    }
+
+    static boolean containsNanosecondTimestamp(DataType type) {
+        if (type instanceof org.apache.paimon.types.TimestampType) {
+            return ((org.apache.paimon.types.TimestampType) type).getPrecision() > 6;
+        }
+        switch (type.getTypeRoot()) {
+            case ARRAY:
+                return containsNanosecondTimestamp(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return containsNanosecondTimestamp(map.getKeyType())
+                        || containsNanosecondTimestamp(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .anyMatch(field -> containsNanosecondTimestamp(field.type()));
+            default:
+                return false;
+        }
     }
 
     private static boolean containsVariant(DataType type) {
