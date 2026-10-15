@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
@@ -177,6 +178,10 @@ public class GroupStructInfo {
 
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
+
+    private static final String PARTIAL_STAGE_REASON =
+            "local (partial) aggregation stage: the read side applies the row count of the final"
+                    + " aggregation above it";
 
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
 
@@ -370,10 +375,10 @@ public class GroupStructInfo {
      * Resolve the group fingerprint of a plan node in the given literal mode.
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, LiteralMode mode) {
-        if (hasNoHboLookupPath(planNode)) {
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        if (hasNoHboLookupPath(planNode, group)) {
             return Optional.empty();
         }
-        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
         return fingerprintOfGroup(group, mode);
     }
 
@@ -393,10 +398,11 @@ public class GroupStructInfo {
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById,
             LiteralMode mode) {
-        if (hasNoHboLookupPath(planNode)) {
+        Group group = resolveGroup(planNode, groupsById);
+        if (hasNoHboLookupPath(planNode, group)) {
             return Optional.empty();
         }
-        return fingerprintOfGroup(resolveGroup(planNode, groupsById), mode);
+        return fingerprintOfGroup(group, mode);
     }
 
     private static Optional<String> fingerprintOfGroup(Group group, LiteralMode mode) {
@@ -411,12 +417,13 @@ public class GroupStructInfo {
      */
     public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
-        if (hasNoHboLookupPath(planNode)) {
+        Group group = resolveGroup(planNode, groupsById);
+        if (hasNoHboLookupPath(planNode, group)) {
             // the annotation asks for the struct info first: without this guard the node would advertise
             // a key which no read path ever looks up (see hasNoHboLookupPath)
             return Optional.empty();
         }
-        return structInfoOfGroup(resolveGroup(planNode, groupsById));
+        return structInfoOfGroup(group);
     }
 
     private static Optional<GroupStructInfo> structInfoOfGroup(Group group) {
@@ -1703,8 +1710,17 @@ public class GroupStructInfo {
      * {@code HBO SET STATISTICS} but can never be applied, so the node is neither advertised nor
      * published: the applicable key is the one of the aggregation above it.
      */
-    private static boolean hasNoHboLookupPath(AbstractPlan planNode) {
-        return planNode instanceof PhysicalStorageLayerAggregate;
+    private static boolean hasNoHboLookupPath(AbstractPlan planNode, Group group) {
+        if (planNode instanceof PhysicalStorageLayerAggregate) {
+            return true;
+        }
+        // a group without a logical expression which holds a hash aggregation is the local (partial)
+        // stage SplitAggWithoutDistinct inserted into the plan: it describes the same grouping keys over
+        // the same sub tree as the aggregation above it, so both run under one key - and publishing the
+        // partial run (many rows, one per instance) would become the learned output estimate of the final
+        // aggregation (one row). Like the storage layer aggregate it is neither advertised nor published.
+        return group != null && group.getLogicalExpressions().isEmpty()
+                && planNode instanceof PhysicalHashAggregate;
     }
 
     /**
@@ -1716,10 +1732,13 @@ public class GroupStructInfo {
      */
     public static Optional<String> skipReasonOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
-        if (hasNoHboLookupPath(planNode)) {
+        Group group = resolveGroup(planNode, groupsById);
+        if (planNode instanceof PhysicalStorageLayerAggregate) {
             return Optional.of(NO_LOOKUP_PATH_REASON);
         }
-        Group group = resolveGroup(planNode, groupsById);
+        if (hasNoHboLookupPath(planNode, group)) {
+            return Optional.of(PARTIAL_STAGE_REASON);
+        }
         if (group == null) {
             return Optional.empty();
         }
