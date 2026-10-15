@@ -149,14 +149,22 @@ public class PartitionCompensator {
             return null;
         }
         // A base partition the query reads that no MV partition of this plan is named from -- one the
-        // partition_sync_limit window left out, say -- is one the MV does not hold: a partition of the MV reads
-        // a table through the partitions it does name, and the pass above works from the mapping, which has no
-        // entry for this one. Adding that partition's rows to the union alone would not be enough, because the
-        // MV partitions this plan uses still hold the rows they hold -- a partition the window has since left
-        // out can have been materialized in one of them by an earlier refresh, and is still counted there.
-        // The partitions the plan uses are taken out and the query's partitions are read from the base table,
-        // so the answer is whole and counted once.
-        boolean uncoveredFound = false;
+        // partition_sync_limit window left out, say -- is one the MV does not answer for: a partition of the MV
+        // reads a table through the partitions it does name, and the mapping has no entry for this one. Its
+        // rows have to come from the base table, and two things follow from that, decided apart.
+        //
+        // The base branch of the union reads those partitions. A table the mapping mentions not at all is
+        // uncovered in every partition the query uses, so it is read for the query's own partitions there
+        // rather than skipped -- without this the plan would answer for that table out of the MV alone.
+        //
+        // And the MV partitions this plan uses have to be taken out when they hold rows of such a partition: a
+        // partition the window has since left out can have been materialized in one of them by an earlier
+        // refresh, and the union would then count its rows twice. The refresh snapshot names exactly the
+        // partitions a refresh read into each MV partition, so that is what this is asked of. (It is not the
+        // keys: a list partition's default one holds the keys no other partition of the table claims, so a
+        // partition can be read into an MV partition whose keys do not cover it.)
+        Map<MTMVRelatedTableIf, Set<String>> uncoveredByTable = Maps.newLinkedHashMap();
+        boolean uncoveredRecorded = false;
         for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
             Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
             if (CollectionUtils.isEmpty(queryUsed)) {
@@ -173,13 +181,7 @@ public class PartitionCompensator {
             if (uncovered.isEmpty()) {
                 continue;
             }
-            // What decides it is whether the MV partitions this plan uses hold the rows of such a partition:
-            // a partition the window has since left out can have been materialized in one of them by an
-            // earlier refresh, and the union would then count its rows twice -- once from the MV branch and
-            // once from the base table it is also read from. The refresh snapshot names exactly the partitions
-            // a refresh read into each MV partition, so it is what is asked. (It is not the keys: a list
-            // partition's default one holds the keys no other partition of the table claims, so a partition
-            // can be read into an MV partition whose keys do not cover it.)
+            uncoveredByTable.put(pctTable, uncovered);
             Set<String> recorded = Sets.newHashSet();
             MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
             if (refreshSnapshot != null) {
@@ -188,20 +190,26 @@ public class PartitionCompensator {
                 }
             }
             if (!Sets.intersection(uncovered, recorded).isEmpty()) {
-                uncoveredFound = true;
+                uncoveredRecorded = true;
             }
         }
-        if (uncoveredFound) {
-            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
-                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
-                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
-                if (pctInfo == null || CollectionUtils.isEmpty(queryUsed)) {
+        if (!uncoveredByTable.isEmpty()) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> uncoveredEntry : uncoveredByTable.entrySet()) {
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(uncoveredEntry.getKey()));
+                if (pctInfo == null) {
                     continue;
                 }
+                // With the MV partitions taken out the MV answers none of what the query reads, so the whole of
+                // the query's partitions comes from the base; otherwise the MV answers the partitions the
+                // mapping names and the base branch reads the ones it does not.
+                Set<String> toRead = uncoveredRecorded
+                        ? queryUsedBaseTablePartitionMap.getOrDefault(
+                                uncoveredEntry.getKey().getFullQualifiers(), Sets.newHashSet())
+                        : uncoveredEntry.getValue();
                 baseTablePartitionNeedUnionNameMap
-                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(queryUsed);
+                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(toRead);
             }
-            if (!rewrittenPlanUsePartitionNameSet.isEmpty()) {
+            if (uncoveredRecorded && !rewrittenPlanUsePartitionNameSet.isEmpty()) {
                 mvPartitionNeedRemoveNameMap
                         .computeIfAbsent(new BaseTableInfo(mtmv), k -> new HashSet<>())
                         .addAll(rewrittenPlanUsePartitionNameSet);
