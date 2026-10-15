@@ -12,6 +12,9 @@
 2	2	[k |kk]	1|2
 3	2	[k|k ]	1|2
 
+-- !map_row_key_padded --
+1	1	[k ]	7
+
 -- !partition_padded --
 1	[x  ]
 2	[y  ]
@@ -55,6 +58,13 @@
 
 -- !rowkind_key_deleted --
 [j  ]	+I	3
+
+-- !rowkind_default_and_case --
+[j  ]	+I	4
+[k  ]	+I	3
+
+-- !rowkind_overwrite_padded --
+1	[x  ]	+U	9
 
 -- !merge_short_key_fails --
 

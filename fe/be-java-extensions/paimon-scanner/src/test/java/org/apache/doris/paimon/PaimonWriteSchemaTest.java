@@ -17,6 +17,10 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.paimon.arrow.writer.ArrowFieldWriterFactoryVisitor;
 import org.apache.paimon.casting.DefaultValueRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;
@@ -27,6 +31,7 @@ import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.IntType;
@@ -36,11 +41,14 @@ import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class PaimonWriteSchemaTest {
 
@@ -384,11 +392,13 @@ public class PaimonWriteSchemaTest {
 
     @Test
     public void testRowKindFieldValueDecidesWhetherARowIsPadded() {
-        // A table with a rowkind.field takes the kind of a row from that field's value when Paimon writes it, so a
-        // '-D', '-U' or '+U' row carries a key to match, as an UPDATE or DELETE row does, and is not padded: a '-D'
-        // row whose key Doris read back as 'k' has to delete the stored 'k', not 'k  '. Only a '+I' row is padded,
-        // whether Doris writes the value or the field's default fills it in; a NULL is left for Paimon to reject.
-        // MUTATION: padding by the row's RowKind alone, or reading the value from the input only -> red.
+        // A table with a rowkind.field takes the kind of a row from that field's value when Paimon writes it, after
+        // filling a NULL with the field's default and ignoring case, so a '-D', '-U' or '+U' row carries a key to
+        // match, as an UPDATE or DELETE row does, and is not padded: a '-D' row whose key Doris read back as 'k' has
+        // to delete the stored 'k', not 'k  '. A row Paimon decodes as '+I' is padded: '+I', '+i', or a NULL or an
+        // omitted value under a '+I' or '+i' default. A NULL without a default and an unknown value are left for
+        // Paimon to reject. MUTATION: padding by the row's RowKind alone, comparing the value byte by byte, or not
+        // filling an explicit NULL with the default -> red.
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "code", new CharType(false, 3)),
                 new DataField(1, "kind", new VarCharType(2)),
@@ -396,24 +406,140 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
                 new String[] {"code", "kind", "label"}, false, true, "kind", Collections.singletonList("code"));
 
-        InternalRow inserted = tableRow(schema, string("k"), string("+I"), string("a"));
-        Assertions.assertEquals("k  ", inserted.getString(0).toString());
-        Assertions.assertEquals("a  ", inserted.getString(2).toString());
-        for (String kind : Arrays.asList("-D", "-U", "+U")) {
+        for (String kind : Arrays.asList("+I", "+i")) {
+            InternalRow inserted = tableRow(schema, string("k"), string(kind), string("a"));
+            Assertions.assertEquals("k  ", inserted.getString(0).toString(), kind);
+            Assertions.assertEquals("a  ", inserted.getString(2).toString(), kind);
+        }
+        for (String kind : Arrays.asList("-D", "-U", "+U", "-d", "+X")) {
             InternalRow row = tableRow(schema, string("k"), string(kind), string("a"));
             Assertions.assertEquals("k", row.getString(0).toString(), kind);
             Assertions.assertEquals("a", row.getString(2).toString(), kind);
         }
         Assertions.assertEquals("k", tableRow(schema, string("k"), null, string("a")).getString(0).toString());
 
-        for (String kind : Arrays.asList("+I", "-D")) {
+        for (String kind : Arrays.asList("+I", "+i", "-D")) {
             RowType withDefault = new RowType(Arrays.asList(
                     new DataField(0, "code", new CharType(false, 3)),
                     new DataField(1, "kind", new VarCharType(2), null, kind)));
-            PaimonWriteSchema defaulted = PaimonWriteSchema.create(withDefault, new String[] {"code"}, false, true,
+            String expected = "-D".equals(kind) ? "k" : "k  ";
+            PaimonWriteSchema omitted = PaimonWriteSchema.create(withDefault, new String[] {"code"}, false, true,
                     "kind", Collections.singletonList("code"));
-            Assertions.assertEquals("+I".equals(kind) ? "k  " : "k",
-                    tableRow(defaulted, string("k")).getString(0).toString(), kind);
+            Assertions.assertEquals(expected, tableRow(omitted, string("k")).getString(0).toString(), kind);
+            PaimonWriteSchema explicitNull = PaimonWriteSchema.create(withDefault, new String[] {"code", "kind"},
+                    false, true, "kind", Collections.singletonList("code"));
+            Assertions.assertEquals(expected, tableRow(explicitNull, string("k"), null).getString(0).toString(),
+                    kind);
+        }
+    }
+
+    @Test
+    public void testOverwritePadsEveryRowOfARowKindFieldTable() {
+        // An overwrite replaces the partitions it writes, so none of its rows matches a stored key. FE pads the
+        // static partition value of INSERT OVERWRITE ... PARTITION (p = 'x') into the overwrite filter, so a '+U'
+        // or '-D' row has to land in 'x  ' too, or Paimon rejects its file as outside the overwritten partition;
+        // and a '+I' and a '-D' of one key in the statement still cancel out. An ORC table pads only its partition
+        // values, in an overwrite too. MUTATION: padding by the decoded row kind in an overwrite -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "id", new IntType(false)),
+                new DataField(1, "p", new CharType(false, 3)),
+                new DataField(2, "kind", new VarCharType(2)),
+                new DataField(3, "code", new CharType(3))));
+        String[] columns = {"id", "p", "kind", "code"};
+        PaimonWriteSchema overwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
+                Arrays.asList("id", "p"), Collections.singletonList("p"), false, true);
+        for (String kind : Arrays.asList("+I", "+U", "-D", "-U")) {
+            InternalRow row = tableRow(overwrite, 1, string("x"), string(kind), string("k"));
+            Assertions.assertEquals("x  ", row.getString(1).toString(), kind);
+            Assertions.assertEquals("k  ", row.getString(3).toString(), kind);
+            Assertions.assertEquals(kind, row.getString(2).toString(), kind);
+        }
+
+        PaimonWriteSchema orcOverwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
+                Arrays.asList("id", "p"), Collections.singletonList("p"), true, true);
+        InternalRow orcRow = tableRow(orcOverwrite, 1, string("x"), string("+U"), string("k"));
+        Assertions.assertEquals("x  ", orcRow.getString(1).toString());
+        Assertions.assertEquals("k", orcRow.getString(3).toString());
+
+        PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
+                Arrays.asList("id", "p"), Collections.singletonList("p"), false, false);
+        Assertions.assertEquals("x",
+                tableRow(insert, 1, string("x"), string("+U"), string("k")).getString(1).toString());
+    }
+
+    @Test
+    public void testMapKeysOfArrowRowsAreComparedByTheirBytes() throws Exception {
+        // The writer gets its rows from an Arrow batch, where a nested ROW or ARRAY key is a columnar row or array
+        // that supports neither hashCode, equals nor toString, and a ColumnarArray keeps identity equality. Keys are
+        // compared by their bytes and printed as Paimon casts them to STRING instead. MUTATION: hashing the key
+        // objects -> UnsupportedOperationException for the first three maps, and no error for the last, whose keys
+        // hold arrays; printing the keys with toString -> UnsupportedOperationException for the colliding ones.
+        PaimonWriteSchema nestedRowKey = PaimonWriteSchema.create(new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(DataTypes.ROW(
+                        DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                        DataTypes.FIELD(2, "r", DataTypes.ROW(DataTypes.FIELD(3, "i", DataTypes.INT())))),
+                        DataTypes.INT())))), new String[] {"labels"}, false, true);
+        Map<InternalRow, Integer> oneKey = new LinkedHashMap<>();
+        oneKey.put(GenericRow.of(string("k"), GenericRow.of(1)), 7);
+        checkArrowTableRow(nestedRowKey, GenericRow.of(new GenericMap(oneKey)), row -> {
+            InternalMap padded = row.getMap(0);
+            Assertions.assertEquals(1, padded.size());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(0, 2).getString(0).toString());
+            Assertions.assertEquals(1, padded.keyArray().getRow(0, 2).getRow(1, 1).getInt(0));
+            Assertions.assertEquals(7, padded.valueArray().getInt(0));
+        });
+
+        Map<InternalRow, Integer> rowKeys = new LinkedHashMap<>();
+        rowKeys.put(GenericRow.of(string("k"), 1), 1);
+        rowKeys.put(GenericRow.of(string("k "), 1), 2);
+        assertCollidingKeysFailTheRow(DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "i", DataTypes.INT())), rowKeys,
+                "'{k, 1}' and '{k , 1}' into the same key '{k , 1}'");
+
+        Map<InternalArray, Integer> arrayKeys = new LinkedHashMap<>();
+        arrayKeys.put(new GenericArray(new Object[] {string("k")}), 1);
+        arrayKeys.put(new GenericArray(new Object[] {string("k ")}), 2);
+        assertCollidingKeysFailTheRow(DataTypes.ARRAY(DataTypes.CHAR(2)), arrayKeys,
+                "'[k]' and '[k ]' into the same key '[k ]'");
+
+        Map<InternalRow, Integer> rowWithArrayKeys = new LinkedHashMap<>();
+        rowWithArrayKeys.put(GenericRow.of(string("k"), new GenericArray(new int[] {1})), 1);
+        rowWithArrayKeys.put(GenericRow.of(string("k "), new GenericArray(new int[] {1})), 2);
+        assertCollidingKeysFailTheRow(DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "a", DataTypes.ARRAY(DataTypes.INT()))), rowWithArrayKeys,
+                "'{k, [1]}' and '{k , [1]}' into the same key '{k , [1]}'");
+    }
+
+    private static void assertCollidingKeysFailTheRow(DataType keyType, Map<?, Integer> keys, String collision)
+            throws Exception {
+        PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(keyType, DataTypes.INT())))),
+                new String[] {"labels"}, false, true);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> checkArrowTableRow(schema, GenericRow.of(new GenericMap(keys)), row -> { }));
+        Assertions.assertTrue(e.getMessage().contains("map in column 'labels'"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(collision), e.getMessage());
+    }
+
+    /** Runs {@code check} on the table row of {@code source} read from an Arrow batch, as the writer gets it. */
+    private static void checkArrowTableRow(PaimonWriteSchema schema, GenericRow source, Consumer<InternalRow> check)
+            throws Exception {
+        RowType inputType = schema.inputType();
+        try (RootAllocator allocator = new RootAllocator()) {
+            PaimonArrowBatchAdapter adapter = new PaimonArrowBatchAdapter(inputType, ZoneId.of("UTC"), allocator);
+            try (ArrowStreamReader reader = new ArrowStreamReader(
+                    new ByteArrayInputStream(adapter.serializedArrowSchema()), allocator)) {
+                VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                root.allocateNew();
+                for (int i = 0; i < inputType.getFieldCount(); i++) {
+                    DataType type = inputType.getTypeAt(i);
+                    type.accept(ArrowFieldWriterFactoryVisitor.INSTANCE).create(root.getVector(i), type.isNullable())
+                            .write(0, source, i);
+                    root.getVector(i).setValueCount(1);
+                }
+                root.setRowCount(1);
+                check.accept(schema.tableRow(adapter.rows(root).row(0)));
+            }
         }
     }
 
@@ -429,7 +555,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "code", new CharType(false, 3)),
                 new DataField(2, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.INT()))));
         PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, new String[] {"p", "code", "labels"},
-                false, true, null, Arrays.asList("p", "code"), Collections.singletonList("p"), true);
+                false, true, null, Arrays.asList("p", "code"), Collections.singletonList("p"), true, false);
 
         InternalRow row = tableRow(insert, string("x"), string("k"),
                 map(new Object[] {string("k"), string("k ")}, new Object[] {1, 2}));
@@ -440,7 +566,7 @@ public class PaimonWriteSchemaTest {
 
         PaimonWriteSchema merge = PaimonWriteSchema.create(tableType,
                 new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code"}, true, true, null,
-                Arrays.asList("p", "code"), Collections.singletonList("p"), true);
+                Arrays.asList("p", "code"), Collections.singletonList("p"), true, false);
         Assertions.assertEquals("k", tableRow(merge, PaimonWriteSchema.INSERT_OPERATION, string("abc"),
                 string("k")).getString(1).toString());
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,

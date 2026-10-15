@@ -126,6 +126,36 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'bucket' = '1',
             'file.format' = 'avro'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_default;
+        CREATE TABLE paimon.${dbName}.t_char_rowkind_default (
+            c CHAR(3), rk STRING DEFAULT '+I', v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'rowkind.field' = 'rk'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_overwrite;
+        CREATE TABLE paimon.${dbName}.t_char_rowkind_overwrite (
+            id INT, p CHAR(3), rk STRING, v INT
+        ) USING paimon
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'primary-key' = 'id,p',
+            'bucket' = '1',
+            'rowkind.field' = 'rk'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_map_row_key;
+        CREATE TABLE paimon.${dbName}.t_char_map_row_key (
+            id INT, m MAP<STRUCT<c: CHAR(2), r: STRUCT<i: INT>>, INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -185,6 +215,22 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             SELECT id, map_size(m), concat('[', array_join(array_sort(map_keys(m)), '|'), ']'),
                 array_join(array_sort(map_values(m)), '|')
             FROM t_char_map_avro
+        """
+
+        // The writer takes a map key from the Arrow batch BE sends, where a ROW key holding a ROW is a columnar row
+        // that cannot be hashed, so keys are compared by their bytes: such a key is padded, and two keys that
+        // padding makes equal fail the row as above.
+        sql """INSERT INTO t_char_map_row_key VALUES (1, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 7))"""
+        test {
+            sql """
+                INSERT INTO t_char_map_row_key VALUES (2, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 1,
+                    named_struct('c', 'k ', 'r', named_struct('i', 1)), 2))
+            """
+            exception "into the same key"
+        }
+        order_qt_map_row_key_padded """
+            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
+            FROM t_char_map_row_key
         """
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a
@@ -250,6 +296,19 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_rowkind_key_inserted """SELECT concat('[', c, ']'), rk, v FROM t_char_rowkind_key"""
         sql """INSERT INTO t_char_rowkind_key SELECT c, '-D', v FROM t_char_rowkind_key WHERE v IN (1, 2)"""
         order_qt_rowkind_key_deleted """SELECT concat('[', c, ']'), rk, v FROM t_char_rowkind_key"""
+
+        // Paimon decodes the row kind ignoring case, after filling a NULL with the field's default, so '+i' and a
+        // NULL under DEFAULT '+I' insert and are padded: the '+I' rows of the same keys replace them.
+        sql """INSERT INTO t_char_rowkind_default VALUES ('k', '+i', 1), ('j', NULL, 2)"""
+        sql """INSERT INTO t_char_rowkind_default VALUES ('k', '+I', 3), ('j', '+I', 4)"""
+        order_qt_rowkind_default_and_case """SELECT concat('[', c, ']'), rk, v FROM t_char_rowkind_default"""
+
+        // An overwrite replaces the partitions it writes, so none of its rows matches a stored key, and all of them
+        // are padded like the static partition value: a '+U' row lands in the overwritten partition 'x  ', and a
+        // '+I' and a '-D' of one key cancel out, leaving partition 'y  ' empty.
+        sql """INSERT OVERWRITE TABLE t_char_rowkind_overwrite PARTITION (p = 'x') SELECT 1, '+U', 9"""
+        sql """INSERT OVERWRITE TABLE t_char_rowkind_overwrite PARTITION (p = 'y') VALUES (2, '+I', 1), (2, '-D', 1)"""
+        order_qt_rowkind_overwrite_padded """SELECT id, concat('[', p, ']'), rk, v FROM t_char_rowkind_overwrite"""
 
         // MERGE matches its source rows to the table, and checks the keys it inserts for duplicates, by the key as
         // Doris holds it, unpadded. Padding a shorter key that MERGE inserts would change the key after those

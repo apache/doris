@@ -18,12 +18,18 @@
 package org.apache.doris.paimon;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.casting.CastExecutor;
+import org.apache.paimon.casting.CastExecutors;
+import org.apache.paimon.casting.DefaultValueRow;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.table.sink.RowKindGenerator;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -42,7 +48,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Immutable mapping from Doris input columns to a Paimon table row.
@@ -63,8 +68,6 @@ final class PaimonWriteSchema {
      */
     static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
 
-    private static final BinaryString INSERT_ROW_KIND = BinaryString.fromString(RowKind.INSERT.shortString());
-
     private final InternalRow.FieldGetter[] fieldGetters;
     /**
      * Per input column, pads the CHAR values it holds; null when it holds none, when padding is off, for the
@@ -74,11 +77,18 @@ final class PaimonWriteSchema {
     /**
      * Per input column, the length of a padded CHAR primary-key column of a changelog write, or 0. Padding a
      * shorter key that MERGE inserts would change the key after MERGE matched it and checked it for duplicates;
-     * see {@link #padInsertedRow}.
+     * see {@link #padRow}.
      */
     private final int[] insertedKeyCharLengths;
-    /** Table position of the table's rowkind.field, or -1. */
-    private final int rowKindFieldIndex;
+    /** Decodes the kind of a row from the table's rowkind.field as Paimon does when it writes the row, or null. */
+    private final RowKindGenerator rowKindGenerator;
+    /**
+     * Fills a NULL field with its default value, as Paimon does before it decodes the row kind; null when the table
+     * has no default value.
+     */
+    private final DefaultValueRow defaultValueRow;
+    /** Whether the write overwrites the partitions it writes; see {@link #padsRow}. */
+    private final boolean overwrite;
     private final RowType inputType;
     /** Maps Doris input-column position → Paimon table-schema position. */
     private final int[] tableFieldIndexes;
@@ -89,7 +99,8 @@ final class PaimonWriteSchema {
 
     private PaimonWriteSchema(int[] tableFieldIndexes, int[] omittedDefaultFieldIndexes,
             Object[] omittedDefaultValues, int tableFieldCount, RowType inputType, CharPadder[] charPadders,
-            int[] insertedKeyCharLengths, int rowKindFieldIndex) {
+            int[] insertedKeyCharLengths, RowKindGenerator rowKindGenerator, DefaultValueRow defaultValueRow,
+            boolean overwrite) {
         this.fieldGetters = new InternalRow.FieldGetter[inputType.getFieldCount()];
         for (int i = 0; i < fieldGetters.length; i++) {
             // Getters describe the transport row, not the target table. Transport fields are
@@ -99,7 +110,9 @@ final class PaimonWriteSchema {
         }
         this.charPadders = charPadders;
         this.insertedKeyCharLengths = insertedKeyCharLengths;
-        this.rowKindFieldIndex = rowKindFieldIndex;
+        this.rowKindGenerator = rowKindGenerator;
+        this.defaultValueRow = defaultValueRow;
+        this.overwrite = overwrite;
         this.inputType = inputType;
         this.tableFieldIndexes = tableFieldIndexes;
         this.omittedDefaultFieldIndexes = omittedDefaultFieldIndexes;
@@ -138,26 +151,27 @@ final class PaimonWriteSchema {
     static PaimonWriteSchema create(RowType tableType, String[] columnNames, boolean changelogWrite,
             boolean charPadding, String rowKindField, List<String> primaryKeys) {
         return create(tableType, columnNames, changelogWrite, charPadding, rowKindField, primaryKeys,
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false);
     }
 
     /**
      * @param charPadding   whether to pad the CHAR values of inserted rows as Paimon's cast to CHAR does; see
-     *                      {@link #charPadder} and {@link #insertsRow}
-     * @param rowKindField  the table's {@code rowkind.field}, or null. Its value is not padded: Paimon takes the row
-     *                      kind from it as it is ({@code RowKind.fromShortString}), and a padded '+I' is no row kind.
+     *                      {@link #charPadder} and {@link #padsRow}
+     * @param rowKindField  the table's {@code rowkind.field}, or null. Its value is not padded: Paimon decodes the row
+     *                      kind from it ({@code RowKind.fromShortString}), and a padded '+I ' is no row kind.
      * @param primaryKeys   the table's primary keys. In a changelog write, a CHAR key that padding would change
-     *                      fails the row; see {@link #padInsertedRow}.
+     *                      fails the row; see {@link #padRow}.
      * @param partitionKeys the table's partition keys
      * @param orcFiles      whether the table writes ORC files ({@link #writesOrcFiles}). ORC pads every CHAR value
      *                      it writes and strips the trailing spaces from one it reads, so padding changes nothing
      *                      ORC stores, only the bucket of a CHAR key, which an UPDATE or DELETE that reads the key
      *                      back unpadded would then miss. Only the partition columns of such a table are padded: a
      *                      partition value is read back as it is stored.
+     * @param overwrite     whether the write overwrites the partitions it writes; see {@link #padsRow}
      */
     static PaimonWriteSchema create(RowType tableType, String[] columnNames, boolean changelogWrite,
             boolean charPadding, String rowKindField, List<String> primaryKeys, List<String> partitionKeys,
-            boolean orcFiles) {
+            boolean orcFiles, boolean overwrite) {
         if (columnNames == null || columnNames.length == 0) {
             throw new IllegalArgumentException(
                     "PaimonJniWriter requires explicit column names");
@@ -228,7 +242,9 @@ final class PaimonWriteSchema {
                 new RowType(inputFields),
                 charPadders,
                 insertedKeyCharLengths,
-                rowKindField == null ? -1 : tableType.getFieldIndex(rowKindField));
+                rowKindField == null ? null : new RowKindGenerator(rowKindField, tableType),
+                DefaultValueRow.create(tableType),
+                overwrite);
     }
 
     /**
@@ -271,25 +287,41 @@ final class PaimonWriteSchema {
             // from an omitted field and retains Paimon's writer-side semantics.
             row.setField(tableFieldIndexes[i], value);
         }
-        if (insertsRow(row)) {
-            padInsertedRow(row);
+        if (padsRow(row)) {
+            padRow(row);
         }
         return row;
     }
 
     /**
-     * Whether {@code row} inserts, the only kind of row that is padded. Its row kind, if any, is the first input
+     * Whether to pad {@code row}: whether it inserts, outside an overwrite. Its row kind, if any, is the first input
      * column. An UPDATE or DELETE row carries the key Doris read back from the table, which has to stay byte-equal
      * to the stored key for Paimon to match it, padded or not. A table with a rowkind.field takes the kind of a row
-     * from that field's value when Paimon writes it ({@code TableWriteImpl}), so only its '+I' rows insert: a '-D',
-     * '-U' or '+U' row carries a key to match, as an UPDATE or DELETE row does.
+     * from that field's value when Paimon writes it ({@code TableWriteImpl#writeAndReturn}), after filling a NULL
+     * with the field's default and ignoring case: '+I', '+i', or NULL under DEFAULT '+I' inserts, while a '-D', '-U'
+     * or '+U' row carries a key to match, as an UPDATE or DELETE row does. A value Paimon cannot decode, such as NULL
+     * without a default, fails the write in Paimon with the same error, after Paimon's own NOT NULL check, so such a
+     * row is left as it is. An overwrite replaces the partitions it writes, so none of its rows matches a stored
+     * key, and all of them are padded, like the static partition value FE pads into the overwrite filter: a '+U'
+     * row of INSERT OVERWRITE ... PARTITION (p = 'x') has to land in 'x  ', and a '+I' and a '-D' of one key in the
+     * statement still cancel out.
      */
-    private boolean insertsRow(GenericRow row) {
-        return row.getRowKind() == RowKind.INSERT
-                && (rowKindFieldIndex < 0 || INSERT_ROW_KIND.equals(row.getField(rowKindFieldIndex)));
+    private boolean padsRow(GenericRow row) {
+        if (row.getRowKind() != RowKind.INSERT) {
+            return false;
+        }
+        if (overwrite || rowKindGenerator == null) {
+            return true;
+        }
+        try {
+            return rowKindGenerator.generate(defaultValueRow == null ? row : defaultValueRow.replaceRow(row))
+                    == RowKind.INSERT;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
-    private void padInsertedRow(GenericRow row) {
+    private void padRow(GenericRow row) {
         for (int i = 0; i < charPadders.length; i++) {
             Object value = charPadders[i] == null ? null : row.getField(tableFieldIndexes[i]);
             if (value == null) {
@@ -346,11 +378,12 @@ final class PaimonWriteSchema {
                         InternalArray.createElementGetter(mapType.getKeyType().nullable());
                 InternalArray.ElementGetter valueGetter =
                         InternalArray.createElementGetter(mapType.getValueType().nullable());
+                MapKeyFormat keyFormat = keyPadder == null ? null : new MapKeyFormat(mapType.getKeyType());
                 return value -> {
                     InternalMap map = (InternalMap) value;
                     return new PaddedMap(
                             keyPadder == null ? map.keyArray() : padMapKeys(map.keyArray(), keyGetter, keyPadder,
-                                    column),
+                                    keyFormat, column),
                             valuePadder == null
                                     ? map.valueArray() : padArray(map.valueArray(), valueGetter, valuePadder));
                 };
@@ -402,25 +435,55 @@ final class PaimonWriteSchema {
     /**
      * Pads the keys of one map, failing when padding makes two of its distinct keys one: a map holds one entry per
      * key, and Paimon's Avro reader, for one, keeps only one of them. Keys equal before padding are kept as they are.
+     * Keys are compared and printed through {@code keyFormat}, never by their own hashCode, equals or toString: a key
+     * of a nested type holds the columnar rows and arrays of the Arrow batch, which support none of them
+     * (ColumnarArray keeps identity equality), so hashing the key of a MAP<ROW<c CHAR(2), r ROW<i INT>>, INT> itself
+     * would fail even a map of one entry.
      */
     private static InternalArray padMapKeys(InternalArray keys, InternalArray.ElementGetter keyGetter,
-            CharPadder keyPadder, String column) {
+            CharPadder keyPadder, MapKeyFormat keyFormat, String column) {
         Object[] padded = new Object[keys.size()];
-        Map<Object, Object> keyOfPadded = new HashMap<>();
+        // Bytes of a padded key -> position of the first key padded into it.
+        Map<BinaryRow, Integer> firstKeyOfPadded = new HashMap<>();
         for (int i = 0; i < padded.length; i++) {
             Object key = keyGetter.getElementOrNull(keys, i);
             padded[i] = key == null ? null : keyPadder.pad(key);
-            if (!keyOfPadded.containsKey(padded[i])) {
-                keyOfPadded.put(padded[i], key);
-            } else if (!Objects.equals(keyOfPadded.get(padded[i]), key)) {
+            Integer first = firstKeyOfPadded.putIfAbsent(keyFormat.bytes(padded[i]), i);
+            if (first == null) {
+                continue;
+            }
+            Object firstKey = keyGetter.getElementOrNull(keys, first);
+            if (!keyFormat.bytes(firstKey).equals(keyFormat.bytes(key))) {
                 throw new IllegalArgumentException(String.format(
                         "Padding the CHAR keys of a map in column '%s' of a Paimon table to the CHAR length turns "
                                 + "the keys '%s' and '%s' into the same key '%s', and a map holds one entry per key. "
                                 + "Make the keys distinct, or set enable_paimon_write_char_padding = false",
-                        column, keyOfPadded.get(padded[i]), key, padded[i]));
+                        column, keyFormat.text(firstKey), keyFormat.text(key), keyFormat.text(padded[i])));
             }
         }
         return new GenericArray(padded);
+    }
+
+    /** Compares the keys of a map by their bytes and prints them as Paimon casts them to STRING, for any key type. */
+    private static final class MapKeyFormat {
+        private final InternalRowSerializer serializer;
+        private final CastExecutor<Object, Object> toText;
+
+        @SuppressWarnings("unchecked")
+        private MapKeyFormat(DataType keyType) {
+            this.serializer = new InternalRowSerializer(keyType);
+            this.toText = (CastExecutor<Object, Object>) CastExecutors.resolveToString(keyType);
+        }
+
+        /** The bytes of {@code key} as the only field of a row, copied since the serializer reuses its buffer. */
+        private BinaryRow bytes(Object key) {
+            return serializer.toBinaryRow(GenericRow.of(key)).copy();
+        }
+
+        /** {@code key} as Paimon casts it to STRING: a ROW key (k, 1) prints as {k, 1}. */
+        private String text(Object key) {
+            return String.valueOf(toText.cast(key));
+        }
     }
 
     /** Pads the CHAR values held by one non-null value of an input column. */
