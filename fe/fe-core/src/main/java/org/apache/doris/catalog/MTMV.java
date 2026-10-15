@@ -728,11 +728,11 @@ public class MTMV extends OlapTable {
             MTMVCache cached;
             readMvLock();
             try {
+                cacheGeneration = rewriteCacheGeneration;
                 cached = manager.isEnabled() ? manager.getIfPresent(this.id, guarded) : null;
                 if (cached == null && statementContext != null) {
-                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
                 }
-                cacheGeneration = rewriteCacheGeneration;
             } finally {
                 readMvUnlock();
             }
@@ -757,11 +757,11 @@ public class MTMV extends OlapTable {
                     }
                 } else if (statementContext != null && !isDropped) {
                     // Global cache is disabled (maximumSize=0); keep one copy for this statement only.
-                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
                     if (existing != null) {
                         return existing;
                     }
-                    statementContext.putQueryLocalMtmvCache(this.id, guarded, published);
+                    statementContext.putQueryLocalMtmvCache(this.id, guarded, cacheGeneration, published);
                 }
                 return published;
             } finally {
