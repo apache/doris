@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -107,6 +108,34 @@ public class HboScanDescriptor {
         this.partitionIdentity = partitionIdentity;
         this.tabletIdentity = tabletIdentity;
         this.indexIdentity = indexIdentity;
+    }
+
+    /**
+     * The name of a table as it is recorded in a scan token. {@code getNameWithFullQualifiers} joins the
+     * qualifiers and the name with dots, so the table {@code a.b} of the database {@code db} and the
+     * table {@code b} of the database {@code db.a} serialize identically - and a resolver which takes
+     * the last dot separated part as the table name would judge the sibling of the recorded table. The
+     * dots *inside the name* are therefore escaped while the dots which separate the qualifiers are not;
+     * an ordinary name is unchanged, so no key of an ordinary table moves.
+     */
+    public static String qualifiedNameOf(TableIf table) {
+        DatabaseIf<?> database = table.getDatabase();
+        if (database == null) {
+            // some kinds of table (a function generated one, for instance) belong to no database
+            return "null.null." + escapeNamePart(table.getName());
+        }
+        return database.getCatalog().getName() + "." + database.getFullName() + "."
+                + escapeNamePart(table.getName());
+    }
+
+    /** The dots of a table name (and the escape character itself) are escaped. */
+    static String escapeNamePart(String name) {
+        return name.replace("%", "%25").replace(".", "%2E");
+    }
+
+    /** The inverse of {@link #escapeNamePart}, for a name read back from a scan token. */
+    public static String unescapeNamePart(String name) {
+        return name.replace("%2E", ".").replace("%25", "%");
     }
 
     /** The id of the index a scan reads, empty when it reads the base index of its table. */
@@ -209,7 +238,7 @@ public class HboScanDescriptor {
                 ? ((LogicalOlapScan) scan).getManuallySpecifiedTabletIds()
                 : Collections.emptyList();
         Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
-        return new HboScanDescriptor(table.getNameWithFullQualifiers(), table.getVisibleVersion(),
+        return new HboScanDescriptor(qualifiedNameOf(table), table.getVisibleVersion(),
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size(),
                 partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()),
@@ -222,7 +251,7 @@ public class HboScanDescriptor {
      * reports that it cannot compare this scan instead of judging it stale.
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
-        return new HboScanDescriptor(table.getNameWithFullQualifiers(), UNKNOWN, UNKNOWN,
+        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, UNKNOWN,
                 RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "", "");
     }
 

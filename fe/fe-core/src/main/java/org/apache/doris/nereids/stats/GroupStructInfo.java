@@ -1213,7 +1213,7 @@ public class GroupStructInfo {
         TableIf table = plan instanceof LogicalFileScan
                 ? ((LogicalFileScan) plan).getTable()
                 : ((PhysicalFileScan) plan).getTable();
-        String name = table.getNameWithFullQualifiers();
+        String name = HboScanDescriptor.qualifiedNameOf(table);
         if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
             // the token delimiters cannot appear in a table name: the printed struct info could not be
             // read back, and a pasted one could resolve to another table
@@ -1594,7 +1594,7 @@ public class GroupStructInfo {
         int scanCount = 0;
         if (plan instanceof OlapScan) {
             scanCount = 1;
-            relations.add(((OlapScan) plan).getTable().getNameWithFullQualifiers());
+            relations.add(HboScanDescriptor.qualifiedNameOf(((OlapScan) plan).getTable()));
         } else if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
             // an external table is described by the token of its table (see appendFileScan), so it is a
             // relation of the summary as well: with an empty relation list the prefilter of the pinned
@@ -1603,7 +1603,7 @@ public class GroupStructInfo {
             TableIf fileTable = plan instanceof LogicalFileScan
                     ? ((LogicalFileScan) plan).getTable()
                     : ((PhysicalFileScan) plan).getTable();
-            relations.add(fileTable.getNameWithFullQualifiers());
+            relations.add(HboScanDescriptor.qualifiedNameOf(fileTable));
         }
         // the summary counts what the description renders: an anchor describes its consumer side, which
         // is its second child (the first one is the producer, and counting it would report scans and

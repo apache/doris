@@ -375,7 +375,7 @@ public class HboStructFreshness {
                 if (scan == null || scan.getTable() == null) {
                     continue;
                 }
-                String table = scan.getTable().getNameWithFullQualifiers();
+                String table = HboScanDescriptor.qualifiedNameOf(scan.getTable());
                 // the input rows of a scan node are the rows it read, i.e. the number a catalog row
                 // count (which also ignores the predicates) can be compared with
                 recordedRowsByTable.merge(table, input.getInputRows(), Long::sum);
@@ -575,7 +575,9 @@ public class HboStructFreshness {
             if (parts.length < 2) {
                 return null;
             }
-            String tableName = parts[parts.length - 1];
+            // the recorded name escapes the dots which belong to the table itself, so the last dot
+            // separated part is the name however many dots it contains
+            String tableName = HboScanDescriptor.unescapeNamePart(parts[parts.length - 1]);
             CatalogIf<?> currentCatalog = Env.getCurrentEnv().getCurrentCatalog();
             // candidates: the longest possible database name first, then the plain two part form
             List<String[]> candidates = new ArrayList<>();
