@@ -1750,8 +1750,9 @@ Status LanceIndexSupervisor::execute(const TLanceIndexWorkerDispatch& dispatch,
 
     // The single dispatch frame, bounded before it ever reaches a pipe. Field
     // 19 (worker_deadline_ms) is stamped here from the authoritative
-    // kill_deadline parameter: advisory to the worker (defensive checks and
-    // diagnostics only); this watch remains the enforcement authority.
+    // kill_deadline parameter. Informational to the worker: the worker
+    // performs no deadline logic of its own and does not read the value;
+    // this monotonic watch is the enforcing deadline.
     TLanceIndexWorkerDispatch wire_dispatch = dispatch;
     wire_dispatch.__set_worker_deadline_ms(kill_deadline_ms);
     std::vector<uint8_t> payload;

@@ -36,9 +36,10 @@
 // trios and pins the full-path envelope contract - dispatch frame bounds, the
 // handshake-before-every-result ordering, the internal-frame revalidation
 // rails (storage-option bounds, scalar sanity, the bounds snapshot replay of
-// frame fields 16/17, the properties_json five-key whitelist), the D11
-// local-dataset rejection, the typed open-failure classification, and the
-// worker-fault debug points.
+// frame fields 16/17, the properties_json five-key whitelist, and the
+// build-shape product matrix replayed against the admitted contract), the
+// D11 local-dataset rejection, the typed open-failure classification, and
+// the worker-fault debug points.
 //
 // Hermetic reach note: every local dataset is rejected at the D11 file gate
 // and lance-c 0.1.9 has no hermetic non-local object store (memory:// state
@@ -409,11 +410,13 @@ TEST_F(LanceIndexWorkerParamsTest, PropertiesMappingMatrix) {
     expect_fail(with_properties(R"(["IVF_PQ"])"));
     expect_fail(with_properties("{not json"));
     // The admitted bounds snapshot replays the admission-time config ceiling:
-    // within-snapshot passes, exceeded fails.
+    // within-snapshot passes (num_sub_vectors must also divide the admitted
+    // contract dimension now that the shape rail replays it - see
+    // BuildShapeMatrixReplayedBeforeAnyNativeCall), exceeded fails.
     expect_pass(with_properties(
-            R"({"index_type":"IVF_PQ","num_partitions":"1024","num_sub_vectors":"64"})"));
+            R"({"index_type":"IVF_PQ","num_partitions":"1024","num_sub_vectors":"4"})"));
     expect_fail(with_properties(
-            R"({"index_type":"IVF_PQ","num_partitions":"1025","num_sub_vectors":"64"})"));
+            R"({"index_type":"IVF_PQ","num_partitions":"1025","num_sub_vectors":"4"})"));
     expect_fail(with_properties(
             R"({"index_type":"IVF_PQ","num_partitions":"1024","num_sub_vectors":"65"})"));
 
@@ -458,35 +461,102 @@ TEST_F(LanceIndexWorkerParamsTest, DeeplyNestedPropertiesJsonRejectedNotCrash) {
 
 // The admitted bounds snapshot (frame fields 16/17): absent or non-positive
 // is a safe rejection, never judged against a hard-coded bound - the worker
-// subprocess reads no BE config.
+// subprocess reads no BE config. The category is resource/bounds (-4), not a
+// schema statement: a DROP carries no schema contract at all, and the rail
+// guards an internal frame fact for every mutation type alike.
 TEST_F(LanceIndexWorkerParamsTest, AdmittedBoundsSnapshotRequired) {
     constexpr auto REJECTED = TLanceIndexWorkerResultPhase::PRE_INVOCATION_REJECTED;
-    auto expect_unsupported = [&](TLanceIndexWorkerDispatch dispatch) {
-        run_and_assert_envelope(dispatch, REJECTED, UNSUPPORTED, nullptr);
+    auto expect_resource_rejected = [&](TLanceIndexWorkerDispatch dispatch) {
+        run_and_assert_envelope(dispatch, REJECTED, RESOURCE_REJECTED, nullptr);
     };
     {
         TLanceIndexWorkerDispatch dispatch = make_dispatch();
         dispatch.__isset.max_num_partitions = false;
         dispatch.__isset.max_num_sub_vectors = false;
-        expect_unsupported(dispatch);
+        expect_resource_rejected(dispatch);
     }
     {
         TLanceIndexWorkerDispatch dispatch = make_dispatch();
         dispatch.__isset.max_num_sub_vectors = false;
-        expect_unsupported(dispatch);
+        expect_resource_rejected(dispatch);
     }
     {
         TLanceIndexWorkerDispatch dispatch = make_dispatch();
         dispatch.__set_max_num_partitions(0);
-        expect_unsupported(dispatch);
+        expect_resource_rejected(dispatch);
         dispatch.__set_max_num_partitions(-5);
-        expect_unsupported(dispatch);
+        expect_resource_rejected(dispatch);
     }
     {
         TLanceIndexWorkerDispatch dispatch = make_dispatch();
         dispatch.__set_max_num_sub_vectors(0);
-        expect_unsupported(dispatch);
+        expect_resource_rejected(dispatch);
     }
+}
+
+// The build-shape product matrix replayed against the admitted contract the
+// frame carries (the worker's mirror of the FE admission shape check, applied
+// in the parameter-replay rail before any native call): num_sub_vectors must
+// divide the admitted fixed-size-list dimension and the field must sit inside
+// the float16/float32 non-nullable matrix. Oracle: shape-pass continues to
+// the step-5 D11 RESOURCE_REJECTED envelope (the local file gate - no hermetic
+// runner passes a real open); shape-fail is the step-4 UNSUPPORTED envelope.
+TEST_F(LanceIndexWorkerParamsTest, BuildShapeMatrixReplayedBeforeAnyNativeCall) {
+    constexpr auto REJECTED = TLanceIndexWorkerResultPhase::PRE_INVOCATION_REJECTED;
+    auto with_shape = [](const std::string& properties, const std::string& contract) {
+        TLanceIndexWorkerDispatch dispatch = make_dispatch();
+        dispatch.__set_properties_json(properties);
+        dispatch.__set_schema_contract_json(contract);
+        return dispatch;
+    };
+    const std::string contract_fsd4 =
+            R"({"scv":1,"flds":[{"fid":0,"nn":"v","nt":"fixed_size_list","nul":false,"fsd":4,"vet":"float32","ven":true}]})";
+
+    // Positive controls: 2 and 4 divide the dimension 4 - both continue past
+    // the shape rail to the D11 file gate.
+    run_and_assert_envelope(make_dispatch(), REJECTED, RESOURCE_REJECTED, nullptr);
+    run_and_assert_envelope(
+            with_shape(
+                    R"({"index_type":"IVF_PQ","num_partitions":"2","num_sub_vectors":"4"})",
+                    contract_fsd4),
+            REJECTED, RESOURCE_REJECTED, nullptr);
+    // 3 does not divide 4: refused in the parameter replay, never a native
+    // call, with the unsupported-schema-contract category.
+    {
+        WorkerRunResult run;
+        WorkerFrames frames = run_and_assert_envelope(
+                with_shape(
+                        R"({"index_type":"IVF_PQ","num_partitions":"2","num_sub_vectors":"3"})",
+                        contract_fsd4),
+                REJECTED, UNSUPPORTED, &run);
+        EXPECT_EQ(frames.result->message, "unsupported schema contract");
+        EXPECT_TRUE(run.diag_stream.empty());
+    }
+    // Outside the element matrix (uint8) and a nullable admitted field: the
+    // same step-4 refusal.
+    {
+        WorkerFrames frames = run_and_assert_envelope(
+                with_shape(
+                        R"({"index_type":"IVF_PQ","num_partitions":"2","num_sub_vectors":"2"})",
+                        R"({"scv":1,"flds":[{"fid":0,"nn":"v","nt":"fixed_size_list","nul":false,"fsd":4,"vet":"uint<8>","ven":true}]})"),
+                REJECTED, UNSUPPORTED, nullptr);
+        EXPECT_EQ(frames.result->message, "unsupported schema contract");
+    }
+    {
+        run_and_assert_envelope(
+                with_shape(
+                        R"({"index_type":"IVF_PQ","num_partitions":"2","num_sub_vectors":"2"})",
+                        R"({"scv":1,"flds":[{"fid":0,"nn":"v","nt":"fixed_size_list","nul":true,"fsd":4,"vet":"float32","ven":true}]})"),
+                REJECTED, UNSUPPORTED, nullptr);
+    }
+    // The shape rail speaks only about a contract it could parse: an
+    // unparsable contract stays execute_worker_mutation's own (absent or
+    // malformed contract on a build), so the dispatch proceeds past step 4
+    // to the D11 file gate here.
+    run_and_assert_envelope(with_shape(
+                                    R"({"index_type":"IVF_PQ","num_partitions":"2","num_sub_vectors":"3"})",
+                                    "{not json"),
+                            REJECTED, RESOURCE_REJECTED, nullptr);
 }
 
 // Scalar-sanity rails: identity fields that cross C boundaries or drive the

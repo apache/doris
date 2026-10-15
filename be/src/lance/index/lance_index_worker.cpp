@@ -801,13 +801,14 @@ int run_index_worker(const IndexWorkerParams& params) {
     // The admitted bounds snapshot (frame fields 16/17) must be present and
     // positive: the worker subprocess reads no BE config, so a dispatch
     // without bounds is rejected safely rather than judged against any
-    // hard-coded fallback.
+    // hard-coded fallback. The category is resource/bounds, not schema: a
+    // DROP carries no schema contract at all, and this rail guards an
+    // internal frame fact for every mutation type alike.
     if (!dispatch.__isset.max_num_partitions || dispatch.max_num_partitions <= 0 ||
         !dispatch.__isset.max_num_sub_vectors || dispatch.max_num_sub_vectors <= 0) {
         return reject_pre_invocation(
-                params,
-                g_LanceIndexWorker_constants.LANCE_WORKER_REJECTED_UNSUPPORTED_SCHEMA_CONTRACT,
-                /*observed_latest=*/0, CATEGORY_UNSUPPORTED_CONTRACT);
+                params, g_LanceIndexWorker_constants.LANCE_WORKER_REJECTED_RESOURCE_REJECTED,
+                /*observed_latest=*/0, CATEGORY_RESOURCE_REJECTED);
     }
     if (is_create || is_replace) {
         std::string folded_index_type;
@@ -823,6 +824,29 @@ int run_index_worker(const IndexWorkerParams& params) {
         VectorIndexArguments arguments;
         if (!validate_and_map_properties(dispatch.properties_json, dispatch.max_num_partitions,
                                          dispatch.max_num_sub_vectors, &arguments)) {
+            return reject_pre_invocation(
+                    params,
+                    g_LanceIndexWorker_constants.LANCE_WORKER_REJECTED_UNSUPPORTED_SCHEMA_CONTRACT,
+                    /*observed_latest=*/0, CATEGORY_UNSUPPORTED_CONTRACT);
+        }
+        // The build-shape product matrix, replayed against the admitted
+        // contract the same frame carries (the FE admission check this rail
+        // mirrors next to the properties replay): a build whose
+        // num_sub_vectors does not divide the admitted fixed-size-list
+        // dimension, or whose admitted field shape is outside the
+        // float16/float32 matrix, is refused here - before the first native
+        // call - instead of surfacing as a post-invocation native error the
+        // FE could only converge as indeterminate. A missing or unparsable
+        // contract stays that shape's own rejection in
+        // execute_worker_mutation; this rail speaks only about a contract it
+        // could parse.
+        SchemaContract admitted_shape;
+        if (dispatch.__isset.schema_contract_json &&
+            parse_schema_contract(dispatch.schema_contract_json, &admitted_shape) ==
+                    ContractStatus::OK &&
+            admitted_shape.flds.size() == 1 &&
+            !vector_index_shape_supported(admitted_shape.flds.front(),
+                                          arguments.num_sub_vectors)) {
             return reject_pre_invocation(
                     params,
                     g_LanceIndexWorker_constants.LANCE_WORKER_REJECTED_UNSUPPORTED_SCHEMA_CONTRACT,

@@ -78,8 +78,9 @@ struct TLanceIndexWorkerDispatch {
     // Process epoch of the executing backend, carried for staleness reasoning.
     2: required i64 be_process_epoch
     // Absolute wall-clock (epoch milliseconds) request deadline from the wire
-    // request. The worker never enforces it - the supervisor's kill ladder
-    // does - and may consult it only for defensive pre-invocation checks.
+    // request. Informational only: the worker performs no deadline logic of
+    // its own and the current worker does not read the value - the
+    // supervisor's kill ladder is the enforcing deadline.
     3: required i64 deadline_ms
     4: required TLanceIndexWorkerMutationType mutation_type
     // Normalized logical index name, not the raw statement display name.
@@ -125,10 +126,10 @@ struct TLanceIndexWorkerDispatch {
     // The kill deadline this invocation's supervisor computed once from the
     // unified budget formula (the request deadline minus the skew-margin,
     // termination-grace, and reap-bound reservation terms), as an absolute
-    // epoch-millisecond timestamp. The supervisor's monotonic watch remains
-    // the enforcement authority; the worker treats this value as advisory -
-    // a defensive pre-invocation staleness check and a diagnostic fact, never
-    // a self-termination trigger.
+    // epoch-millisecond timestamp. Informational only: the worker performs
+    // no deadline logic of its own and the current worker does not read the
+    // value. The supervisor's monotonic watch is the enforcing deadline, and
+    // no worker may ever turn this field into a self-termination trigger.
     19: optional i64 worker_deadline_ms
 }
 
@@ -149,11 +150,22 @@ struct TLanceIndexWorkerDispatch {
 // Codes -1..-4 carry over the closed dispatcher series vocabulary; -5 is new
 // for the physical-snapshot name resolution that series never performed.
 const i32 LANCE_WORKER_REJECTED_STALE_ADMISSION = -1;
+// An admitted schema contract the worker cannot honor: absent, empty, or
+// unparsable on a build; outside the supported contract v1 matrix; mismatching
+// the contract recomputed from the pinned snapshot; or (the parameter-replay
+// rail, mirroring the FE admission check) a build shape outside the product
+// matrix, e.g. num_sub_vectors not dividing the admitted dimension.
 const i32 LANCE_WORKER_REJECTED_UNSUPPORTED_SCHEMA_CONTRACT = -2;
 // Reserved: lance-c currently produces no typed credential-expiry evidence,
 // so no worker path yields this code today; the value is held to keep the
 // band stable if it ever does.
 const i32 LANCE_WORKER_REJECTED_CREDENTIAL_EXPIRED = -3;
+// A dispatch the worker refused for its own bounded resource and frame-shape
+// rules that carry no schema statement: storage-option bounds, malformed
+// internal frame fields (including a missing or non-positive admitted bounds
+// snapshot, fields 16/17 - a DROP carries no schema contract at all, so this
+// is the bounds rail's category for every mutation type), or the
+// physical-list processing bounds.
 const i32 LANCE_WORKER_REJECTED_RESOURCE_REJECTED = -4;
 // The admitted snapshot's physical index list did not resolve the normalized
 // index name the way the mutation requires: absent where absence is an error

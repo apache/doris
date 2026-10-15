@@ -110,11 +110,14 @@ ContractStatus parse_schema_contract(const std::string& json, SchemaContract* ou
 ContractStatus recompute_contract(LanceDataset* dataset, const std::string& column_name,
                                   SchemaContract* out);
 
-// The product-matrix shape check the worker applies to the AGREED contract field
-// before the native build call: a non-nullable fixed-size list of positive
-// dimension whose element is float16 or float32, and num_sub_vectors dividing the
-// dimension. Pure slot logic over the contract (no dataset access), shared by
-// run_index_worker and unit tests.
+// The product-matrix shape check: a non-nullable fixed-size list of positive
+// dimension whose element is float16 or float32, and num_sub_vectors dividing
+// the dimension. run_index_worker applies it in its parameter-replay rail to
+// the admitted contract field the dispatch frame carries (before any native
+// call - the mirror of the FE admission check the properties replay already
+// mirrors); the dataset-side proof stays with the contract recompute in
+// execute_worker_mutation. Pure slot logic over the contract (no dataset
+// access), shared by run_index_worker and unit tests.
 bool vector_index_shape_supported(const ContractField& field, uint32_t num_sub_vectors);
 
 // ── Unit-test seams (never used by production call sites) ──

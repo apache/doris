@@ -203,22 +203,24 @@ void LanceIndexWorkerService::stop() {
     _executors.clear();
     if (_metrics_registered) {
         auto* entity = DorisMetrics::instance()->server_entity();
+        // The pull hooks capture `this` and must come off before the service
+        // object dies; the gauges they feed deregister with them (nothing but
+        // a hook ever touches a gauge).
         entity->deregister_hook("lance_index_mutation_queue_depth");
         entity->deregister_hook("lance_index_mutation_inflight_workers");
         entity->deregister_metric(&METRIC_lance_index_mutation_queue_depth);
         entity->deregister_metric(&METRIC_lance_index_mutation_inflight_workers);
-        METRIC_DEREGISTER(entity, lance_index_mutation_outcome_never_launched);
-        METRIC_DEREGISTER(entity, lance_index_mutation_outcome_pre_invocation_rejected);
-        METRIC_DEREGISTER(entity, lance_index_mutation_outcome_native_ok);
-        METRIC_DEREGISTER(entity, lance_index_mutation_outcome_native_error);
-        METRIC_DEREGISTER(entity, lance_index_mutation_outcome_indeterminate);
         _gauge_queue_depth = nullptr;
         _gauge_inflight_workers = nullptr;
-        _metric_never_launched = nullptr;
-        _metric_pre_invocation_rejected = nullptr;
-        _metric_native_ok = nullptr;
-        _metric_native_error = nullptr;
-        _metric_indeterminate = nullptr;
+        // The outcome counters are deliberately NOT deregistered and the
+        // member pointers deliberately stay live: stop() joins the executors
+        // but never the thrift handler threads, and an RPC racing the
+        // shutdown still bumps a never-launched/indeterminate bucket through
+        // _bump - deregister_metric deletes the object, which would turn that
+        // benign race into a use-after-free. The entity owns the counters
+        // for its (process) lifetime, the same lifetime every other
+        // DorisMetrics counter has; a later start() re-registering the same
+        // prototypes simply receives the same objects back.
         _metrics_registered = false;
     }
     LOG(INFO) << "lance index worker service stopped";
@@ -509,6 +511,13 @@ void LanceIndexWorkerService::_execute_pending(const PendingPtr& pending) {
     // fund a minimal worker run is rejected instead of launched into certain
     // expiry. The supervisor re-checks the same invariant against the wall
     // clock inside execute() - three constructive-consistent rails.
+    // The dedup entry is deliberately retained here, unlike the receive-rail
+    // rejections that forget: the invocation provably never executed either
+    // way, but this id has already entered the system, under the single-send
+    // contract no legitimate redelivery exists, and keeping every mutation of
+    // the dedup map on the receive rail (handler threads) is simpler to
+    // reason about. The asymmetry only ever costs the bounded retention
+    // window - the conservative direction.
     if (MonotonicMillis() + kMinWorkerRunMs > pending->kill_deadline_mono) {
         LOG(WARNING) << "rejecting lance index mutation at dequeue: deadline budget exhausted "
                         "after the queue wait: invocation_id="
