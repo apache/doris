@@ -346,9 +346,10 @@ public class HboUtils {
      */
     public static RecentRunsPlanStatisticsEntry getMatchedEntry(RecentRunsPlanStatistics planStatistics,
             ConnectContext connectContext) {
-        // an entry injected by HBO SET LEARNED STATISTICS carries no input table statistics; it is
-        // a wildcard that matches by fingerprint alone (real learned entries always describe at
-        // least one scan, so an empty input list is unambiguous)
+        // an entry injected by HBO SET LEARNED STATISTICS carries no input table statistics; it is a
+        // wildcard that matches by fingerprint alone. A published entry always carries the rows of at
+        // least one scan (see InputTableStatisticsInfo#hasInputTables, the publish path drops entries
+        // which recorded none), so an empty input list can only be a manual injection
         for (RecentRunsPlanStatisticsEntry injected : planStatistics.getRecentRunsStatistics()) {
             if (injected.getInputTableStatistics().isEmpty()) {
                 return injected;

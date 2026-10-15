@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -40,8 +42,16 @@ public class GroupStructInfoFileScanSummaryTest {
 
     @Test
     public void testAnExternalTableIsARelationOfTheSummary() {
+        // the scan token (and the summary) renders the name through qualifiedNameOf, which reads the
+        // database chain and escapes the dots of the name only
         ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("hive.db.t");
+        Mockito.when(table.getName()).thenReturn("t");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("hive");
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(table.getDatabase()).thenReturn(database);
         LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
                 ImmutableList.of("hive", "db", "t"), ImmutableList.of(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty());

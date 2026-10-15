@@ -51,6 +51,19 @@ public class InputTableStatisticsInfo {
         return new InputTableStatisticsInfo(Optional.of(merged));
     }
 
+    /**
+     * Whether this entry describes the rows at least one input table contributed.
+     *
+     * <p>The read side treats an entry without input table statistics as a wildcard which matches by
+     * fingerprint alone (that is how {@code HBO SET LEARNED STATISTICS} injects one). A published entry of
+     * a query whose profile recorded no input table for any of its nodes - an external table has no scan
+     * statistics item, for instance - would look exactly like such a wildcard, so the publish path stores
+     * an entry only when it carries this information.
+     */
+    public boolean hasInputTables() {
+        return inputTableStatistics.isPresent() && !inputTableStatistics.get().isEmpty();
+    }
+
     public Optional<List<PlanStatistics>> getInputTableStatistics() {
         return inputTableStatistics;
     }

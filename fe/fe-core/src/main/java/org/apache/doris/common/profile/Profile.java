@@ -402,7 +402,7 @@ public class Profile {
                 // update plan statistics
                 Map<PlanNodeAndHash, RecentRunsPlanStatistics> newPlanStatistics = curPlanStatistics.entrySet().stream()
                         .filter(entry -> entry.getKey().getHash().isPresent()
-                                && entry.getValue().getInputTableInfo().getInputTableStatistics().isPresent())
+                                && entry.getValue().getInputTableInfo().hasInputTables())
                         .collect(Collectors.toMap(
                                 Map.Entry::getKey,
                                 entry -> {

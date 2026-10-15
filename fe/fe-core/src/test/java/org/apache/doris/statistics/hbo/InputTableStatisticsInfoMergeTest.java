@@ -44,4 +44,22 @@ public class InputTableStatisticsInfoMergeTest {
         Assertions.assertEquals(one, one.merge(new InputTableStatisticsInfo(Optional.empty())));
         Assertions.assertEquals(other, new InputTableStatisticsInfo(Optional.empty()).merge(other));
     }
+
+    @Test
+    public void testAnEntryWithoutInputTablesIsNotACandidateForPublishing() {
+        // the read side reads an empty input list as a manual wildcard which matches by fingerprint
+        // alone, so a published entry has to carry the rows of at least one scan - otherwise a query
+        // with another predicate would inherit its count, while the fingerprint alone does not
+        // distinguish the predicates of two queries
+        PlanStatistics scan = Mockito.mock(PlanStatistics.class);
+        Assertions.assertFalse(new InputTableStatisticsInfo(Optional.empty()).hasInputTables());
+        Assertions.assertFalse(new InputTableStatisticsInfo(Optional.of(ImmutableList.of())).hasInputTables());
+        Assertions.assertTrue(new InputTableStatisticsInfo(Optional.of(ImmutableList.of(scan))).hasInputTables());
+        // and the fold keeps the information of both sides
+        InputTableStatisticsInfo merged = new InputTableStatisticsInfo(Optional.of(ImmutableList.of(scan)))
+                .merge(new InputTableStatisticsInfo(Optional.of(ImmutableList.of(scan))));
+        Assertions.assertTrue(merged.hasInputTables());
+        Assertions.assertFalse(new InputTableStatisticsInfo(Optional.empty())
+                .merge(new InputTableStatisticsInfo(Optional.of(ImmutableList.of()))).hasInputTables());
+    }
 }
