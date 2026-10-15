@@ -109,6 +109,51 @@ private:
     std::string _expr_name = "int_max_at_least_expr";
 };
 
+class IntMinAtLeastExpr final : public VExpr {
+public:
+    IntMinAtLeastExpr(int column_id, int32_t threshold)
+            : _column_id(column_id), _threshold(threshold) {
+        _data_type = std::make_shared<DataTypeUInt8>();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("IntMinAtLeastExpr is only used by zonemap tests");
+    }
+
+    bool can_evaluate_zonemap_filter() const override { return true; }
+
+    bool is_constant() const override { return false; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        auto zone_map = ctx.zone_map(_column_id);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (zone_map->max_value.get<TYPE_INT>() < _threshold) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (zone_map->min_value.get<TYPE_INT>() >= _threshold && !zone_map->has_null) {
+            return ZoneMapFilterResult::kAllMatch;
+        }
+        return ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int _column_id;
+    int32_t _threshold;
+    std::string _expr_name = "int_min_at_least_expr";
+};
+
 TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->append_column(*create_int_key(0, false));
@@ -499,10 +544,8 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorDropsConjunctsProvedTrueForEve
     auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
     ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {always_true, may_match};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -531,10 +574,8 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsConjunctsItCannotProve) {
     auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
     ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {may_match};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -554,8 +595,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     StorageReadOptions read_options(_stats);
     SegmentIterator iter(segment, read_schema, read_options);
     iter._file_reader = segment->_file_reader;
-    iter._opts.stats = &_stats;
-    iter._opts.tablet_schema = _tablet_schema;
 
     // Page zone maps are reached through the column iterators, so create them the way
     // SegmentIterator::_init_return_column_iterators() does before calling the private method.
@@ -838,6 +877,8 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingIndexedColumnUsesDefaultWithoutPhy
     StorageReadOptions read_options(_stats);
     read_options.runtime_state = &runtime_state;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    const std::set<int32_t> output_columns {0, 1};
+    read_options.output_columns = &output_columns;
 
     const auto& added_column = _tablet_schema->column(1);
     const auto indexes = _tablet_schema->inverted_indexs(added_column);
