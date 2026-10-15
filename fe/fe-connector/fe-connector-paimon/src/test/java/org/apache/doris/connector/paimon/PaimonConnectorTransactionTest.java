@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.thrift.TPaimonCommitMessage;
 
 import org.apache.paimon.CoreOptions;
@@ -204,8 +207,33 @@ public class PaimonConnectorTransactionTest {
                 new PaimonConnectorTransaction(TRANSACTION_ID, new RecordingConnectorContext());
         transaction.bind(PaimonWriteBinding.create(
                 new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
-                target, Collections.emptyMap(), false, Collections.emptyMap(), Collections.emptySet()));
+                target, Collections.emptyMap(), plainInsert()));
         return transaction;
+    }
+
+    /** An INSERT without a PARTITION clause. */
+    private static ConnectorWriteHandle plainInsert() {
+        return new ConnectorWriteHandle() {
+            @Override
+            public ConnectorTableHandle getTableHandle() {
+                return null;
+            }
+
+            @Override
+            public List<ConnectorColumn> getColumns() {
+                return Collections.emptyList();
+            }
+
+            @Override
+            public boolean isOverwrite() {
+                return false;
+            }
+
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return Collections.emptyMap();
+            }
+        };
     }
 
     /** A DPCM-framed payload with one empty commit message, as the BE writer reports it. */

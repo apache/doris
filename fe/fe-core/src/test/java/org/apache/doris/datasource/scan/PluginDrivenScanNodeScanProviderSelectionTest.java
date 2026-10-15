@@ -64,6 +64,7 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
         TFileScanRangeParams params = new TFileScanRangeParams();
         Deencapsulation.setField(node, "params", params);
         ConnectorScanRange scanRange = Mockito.mock(ConnectorScanRange.class);
+        Mockito.when(scanRange.getSplitIdentity()).thenReturn("");
         PluginDrivenSplit split = new PluginDrivenSplit(scanRange);
         TFileRangeDesc range = new TFileRangeDesc();
         range.setFormatType(TFileFormatType.FORMAT_ORC);

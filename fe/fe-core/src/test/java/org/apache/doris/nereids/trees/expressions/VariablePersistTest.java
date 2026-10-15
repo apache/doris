@@ -24,8 +24,13 @@ import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -66,6 +71,21 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
                 "Should add GuardExpr when sessionVars differ");
         SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) rewritten;
         Assertions.assertEquals(persistSessionVars, guardExpr.getSessionVars());
+    }
+
+    @Test
+    public void testMapAggregateFunctionsNeedGuard() {
+        Map<String, String> persistSessionVars = ImmutableMap.of("enable_decimal256", "true");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars);
+        SlotReference map = new SlotReference("m",
+                MapType.of(StringType.INSTANCE, DecimalV3Type.createDecimalV3Type(38, 10)));
+        for (Expression expr : ImmutableList.of(new SumMap(map), new AvgMap(map))) {
+            Expression rewritten = expr.accept(rewriter, Boolean.FALSE);
+            Assertions.assertTrue(rewritten instanceof SessionVarGuardExpr, expr.toSql());
+            Assertions.assertEquals(persistSessionVars, ((SessionVarGuardExpr) rewritten).getSessionVars());
+            Assertions.assertEquals(expr, rewritten.child(0));
+        }
     }
 
     // Test point 3: When persisted sessionVars in view match current sessionVar, GuardExpr should not be added

@@ -113,6 +113,11 @@ public:
     // no-op when this channel has been closed or cancelled
     virtual Status cancel();
 
+    // Set once, before publishing the channel or opening any writers.
+    void set_load_cancel_status(std::shared_ptr<AtomicStatus> status) {
+        _load_cancel_status = std::move(status);
+    }
+
     const std::shared_ptr<EosCompletion>& eos_completion() const { return _eos_completion; }
 
     void refresh_profile();
@@ -127,6 +132,9 @@ public:
     bool is_finished() const { return _state == kFinished; }
 
 protected:
+    // Caller holds _lock. The cancellation publisher never needs this lock.
+    Status _check_cancelled();
+
     // Called by the final sender under _lock. Publish arrival before flushing,
     // releasing the channel lock while invoking RPC callbacks.
     Status _close_and_notify(std::unique_lock<std::mutex>& lock, int sender_id,
@@ -181,6 +189,7 @@ protected:
     State _state;
 
     UniqueId _load_id;
+    std::shared_ptr<AtomicStatus> _load_cancel_status;
 
     // initialized in open function
     int64_t _txn_id = -1;

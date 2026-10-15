@@ -42,11 +42,10 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "service/http/http_client.h"
-#include "util/security.h"
 #include "util/string_util.h"
 #include "util/threadpool.h"
 
@@ -66,6 +65,14 @@ public:
     }
 
     bool is_blockable() const override { return true; }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            // Release this execution context's cached clients.
+            context->set_function_state(scope, nullptr);
+        }
+        return Status::OK();
+    }
 
     bool use_default_implementation_for_nulls() const final { return false; }
 
@@ -169,53 +176,19 @@ protected:
         }
     }
 
-    // Executes one HTTP POST request and validates transport-level success.
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response, const AIResource& config,
-                           std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
-        RETURN_IF_ERROR(client->init(config.endpoint, false));
-
-        QueryContext* query_ctx = context->state()->get_query_ctx();
-        int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
-        if (remaining_query_time <= 0) {
-            return Status::TimedOut("Query timeout exceeded before AI request");
-        }
-
-        client->set_timeout_ms(remaining_query_time * 1000);
-
-        if (!config.api_key.empty()) {
-            RETURN_IF_ERROR(adapter->set_authentication(client));
-        }
-
-        Status st = client->execute_post_request(request_body, &response);
-        long http_status = client->get_http_status();
-
-        if (!st.ok()) {
-            LOG(INFO) << "AI HTTP request failed before status validation, provider="
-                      << config.provider_type << ", model=" << config.model_name
-                      << ", endpoint=" << mask_token(config.endpoint)
-                      << ", exec_status=" << st.to_string() << ", response_body=" << response;
-            return st;
-        }
-        if (http_status != 200) {
-            return Status::HttpError(
-                    "http status code is not 200, code={}, url={}, response_body={}", http_status,
-                    mask_token(config.endpoint), response);
-        }
-        return Status::OK();
-    }
-
-    // Sends the request with retry mechanism for handling transient failures
     Status send_request_to_llm(const std::string& request_body, std::string& response,
                                const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
-        return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
-                                              [this, &request_body, &response, &config, &adapter,
-                                               context](HttpClient* client) -> Status {
-                                                  return this->do_send_request(client, request_body,
-                                                                               response, config,
-                                                                               adapter, context);
-                                              });
+        // Retain the cache across batches/Blocks.
+        auto* executor = static_cast<AIRequestExecutor*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        if (executor == nullptr) {
+            auto state = std::make_shared<AIRequestExecutor>();
+            executor = state.get();
+            context->set_function_state(FunctionContext::THREAD_LOCAL, std::move(state));
+        }
+        return executor->execute(request_body, response, config, *adapter,
+                                 context->state()->get_query_ctx());
     }
 
     // Provider-reusable helper for string-returning functions.

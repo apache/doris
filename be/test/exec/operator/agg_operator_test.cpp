@@ -18,21 +18,31 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
 #include <memory>
+#include <vector>
 
+#include "common/config.h"
+#include "common/exception.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/common/template_helpers.hpp"
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -168,6 +178,236 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
     pipeline.set_data_distribution(
             DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE));
     EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
+}
+
+// An expression that may block in execute(), like an AI or remote function.
+class MockBlockableExpr final : public VSlotRef {
+public:
+    MockBlockableExpr() { _node_type = TExprNodeType::SLOT_REF; }
+
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+        *result_column_id = 0;
+        return Status::OK();
+    }
+    const std::string& expr_name() const override { return _name; }
+    bool is_blockable() const override { return true; }
+
+private:
+    std::string _name = "MockBlockableExpr";
+};
+
+TEST(AggOperatorBlockableTest, bucketed_agg_follows_blockable_aggregate) {
+    OperatorContext sink_ctx;
+    OperatorContext source_ctx;
+    DescriptorTbl descs;
+
+    auto sink_op =
+            std::make_shared<BucketedAggSinkOperatorX>(&sink_ctx.pool, 0, 0, TPlanNode {}, descs);
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(sink_ctx.pool));
+    // is_blockable() is asked when the task is submitted, before the local state is opened.
+    sink_ctx.state.emplace_sink_local_state(
+            0, BucketedAggSinkLocalState::create_unique(sink_op.get(), &sink_ctx.state));
+
+    MockDescriptorTbl source_descs {{std::make_shared<DataTypeInt64>()}, &source_ctx.pool};
+    TPlanNode source_tnode;
+    source_tnode.row_tuples.push_back(0);
+    source_tnode.nullable_tuples.push_back(false);
+    auto source_op = std::make_shared<BucketedAggSourceOperatorX>(&source_ctx.pool, source_tnode, 0,
+                                                                  source_descs);
+    source_op->set_sink_operator(sink_op);
+    // The sink of the source pipeline itself never blocks.
+    auto downstream_sink_op =
+            std::make_shared<BucketedAggSinkOperatorX>(&source_ctx.pool, 1, 1, TPlanNode {}, descs);
+    source_ctx.state.emplace_sink_local_state(
+            1,
+            BucketedAggSinkLocalState::create_unique(downstream_sink_op.get(), &source_ctx.state));
+
+    EXPECT_FALSE(sink_op->has_blockable_aggregate());
+    EXPECT_FALSE(sink_op->is_blockable(&sink_ctx.state));
+    EXPECT_FALSE(source_op->is_blockable(&source_ctx.state));
+
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            sink_ctx.pool, {VExprContext::create_shared(std::make_shared<MockBlockableExpr>())}));
+
+    EXPECT_TRUE(sink_op->has_blockable_aggregate());
+    EXPECT_TRUE(sink_op->is_blockable(&sink_ctx.state));
+    // The source merges and finalizes the same aggregate functions.
+    EXPECT_TRUE(source_op->is_blockable(&source_ctx.state));
+}
+
+// Two sink instances and one running source instance on a single BucketedAggSharedState,
+// wired the same way as PipelineFragmentContext does it. The aggregation is
+// "select key, sum(key) group by key" over one Int64 column.
+struct BucketedAggOperatorTest : public testing::Test {
+    static constexpr int SOURCE_OPERATOR_ID = 0;
+    static constexpr int NUM_INSTANCES = 2;
+    static constexpr const char* FAIL_MERGE_DEBUG_POINT =
+            "BucketedAggLocalState._merge_bucket.fail_merge";
+
+    void SetUp() override {
+        sink_op = std::make_shared<BucketedAggSinkOperatorX>(&pool, 1, SOURCE_OPERATOR_ID,
+                                                             TPlanNode {}, DescriptorTbl {});
+        auto* evaluator = create_mock_agg_fn_evaluator(pool);
+        sink_op->_aggregate_evaluators.push_back(evaluator);
+        sink_op->_probe_expr_ctxs =
+                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+        sink_op->_offsets_of_aggregate_states = {0};
+        sink_op->_total_size_of_aggregate_states = evaluator->size_of_data();
+        sink_op->_align_aggregate_states = evaluator->align_of_data();
+
+        MockDescriptorTbl source_descs {
+                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &pool};
+        TPlanNode source_tnode;
+        source_tnode.row_tuples.push_back(0);
+        source_tnode.nullable_tuples.push_back(false);
+        source_tnode.limit = -1;
+        source_tnode.bucketed_agg_node.need_finalize = true;
+        source_op = std::make_shared<BucketedAggSourceOperatorX>(&pool, source_tnode,
+                                                                 SOURCE_OPERATOR_ID, source_descs);
+        source_op->set_sink_operator(sink_op);
+
+        shared_state = BucketedAggSharedState::create_shared();
+        for (int i = 0; i < NUM_INSTANCES; ++i) {
+            auto sink_dep = std::make_shared<Dependency>(SOURCE_OPERATOR_ID, 0,
+                                                         "BUCKETED_AGG_SINK_DEPENDENCY");
+            sink_dep->set_shared_state(shared_state.get());
+            shared_state->sink_deps.push_back(sink_dep);
+        }
+        shared_state->create_source_dependencies(NUM_INSTANCES, SOURCE_OPERATOR_ID, 0,
+                                                 "BUCKETED_AGG_SOURCE");
+        shared_state_map.insert({SOURCE_OPERATOR_ID, {shared_state, shared_state->sink_deps}});
+
+        for (int i = 0; i < NUM_INSTANCES; ++i) {
+            auto& ctx = sink_ctxs[i];
+            ctx.state.set_task_num(NUM_INSTANCES);
+            auto local_state = BucketedAggSinkLocalState::create_unique(sink_op.get(), &ctx.state);
+            LocalSinkStateInfo info {.task_idx = i,
+                                     .parent_profile = &ctx.profile,
+                                     .sender_id = 0,
+                                     .shared_state = nullptr,
+                                     .shared_state_map = shared_state_map,
+                                     .tsink = TDataSink {}};
+            ASSERT_TRUE(local_state->init(&ctx.state, info).ok());
+            ctx.state.emplace_sink_local_state(sink_op->operator_id(), std::move(local_state));
+            ASSERT_TRUE(ctx.state.get_sink_local_state()->open(&ctx.state).ok());
+        }
+
+        auto local_state = BucketedAggLocalState::create_unique(&source_ctx.state, source_op.get());
+        LocalStateInfo info {.parent_profile = &source_ctx.profile,
+                             .scan_ranges = {},
+                             .shared_state = nullptr,
+                             .shared_state_map = shared_state_map,
+                             .task_idx = 0};
+        ASSERT_TRUE(local_state->init(&source_ctx.state, info).ok());
+        source_ctx.state.resize_op_id_to_local_state(-100);
+        source_ctx.state.emplace_local_state(source_op->operator_id(), std::move(local_state));
+        ASSERT_TRUE(source_ctx.state.get_local_state(source_op->operator_id())
+                            ->open(&source_ctx.state)
+                            .ok());
+
+        saved_enable_debug_points = config::enable_debug_points;
+        config::enable_debug_points = true;
+    }
+
+    void TearDown() override {
+        DebugPoints::instance()->remove(FAIL_MERGE_DEBUG_POINT);
+        config::enable_debug_points = saved_enable_debug_points;
+    }
+
+    Status sink(int instance, const std::vector<int64_t>& keys, bool eos) {
+        Block block = ColumnHelper::create_block<DataTypeInt64>(keys);
+        return sink_op->sink(&sink_ctxs[instance].state, &block, eos);
+    }
+
+    std::map<int64_t, int64_t> read_until_eos() {
+        std::map<int64_t, int64_t> result;
+        bool eos = false;
+        for (int round = 0; round < 1000 && !eos; ++round) {
+            Block block;
+            auto st = source_op->get_block(&source_ctx.state, &block, &eos);
+            if (!st.ok()) {
+                ADD_FAILURE() << st.msg();
+                break;
+            }
+            if (block.rows() == 0) {
+                continue;
+            }
+            const auto& keys =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(0).column).get_data();
+            const auto& sums =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(1).column).get_data();
+            for (size_t i = 0; i < block.rows(); ++i) {
+                EXPECT_TRUE(result.emplace(keys[i], sums[i]).second) << "duplicate key " << keys[i];
+            }
+        }
+        EXPECT_TRUE(eos);
+        return result;
+    }
+
+    // Number of aggregate states still referenced by a sink instance's bucket hash table,
+    // i.e. the states BucketedAggSharedState destroys when the query is torn down.
+    int count_live_states() {
+        int live_states = 0;
+        for (auto& instance : shared_state->per_instance_data) {
+            for (auto& bucket : instance.bucket_agg_data) {
+                std::visit(Overload {[&](std::monostate& arg) -> void {},
+                                     [&](auto& agg_method) -> void {
+                                         agg_method.hash_table->for_each_mapped([&](auto& mapped) {
+                                             if (mapped) {
+                                                 ++live_states;
+                                             }
+                                         });
+                                     }},
+                           bucket->method_variant);
+            }
+        }
+        return live_states;
+    }
+
+    // Declared first: the shared state destroys its aggregate states with evaluators owned
+    // by the pool.
+    ObjectPool pool;
+    std::shared_ptr<BucketedAggSinkOperatorX> sink_op;
+    std::shared_ptr<BucketedAggSourceOperatorX> source_op;
+    std::shared_ptr<BucketedAggSharedState> shared_state;
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    OperatorContext sink_ctxs[NUM_INSTANCES];
+    OperatorContext source_ctx;
+    bool saved_enable_debug_points = false;
+};
+
+TEST_F(BucketedAggOperatorTest, merges_two_sinks) {
+    ASSERT_TRUE(sink(0, {1, 2, 3}, true).ok());
+    ASSERT_TRUE(sink(1, {1, 2, 4}, true).ok());
+
+    EXPECT_EQ(read_until_eos(), (std::map<int64_t, int64_t> {{1, 2}, {2, 4}, {3, 3}, {4, 4}}));
+}
+
+// A merge that throws must leave the source state in its slot, so that the shared state
+// still destroys it when the failed query is torn down.
+TEST_F(BucketedAggOperatorTest, failed_source_merge_keeps_every_state_for_cleanup) {
+    ASSERT_TRUE(sink(0, {1, 2, 3}, true).ok());
+    ASSERT_TRUE(sink(1, {1, 2, 4}, true).ok());
+    ASSERT_EQ(count_live_states(), 6);
+
+    DebugPoints::instance()->add(FAIL_MERGE_DEBUG_POINT);
+    Block block;
+    bool eos = false;
+    bool thrown = false;
+    try {
+        static_cast<void>(source_op->get_block(&source_ctx.state, &block, &eos));
+    } catch (const doris::Exception& e) {
+        thrown = true;
+        EXPECT_TRUE(e.to_string().find("injected merge failure") != std::string::npos)
+                << e.to_string();
+    }
+    DebugPoints::instance()->remove(FAIL_MERGE_DEBUG_POINT);
+    ASSERT_TRUE(thrown);
+
+    // The first key whose merge fails still has both its destination and its source state.
+    EXPECT_EQ(count_live_states(), 6);
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,
