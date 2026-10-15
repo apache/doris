@@ -256,33 +256,39 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return -1;
         }
         int fileThreshold = sessionInt(session, "num_files_in_batch_mode", DEFAULT_BATCH_THRESHOLD);
-        List<HmsPartitionInfo> partitions = hiveHandle.getPrunedPartitions();
-        long fileCount = 0;
-        int partitionCount = partitions == null ? 1 : partitions.size();
-        if (hiveHandle.getPartitionKeyNames() == null || hiveHandle.getPartitionKeyNames().isEmpty()) {
-            fileCount = fileListingCache.cachedFileCount(hiveHandle.getDbName(), hiveHandle.getTableName(),
-                    hiveHandle.getLocation(), Collections.emptyList());
-        } else if (partitions == null) {
-            fileCount = -1;
-        } else {
-            for (HmsPartitionInfo partition : partitions) {
-                long count = fileListingCache.cachedFileCount(hiveHandle.getDbName(), hiveHandle.getTableName(),
-                        partition.getLocation(), partition.getValues());
-                if (count < 0) {
-                    fileCount = -1;
-                    break;
-                }
-                fileCount += count;
-            }
-        }
+        long fileCount = cachedFileCount(hiveHandle);
         // Unknown file counts must not trigger a full listing on the planning thread. Use a
         // nonzero concurrency hint and let the lazy source perform the listing asynchronously.
         if (fileCount < 0) {
             return Math.max(DEFAULT_BATCH_THRESHOLD, fileThreshold);
         }
+        List<HmsPartitionInfo> partitions = hiveHandle.getPrunedPartitions();
+        int partitionCount = partitions == null ? 1 : partitions.size();
         int partitionThreshold = sessionInt(session, "num_partitions_in_batch_mode", DEFAULT_BATCH_THRESHOLD);
         boolean partitionBatch = partitionThreshold > 0 && partitionCount >= partitionThreshold;
         return fileCount >= fileThreshold || partitionBatch ? fileCount : -1;
+    }
+
+    private long cachedFileCount(HiveTableHandle handle) {
+        List<String> partitionKeys = handle.getPartitionKeyNames();
+        if (partitionKeys == null || partitionKeys.isEmpty()) {
+            return fileListingCache.cachedFileCount(handle.getDbName(), handle.getTableName(),
+                    handle.getLocation(), Collections.emptyList());
+        }
+        List<HmsPartitionInfo> partitions = handle.getPrunedPartitions();
+        if (partitions == null) {
+            return -1;
+        }
+        long fileCount = 0;
+        for (HmsPartitionInfo partition : partitions) {
+            long count = fileListingCache.cachedFileCount(handle.getDbName(), handle.getTableName(),
+                    partition.getLocation(), partition.getValues());
+            if (count < 0) {
+                return -1;
+            }
+            fileCount += count;
+        }
+        return fileCount;
     }
 
     @Override
@@ -343,22 +349,34 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     return true;
                 }
                 if (files.hasNext()) {
-                    HiveFileStatus file = files.next();
-                    if (isLzo && !isLzoDataFile(file.getPath())) {
-                        continue;
-                    }
-                    HiveFileFormat format = partition.fileFormat == null ? tableFormat : partition.fileFormat;
-                    ranges = splitFileRanges(file.getPath(), file.getLength(), file.getModificationTime(),
-                            partition, format, splittable, targetSplitSize, null, null);
-                } else if (partitions.hasNext()) {
-                    partition = partitions.next();
-                    files = listPartitionFiles(handle.getDbName(), handle.getTableName(),
-                            partition, fs, null).iterator();
-                } else if (!loadNextPartitions()) {
+                    loadNextFileRanges();
+                    continue;
+                }
+                if (partitions.hasNext()) {
+                    loadNextPartitionFiles();
+                    continue;
+                }
+                if (!loadNextPartitions()) {
                     return false;
                 }
             }
             return false;
+        }
+
+        private void loadNextFileRanges() {
+            HiveFileStatus file = files.next();
+            if (isLzo && !isLzoDataFile(file.getPath())) {
+                return;
+            }
+            HiveFileFormat format = partition.fileFormat == null ? tableFormat : partition.fileFormat;
+            ranges = splitFileRanges(file.getPath(), file.getLength(), file.getModificationTime(),
+                    partition, format, splittable, targetSplitSize, null, null);
+        }
+
+        private void loadNextPartitionFiles() {
+            partition = partitions.next();
+            files = listPartitionFiles(handle.getDbName(), handle.getTableName(),
+                    partition, fs, null).iterator();
         }
 
         private boolean loadNextPartitions() {
