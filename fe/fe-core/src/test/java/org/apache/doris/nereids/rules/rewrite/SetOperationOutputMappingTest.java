@@ -96,18 +96,24 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
                 (SlotReference) rightFirst.toSlot(), (SlotReference) rightSecond.toSlot());
         LogicalExcept childExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(campaign, country),
                 ImmutableList.of(child.getRegularChildOutput(0), rightOutputs), ImmutableList.of(row, right));
+        Alias outerFirst = new Alias(new ExprId(107), new IntegerLiteral(50), "outer_first");
+        Alias outerSecond = new Alias(new ExprId(108), new IntegerLiteral(60), "outer_second");
+        LogicalOneRowRelation outerRight = new LogicalOneRowRelation(
+                new RelationId(103), ImmutableList.of(outerFirst, outerSecond));
+        List<SlotReference> outerRightOutputs = ImmutableList.of(
+                (SlotReference) outerFirst.toSlot(), (SlotReference) outerSecond.toSlot());
         LogicalExcept parentExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(country, campaign),
-                ImmutableList.of(ImmutableList.of(country, campaign), rightOutputs),
-                ImmutableList.of(childExcept, right));
+                ImmutableList.of(ImmutableList.of(country, campaign), outerRightOutputs),
+                ImmutableList.of(childExcept, outerRight));
         LogicalExcept rewrittenExcept = (LogicalExcept) PlanChecker.from(
                 MemoTestUtils.createConnectContext(), parentExcept)
                 .applyTopDown(new MergeSetOperationsExcept()).getPlan();
-        Assertions.assertEquals(ImmutableList.of(row, right, right), rewrittenExcept.children());
+        Assertions.assertEquals(ImmutableList.of(row, right, outerRight), rewrittenExcept.children());
         Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
                 rewrittenExcept.getRegularChildOutput(0));
         Assertions.assertEquals(ImmutableList.of(rightSecond.toSlot(), rightFirst.toSlot()),
                 rewrittenExcept.getRegularChildOutput(1));
-        Assertions.assertEquals(rightOutputs, rewrittenExcept.getRegularChildOutput(2));
+        Assertions.assertEquals(outerRightOutputs, rewrittenExcept.getRegularChildOutput(2));
     }
 
     @Test
