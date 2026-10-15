@@ -75,6 +75,7 @@ suite("test_clickhouse_uuid", "p0,external") {
         sql """SELECT id FROM clickhouse_uuid.doris_test.uuid_external
                 WHERE u = CAST('80000000000000000000000000000000' AS UUID)"""
         contains 'WHERE ('
+        contains "'80000000-0000-0000-0000-000000000000'"
     }
     qt_join """SELECT COUNT(*) FROM clickhouse_uuid.doris_test.uuid_external l
                JOIN clickhouse_uuid.doris_test.uuid_external r ON l.u=r.u WHERE l.id<9 AND r.id<9"""

@@ -72,7 +72,7 @@ public class UuidLiteral extends LiteralExpr {
     @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return toSqlImpl();
+        return needExternalSql ? "'" + getStringValue() + "'" : toSqlImpl();
     }
 
     @Override

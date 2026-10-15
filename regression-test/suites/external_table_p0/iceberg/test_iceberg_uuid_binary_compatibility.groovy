@@ -137,11 +137,9 @@ suite("test_iceberg_uuid_binary_compatibility",
                         "order_qt_${prefix}_ids" "SELECT id FROM ${table} ORDER BY id"
                         "qt_${prefix}_count" "SELECT COUNT(*) FROM ${table}"
                     }
-                    // VARBINARY does not support SQL comparison predicates; compare its bytes
-                    // through HEX. The STRING mapping exercises the direct equality predicate.
-                    String predicate = mapping
-                            ? "HEX(u) = '80000000000000000000000000000000'"
-                            : "u = UNHEX('80000000000000000000000000000000')"
+                    // Iceberg UUID maps to VARBINARY under both catalog settings. Compare its
+                    // bytes through HEX because VARBINARY does not support SQL comparisons.
+                    String predicate = "HEX(u) = '80000000000000000000000000000000'"
                     for (boolean minMax : [false, true]) {
                         sql "SET enable_parquet_filter_by_min_max = ${minMax}"
                         "order_qt_${prefix}_predicate" """
