@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
 
 // .prx position window (PrxPod): stores term position information for several
@@ -54,6 +55,19 @@
 // reuse snii/encoding/varint. crc32c checksum at window tail detects
 // corruption.
 namespace doris::snii::format {
+
+inline constexpr size_t kPrxAutoZstdMinBytes = 512;
+
+struct AutoPrxCodecChoice {
+    PrxCodec codec = PrxCodec::kPfor;
+    bool readable = false;
+};
+
+// Common policy for resident and replayable encoders: compare complete frames,
+// preserve PFOR/ZSTD/RAW priority on ties, and honor the reader byte limit.
+AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_payload_size,
+                                         size_t compressed_payload_size, bool has_compressed,
+                                         uint32_t max_uncomp_bytes);
 
 struct PrxWindowLimits {
     uint32_t max_docs;

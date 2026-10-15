@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -86,7 +87,8 @@ public:
     // inline entry is two std::vector<uint8_t> heap allocations plus the term
     // copy -- on the SPIMI build path.
     void add_entry(const DictEntry& entry);
-    void add_entry(DictEntry&& entry);
+    void add_entry(DictEntry&& entry, uint64_t external_inline_prx_length = 0,
+                   uint64_t external_inline_frq_length = 0);
 
     // Upper-bound estimate of the serialized size of the current block (including
     // header + entries + anchor table + CRC footer), used by the upper layer to
@@ -102,6 +104,22 @@ public:
     // Serialize the entire block into an owned buffer. This avoids copying the
     // CRC-covered bytes when the caller needs ownership of the complete block.
     std::vector<uint8_t> finish_owned() const;
+
+    // Same block layout, with selected inline PRX blobs supplied by the caller.
+    // Their entries contain empty prx_bytes; lengths[i]==0 uses the ordinary
+    // entry. A callback appends each retained blob through the covered sink so
+    // the anchor offsets and block CRC include its bytes without materializing it.
+    Status finish_streamed(
+            std::span<const uint64_t> inline_prx_lengths,
+            const std::function<Status(uint32_t, const std::function<Status(Slice)>&)>& inline_prx,
+            const std::function<Status(Slice)>& append) const;
+
+    // Reads bounded inline DD bytes and a PRX length per entry, in order, so the
+    // writer can retain both payload fields in shared replayable streams.
+    Status finish_streamed_sequential(
+            const std::function<Status(Slice*, uint64_t*)>& next_inline_fields,
+            const std::function<Status(uint32_t, const std::function<Status(Slice)>&)>& inline_prx,
+            const std::function<Status(Slice)>& append) const;
 
 private:
     bool is_anchor(uint32_t index) const { return index % anchor_interval_ == 0; }

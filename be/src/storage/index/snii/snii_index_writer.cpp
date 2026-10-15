@@ -149,10 +149,11 @@ Status SniiIndexColumnWriter::init() {
     _memory_reporter = std::make_unique<::doris::snii::writer::MemoryReporter>(
             ::doris::snii::writer::snii_build_consume_release(
                     ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
-            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold);
+            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold,
+            static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
-    // Register this writer with the process-wide memory limiter. The owner handles advisory spill requests; a minimum arena size and run-file cap bound spill overhead.
+    // Register this writer so the process limiter can request spills from its posting arena.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(

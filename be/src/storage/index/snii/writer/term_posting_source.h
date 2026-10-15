@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/posting_byte_buffer.h"
 
 namespace doris::snii::writer {
 
@@ -47,7 +48,8 @@ public:
             : memory_reporter_(memory_reporter),
               capacity_reservation_(memory_reporter == nullptr
                                             ? MemoryReporter::Reservation()
-                                            : memory_reporter->make_reservation()) {}
+                                            : memory_reporter->make_postings_reservation()),
+              position_bytes_(memory_reporter) {}
 
     TermPostingBuffer(const TermPostingBuffer&) = delete;
     TermPostingBuffer& operator=(const TermPostingBuffer&) = delete;
@@ -61,6 +63,8 @@ public:
         docids_.clear();
         freqs_.clear();
         positions_flat_.clear();
+        position_bytes_.release();
+        positions_spooled_ = false;
         has_freqs_.reset();
     }
 
@@ -117,11 +121,21 @@ public:
         }
 
         MutableTermPostingSpan destination;
+        size_t target_positions = 0;
         RETURN_IF_ERROR(
-                grow_uninitialized(docids.size(), has_freqs, positions_flat.size(), &destination));
+                checked_size(positions_flat_.size(), positions_flat.size(), &target_positions));
+        if (!positions_spooled_ && target_positions <= resident_position_limit()) {
+            RETURN_IF_ERROR(grow_uninitialized(docids.size(), has_freqs, positions_flat.size(),
+                                               &destination));
+            std::ranges::copy(docids, destination.docids.begin());
+            std::ranges::copy(freqs, destination.freqs.begin());
+            std::ranges::copy(positions_flat, destination.positions_flat.begin());
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(grow_uninitialized(docids.size(), has_freqs, 0, &destination));
         std::ranges::copy(docids, destination.docids.begin());
         std::ranges::copy(freqs, destination.freqs.begin());
-        std::ranges::copy(positions_flat, destination.positions_flat.begin());
+        RETURN_IF_ERROR(append_positions(positions_flat));
         return Status::OK();
     }
 
@@ -176,20 +190,87 @@ public:
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "term posting buffer: incremental positions require parallel freqs");
         }
-        if (positions_flat_.size() == positions_flat_.capacity()) {
-            size_t target_positions = 0;
-            RETURN_IF_ERROR(checked_size(positions_flat_.size(), 1, &target_positions));
-            RETURN_IF_ERROR(reserve_for_append(docids_.size(), freqs_.size(), target_positions));
+        if (!positions_spooled_ && positions_flat_.size() < positions_flat_.capacity()) {
+            positions_flat_.push_back(position);
+            return Status::OK();
         }
-        positions_flat_.push_back(position);
+        return append_positions(std::span(&position, 1));
+    }
+
+    Status append_positions(std::span<const uint32_t> positions) {
+        if (positions.empty()) {
+            return Status::OK();
+        }
+        if (positions_spooled_) {
+            return position_bytes_.append_u32(positions);
+        }
+        if (positions.size() <= positions_flat_.capacity() - positions_flat_.size()) {
+            positions_flat_.insert(positions_flat_.end(), positions.begin(), positions.end());
+            return Status::OK();
+        }
+        const size_t resident_limit = resident_position_limit();
+        if (positions_flat_.size() <= resident_limit &&
+            positions.size() <= resident_limit - positions_flat_.size()) {
+            RETURN_IF_ERROR(reserve_for_append(docids_.size(), freqs_.size(),
+                                               positions_flat_.size() + positions.size()));
+            positions_flat_.insert(positions_flat_.end(), positions.begin(), positions.end());
+            return Status::OK();
+        }
+        if (!positions_spooled_) {
+            RETURN_IF_ERROR(position_bytes_.append_u32(positions_flat_));
+            std::vector<uint32_t>().swap(positions_flat_);
+            if (memory_reporter_ != nullptr) {
+                RETURN_IF_ERROR(capacity_reservation_.set_bytes(
+                        (docids_.capacity() + freqs_.capacity()) * sizeof(uint32_t)));
+            }
+            positions_spooled_ = true;
+        }
+        return position_bytes_.append_u32(positions);
+    }
+
+    uint64_t position_count() const {
+        return positions_spooled_ ? position_bytes_.size() / sizeof(uint32_t)
+                                  : positions_flat_.size();
+    }
+    bool positions_spooled() const { return positions_spooled_; }
+    Status read_positions(uint64_t offset, std::span<uint32_t> destination) {
+        if (offset > position_count() || destination.size() > position_count() - offset) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "term posting buffer: position slice out of range");
+        }
+        if (positions_spooled_) {
+            return position_bytes_.read_at(
+                    offset * sizeof(uint32_t),
+                    {reinterpret_cast<uint8_t*>(destination.data()), destination.size_bytes()});
+        }
+        std::ranges::copy(std::span(positions_flat_).subspan(offset, destination.size()),
+                          destination.begin());
         return Status::OK();
     }
 
     std::span<const uint32_t> docids() const { return docids_; }
     std::span<const uint32_t> freqs() const { return freqs_; }
-    std::span<const uint32_t> positions_flat() const { return positions_flat_; }
+    void set_last_frequency(uint32_t frequency) {
+        DORIS_CHECK(!freqs_.empty());
+        freqs_.back() = frequency;
+    }
+    std::span<const uint32_t> positions_flat() const {
+        DORIS_CHECK(!positions_spooled_);
+        return positions_flat_;
+    }
 
 private:
+    size_t resident_position_limit() const {
+        // Leave room for the existing encoder's overlapping candidate vectors
+        // and compressor. This admission is checked only when capacity grows;
+        // adding a token to retained capacity does not touch the shared counters.
+        const uint64_t available = memory_reporter_ == nullptr
+                                           ? 32ULL * 1024 * 1024
+                                           : memory_reporter_->postings_available_bytes() +
+                                                     capacity_reservation_.bytes();
+        return std::max<uint64_t>(64, available / 64);
+    }
+
     static Status checked_size(size_t current, size_t additional, size_t* target) {
         if (additional > std::numeric_limits<size_t>::max() - current) {
             return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
@@ -268,7 +349,8 @@ private:
                 std::max({grow_docids ? docids_.capacity() * sizeof(uint32_t) : 0,
                           grow_freqs ? freqs_.capacity() * sizeof(uint32_t) : 0,
                           grow_positions ? positions_flat_.capacity() * sizeof(uint32_t) : 0});
-        MemoryReporter::Reservation overlap_reservation = memory_reporter_->make_reservation();
+        MemoryReporter::Reservation overlap_reservation =
+                memory_reporter_->make_postings_reservation();
         Status overlap_status = overlap_reservation.set_bytes(overlap_bytes);
         if (!overlap_status.ok()) {
             DORIS_CHECK(capacity_reservation_.set_bytes(previous_bytes).ok());
@@ -296,6 +378,8 @@ private:
     std::vector<uint32_t> docids_;
     std::vector<uint32_t> freqs_;
     std::vector<uint32_t> positions_flat_;
+    PostingByteBuffer position_bytes_;
+    bool positions_spooled_ = false;
     std::optional<bool> has_freqs_;
 };
 
