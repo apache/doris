@@ -193,7 +193,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     test {
         sql """ HBO SET STATISTICS VALUE=0 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
                 STRUCT='${condCanonical}'; """
-        exception "hbo join expansion must be greater than 0"
+        exception "hbo join expansion must be a finite number greater than 0"
     }
     test {
         sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='not-a-fingerprint'
