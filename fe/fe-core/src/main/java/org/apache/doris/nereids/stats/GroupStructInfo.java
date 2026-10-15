@@ -1573,7 +1573,9 @@ public class GroupStructInfo {
 
         @Override
         public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-            out.append("S{").append(shape ? descriptor.getTable() : descriptor.render()).append('}');
+            // the identity of a scan is the table plus the partitions it selects: two explicit
+            // partition selections of one table read different data and must not share a key
+            out.append("S{").append(shape ? descriptor.getShapeIdentity() : descriptor.render()).append('}');
         }
     }
 

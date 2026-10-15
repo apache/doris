@@ -51,21 +51,60 @@ public class HboScanDescriptor {
     /** A number which could not be determined; a row count of 0 is a known, meaningful value. */
     public static final long UNKNOWN = -1;
 
+    /**
+     * Separates the table from the stable ids of the partitions a scan selects inside a scan token. It
+     * must not contain a comma: the text based reader of a canonical form takes everything before the
+     * first comma inside {@code S{...}} as the identity of the scan (see
+     * {@link GroupStructInfo#stripScanBaseline}), so a comma here would move the ids into the baseline
+     * and the fingerprint of a pasted struct info would no longer match the one of the plan.
+     */
+    static final String PARTITION_IDENTITY_SEPARATOR = ":";
+    private static final String PARTITION_IDENTITY_MARK = "#pt";
+
     private final String table;
     private final long visibleVersion;
     private final long scanRows;
     private final RowsKind rowsKind;
     private final long selectedPartitions;
     private final long totalPartitions;
+    /**
+     * The partitions this scan selects, as their stable ids in ascending order (empty when it selects
+     * every partition of the table). The partition *count* alone is not an identity: {@code PARTITION(p1)}
+     * and {@code PARTITION(p2)} of a table with equally sized partitions produce the same count, the same
+     * row count and therefore the same key, while they read different data - the ids are what tells them
+     * apart, and they are stable across renames (a rename keeps the id, so a pinned entry keeps applying).
+     */
+    private final String partitionIdentity;
 
     HboScanDescriptor(String table, long visibleVersion, long scanRows, RowsKind rowsKind,
-            long selectedPartitions, long totalPartitions) {
+            long selectedPartitions, long totalPartitions, String partitionIdentity) {
         this.table = table;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
         this.rowsKind = rowsKind;
         this.selectedPartitions = selectedPartitions;
         this.totalPartitions = totalPartitions;
+        this.partitionIdentity = partitionIdentity;
+    }
+
+    /**
+     * The stable ids of the selected partitions, ascending, or empty when every partition is read (then
+     * the scan is the whole table and its identity does not have to name a selection).
+     */
+    static String partitionIdentityOf(List<Long> selectedPartitionIds, long totalPartitions) {
+        if (selectedPartitionIds.size() == totalPartitions) {
+            return "";
+        }
+        List<Long> sorted = new ArrayList<>(selectedPartitionIds);
+        sorted.sort(null);
+        StringBuilder sb = new StringBuilder();
+        for (Long id : sorted) {
+            if (sb.length() > 0) {
+                sb.append(PARTITION_IDENTITY_SEPARATOR);
+            }
+            sb.append(id);
+        }
+        return sb.toString();
     }
 
     /**
@@ -121,7 +160,8 @@ public class HboScanDescriptor {
         Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), table.getVisibleVersion(),
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
-                table.getPartitionNames().size());
+                table.getPartitionNames().size(),
+                partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()));
     }
 
     /**
@@ -131,7 +171,7 @@ public class HboScanDescriptor {
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), UNKNOWN, UNKNOWN,
-                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN);
+                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "");
     }
 
     /**
@@ -235,12 +275,35 @@ public class HboScanDescriptor {
             // no partition part: the scan selects every partition of the table
             selected = total;
         }
-        return new HboScanDescriptor(parts[0], version, rows, kind, selected, total);
+        String identity = parts[0];
+        String table = identity;
+        String partitionIdentity = "";
+        int mark = identity.indexOf(PARTITION_IDENTITY_MARK);
+        if (mark >= 0) {
+            table = identity.substring(0, mark);
+            partitionIdentity = identity.substring(mark + PARTITION_IDENTITY_MARK.length() + 1);
+        }
+        return new HboScanDescriptor(table, version, rows, kind, selected, total, partitionIdentity);
+    }
+
+    /**
+     * The identity of this scan inside a canonical form: the table, and the partitions it selects when
+     * it does not read all of them ({@code db.t#pt:10001:10002}).
+     */
+    public String getShapeIdentity() {
+        return partitionIdentity.isEmpty()
+                ? table
+                : table + PARTITION_IDENTITY_MARK + ":" + partitionIdentity;
+    }
+
+    /** The partitions the scan selects, as stable ids, empty when it reads the whole table. */
+    public String getPartitionIdentity() {
+        return partitionIdentity;
     }
 
     /** The content of the scan token of this scan: {@code db.t,v3,r1000,p1/5}. */
     public String render() {
-        StringBuilder sb = new StringBuilder(table);
+        StringBuilder sb = new StringBuilder(getShapeIdentity());
         if (visibleVersion != UNKNOWN) {
             sb.append(",v").append(visibleVersion);
         }
