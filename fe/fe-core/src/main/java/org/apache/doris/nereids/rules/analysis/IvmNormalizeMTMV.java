@@ -81,6 +81,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -239,6 +240,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         rewriteResult.setNormalizeRewritten(true);
         this.rewriteResult = rewriteResult;
         excludedTriggerTables = statementContext.getExcludedTriggerTables();
+        // The key type, and with it the table model, is settled before anything is visited: it is
+        // what the visit below builds the row-id and every hidden column of the MV from. It comes
+        // from the query here, and from the MV's own key model again on every later statement.
+        rewriteResult.setKeysType(resolveKeysType(plan));
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         validateAggStateColumnsPersisted(result);
@@ -254,9 +259,9 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             validatePlanSignature(ivmRewriteContext.getMtmv(), rewriteResult);
         }
         if (mode == IvmRewriteContext.Mode.CREATE) {
-            LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, "
-                            + "signature={}",
-                    ivmRewriteContext.getMtmvName(), mode,
+            LOG.info("IVM normalized plan, mtmvName={}, mode={}, keysType={}, inputRoot={}, plan={}, "
+                            + "canonicalString={}, signature={}",
+                    ivmRewriteContext.getMtmvName(), mode, rewriteResult.getKeysType(),
                     plan.getClass().getSimpleName(), result.treeString(), planSignature.getCanonicalString(),
                     planSignature.getSha256());
         }
@@ -292,6 +297,54 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             return mtmv.getIvmInfo().isUseFullKeys();
         }
         return false;
+    }
+
+    /**
+     * The key type, and with it the table model, this rewrite must build: the MV's own whenever
+     * there is an MV to read it from, and the query's when there is none yet, which only CREATE does
+     * without. An MV's key model cannot be altered, so what is read back is what CREATE decided.
+     */
+    private KeysType resolveKeysType(Plan plan) {
+        MTMV mtmv = ivmRewriteContext.getMtmv();
+        if (mtmv != null) {
+            return mtmv.isIvmAppendOnlyDupTable() ? KeysType.DUP_KEYS : KeysType.UNIQUE_KEYS;
+        }
+        Preconditions.checkState(ivmRewriteContext.isCreate(),
+                "an IVM rewrite without an MV can only be CREATE, but its mode is: %s",
+                ivmRewriteContext.getMode());
+        return judgeKeysType(plan);
+    }
+
+    /**
+     * Decides which key type an MV being created must be built with, from the query and its base
+     * tables alone.
+     *
+     * <p>{@link KeysType#DUP_KEYS} means the MV is a detail table a refresh only ever appends to,
+     * and it needs both halves of "no refresh can undo or rewrite a row the MV already holds": every
+     * base table is an append-only detail table, whose row binlog carries APPEND events only, and no
+     * operator of the query corrects a row already materialized. Of the operators the normalize
+     * supports, exactly two do correct one -- an aggregate, whose delta changes the row of a group
+     * (DISTINCT included, and GROUPING SETS, which is a repeat of aggregates), and an outer join,
+     * whose null side stops matching -- so those are what this asks for. Everything else that would
+     * need the row-id path is outside what the normalize supports and is rejected there instead
+     * (UNION DISTINCT, semi/anti joins, windows, limits), which is why this names the two rather
+     * than every shape that is not.
+     */
+    private KeysType judgeKeysType(Plan plan) {
+        boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate
+                || node instanceof LogicalRepeat
+                || (node instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()));
+        if (needsRowIdMaintenance) {
+            return KeysType.UNIQUE_KEYS;
+        }
+        List<LogicalOlapScan> scans = plan.collectToList(LogicalOlapScan.class::isInstance);
+        for (LogicalOlapScan scan : scans) {
+            if (scan.getTable().getKeysType() != KeysType.DUP_KEYS) {
+                return KeysType.UNIQUE_KEYS;
+            }
+        }
+        return KeysType.DUP_KEYS;
     }
 
     // unsupported: any plan node not explicitly whitelisted below
