@@ -224,10 +224,9 @@ public final class PaimonScanParams {
                 fallbackOptions.remove(CoreOptions.BUCKET.key());
                 fallbackOptions.put(CoreOptions.BRANCH.key(), pair.other().coreOptions().branch());
                 fallbackOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
-                return new FallbackReadFileStoreTable(
+                return PaimonTableDecorators.rebuildFallbackPair(pair,
                         copyWithPinnedFallback(pair.wrapped(), dynamicOptions, coordinates, path),
-                        copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath),
-                        PaimonReaderOptions.isWrappedFirst(pair));
+                        copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath));
             }
         }
         if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
@@ -246,9 +245,9 @@ public final class PaimonScanParams {
             String fallbackPath = path + "fallback.";
             long fallbackId = PaimonSchemaPin.fallbackSchemaId(options, fallbackPath,
                     () -> pair.other().schemaManager().latest().orElseThrow(IllegalStateException::new).id());
-            return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId, options, path),
-                    restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath),
-                    PaimonReaderOptions.isWrappedFirst(pair));
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    restoreBoundSchema(pair.wrapped(), schemaId, options, path),
+                    restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath));
         }
         if (table instanceof DelegatedFileStoreTable) {
             FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();

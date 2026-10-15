@@ -27,6 +27,7 @@
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_case_expr.hpp"
+#include "benchmark_character_encoding.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"

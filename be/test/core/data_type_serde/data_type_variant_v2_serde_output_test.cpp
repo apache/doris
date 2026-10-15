@@ -32,19 +32,23 @@
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
@@ -219,6 +223,41 @@ void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const ICol
     auto builder = binary_variant_arrow_builder();
     const Status status = serde.write_column_to_arrow(column, null_map, builder.get(), 0,
                                                       column.size(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(builder->Finish(&output).ok());
+    const auto& array = assert_cast<const arrow::StructArray&>(*output);
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*array.field(0));
+    const auto& metadata = assert_cast<const arrow::BinaryArray&>(*array.field(1));
+    ASSERT_EQ(array.length(), static_cast<int64_t>(column.size()));
+    const auto view = encoded.read_view();
+    for (size_t row = 0; row < column.size(); ++row) {
+        const bool expected_null = null_map != nullptr && (*null_map)[row] != 0;
+        EXPECT_EQ(array.IsNull(row), expected_null);
+        if (expected_null) {
+            continue;
+        }
+        const VariantRef expected = view.value_at(row);
+        const auto actual_value = values.GetView(row);
+        const auto actual_metadata = metadata.GetView(row);
+        EXPECT_EQ(std::string_view(actual_value.data(), actual_value.size()),
+                  std::string_view(expected.value.data, expected.value.size));
+        EXPECT_EQ(std::string_view(actual_metadata.data(), actual_metadata.size()),
+                  std::string_view(expected.metadata.data, expected.metadata.size));
+    }
+}
+
+void expect_paimon_variant_bytes(const IColumn& column, const ColumnVariantV2& encoded,
+                                 const NullMap* null_map = nullptr) {
+    auto builder = binary_variant_arrow_builder();
+    DataTypePtr type = std::make_shared<DataTypeVariantV2>();
+    const auto serde = type->get_serde();
+    const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
+    const Status status =
+            paimon::PaimonArrowBlockConvertor(arrow::schema({field}), cctz::utc_time_zone())
+                    .write_column(type, *serde, column, null_map, field, builder.get(), 0,
+                                  column.size(), cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
 
     std::shared_ptr<arrow::Array> output;
@@ -456,6 +495,21 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytes
     EXPECT_TRUE(typed->is_typed());
 }
 
+TEST(DataTypeVariantV2SerdeOutputTest, PaimonKeepsItsOwnBinaryLayout) {
+    DataTypeVariantV2SerDe serde;
+    auto values = encoded_json({R"({"a":42})"});
+    auto builder = binary_variant_arrow_builder();
+    const auto status = serde.write_column_to_paimon_arrow(
+            nullptr, *values, nullptr, nullptr, builder.get(), 0, 1, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder->Finish(&array).ok());
+    const auto& storage = assert_cast<const arrow::StructArray&>(*array);
+    const auto& binary = assert_cast<const arrow::BinaryArray&>(*storage.field(0));
+    auto expected = values->get_value_ref(0).value;
+    EXPECT_EQ(binary.GetView(0), std::string_view(expected.data, expected.size));
+}
+
 TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPrimitive) {
     DataTypeVariantV2SerDe serde;
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
@@ -467,6 +521,85 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPrimitive) 
     auto arrow_builder = binary_variant_arrow_builder();
     const Status status = serde.write_column_to_arrow(*encoded, nullptr, arrow_builder.get(), 0,
                                                       encoded->size(), cctz::utc_time_zone());
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find(
+                      "Binary Variant V2 Arrow encoding does not support primitive id 17"),
+              std::string::npos);
+    EXPECT_EQ(arrow_builder->length(), 0);
+}
+
+TEST(PaimonArrowBlockConvertorTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
+    auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
+    NullMap mask {0, 1, 0};
+    expect_paimon_variant_bytes(*documents, *documents, &mask);
+
+    auto typed = typed_strings(
+            {std::string_view("plain"), std::nullopt, std::string_view(R"({"text":"value"})")});
+    ColumnPtr encoded = encoded_copy(*typed);
+    expect_paimon_variant_bytes(*typed, assert_cast<const ColumnVariantV2&>(*encoded));
+    EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(PaimonArrowBlockConvertorTest, NestedArrayUsesPaimonSerdeRecursively) {
+    auto variants = encoded_json({R"({"id":1})", R"({"hidden":true})", R"([true,"x"])", "null"});
+    const auto expected = variants->read_view();
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({2, 4});
+    // DataTypeArray always wraps its element type in Nullable, including VARIANT.
+    auto nulls = ColumnUInt8::create(4, 0);
+    nulls->get_data()[1] = 1;
+    auto elements = ColumnNullable::create(std::move(variants), std::move(nulls));
+    auto array = ColumnArray::create(std::move(elements), std::move(offsets));
+
+    DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(variant_type);
+    auto arrow_type = arrow::list(binary_variant_arrow_type());
+    auto field = arrow::field("payloads", arrow_type, false);
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), arrow_type, &builder).ok());
+
+    const auto serde = array_type->get_serde();
+    Status status = paimon::PaimonArrowBlockConvertor(arrow::schema({field}), cctz::utc_time_zone())
+                            .write_column(array_type, *serde, *array, nullptr, field, builder.get(),
+                                          0, array->size(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(builder->Finish(&output).ok());
+    const auto& lists = assert_cast<const arrow::ListArray&>(*output);
+    const auto& structs = assert_cast<const arrow::StructArray&>(*lists.values());
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*structs.field(0));
+    const auto& metadata = assert_cast<const arrow::BinaryArray&>(*structs.field(1));
+    ASSERT_TRUE(output->ValidateFull().ok());
+    ASSERT_EQ(4, structs.length());
+    EXPECT_TRUE(structs.IsNull(1));
+    EXPECT_FALSE(structs.IsNull(3));
+    for (size_t row : {0, 2, 3}) {
+        const VariantRef value = expected.value_at(row);
+        const auto actual_value = values.GetView(row);
+        const auto actual_metadata = metadata.GetView(row);
+        EXPECT_EQ(std::string_view(actual_value.data(), actual_value.size()),
+                  std::string_view(value.value.data, value.value.size));
+        EXPECT_EQ(std::string_view(actual_metadata.data(), actual_metadata.size()),
+                  std::string_view(value.metadata.data, value.metadata.size));
+    }
+}
+
+TEST(PaimonArrowBlockConvertorTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    row.add_time_ntz_micros(1'500'000);
+    row.finish();
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_encoded_batch(builder.finish_batch());
+    auto arrow_builder = binary_variant_arrow_builder();
+    DataTypePtr type = std::make_shared<DataTypeVariantV2>();
+    const auto serde = type->get_serde();
+    const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
+    const Status status =
+            paimon::PaimonArrowBlockConvertor(arrow::schema({field}), cctz::utc_time_zone())
+                    .write_column(type, *serde, *encoded, nullptr, field, arrow_builder.get(), 0,
+                                  encoded->size(), cctz::utc_time_zone());
     EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_NE(status.to_string().find(
                       "Binary Variant V2 Arrow encoding does not support primitive id 17"),
