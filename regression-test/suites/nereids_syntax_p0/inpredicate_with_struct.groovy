@@ -15,27 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("inpredicate_with_struct") {
+suite("inpredicate_with_complex_type") {
     sql """ set enable_nereids_planner = true;"""
     sql """ set enable_fallback_to_original_planner=false;"""
-    // support struct type
-    order_qt_in_predicate_11 """
-         select struct(1,"2")  in (struct(1,3), null);
-    """
-    order_qt_in_predicate_12 """
-         select struct(1,"2")  not in (struct(1,3), null);
-    """
-    order_qt_in_predicate_13 """
-         select struct(1,"2")  in (struct(1,3), struct(1,2));
-    """
-    order_qt_in_predicate_14 """
-         select struct(1,"2")  not in (struct(1,3), struct(1,2));
-    """
-    order_qt_in_predicate_15 """
-         select struct(1,"2")  in (struct(1,3), struct(1,"2"), struct(1,1));
-    """
-    order_qt_in_predicate_16 """
-         select struct(1,"2")  not in (struct(1,3), struct(1,"2"), struct(1,1));
-    """
+
+    test {
+        sql """ select struct(1, "2") in (struct(1, 2)); """
+        exception "in predicate could not contains complex type"
+    }
+
+    test {
+        sql """ select struct(1, "2") not in (struct(1, 2)); """
+        exception "in predicate could not contains complex type"
+    }
+
+    test {
+        sql """ select [1, 2] in ([1, 2]); """
+        exception "in predicate could not contains complex type"
+    }
+
+    test {
+        sql """ select map('a', 1) in (map('a', 1)); """
+        exception "in predicate could not contains complex type"
+    }
+
+    test {
+        sql """ select 1 in (struct(1, 2)); """
+        exception "in predicate could not contains complex type"
+    }
 }
 
