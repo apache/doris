@@ -29,13 +29,13 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
-#include "io/obj_storage/obj_storage_client_factory.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
 
 Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::get_or_create(
-        const ObjStorageClientConfig& config, const S3ClientConfig& s3) {
+        const ObjClientConfig& config, const S3ClientConfig& s3) {
     if (auto cached = _cache.find(config)) {
         return cached;
     }
@@ -49,7 +49,7 @@ Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::get_or_create(
 }
 
 Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::_build(
-        const ObjStorageClientConfig& client_config, const S3ClientConfig& s3) {
+        const ObjClientConfig& client_config, const S3ClientConfig& s3) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             std::make_shared<S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),

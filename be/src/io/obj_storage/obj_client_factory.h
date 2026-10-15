@@ -28,14 +28,14 @@ namespace doris::io {
 
 // Entry for getting a BE native object storage client. It only dispatches on the backend
 // alternative; validation, construction and caching belong to the selected provider.
-class ObjStorageClientFactory {
+class ObjClientFactory {
 public:
-    static ObjStorageClientFactory& instance();
+    static ObjClientFactory& instance();
 
-    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjStorageClientConfig& config);
+    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config);
 
 private:
-    ObjStorageClientFactory();
+    ObjClientFactory();
 
     S3ClientProvider _s3;
     AzureClientProvider _azure;

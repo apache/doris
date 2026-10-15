@@ -87,7 +87,7 @@ ObjStorageProvider backend_provider(const AzureClientConfig&) {
 
 } // namespace
 
-uint64_t ObjStorageClientConfig::hash() const {
+uint64_t ObjClientConfig::hash() const {
     uint64_t hash_code = std::visit([](const auto& b) { return hash_backend(b); }, backend);
     hash_code ^= connection.max_connections;
     hash_code ^= connection.request_timeout_ms;
@@ -96,15 +96,15 @@ uint64_t ObjStorageClientConfig::hash() const {
     return hash_code;
 }
 
-ObjStorageProvider ObjStorageClientConfig::provider() const {
+ObjStorageProvider ObjClientConfig::provider() const {
     return std::visit([](const auto& b) { return backend_provider(b); }, backend);
 }
 
-const std::string& ObjStorageClientConfig::endpoint() const {
+const std::string& ObjClientConfig::endpoint() const {
     return std::visit([](const auto& b) -> const std::string& { return b.endpoint; }, backend);
 }
 
-std::string ObjStorageClientConfig::to_string() const {
+std::string ObjClientConfig::to_string() const {
     return fmt::format(
             "({}, max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, usage={})",
             std::visit([](const auto& b) { return backend_to_string(b); }, backend),

@@ -38,7 +38,7 @@ public:
     // Example: provider=AZURE, ak="acct", sk="key", bucket="c1", region="r" becomes
     // AzureClientConfig{account="acct", container="c1", auth=SharedKey{"key"}}; region,
     // token and role_arn are dropped because the Azure client never read them.
-    static ObjStorageClientConfig from_client_conf(const S3ClientConf& conf);
+    static ObjClientConfig from_client_conf(const S3ClientConf& conf);
 };
 
 } // namespace doris::io

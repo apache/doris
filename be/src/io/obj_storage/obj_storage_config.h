@@ -102,7 +102,7 @@ struct AzureClientConfig {
     bool operator==(const AzureClientConfig&) const = default;
 };
 
-struct ObjStorageClientConfig {
+struct ObjClientConfig {
     ObjStorageConnectionOptions connection;
     ClientUsage usage = ClientUsage::EXTERNAL_ACCESS;
     // The alternative decides which client provider builds the client; there is no
@@ -111,7 +111,7 @@ struct ObjStorageClientConfig {
 
     // Full-field identity. hash() only picks a cache bucket; distinct configurations can
     // collide, so hash equality must never be treated as configuration equality.
-    bool operator==(const ObjStorageClientConfig&) const = default;
+    bool operator==(const ObjClientConfig&) const = default;
 
     uint64_t hash() const;
 
@@ -123,8 +123,8 @@ struct ObjStorageClientConfig {
     std::string to_string() const;
 };
 
-struct ObjStorageClientConfigHash {
-    size_t operator()(const ObjStorageClientConfig& config) const {
+struct ObjClientConfigHash {
+    size_t operator()(const ObjClientConfig& config) const {
         return static_cast<size_t>(config.hash());
     }
 };

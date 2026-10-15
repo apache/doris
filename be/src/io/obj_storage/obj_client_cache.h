@@ -31,9 +31,9 @@ namespace doris::io {
 // SDK clients are built outside the lock. When two threads build the same identity
 // concurrently, the first publish wins and the loser's candidate stays owned by its
 // caller, so the losing SDK client is destroyed after the lock is released.
-class ObjStorageClientCache {
+class ObjClientCache {
 public:
-    std::shared_ptr<ObjStorageClient> find(const ObjStorageClientConfig& config) {
+    std::shared_ptr<ObjStorageClient> find(const ObjClientConfig& config) {
         std::lock_guard lock(_lock);
         auto it = _clients.find(config);
         return it == _clients.end() ? nullptr : it->second;
@@ -41,7 +41,7 @@ public:
 
     // Returns the client cached for config: candidate if it was published, or the one
     // another thread published first.
-    std::shared_ptr<ObjStorageClient> publish(const ObjStorageClientConfig& config,
+    std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
                                               const std::shared_ptr<ObjStorageClient>& candidate) {
         std::lock_guard lock(_lock);
         auto [it, _] = _clients.try_emplace(config, candidate);
@@ -50,8 +50,7 @@ public:
 
 private:
     std::mutex _lock;
-    std::unordered_map<ObjStorageClientConfig, std::shared_ptr<ObjStorageClient>,
-                       ObjStorageClientConfigHash>
+    std::unordered_map<ObjClientConfig, std::shared_ptr<ObjStorageClient>, ObjClientConfigHash>
             _clients;
 };
 

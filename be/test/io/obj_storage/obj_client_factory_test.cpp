@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/obj_storage/obj_storage_client_factory.h"
+#include "io/obj_storage/obj_client_factory.h"
 
 #include <gtest/gtest.h>
 
@@ -37,12 +37,12 @@
 namespace doris::io {
 namespace {
 
-class ObjStorageSyncPointGuard {
+class ObjClientSyncPointGuard {
 public:
-    ObjStorageSyncPointGuard() : _was_enabled(SyncPoint::get_instance()->get_enable()) {
+    ObjClientSyncPointGuard() : _was_enabled(SyncPoint::get_instance()->get_enable()) {
         SyncPoint::get_instance()->enable_processing();
     }
-    ~ObjStorageSyncPointGuard() {
+    ~ObjClientSyncPointGuard() {
         if (!_was_enabled) {
             SyncPoint::get_instance()->disable_processing();
         }
@@ -73,7 +73,7 @@ S3ClientConf make_azure_conf(std::string endpoint) {
 
 } // namespace
 
-class ObjStorageClientFactoryTest : public testing::Test {
+class ObjClientFactoryTest : public testing::Test {
 protected:
     void SetUp() override {
         // Stub the AWS SDK client: every S3 build returns a fresh S3ObjStorageClient, so
@@ -93,14 +93,14 @@ protected:
                 &_create_client_callback);
     }
 
-    ObjStorageSyncPointGuard _sync_point_guard;
+    ObjClientSyncPointGuard _sync_point_guard;
     SyncPoint* _sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard _create_client_callback;
     int _s3_builds = 0;
     std::function<void()> _on_s3_build;
 };
 
-TEST_F(ObjStorageClientFactoryTest, ResolvesS3ConfIntoS3Backend) {
+TEST_F(ObjClientFactoryTest, ResolvesS3ConfIntoS3Backend) {
     auto conf = make_s3_conf("resolve-s3.example.com");
     conf.provider = ObjStorageProvider::OSS;
     conf.token = "token";
@@ -137,7 +137,7 @@ TEST_F(ObjStorageClientFactoryTest, ResolvesS3ConfIntoS3Backend) {
     EXPECT_EQ(config.endpoint(), "resolve-s3.example.com");
 }
 
-TEST_F(ObjStorageClientFactoryTest, ResolvesAzureConfIntoAzureBackend) {
+TEST_F(ObjClientFactoryTest, ResolvesAzureConfIntoAzureBackend) {
     auto conf = make_azure_conf("resolve-azure.example.com");
 
     auto config = ObjStorageConfigResolver::from_client_conf(conf);
@@ -153,7 +153,7 @@ TEST_F(ObjStorageClientFactoryTest, ResolvesAzureConfIntoAzureBackend) {
     EXPECT_EQ(config.provider(), ObjStorageProvider::AZURE);
 }
 
-TEST_F(ObjStorageClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
+TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
     // Azure never read region, token or the AWS role, so they do not split Azure clients.
     auto azure_conf = make_azure_conf("identity-azure.example.com");
     auto azure_with_s3_fields = azure_conf;
@@ -191,7 +191,7 @@ TEST_F(ObjStorageClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend
               ObjStorageConfigResolver::from_client_conf(s3_internal));
 }
 
-TEST_F(ObjStorageClientFactoryTest, ToStringMasksCredentials) {
+TEST_F(ObjClientFactoryTest, ToStringMasksCredentials) {
     auto s3_conf = make_s3_conf("mask-s3.example.com");
     s3_conf.ak = "AKIDEXAMPLE";
     s3_conf.sk = "s3-secret-key";
@@ -208,8 +208,8 @@ TEST_F(ObjStorageClientFactoryTest, ToStringMasksCredentials) {
     EXPECT_NE(azure_text.find("shared_key"), std::string::npos);
 }
 
-TEST_F(ObjStorageClientFactoryTest, S3ProviderCachesByFullConfig) {
-    auto& factory = ObjStorageClientFactory::instance();
+TEST_F(ObjClientFactoryTest, S3ProviderCachesByFullConfig) {
+    auto& factory = ObjClientFactory::instance();
     auto conf = make_s3_conf("s3-provider-cache.example.com");
 
     auto first = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(conf));
@@ -231,8 +231,8 @@ TEST_F(ObjStorageClientFactoryTest, S3ProviderCachesByFullConfig) {
     EXPECT_EQ(_s3_builds, 2);
 }
 
-TEST_F(ObjStorageClientFactoryTest, AzureProviderCachesByContainer) {
-    auto& factory = ObjStorageClientFactory::instance();
+TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
+    auto& factory = ObjClientFactory::instance();
     auto conf = make_azure_conf("azure-provider-cache.example.com");
 
     auto first = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(conf));
@@ -256,7 +256,7 @@ TEST_F(ObjStorageClientFactoryTest, AzureProviderCachesByContainer) {
     EXPECT_EQ(_s3_builds, 0);
 }
 
-TEST_F(ObjStorageClientFactoryTest, HolderPublishesConfAndClientTogether) {
+TEST_F(ObjClientFactoryTest, HolderPublishesConfAndClientTogether) {
     auto conf = make_s3_conf("holder-state.example.com");
     ObjClientHolder holder(conf);
     EXPECT_EQ(holder.get(), nullptr);
@@ -285,7 +285,7 @@ TEST_F(ObjStorageClientFactoryTest, HolderPublishesConfAndClientTogether) {
     EXPECT_EQ(holder.state(), current);
 }
 
-TEST_F(ObjStorageClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
+TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
     auto conf = make_s3_conf("holder-conflict.example.com");
     ObjClientHolder holder(conf);
     ASSERT_TRUE(holder.init().ok());

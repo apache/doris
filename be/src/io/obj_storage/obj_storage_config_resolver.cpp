@@ -56,8 +56,8 @@ std::variant<S3ClientConfig, AzureClientConfig> backend_from_client_conf(const S
 
 } // namespace
 
-ObjStorageClientConfig ObjStorageConfigResolver::from_client_conf(const S3ClientConf& conf) {
-    return ObjStorageClientConfig {
+ObjClientConfig ObjStorageConfigResolver::from_client_conf(const S3ClientConf& conf) {
+    return ObjClientConfig {
             .connection =
                     {
                             .max_connections = conf.max_connections,

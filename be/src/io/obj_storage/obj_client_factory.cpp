@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/obj_storage/obj_storage_client_factory.h"
+#include "io/obj_storage/obj_client_factory.h"
 
 #include <fmt/format.h>
 
@@ -58,20 +58,20 @@ public:
 
 } // namespace
 
-ObjStorageClientFactory::ObjStorageClientFactory() {
+ObjClientFactory::ObjClientFactory() {
     // Complete AWS SDK initialization before this singleton finishes construction. Function
     // local statics are destroyed in reverse order of construction, so the cached AWS
     // clients held by the providers are released before S3ClientFactory shuts the SDK down.
     S3ClientFactory::instance();
 }
 
-ObjStorageClientFactory& ObjStorageClientFactory::instance() {
-    static ObjStorageClientFactory ret;
+ObjClientFactory& ObjClientFactory::instance() {
+    static ObjClientFactory ret;
     return ret;
 }
 
-Result<std::shared_ptr<ObjStorageClient>> ObjStorageClientFactory::get_or_create(
-        const ObjStorageClientConfig& config) {
+Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::get_or_create(
+        const ObjClientConfig& config) {
     if (const auto* s3 = std::get_if<S3ClientConfig>(&config.backend)) {
         return _s3.get_or_create(config, *s3);
     }

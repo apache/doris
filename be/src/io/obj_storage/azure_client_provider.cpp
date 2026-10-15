@@ -22,7 +22,7 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "io/obj_storage/obj_storage_client_factory.h"
+#include "io/obj_storage/obj_client_factory.h"
 
 #ifdef USE_AZURE
 #include <azure/core/http/curl_transport.hpp>
@@ -87,7 +87,7 @@ std::string account_key_for_endpoint_info(const AzureSharedKeyConfig& shared_key
 } // namespace
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
-        const ObjStorageClientConfig& config, const AzureClientConfig& azure) {
+        const ObjClientConfig& config, const AzureClientConfig& azure) {
     if (auto cached = _cache.find(config)) {
         return cached;
     }

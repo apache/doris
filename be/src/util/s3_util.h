@@ -145,8 +145,8 @@ struct S3Conf {
 // Compatibility entry for the legacy S3ClientConf, and owner of the AWS SDK lifetime and
 // the CA certificate path shared by every object storage client.
 //
-// create() validates the legacy conf, resolves it into an io::ObjStorageClientConfig and
-// delegates to io::ObjStorageClientFactory, whose S3/Azure client providers build and
+// create() validates the legacy conf, resolves it into an io::ObjClientConfig and
+// delegates to io::ObjClientFactory, whose S3/Azure client providers build and
 // cache the clients. No provider-specific construction or cache lives here any more.
 class S3ClientFactory {
 public:

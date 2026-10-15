@@ -20,7 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "io/obj_storage/obj_storage_client_cache.h"
+#include "io/obj_storage/obj_client_cache.h"
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris::io {
@@ -31,13 +31,13 @@ class AzureClientProvider {
 public:
     // config.backend must hold azure, which is passed separately so the caller's
     // dispatch and this provider cannot disagree on the alternative.
-    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjStorageClientConfig& config,
+    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config,
                                                             const AzureClientConfig& azure);
 
 private:
     Result<std::shared_ptr<ObjStorageClient>> _build(const AzureClientConfig& azure);
 
-    ObjStorageClientCache _cache;
+    ObjClientCache _cache;
 };
 
 } // namespace doris::io

@@ -57,7 +57,7 @@
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
 #include "exec/scan/scanner_scheduler.h"
-#include "io/obj_storage/obj_storage_client_factory.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "runtime/exec_env.h"
@@ -175,7 +175,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
     }
 #endif
 
-    return io::ObjStorageClientFactory::instance().get_or_create(
+    return io::ObjClientFactory::instance().get_or_create(
             io::ObjStorageConfigResolver::from_client_conf(s3_conf));
 }
 

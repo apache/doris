@@ -20,7 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "io/obj_storage/obj_storage_client_cache.h"
+#include "io/obj_storage/obj_client_cache.h"
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris::io {
@@ -30,14 +30,14 @@ class S3ClientProvider {
 public:
     // config.backend must hold s3, which is passed separately so the caller's dispatch
     // and this provider cannot disagree on the alternative.
-    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjStorageClientConfig& config,
+    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config,
                                                             const S3ClientConfig& s3);
 
 private:
-    Result<std::shared_ptr<ObjStorageClient>> _build(const ObjStorageClientConfig& client_config,
+    Result<std::shared_ptr<ObjStorageClient>> _build(const ObjClientConfig& client_config,
                                                      const S3ClientConfig& s3);
 
-    ObjStorageClientCache _cache;
+    ObjClientCache _cache;
 };
 
 } // namespace doris::io
