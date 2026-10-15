@@ -488,6 +488,9 @@ public class HboUtils {
             List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats,
             Map<Integer, String> nodeFingerprints) {
         Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
+        // the fingerprint a plan node was published under, so a second node with the same fingerprint
+        // can be folded into it (the map above is keyed by the plan node identity as well)
+        Map<String, PlanNodeAndHash> publishedKeyByHash = new HashMap<>();
         int missingFingerprints = 0;
         int skippedWithoutSnapshot = 0;
         for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
@@ -521,9 +524,21 @@ public class HboUtils {
                 continue;
             }
             PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode, hash);
-            PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
-                    nodeId, curPlanStatistics, inputTableStatisticsInfo);
-            outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
+            PlanNodeAndHash publishedKey = publishedKeyByHash.get(hash.get());
+            if (publishedKey == null) {
+                publishedKeyByHash.put(hash.get(), planNodeAndHash);
+                outputPlanStatisticsMap.put(planNodeAndHash, new PlanStatisticsWithInputInfo(
+                        nodeId, curPlanStatistics, inputTableStatisticsInfo));
+                continue;
+            }
+            // a second runtime node with the same fingerprint (the two scans of a self join, for
+            // instance): the provider stores one entry per fingerprint, so the input statistics of both
+            // nodes are folded here - writing both would let the last write discard the other node's
+            // rows, and the drift comparison of the published entry expects the rows of every scan
+            PlanStatisticsWithInputInfo published = outputPlanStatisticsMap.get(publishedKey);
+            outputPlanStatisticsMap.put(publishedKey, new PlanStatisticsWithInputInfo(
+                    published.getId(), published.getPlanStatistics(),
+                    published.getInputTableInfo().merge(inputTableStatisticsInfo)));
         }
         if (missingFingerprints > 0) {
             LOG.warn("hbo struct fingerprint snapshot missing for {} of {} plan nodes",

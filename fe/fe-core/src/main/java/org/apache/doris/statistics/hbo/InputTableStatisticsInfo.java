@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics.hbo;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -30,6 +31,24 @@ public class InputTableStatisticsInfo {
     public InputTableStatisticsInfo(Optional<List<PlanStatistics>> inputTableStatistics) {
         this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics,
                 "inputTableStatistics is null");
+    }
+
+    /**
+     * Fold the input table statistics of another node which shares the fingerprint of this one: two
+     * runtime nodes can carry one fingerprint (the two scans of a self join, for instance), and the
+     * provider stores one entry per fingerprint. Their input statistics are concatenated, which is what
+     * the drift comparison reads - it sums the rows of every recorded scan of a table.
+     */
+    public InputTableStatisticsInfo merge(InputTableStatisticsInfo other) {
+        if (inputTableStatistics.isEmpty()) {
+            return other;
+        }
+        if (other.inputTableStatistics.isEmpty()) {
+            return this;
+        }
+        List<PlanStatistics> merged = new ArrayList<>(inputTableStatistics.get());
+        merged.addAll(other.inputTableStatistics.get());
+        return new InputTableStatisticsInfo(Optional.of(merged));
     }
 
     public Optional<List<PlanStatistics>> getInputTableStatistics() {
