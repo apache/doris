@@ -30,7 +30,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.EncryptKeyRef;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FileLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IPv4Literal;
@@ -152,7 +151,6 @@ public class GsonUtilsCatalog {
             .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
             .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
             .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
-            .registerSubtype(FileLiteral.class, FileLiteral.class.getSimpleName())
             .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
             .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
             .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())

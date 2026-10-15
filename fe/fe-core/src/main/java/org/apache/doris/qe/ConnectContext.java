@@ -39,6 +39,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -80,6 +81,7 @@ import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
@@ -154,6 +156,7 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    private final Map<String, TS3Resource> s3Resources = Maps.newLinkedHashMap();
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
     protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
@@ -372,6 +375,7 @@ public class ConnectContext {
         resetSessionVariable();
         userVars = new HashMap<>();
         preparedStatementContextMap.clear();
+        s3Resources.clear();
         queryId = null;
         lastQueryId = null;
         setTraceId(null);
@@ -788,6 +792,7 @@ public class ConnectContext {
     }
 
     public void setStartTime() {
+        s3Resources.clear();
         startTimeInstant = Instant.now();
         startTime = startTimeInstant.toEpochMilli();
         returnRows = 0;
@@ -1197,6 +1202,18 @@ public class ConnectContext {
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
+    }
+
+    /** Resolve each resource once for the current query without retaining it in prepared expressions. */
+    public TS3Resource getOrRegisterS3Resource(String resourceName) {
+        return s3Resources.computeIfAbsent(resourceName,
+                name -> S3Resource.checkResource(name, this).toThrift()).deepCopy();
+    }
+
+    public Map<String, TS3Resource> getS3Resources() {
+        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
+        s3Resources.forEach((name, resource) -> resources.put(name, resource.deepCopy()));
+        return resources;
     }
 
     public void resetQueryId() {
