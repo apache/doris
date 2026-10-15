@@ -48,6 +48,7 @@ jobs:
         run: |
           pip install PyGithub
       - name: Check SHA
+        id: check_sha
         run: |
             expected_sha="5439ca6304c986a5b26e8f48d528253909b417597088fe98969afee5c2eccbe6d60c5cd1eb03d452eb8082ce2a8ff4ea18854770375487a30bd4af7af9afd322"
             calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
@@ -78,7 +79,8 @@ jobs:
 
       - name: Auto cherry-pick to branch-4.2
         if: >-
-          ${{ contains(github.event.pull_request.labels.*.name, 'dev/4.2.x') &&
+          ${{ !cancelled() && steps.check_sha.outcome == 'success' &&
+              contains(github.event.pull_request.labels.*.name, 'dev/4.2.x') &&
               (github.event.action == 'closed' ||
                (github.event.action == 'labeled' && github.event.label.name == 'dev/4.2.x')) }}
         env:
