@@ -251,6 +251,9 @@ struct IOContext {
     // Per-call override for cache write completion semantics. An unset value follows the reader
     // option and the global async file-cache write switch.
     std::optional<CacheWriteMode> cache_write_mode_override = std::nullopt;
+    // Optional per-request peer; try only this peer before falling back to remote storage.
+    std::string preferred_peer_host {};
+    int32_t preferred_peer_port {0};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     // From session variable inverted_index_snii_read_no_write_file_cache: SNII index
     // reads of this query take REMOTE_ONLY_ON_MISS (hit served, miss reads remote
