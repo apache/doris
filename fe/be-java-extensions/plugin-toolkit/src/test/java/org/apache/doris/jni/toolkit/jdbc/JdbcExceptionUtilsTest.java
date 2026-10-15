@@ -121,6 +121,38 @@ class JdbcExceptionUtilsTest {
     }
 
     @Test
+    void nestedFormattedWrappersKeepEachRemoteFrameOnce() {
+        SQLException sql = new SQLException("denied raw=test-secret", "28000", 1045);
+        sql.setNextException(new SQLException("denied raw=test-secret", "42000", 1142));
+        Throwable current = sql;
+        String expected = "";
+        for (String context : new String[] {"connect", "initialize", "validate", "streaming job"}) {
+            String formatted = JdbcExceptionUtils.format(context, current, "test-secret");
+            expected = context + ": " + expected;
+            if (current == sql) {
+                expected = formatted;
+            }
+            Assertions.assertEquals(expected, formatted);
+            Assertions.assertEquals(1, formatted.split("remote_sqlstate=28000", -1).length - 1);
+            Assertions.assertEquals(1, formatted.split("remote_sqlstate=42000", -1).length - 1);
+            Assertions.assertFalse(formatted.contains("test-secret"));
+            current = new RuntimeException(formatted, current);
+        }
+    }
+
+    @Test
+    void sharedFramesInDifferentWrappersDoNotHideDistinctRemoteErrors() {
+        SQLException sql = new SQLException("denied", "28000", 1045);
+        String frame = JdbcExceptionUtils.format("", sql);
+        RuntimeException inner = new RuntimeException("borrow: " + frame, sql);
+        RuntimeException outer = new RuntimeException("initialize: " + frame, inner);
+        String formatted = JdbcExceptionUtils.format("job", outer);
+        Assertions.assertEquals(1, formatted.split("remote_sqlstate=28000", -1).length - 1);
+        Assertions.assertTrue(formatted.contains("initialize:"));
+        Assertions.assertTrue(formatted.contains("borrow:"));
+    }
+
+    @Test
     void shortNumericPasswordsDoNotCorruptRemoteCodes() {
         for (String password : new String[] {"42", "0", "1064"}) {
             SQLException cause = new SQLException("raw=" + password, "42000", 1064);

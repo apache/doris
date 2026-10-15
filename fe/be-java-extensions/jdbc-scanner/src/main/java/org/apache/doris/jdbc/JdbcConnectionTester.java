@@ -160,7 +160,8 @@ public class JdbcConnectionTester extends JniScanner {
                         "Failed to test connection: query executed but returned no results.");
             }
             rs.close();
-            LOG.info("JdbcConnectionTester: connection test succeeded for " + JdbcExceptionUtils.redact(jdbcUrl));
+            String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+            LOG.info("JdbcConnectionTester: connection test succeeded for " + safeJdbcUrl);
         } catch (Exception e) {
             throw new JdbcIOException("Failed to test JDBC connection", e, jdbcPassword, jdbcUrl);
         } finally {

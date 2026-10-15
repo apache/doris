@@ -391,7 +391,8 @@ public class JdbcJniScanner extends JniScanner {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniScanner: Created connection pool for " + JdbcExceptionUtils.redact(jdbcUrl));
+                    String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+                    LOG.info("JdbcJniScanner: Created connection pool for " + safeJdbcUrl);
                 }
             }
         }

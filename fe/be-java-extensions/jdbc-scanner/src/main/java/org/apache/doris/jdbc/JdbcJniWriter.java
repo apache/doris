@@ -377,7 +377,8 @@ public class JdbcJniWriter extends JniWriter {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniWriter: Created connection pool for " + JdbcExceptionUtils.redact(jdbcUrl));
+                    String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+                    LOG.info("JdbcJniWriter: Created connection pool for " + safeJdbcUrl);
                 }
             }
         }

@@ -99,12 +99,26 @@ public final class JdbcExceptionUtils {
         }
         messages.removeAll(sqlMessages);
         String safeContext = redact(context, sensitiveValues);
+        // An outer formatted wrapper already carries its nested wrapper's context and diagnostics.
+        List<String> wrappers = new ArrayList<>(messages);
+        messages.removeIf(message -> REMOTE_DIAGNOSTIC.matcher(message).find()
+                && (safeContext.contains(message) || wrappers.stream().anyMatch(
+                        outer -> !outer.equals(message) && outer.contains(message))));
         diagnostics.removeIf(diagnostic -> safeContext.contains(diagnostic)
                 || messages.stream().anyMatch(message -> message.contains(diagnostic)));
         messages.remove(safeContext);
         messages.addAll(diagnostics);
         String details = String.join(" | ", messages);
-        return safeContext.isEmpty() ? details : safeContext + (details.isEmpty() ? "" : ": " + details);
+        String result = safeContext.isEmpty() ? details : safeContext + (details.isEmpty() ? "" : ": " + details);
+        // Sibling wrappers may also share frames without containing one another's messages.
+        Matcher frames = REMOTE_DIAGNOSTIC.matcher(result);
+        Set<String> emitted = new LinkedHashSet<>();
+        StringBuffer unique = new StringBuffer();
+        while (frames.find()) {
+            String frame = emitted.add(frames.group()) ? frames.group() : "";
+            frames.appendReplacement(unique, Matcher.quoteReplacement(frame));
+        }
+        return frames.appendTail(unique).toString();
     }
 
     /** Redacts configured secrets and JDBC URLs before diagnostic text crosses an output boundary. */
