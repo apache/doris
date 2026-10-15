@@ -64,6 +64,31 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
     }
 
     @Test
+    void testMergeUnionComposesChildOutputMapping() {
+        Alias first = new Alias(new ExprId(101), new IntegerLiteral(10), "campaign");
+        Alias second = new Alias(new ExprId(102), new IntegerLiteral(20), "country");
+        LogicalOneRowRelation row = new LogicalOneRowRelation(
+                new RelationId(101), ImmutableList.of(first, second));
+        SlotReference campaign = new SlotReference(new ExprId(103), "campaign",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        SlotReference country = new SlotReference(new ExprId(104), "country",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        LogicalUnion child = new LogicalUnion(Qualifier.ALL, ImmutableList.of(campaign, country),
+                ImmutableList.of(ImmutableList.of((SlotReference) first.toSlot(), (SlotReference) second.toSlot())),
+                ImmutableList.of(ImmutableList.of(first, second)), false, ImmutableList.of(row));
+        LogicalUnion parent = new LogicalUnion(Qualifier.ALL, ImmutableList.of(country, campaign),
+                ImmutableList.of(ImmutableList.of(country, campaign)), ImmutableList.of(),
+                false, ImmutableList.of(child));
+
+        LogicalUnion rewritten = (LogicalUnion) PlanChecker.from(MemoTestUtils.createConnectContext(), parent)
+                .applyTopDown(new MergeSetOperations()).getPlan();
+        Assertions.assertEquals(ImmutableList.of(row), rewritten.children());
+        Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
+                rewritten.getRegularChildOutput(0));
+        Assertions.assertEquals(ImmutableList.of(second, first), rewritten.getConstantExprsList().get(0));
+    }
+
+    @Test
     void testMergeOneRowRelationUsesRegularChildOutput() {
         Alias firstProject = new Alias(new ExprId(1), new IntegerLiteral(10), "first_col");
         Alias secondProject = new Alias(new ExprId(2), new IntegerLiteral(20), "second_col");

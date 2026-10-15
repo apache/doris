@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -27,9 +28,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Merge nodes of the same type and same qualifier.
@@ -83,8 +87,13 @@ public class MergeSetOperations implements RewriteRuleFactory {
             if (canMerge(parentUnion, child) && child.getOutput().size() == parentUnion.getOutput().size()) {
                 LogicalUnion childUnion = (LogicalUnion) child;
                 newChildren.addAll(childUnion.children());
-                newChildrenOutputs.addAll(childUnion.getRegularChildrenOutputs());
-                constantList.addAll(childUnion.getConstantExprsList());
+                List<Integer> outputOrder = getChildOutputOrder(parentUnion, i, childUnion);
+                for (List<SlotReference> outputs : childUnion.getRegularChildrenOutputs()) {
+                    newChildrenOutputs.add(reorderOutputs(outputs, outputOrder));
+                }
+                for (List<NamedExpression> constants : childUnion.getConstantExprsList()) {
+                    constantList.add(reorderOutputs(constants, outputOrder));
+                }
                 needMerge = true;
             } else {
                 newChildren.add(child);
@@ -108,7 +117,10 @@ public class MergeSetOperations implements RewriteRuleFactory {
             if (canMerge(parentSetIntersect, child)) {
                 LogicalIntersect childIntersect = (LogicalIntersect) child;
                 newChildren.addAll(childIntersect.children());
-                newChildrenOutputs.addAll(childIntersect.getRegularChildrenOutputs());
+                List<Integer> outputOrder = getChildOutputOrder(parentSetIntersect, i, childIntersect);
+                for (List<SlotReference> outputs : childIntersect.getRegularChildrenOutputs()) {
+                    newChildrenOutputs.add(reorderOutputs(outputs, outputOrder));
+                }
             } else {
                 newChildren.add(child);
                 newChildrenOutputs.add(parentSetIntersect.getRegularChildOutput(i));
@@ -116,6 +128,29 @@ public class MergeSetOperations implements RewriteRuleFactory {
         }
         return parentSetIntersect.withChildrenAndTheirOutputs(
                 newChildren.build(), newChildrenOutputs.build());
+    }
+
+    private static List<Integer> getChildOutputOrder(
+            LogicalSetOperation parent, int childIndex, LogicalSetOperation child) {
+        Map<ExprId, Integer> outputIndexes = new HashMap<>();
+        for (int i = 0; i < child.getOutput().size(); i++) {
+            outputIndexes.put(child.getOutput().get(i).getExprId(), i);
+        }
+        ImmutableList.Builder<Integer> order = ImmutableList.builder();
+        for (SlotReference slot : parent.getRegularChildOutput(childIndex)) {
+            Integer index = outputIndexes.get(slot.getExprId());
+            Preconditions.checkState(index != null, "Set operation input must belong to child output");
+            order.add(index);
+        }
+        return order.build();
+    }
+
+    private static <T> List<T> reorderOutputs(List<T> outputs, List<Integer> order) {
+        ImmutableList.Builder<T> reordered = ImmutableList.builderWithExpectedSize(order.size());
+        for (int index : order) {
+            reordered.add(outputs.get(index));
+        }
+        return reordered.build();
     }
 
     /** canMerge */
