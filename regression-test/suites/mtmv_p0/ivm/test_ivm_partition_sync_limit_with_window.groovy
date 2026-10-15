@@ -134,7 +134,9 @@ suite("test_ivm_partition_sync_limit_with_window") {
 
     // The MV keeps p_mid and p_new, so order_id 1 is never part of it. The window is an
     // incremental-path property, so the complete refresh still builds both MV partitions.
-    sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
+    // Only refreshAndGetTaskId refreshes: it issues the statement itself, and two COMPLETE
+    // refreshes carrying the same CreateTime leave tasks() with two rows nothing tells apart,
+    // so the row the wait returns and the row compared below can be two different tasks.
     def taskId = refreshAndGetTaskId("COMPLETE")
     qt_complete_task taskQuery(taskId)
     order_qt_complete_mv """
