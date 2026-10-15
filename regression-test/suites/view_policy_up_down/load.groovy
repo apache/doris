@@ -33,49 +33,37 @@ suite("test_view_policy_prepare", "p0,view_policy,restart_fe") {
         sql "GRANT SELECT_PRIV ON test_view_policy_replay_db.test_view_policy_min TO ${user}"
     }
     sql '''
-CREATE VIEW test_view_policy_grants
-
-(user_name,db_name,table_name,privilege,grant_sql)
-
- AS select
-
-    SPLIT_BY_STRING(`internal`.`information_schema`.`table_privileges`.`GRANTEE`, '\\'')[2] AS `user_name`, `internal`.`information_schema`.`table_privileges`.`TABLE_SCHEMA` AS `db_name`, `internal`.`information_schema`.`table_privileges`.`TABLE_NAME` AS `table_name`, concat_ws(',', collect_set(replace(`internal`.`information_schema`.`table_privileges`.`PRIVILEGE_TYPE`,'INSERT','LOAD'))) AS `privilege`, lower(concat('grant ', concat_ws(',', collect_set(concat(replace(`internal`.`information_schema`.`table_privileges`.`PRIVILEGE_TYPE`,'INSERT','LOAD'), '_PRIV'))), ' on ', `internal`.`information_schema`.`table_privileges`.`TABLE_SCHEMA`,'.', `internal`.`information_schema`.`table_privileges`.`TABLE_NAME`,
-
-              ' to ', SPLIT_BY_STRING(`internal`.`information_schema`.`table_privileges`.`GRANTEE`, '\\'')[2])) AS `grant_sql`
-
-from `internal`.`information_schema`.`table_privileges`
-
-where `internal`.`information_schema`.`table_privileges`.`PRIVILEGE_TYPE` not in ('SHOW VIEW')
-
-group by `internal`.`information_schema`.`table_privileges`.`GRANTEE`, `internal`.`information_schema`.`table_privileges`.`TABLE_SCHEMA`,`internal`.`information_schema`.`table_privileges`.`TABLE_NAME`
-
-union all
-
-select
-
-    SPLIT_BY_STRING(`internal`.`information_schema`.`schema_privileges`.`GRANTEE`, '\\'')[2] as `user_name`,
-
-    `internal`.`information_schema`.`schema_privileges`.`TABLE_SCHEMA` as `db_name`,
-
-    '*'   as `table_name`,
-
-    concat_ws(',', collect_set(replace(`internal`.`information_schema`.`schema_privileges`.`PRIVILEGE_TYPE`,'INSERT','LOAD'))) `privilege`,
-
-    lower(concat('grant ', concat_ws(',', collect_set(concat(replace(`internal`.`information_schema`.`schema_privileges`.`PRIVILEGE_TYPE`,'INSERT','LOAD'), '_PRIV'))), ' on ', `internal`.`information_schema`.`schema_privileges`.`TABLE_SCHEMA`,'.*',
-
-              ' to ', SPLIT_BY_STRING(`internal`.`information_schema`.`schema_privileges`.`GRANTEE`, '\\'')[2])) as `grant_sql`
-
-from `internal`.`information_schema`.`schema_privileges`
-
-where `internal`.`information_schema`.`schema_privileges`.`PRIVILEGE_TYPE` not in ('SHOW VIEW')
-
-group by `internal`.`information_schema`.`schema_privileges`.`GRANTEE`, `internal`.`information_schema`.`schema_privileges`.`TABLE_SCHEMA`;
+        CREATE VIEW test_view_policy_grants(user_name, db_name, table_name, privilege, grant_sql) AS
+        SELECT SPLIT_BY_STRING(GRANTEE, '\\'')[2] AS user_name,
+               TABLE_SCHEMA AS db_name,
+               TABLE_NAME AS table_name,
+               concat_ws(',', collect_set(replace(PRIVILEGE_TYPE, 'INSERT', 'LOAD'))) AS privilege,
+               lower(concat('grant ',
+                   concat_ws(',', collect_set(concat(replace(PRIVILEGE_TYPE, 'INSERT', 'LOAD'), '_PRIV'))),
+                   ' on ', TABLE_SCHEMA, '.', TABLE_NAME,
+                   ' to ', SPLIT_BY_STRING(GRANTEE, '\\'')[2])) AS grant_sql
+        FROM internal.information_schema.table_privileges
+        WHERE PRIVILEGE_TYPE NOT IN ('SHOW VIEW')
+        GROUP BY GRANTEE, TABLE_SCHEMA, TABLE_NAME
+        UNION ALL
+        SELECT SPLIT_BY_STRING(GRANTEE, '\\'')[2] AS user_name,
+               TABLE_SCHEMA AS db_name,
+               '*' AS table_name,
+               concat_ws(',', collect_set(replace(PRIVILEGE_TYPE, 'INSERT', 'LOAD'))) AS privilege,
+               lower(concat('grant ',
+                   concat_ws(',', collect_set(concat(replace(PRIVILEGE_TYPE, 'INSERT', 'LOAD'), '_PRIV'))),
+                   ' on ', TABLE_SCHEMA, '.*',
+                   ' to ', SPLIT_BY_STRING(GRANTEE, '\\'')[2])) AS grant_sql
+        FROM internal.information_schema.schema_privileges
+        WHERE PRIVILEGE_TYPE NOT IN ('SHOW VIEW')
+        GROUP BY GRANTEE, TABLE_SCHEMA
     '''
     sql """CREATE ROW POLICY before_restart ON test_view_policy_replay_db.test_view_policy_grants
         AS RESTRICTIVE TO test_view_policy_user USING (user_name = 'test_view_policy_user')"""
     def url = context.config.jdbcUrl.replaceFirst('/[^/]*$', '/test_view_policy_replay_db?useLocalSessionState=true')
     connectToDoris("test_view_policy_user", "C123_567p", url) {
-        order_qt_before_restart "SELECT user_name, table_name, privilege FROM test_view_policy_grants"
+        order_qt_before_restart """SELECT user_name, table_name, privilege FROM test_view_policy_grants
+            WHERE db_name = 'test_view_policy_replay_db'"""
     }
     sql "DROP ROW POLICY before_restart ON test_view_policy_replay_db.test_view_policy_grants FOR test_view_policy_user"
 }

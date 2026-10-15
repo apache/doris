@@ -32,7 +32,8 @@ suite("test_view_policy_replay", "p0,view_policy,restart_fe") {
     }
     def url = context.config.jdbcUrl.replaceFirst('/[^/]*$', '/test_view_policy_replay_db?useLocalSessionState=true')
     connectToDoris("test_view_policy_user", "C123_567p", url) {
-        order_qt_filtered "SELECT user_name, table_name, privilege FROM test_view_policy_grants"
+        order_qt_filtered """SELECT user_name, table_name, privilege FROM test_view_policy_grants
+            WHERE db_name = 'test_view_policy_replay_db'"""
         order_qt_min_filtered "SELECT * FROM test_view_policy_min"
     }
     connectToDoris("test_view_policy_other", "C123_567p", url) {
