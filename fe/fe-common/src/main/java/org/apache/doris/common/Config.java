@@ -2030,9 +2030,11 @@ public class Config extends ConfigBase {
     public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
     // Older backends reject the iceberg_transform external sink partition function.
     public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
+    // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
+    public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
