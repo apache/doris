@@ -156,6 +156,10 @@ public final class PaimonTypeMapping {
     private static ConnectorType toTimestampType(DataType dataType) {
         int scale = DEFAULT_TIMESTAMP_SCALE;
         if (dataType instanceof TimestampType) {
+            // Keep all source fractional digits instead of truncating high-precision wall-clock values.
+            if (((TimestampType) dataType).getPrecision() > MAX_TIMESTAMP_SCALE) {
+                return ConnectorType.of("TIMESTAMP_NS");
+            }
             scale = Math.min(((TimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
         } else if (dataType instanceof LocalZonedTimestampType) {
             scale = Math.min(((LocalZonedTimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
@@ -260,6 +264,8 @@ public final class PaimonTypeMapping {
             case "DATETIMEV2":
                 // Paimon interprets numeric timestamp strings in units derived from this precision.
                 return new TimestampType("DATETIMEV2".equals(name) ? type.getPrecision() : 0);
+            case "TIMESTAMP_NS":
+                return new TimestampType(9);
             case "TIMESTAMPTZ":
                 // Preserve the instant contract when deriving an external schema.
                 return new LocalZonedTimestampType(type.getPrecision());

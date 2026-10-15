@@ -199,6 +199,43 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionH
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
+TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedValue) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_partition_function("iceberg_transform");
+    info.__set_partition_function_options({{"transforms", "truncate[10]"}});
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
+    ExternalTableSinkHashPartitioner partitioner(64, ShuffleHashMethod::CRC32, info);
+    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+    ASSERT_TRUE(partitioner.open(&_state).ok());
+
+    // truncate[10] maps 11 and 19 to partition 10, and 20 and 29 to partition 20.
+    Block input = block({11, 19, 20, 29});
+    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
+    const auto& channels = partitioner.get_channel_ids();
+    ASSERT_EQ(4, channels.size());
+    EXPECT_EQ(channels[0], channels[1]);
+    EXPECT_EQ(channels[2], channels[3]);
+    EXPECT_EQ(1, input.columns());
+
+    ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
+TEST_F(ExternalTableSinkHashPartitionerTest, IcebergUnsupportedTransformFailsClosed) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_partition_function("iceberg_transform");
+    info.__set_partition_function_options({{"transforms", "unsupported"}});
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    ExternalTableSinkHashPartitioner partitioner(4, ShuffleHashMethod::CRC32, info);
+    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+
+    Status status = partitioner.open(&_state);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Unsupported Iceberg partition transform"),
+              std::string::npos);
+}
+
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsMissingMetadata) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_partition_function("paimon_fixed_bucket");

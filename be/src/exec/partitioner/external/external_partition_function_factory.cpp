@@ -17,6 +17,7 @@
 #include "exec/partitioner/external/external_partition_function_factory.h"
 
 #include <charconv>
+#include <string>
 #include <string_view>
 
 #include "common/status.h"
@@ -86,6 +87,58 @@ Status create_paimon_fixed_bucket_function(
     RETURN_IF_ERROR(create_paimon_fixed_bucket_function(
             logical_partition_count, num_buckets, std::move(partition_indexes),
             std::move(bucket_indexes), partition_exprs, partition_function));
+    return Status::OK();
+}
+
+Status parse_transforms(std::string_view value, std::vector<std::string>* const transforms) {
+    while (true) {
+        size_t separator = value.find(',');
+        std::string_view item = value.substr(0, separator);
+        if (item.empty()) {
+            return Status::InvalidArgument("Empty Iceberg partition transform in '{}'", value);
+        }
+        transforms->emplace_back(item);
+        if (separator == std::string_view::npos) {
+            return Status::OK();
+        }
+        value.remove_prefix(separator + 1);
+    }
+}
+
+// Routes each row by its Iceberg partition value: the hash covers the transformed source columns,
+// so rows of one partition reach one logical partition no matter how the raw values differ.
+Status create_iceberg_transform_function(
+        const TExternalTableSinkHashPartitionInfo& partition_info,
+        PartitionerBase::HashValType logical_partition_count, ShuffleHashMethod hash_method,
+        const std::vector<TExpr>& partition_exprs,
+        std::unique_ptr<PartitionFunction>* const partition_function) {
+    if (!partition_info.__isset.partition_function_options) {
+        return Status::InvalidArgument("Iceberg transform partition function requires options");
+    }
+    const auto& options = partition_info.partition_function_options;
+    if (options.size() != 1 || !options.contains("transforms")) {
+        return Status::InvalidArgument(
+                "Iceberg transform partition function requires exactly the transforms option");
+    }
+    std::vector<std::string> transforms;
+    RETURN_IF_ERROR(parse_transforms(options.at("transforms"), &transforms));
+    if (transforms.size() != partition_exprs.size()) {
+        return Status::InvalidArgument(
+                "Iceberg partition transform count {} does not match partition expression count {}",
+                transforms.size(), partition_exprs.size());
+    }
+    std::vector<TIcebergPartitionField> fields;
+    fields.reserve(partition_exprs.size());
+    for (size_t index = 0; index < partition_exprs.size(); ++index) {
+        TIcebergPartitionField field;
+        field.__set_transform(transforms[index]);
+        field.__set_source_expr(partition_exprs[index]);
+        fields.emplace_back(std::move(field));
+    }
+    auto function = std::make_unique<IcebergInsertPartitionFunction>(
+            logical_partition_count, hash_method, std::vector<TExpr> {}, std::move(fields));
+    RETURN_IF_ERROR(function->init({}));
+    *partition_function = std::move(function);
     return Status::OK();
 }
 
@@ -172,6 +225,10 @@ Status create_external_partition_function(
     if (partition_info.partition_function == "paimon_fixed_bucket") {
         return create_paimon_fixed_bucket_function(partition_info, logical_partition_count,
                                                    partition_exprs, partition_function);
+    }
+    if (partition_info.partition_function == "iceberg_transform") {
+        return create_iceberg_transform_function(partition_info, logical_partition_count,
+                                                 hash_method, partition_exprs, partition_function);
     }
     if (partition_info.partition_function != "direct_hash") {
         return Status::NotSupported("Unsupported external sink partition function '{}'",

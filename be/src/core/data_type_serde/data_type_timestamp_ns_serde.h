@@ -78,6 +78,15 @@ public:
             ColumnNullable& column_to, const ColumnString& column_from, CastParameters& cast_params,
             const NullMap::value_type* source_null_map = nullptr) const override;
 
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
+    Status read_column_from_decoded_values(IColumn& column,
+                                           const DecodedColumnView& view) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
+
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
