@@ -199,6 +199,50 @@ Status IcebergTableReader::validate_variant_file_mappings(
             file_format_name(format));
 }
 
+Status IcebergTableReader::annotate_file_schema(
+        std::vector<format::ColumnDefinition>* file_schema) {
+    if (file_schema == nullptr || file_schema->empty()) {
+        return Status::OK();
+    }
+    // Iceberg's positional fallback is a Parquet-reader-only compatibility path. Its ORC/Avro
+    // readers instead derive a name mapping from the expected schema for id-less files, which is
+    // exactly the current-name resurrection that v2 scan semantics deliberately rejects (#65784),
+    // so ORC keeps its existing behavior and stays out of scope here.
+    if (_format != FileFormat::PARQUET) {
+        return Status::OK();
+    }
+    // Iceberg's `hasIds` contract is existential: a single real field id keeps the file on the id
+    // path and, exactly as in Iceberg, skips both the name mapping and the positional fallback.
+    if (schema_has_any_field_id(*file_schema)) {
+        return Status::OK();
+    }
+    // An old-FE plan keeps the legacy name fallback (rolling upgrade), and an explicit table-level
+    // name mapping stays authoritative even when it does not cover this file.
+    if (!supports_iceberg_scan_semantics_v2(_scan_params) ||
+        _scan_has_any_authoritative_name_mapping()) {
+        return Status::OK();
+    }
+    // ParquetSchemaUtil.addFallbackIds: ordinals start at 1, are counted over the physical
+    // top-level fields in file order, and are not propagated to nested fields. Reader-synthesized
+    // carriers (row number / global row id) are not file fields and must not consume an ordinal.
+    int32_t ordinal = 0;
+    for (auto& field : *file_schema) {
+        if (field.column_type != format::ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        ++ordinal;
+        // ID-less Parquet fields carry their physical name as a STRING identifier
+        // (ParquetReader::_fill_column_definition), so only a real integer field id may skip
+        // stamping; overwriting the string identifier is what lets FieldIdMatcher resolve the file.
+        if (field.has_identifier_field_id()) {
+            continue;
+        }
+        field.identifier = Field::create_field<TYPE_INT>(ordinal);
+    }
+    _positional_id_fallback = true;
+    return Status::OK();
+}
+
 Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
     const bool metadata_only_count = _push_down_agg_type == TPushAggOp::type::COUNT &&
                                      _push_down_count_columns.has_value() &&
@@ -1053,6 +1097,9 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         _row_lineage_columns = {};
         _iceberg_params.reset();
         _delete_predicates_initialized = false;
+        // Per-file diagnostic: the reader instance is reused across splits, so a previous ID-less
+        // file must not leave this set for the next (possibly ID-bearing) split.
+        _positional_id_fallback = false;
         _position_delete_rows_storage.clear();
         _equality_delete_filters.clear();
         _split_cache = options.cache;
@@ -1145,6 +1192,7 @@ std::string IcebergTableReader::debug_string() const {
         << ", deletion_vector_file_count=" << deletion_vector_file_count
         << ", position_delete_rows_storage_count=" << _position_delete_rows_storage.size()
         << ", equality_delete_filter_count=" << _equality_delete_filters.size()
+        << ", positional_id_fallback=" << _positional_id_fallback
         << ", equality_delete_filters=" << equality_filters.str() << "}";
     return out.str();
 }
