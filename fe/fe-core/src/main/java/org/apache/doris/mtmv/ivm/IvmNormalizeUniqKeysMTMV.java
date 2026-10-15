@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -23,15 +23,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
-import org.apache.doris.mtmv.ivm.IvmException;
-import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmInfo;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
-import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
-import org.apache.doris.mtmv.ivm.IvmRewriteResult;
-import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggColumnKey;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;

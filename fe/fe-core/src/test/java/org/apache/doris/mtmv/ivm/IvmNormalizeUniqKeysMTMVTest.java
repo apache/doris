@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
@@ -31,12 +31,6 @@ import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.ivm.IvmException;
-import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmInfo;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
-import org.apache.doris.mtmv.ivm.IvmRewriteResult;
-import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionKind;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;

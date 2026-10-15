@@ -15,14 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.mtmv.ivm.IvmException;
-import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -55,7 +52,7 @@ import java.util.Set;
  * not support is rejected here as well, and a shape it supports only through the row-id path is
  * rejected by name below.
  */
-class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
+public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
     private final Set<TableNameInfo> excludedTriggerTables;
 
     private IvmNormalizeDupKeysMTMV(Set<TableNameInfo> excludedTriggerTables) {
@@ -67,7 +64,7 @@ class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
      *
      * @return {@code plan} itself, which is what such an MV's normalized plan is
      */
-    static Plan normalize(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
+    public static Plan normalize(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
         return plan.accept(new IvmNormalizeDupKeysMTMV(excludedTriggerTables), null);
     }
 

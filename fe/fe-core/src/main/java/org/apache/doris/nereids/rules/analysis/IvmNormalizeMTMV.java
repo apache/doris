@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.mtmv.ivm.IvmNormalizeDupKeysMTMV;
+import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
@@ -59,8 +61,8 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      * Debug point that lets a query judged to be a detail MV be built as one.
      *
      * <p>Creating a detail MV needs more of the create path than exists yet, so until that lands the
-     * judgment is recorded and logged and the query is normalized the unique-key way. Dropping this
-     * check is what makes detail MVs live.
+     * judgment is not taken at all: the statement records, and is built with, the unique-key model it
+     * was built with before this model existed. Dropping this check is what makes detail MVs live.
      */
     private static final String DEBUG_POINT_DETAIL_MODEL = "IvmNormalizeMTMV.detail_model";
 
@@ -80,8 +82,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         // the query while the MV is being created, and from the MV's own key model again afterwards.
         KeysType keysType = resolveKeysType(plan, rewriteContext);
         rewriteResult.setKeysType(keysType);
-        boolean detailModel = keysType == KeysType.DUP_KEYS
-                && DebugPointUtil.isEnable(DEBUG_POINT_DETAIL_MODEL);
+        boolean detailModel = keysType == KeysType.DUP_KEYS;
         Plan result;
         if (detailModel) {
             // A detail MV holds the query's own rows, so its normalized plan is the query itself:
@@ -141,6 +142,12 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      * than every shape that is not.
      */
     private KeysType judgeKeysType(Plan plan) {
+        if (!DebugPointUtil.isEnable(DEBUG_POINT_DETAIL_MODEL)) {
+            // The gate of the whole model: while it is off, a query that would be a detail MV keeps the
+            // unique-key model it had before, and so does the statement that records it. Nothing
+            // downstream can then see a model the normalize did not build with.
+            return KeysType.UNIQUE_KEYS;
+        }
         boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate
                 || node instanceof LogicalRepeat
                 || (node instanceof LogicalJoin
