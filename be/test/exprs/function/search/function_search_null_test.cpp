@@ -156,6 +156,8 @@ struct EvaluateOptions {
     size_t top_k = 0;
     bool cache = false;
     std::string default_operator;
+    // How many of a TERM's analyzed terms a row must hold; 0 leaves it unset.
+    int32_t minimum_should_match = 0;
 };
 
 // Options that score when `scoring` is set and keep the best `top_k` rows when it is non-zero.
@@ -200,6 +202,10 @@ public:
         if (!options.default_operator.empty()) {
             param.default_operator = options.default_operator;
             param.__isset.default_operator = true;
+        }
+        if (options.minimum_should_match > 0) {
+            param.minimum_should_match = options.minimum_should_match;
+            param.__isset.minimum_should_match = true;
         }
         return param;
     }
@@ -353,6 +359,26 @@ TEST(FunctionSearchNullTest, EmptyScoredConjunctionKeepsTheFieldNullRows) {
         options.default_operator = "and";
         fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({0, 1}),
                        rows({2}));
+    }
+}
+
+// A TERM that must hold some of its analyzed terms counts them two-valued; the rows where its
+// field is NULL still stay UNKNOWN.
+TEST(FunctionSearchNullTest, TermThresholdKeepsTheFieldNullRows) {
+    for (const bool scoring : {false, true}) {
+        SCOPED_TRACE(::testing::Message() << "scoring=" << scoring);
+        NullSearchFixture fixture(4);
+        auto& body = fixture.add_field("body");
+        body.source->add("foo", {0});
+        body.source->add("bar", {1});
+        body.source->add("baz", {2});
+        body.nulls = rows({3});
+        EvaluateOptions options = scored_if(scoring);
+        options.minimum_should_match = 1;
+
+        fixture.expect(leaf("TERM", "body", "foo/bar"), options, rows({0, 1}), rows({3}));
+        fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({2}),
+                       rows({3}));
     }
 }
 

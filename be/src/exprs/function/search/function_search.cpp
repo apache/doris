@@ -244,12 +244,13 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key);
 
-// An array column can keep values in a row whose array is NULL, and its index lists the row
-// under them; the leaf leaves such a row UNKNOWN, not TRUE.
-Status mask_array_nulls(const FieldReaderBinding& binding, const FieldReaderResolver& resolver,
-                        const std::string& field, query_v2::QueryPtr* query) {
-    if (binding.column_type == nullptr ||
-        remove_nullable(binding.column_type)->get_primitive_type() != TYPE_ARRAY) {
+// Marks the rows where the field is NULL as UNKNOWN for leaves that would misreport them: an array
+// index can list a NULL array's leftover values, and a term threshold counts its terms two-valued.
+Status mask_null_rows(const FieldReaderBinding& binding, const FieldReaderResolver& resolver,
+                      const std::string& field, bool threshold, query_v2::QueryPtr* query) {
+    const bool array = binding.column_type != nullptr &&
+                       remove_nullable(binding.column_type)->get_primitive_type() == TYPE_ARRAY;
+    if (!array && !threshold) {
         return Status::OK();
     }
     IndexIterator* iterator = resolver.get_iterator(field);
@@ -376,12 +377,13 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                                      field->name, field->binding);
     }
     const auto* set = node.as<logical::TermSet>();
-    if (set != nullptr && set->min_should_match > 0) {
+    const bool threshold = set != nullptr && set->min_should_match > 0;
+    if (threshold) {
         RETURN_IF_ERROR(compile_term_threshold(*set, ctx, *binding->leaf_compiler, out));
     } else {
         RETURN_IF_ERROR(binding->leaf_compiler->compile(node, ctx, out));
     }
-    RETURN_IF_ERROR(mask_array_nulls(*binding, resolver, field->name, out));
+    RETURN_IF_ERROR(mask_null_rows(*binding, resolver, field->name, threshold, out));
     return resolver.map_leaf_query(field->name, out);
 }
 
