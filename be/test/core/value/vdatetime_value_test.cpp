@@ -32,12 +32,15 @@ namespace doris {
 
 TEST(VDateTimeValueTest, LegacyDefaultsHaveValidTimeTypes) {
     EXPECT_EQ(VecDateTimeValue::FIRST_DAY.type(), TIME_DATETIME);
-    EXPECT_EQ(VecDateTimeValue::DEFAULT_VALUE.type(), TIME_DATETIME);
+    EXPECT_EQ(VecDateTimeValue::DATE_DEFAULT_VALUE.type(), TIME_DATE);
+    EXPECT_EQ(VecDateTimeValue::DATETIME_DEFAULT_VALUE.type(), TIME_DATETIME);
 
     char buffer[64];
     VecDateTimeValue::FIRST_DAY.to_string(buffer);
     EXPECT_STREQ(buffer, "0001-01-01 00:00:00");
-    VecDateTimeValue::DEFAULT_VALUE.to_string(buffer);
+    VecDateTimeValue::DATE_DEFAULT_VALUE.to_string(buffer);
+    EXPECT_STREQ(buffer, "1970-01-01");
+    VecDateTimeValue::DATETIME_DEFAULT_VALUE.to_string(buffer);
     EXPECT_STREQ(buffer, "1970-01-01 00:00:00");
 }
 

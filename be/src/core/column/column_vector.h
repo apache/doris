@@ -414,14 +414,12 @@ public:
     // raise errors for null cell.
     static value_type default_value() {
         if constexpr (T == PrimitiveType::TYPE_DATE) {
-            auto value = PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
-            value.cast_to_date();
-            return value;
+            return PrimitiveTypeTraits<T>::CppType::DATE_DEFAULT_VALUE;
         } else if constexpr (T == PrimitiveType::TYPE_DATETIME) {
-            auto value = PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
-            value.to_datetime();
-            return value;
-        } else if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
+            return PrimitiveTypeTraits<T>::CppType::DATETIME_DEFAULT_VALUE;
+        } else if constexpr (T == PrimitiveType::TYPE_DATEV2 ||
+                             T == PrimitiveType::TYPE_DATETIMEV2 ||
+                             T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();

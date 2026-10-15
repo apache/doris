@@ -292,7 +292,8 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
-    const static VecDateTimeValue DEFAULT_VALUE;
+    const static VecDateTimeValue DATE_DEFAULT_VALUE;
+    const static VecDateTimeValue DATETIME_DEFAULT_VALUE;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -827,8 +828,10 @@ static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
 static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial copyable");
 inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TIME_DATETIME, 0, 0, 0, 1, 1, 1);
-inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TIME_DATETIME, 0, 0, 0, 1970,
-                                                              1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATE_DEFAULT_VALUE(false, TIME_DATE, 0, 0, 0, 1970,
+                                                                   1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATETIME_DEFAULT_VALUE(false, TIME_DATETIME, 0, 0,
+                                                                       0, 1970, 1, 1);
 
 template <typename T>
 class DateV2Value {

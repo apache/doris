@@ -2949,11 +2949,13 @@ auto assert_column_vector_insert_default_callback = [](auto x,
                       T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE.to_date_int_val()));
         } else if constexpr (PType == PrimitiveType::TYPE_DATE ||
                              PType == PrimitiveType::TYPE_DATETIME) {
-            auto expected = PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE;
             if constexpr (PType == PrimitiveType::TYPE_DATE) {
-                expected.cast_to_date();
+                EXPECT_EQ(col_vec_target->get_element(i),
+                          T(PrimitiveTypeTraits<PType>::CppType::DATE_DEFAULT_VALUE));
+            } else {
+                EXPECT_EQ(col_vec_target->get_element(i),
+                          T(PrimitiveTypeTraits<PType>::CppType::DATETIME_DEFAULT_VALUE));
             }
-            EXPECT_EQ(col_vec_target->get_element(i), T(expected));
         } else if constexpr (PType == PrimitiveType::TYPE_DECIMALV2) {
             EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value());
         } else {
@@ -3005,11 +3007,14 @@ auto assert_column_vector_insert_many_defaults_callback =
                                                 .to_date_int_val()));
                         } else if constexpr (PType == PrimitiveType::TYPE_DATE ||
                                              PType == PrimitiveType::TYPE_DATETIME) {
-                            auto expected = PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE;
                             if constexpr (PType == PrimitiveType::TYPE_DATE) {
-                                expected.cast_to_date();
+                                EXPECT_EQ(col_vec_target->get_element(i),
+                                          T(PrimitiveTypeTraits<PType>::CppType::DATE_DEFAULT_VALUE));
+                            } else {
+                                EXPECT_EQ(
+                                        col_vec_target->get_element(i),
+                                        T(PrimitiveTypeTraits<PType>::CppType::DATETIME_DEFAULT_VALUE));
                             }
-                            EXPECT_EQ(col_vec_target->get_element(i), T(expected));
                         } else if constexpr (PType == PrimitiveType::TYPE_DECIMALV2) {
                             EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value());
                         } else {
