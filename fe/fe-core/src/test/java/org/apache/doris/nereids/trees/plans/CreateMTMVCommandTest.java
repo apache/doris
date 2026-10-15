@@ -26,10 +26,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -39,6 +39,7 @@ import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -54,7 +55,9 @@ import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -67,6 +70,23 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CreateMTMVCommandTest extends TestWithFeService {
+    /**
+     * Most tests here describe the unique-key model's layout: the row-id column, the distribution hashed
+     * on it, the physical key order, and the validation that guards them. A query an append-only detail MV
+     * could hold is not what they are about, so the model is forced for them; the tests that are about the
+     * detail model clear it again.
+     */
+    @BeforeEach
+    public void forceUniqueKeyModel() {
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
+    }
+
+    @AfterEach
+    public void clearForcedModel() {
+        DebugPointUtil.clearDebugPoints();
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -445,6 +465,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateIncrementalMTMVPersistsIvmFlag() throws Exception {
+        // About the detail model, so the forced unique-key model is not what this asserts.
+        DebugPointUtil.clearDebugPoints();
         createTable("create table test.mtmv_increment_flag_base (k1 int)\n"
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -457,7 +479,50 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("mtmv_increment_flag");
         Assertions.assertTrue(mtmv.isIvm());
         Assertions.assertTrue(mtmv.getIvmInfo().isEnableIvm());
-        Assertions.assertEquals(Type.BIGINT, mtmv.getColumn(Column.SEQUENCE_COL).getType());
+        // The base table is an append-only detail table and the query adds nothing to it, so the MV is a
+        // detail table as well: it holds the query's own rows, and has no sequence column to order them.
+        Assertions.assertTrue(mtmv.isIvmAppendOnlyDupTable());
+        Assertions.assertNull(mtmv.getColumn(Column.SEQUENCE_COL));
+    }
+
+    @Test
+    public void testCreateAppendOnlyDetailIvmMv() throws Exception {
+        // Every base table is an append-only detail table and the query holds no aggregate and no outer
+        // join, so the MV is a plain DUP table: no IVM hidden column, no merge-on-write, and no plan
+        // signature -- the layout a unique-key MV's refresh reads back is not there to pin down. That is
+        // the judgment this asserts, so the forced unique-key model does not apply.
+        DebugPointUtil.clearDebugPoints();
+        createIvmDupTable("dup_detail_ivm_base");
+        createMtmv("CREATE MATERIALIZED VIEW dup_detail_ivm_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM dup_detail_ivm_base WHERE v1 > 0;");
+
+        MTMV mtmv = getMtmv("dup_detail_ivm_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertTrue(mtmv.isIvmAppendOnlyDupTable());
+        Assertions.assertFalse(mtmv.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(Arrays.asList("k1", "v1"), mtmv.getInsertedColumnNames());
+        Assertions.assertNull(mtmv.getColumn(Column.SEQUENCE_COL));
+        Assertions.assertNull(mtmv.getColumn(Column.IVM_ROW_ID_COL));
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+    }
+
+    @Test
+    public void testCreateIvmMvWithAggregateStaysUniqueKey() throws Exception {
+        // An aggregate can change the row of a group, which only the unique-key model's row-id can carry,
+        // so the same append-only base table does not make this MV a detail one.
+        createIvmDupTable("agg_ivm_base");
+        createMtmv("CREATE MATERIALIZED VIEW agg_ivm_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, count(*) AS cnt FROM agg_ivm_base GROUP BY k1;");
+
+        MTMV mtmv = getMtmv("agg_ivm_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertFalse(mtmv.isIvmAppendOnlyDupTable());
+        Assertions.assertNotNull(mtmv.getColumn(Column.SEQUENCE_COL));
+        Assertions.assertNotNull(mtmv.getIvmInfo().getPlanSignature());
     }
 
     @Test

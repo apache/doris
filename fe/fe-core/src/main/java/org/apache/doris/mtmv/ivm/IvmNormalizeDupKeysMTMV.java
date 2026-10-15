@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -80,7 +81,11 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, Void context) {
         OlapTable table = scan.getTable();
         if (table.getKeysType() != KeysType.DUP_KEYS) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+            // An AnalysisException rather than an IvmException: a refresh turns every IvmException into a
+            // fallback, which would express "the premise of this MV is broken" as "try a complete refresh",
+            // even though that refresh runs this same normalize and fails the same way. The premise being
+            // broken is not a retry.
+            throw new AnalysisException(
                     "IVM detail MV error: table " + table.getName() + " is " + table.getKeysType()
                             + ", but a detail MV can only be built over duplicate-key detail tables");
         }

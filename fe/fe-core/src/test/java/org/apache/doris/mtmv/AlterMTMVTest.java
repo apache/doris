@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -39,7 +40,9 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -54,6 +57,21 @@ import java.util.Set;
 
 
 public class AlterMTMVTest extends TestWithFeService {
+    /**
+     * These tests describe the unique-key model's layout and the IVM metadata only it carries. A query an
+     * append-only detail MV could hold is not what they are about, so the model is forced here; the detail
+     * model has tests of its own.
+     */
+    @BeforeEach
+    public void forceUniqueKeyModel() {
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
+    }
+
+    @AfterEach
+    public void clearForcedModel() {
+        DebugPointUtil.clearDebugPoints();
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {

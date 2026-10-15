@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -53,7 +55,9 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -62,6 +66,22 @@ import java.util.Map;
 import java.util.Optional;
 
 public class MTMVPlanUtilTest extends SqlTestBase {
+    /**
+     * These tests describe the unique-key model's layout: the row-id column, the distribution hashed on it,
+     * the physical key order, and the validation that guards them. A query an append-only detail MV could
+     * hold is not what they are about, so the model is forced here; the detail model has tests of its own.
+     */
+    @BeforeEach
+    public void forceUniqueKeyModel() {
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
+    }
+
+    @AfterEach
+    public void clearForcedModel() {
+        DebugPointUtil.clearDebugPoints();
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();

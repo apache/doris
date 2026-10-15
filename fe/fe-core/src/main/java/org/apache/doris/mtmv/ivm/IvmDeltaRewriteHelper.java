@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -209,22 +208,6 @@ public class IvmDeltaRewriteHelper {
             current = projects.get(i).withChildren(ImmutableList.of(current));
         }
         return current;
-    }
-
-    /**
-     * Finalize an append-only detail MV's delta plan into the shape its sink writes: the MV's own columns,
-     * in order, and nothing else. A detail MV's table carries no hidden column -- no row-id, no sequence, no
-     * delete sign -- so its delta is what the sink writes as it stands, with no adapter project to fix up
-     * and no sequence to encode.
-     */
-    Plan finalizeAppendOnlyDupQuery(Plan deltaPlan, MTMV mtmv) {
-        List<String> insertedColumns = mtmv.getInsertedColumnNames();
-        ImmutableList.Builder<NamedExpression> outputs =
-                ImmutableList.builderWithExpectedSize(insertedColumns.size());
-        for (String colName : insertedColumns) {
-            outputs.add(findSlotByName(deltaPlan.getOutput(), colName));
-        }
-        return new LogicalProject<>(outputs.build(), deltaPlan);
     }
 
     public List<NamedExpression> rebindSinkOutputs(List<NamedExpression> outputs, List<Slot> childOutputs,

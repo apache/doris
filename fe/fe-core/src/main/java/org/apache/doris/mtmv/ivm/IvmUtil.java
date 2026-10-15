@@ -113,6 +113,19 @@ public class IvmUtil {
                 && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
     }
 
+    /**
+     * The default a hidden slot takes when the plan writing an append-only detail MV does not produce it.
+     * That model keeps no row identity in the row lsn column: the column is the MV's own binlog
+     * bookkeeping, which the storage layer fills in as it writes the row, so a refresh appending a value
+     * for it is not what makes the MV correct. The unique-key model is the opposite, which is why its
+     * default is refused outright.
+     */
+    public static Expression getAppendOnlyDupHiddenSlotDefault(String columnName, DataType targetType) {
+        return Column.ROW_LSN_COL.equals(columnName)
+                ? new IntegerLiteral(0).castTo(targetType)
+                : getCommonHiddenSlotDefault(columnName, targetType);
+    }
+
     public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
         if (!isCommonHiddenSlot(columnName)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,

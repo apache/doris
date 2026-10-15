@@ -69,15 +69,19 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
     }
 
     /**
-     * Builds the delta plan of {@code queryPlan}, already projected into the shape the sink writes, or
-     * empty when no base table has anything to append.
+     * Builds the delta plan of {@code queryPlan}, or empty when no base table has anything to append.
+     *
+     * <p>What comes back is already the shape the sink writes: the plan is the query, so its output is the
+     * query's output, which is the MV's own columns -- and the adapt projects a bound sink leaves around
+     * the query keep the hidden columns such an MV has (its binlog's, when it carries one) in the shape
+     * the sink expects. Nothing has to be projected on top of it, which is the same reason nothing has to
+     * be detached from it first: the unique-key model needs both because its layout puts hidden columns
+     * there that a delta has to add or take away.
      */
     static Optional<Plan> generateIncrRefreshPlan(Plan queryPlan, IvmIncrRefreshContext ctx,
             Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
         IvmDeltaRewriteState rewriteState = IvmDeltaRewriteState.forAppendOnlyDup(queryPlan, ctx, scopePartitionIds);
-        Optional<Plan> deltaPlan = queryPlan.accept(new IvmDupDeltaRewriter(rewriteState), null);
-        return deltaPlan.map(plan -> IvmDeltaRewriteHelper.INSTANCE.finalizeAppendOnlyDupQuery(
-                plan, ctx.getMtmv()));
+        return queryPlan.accept(new IvmDupDeltaRewriter(rewriteState), null);
     }
 
     @Override

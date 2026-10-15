@@ -55,16 +55,15 @@ import java.util.List;
  * normalized here.
  */
 public class IvmNormalizeMTMV implements CustomRewriter {
-    private static final Logger LOG = LogManager.getLogger(IvmNormalizeMTMV.class);
-
     /**
-     * Debug point that lets a query judged to be a detail MV be built as one.
-     *
-     * <p>Creating a detail MV needs more of the create path than exists yet, so until that lands the
-     * judgment is not taken at all: the statement records, and is built with, the unique-key model it
-     * was built with before this model existed. Dropping this check is what makes detail MVs live.
+     * Debug point that settles a statement on the unique-key model whatever its query would be judged.
+     * Unit tests that describe that model's layout -- the row-id column, its distribution, the physical
+     * key order -- turn it on, so a query an append-only detail MV could hold is still laid out the way
+     * those tests describe. The detail model has tests of its own.
      */
-    private static final String DEBUG_POINT_DETAIL_MODEL = "IvmNormalizeMTMV.detail_model";
+    public static final String DEBUG_POINT_FORCE_UNIQUE_KEYS = "IvmNormalizeMTMV.force_unique_keys";
+
+    private static final Logger LOG = LogManager.getLogger(IvmNormalizeMTMV.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -142,10 +141,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      * than every shape that is not.
      */
     private KeysType judgeKeysType(Plan plan) {
-        if (!DebugPointUtil.isEnable(DEBUG_POINT_DETAIL_MODEL)) {
-            // The gate of the whole model: while it is off, a query that would be a detail MV keeps the
-            // unique-key model it had before, and so does the statement that records it. Nothing
-            // downstream can then see a model the normalize did not build with.
+        if (DebugPointUtil.isEnable(DEBUG_POINT_FORCE_UNIQUE_KEYS)) {
             return KeysType.UNIQUE_KEYS;
         }
         boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate

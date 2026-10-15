@@ -18,10 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -41,6 +45,23 @@ import java.util.stream.Collectors;
  *   - REFRESH INCREMENTAL must appear correctly
  */
 public class ShowCreateMTMVTest extends SqlTestBase {
+
+    /**
+     * What these tests print is the unique-key model's layout: the row-id column and the distribution
+     * hashed on it. A query an append-only detail MV could hold is not what they are about, so the model
+     * is forced here; the detail model has tests of its own.
+     */
+    @BeforeEach
+    public void forceUniqueKeyModel() {
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
+    }
+
+    @AfterEach
+    public void clearForcedModel() {
+        DebugPointUtil.clearDebugPoints();
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
