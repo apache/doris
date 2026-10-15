@@ -1,5 +1,36 @@
 # AGENTS.md — IVM (Incremental View Maintenance)
 
+## Two Table Models
+
+An IVM MV is built as one of two models, settled once while it is created and read back from the MV's own
+key model on every later statement: `IvmRewriteResult#keysType` while the statement is being built,
+`MTMV#isIvmAppendOnlyDupTable()` once the MV exists.
+
+- **Unique key + merge-on-write** (the default): the MV is maintained through a hidden row-id, its rows are
+  updated and retracted through a delete sign and a sequence column, and the layout its refresh reads is
+  pinned down by a plan signature. `IvmNormalizeUniqKeysMTMV` lays it out; `IvmDeltaRewriter` and the delta
+  handlers maintain it.
+- **Append-only detail** (a plain DUP table): every base table is an append-only detail table -- a DUP table
+  whose row binlog is on, so its rows are only ever appended -- and the query holds no aggregate and no outer
+  join. Such an MV holds the query's own rows: no IVM hidden column, no merge-on-write property, no sequence
+  column, no plan signature, and a refresh that only appends. `IvmNormalizeDupKeysMTMV` checks the query, and
+  `IvmDupDeltaRewriter` builds its delta, which is the query rewritten to read each base table's stream.
+
+What follows from the detail model, including where a user can see the difference:
+
+- Its refresh cannot retract a row by construction: the delta plan has no place to carry a sign. The premise
+  is therefore checked on the normalize path (`IvmNormalizeDupKeysMTMV#visitLogicalOlapScan`), which CREATE
+  and every refresh mode reach. A base table that stops being an append-only detail table -- replacing it
+  with a merge-on-write one, say -- fails the refresh as an `AnalysisException` rather than being turned into
+  a fallback: the complete refresh a fallback would run normalizes the same way and fails the same way, so a
+  retry would only misdescribe a broken premise.
+- `REFRESH ... INCREMENTAL WITH DRY RUN` returns the MV's own columns only. There is no sequence column and no
+  delete sign for the unique-key model's shape to add.
+- A chained MV over a detail MV needs that upstream MV to carry row binlog (`binlog.enable=true` on the MV
+  itself), which keeps the chain append-only at both levels. The MV then carries its own binlog's hidden
+  columns, which the storage layer fills in as it writes each row.
+- `SHOW CREATE` prints DUPLICATE KEY, and what it prints rebuilds an MV of the same model.
+
 ## Recommended Test Suite
 
 It is strongly recommended to run the following tests before committing IVM changes.
@@ -19,7 +50,6 @@ This runs every suite in the `ivm` subdirectory. New IVM suites are added over t
 Run all IVM-related FE unit tests. The relevant test files are located in:
 
 - `fe/fe-core/src/test/java/org/apache/doris/mtmv/ivm/` — IVM core tests
-- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/analysis/IvmNormalizeMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/DropMaterializedViewTest.java`
@@ -29,6 +59,13 @@ When running IVM FE unit tests, always include
 it covers MTMV creation paths that can be affected by IVM normalize/metadata changes.
 
 New test classes are added over time — always check the directories above for the current set.
+
+Fixture builders in `IvmDeltaTestBase` reuse base table names across tests, and an IVM stream is named
+after the MV and its base table (`IvmUtil.streamName(mvId, qualifiers)`). Two tests that register a
+stream for the same table name under the same MV id therefore share one db entry, and the second one
+can pick up the first one's stream, whose base table is gone: `getIvmStream` then fails with
+"IVM stream is unavailable or references a different base table". Give each test an MV id of its own
+(`mtmv.setId(...)`), as `IvmDeltaRewriterTest` and `IvmDupDeltaRewriterTest` do.
 
 ## Important: Binlog/Stream Status
 
@@ -63,13 +100,16 @@ materialize a complex subtree separately if the generated refresh plan is too ex
 
 This does not remove the separate row-id correctness requirement for outer joins: the retained
 side row-id must remain deterministic because null-row repair branches use it across the pre/post
-snapshot boundary. Consequently a DUP_KEYS scan (whose `uuid_numeric()` row-id is
-nondeterministic) is still rejected on the retained side; DUP_KEYS on the null-producing side is
-allowed. FULL OUTER JOIN requires deterministic row-ids on both sides.
+snapshot boundary. A DUP_KEYS scan takes its row-id from `__DORIS_ROW_LSN_COL__`
+(`IvmNormalizeUniqKeysMTMV#computeScanRowIdAndKeys`), which is deterministic, so it is allowed on either
+side. Only the legacy fallback for a DUP_KEYS table without row binlog -- the non-deterministic
+`uuid_numeric()` row-id, which `validateBinlogEnabled` rejects unless the table is an excluded
+trigger table -- is still rejected on the retained side. FULL OUTER JOIN requires deterministic
+row-ids on both sides.
 
 ## Recursive Delta Rewrite
 
-- `IvmNormalizeMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
+- `IvmNormalizeUniqKeysMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
   from ordinary `LogicalOlapScan` nodes.
 - `IvmDeltaRewriteVisitor` returns `Optional<IvmDeltaRewriteResult>`. An empty result means the
   subtree has no pending delta.
@@ -183,7 +223,7 @@ It is derived in `IvmLinearDeltaHandler.buildDmlFactorExpr()`:
 
 The `__DORIS_IVM_ROW_ID_COL__` column uniquely identifies each row/group in the MV. It is used as the join key when merging deltas into the MV's current state.
 
-- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMTMV`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
+- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeUniqKeysMTMV`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
 - **Aggregate MV (grouped)**: row_id is a **null-safe** hash: `CAST(murmur_hash3_64(ifnull(cast(k1 AS VARCHAR),''), cast(isnull(k1) AS VARCHAR), ...) AS LARGEINT)`. Each group key produces two hash arguments — the coalesced value and an isnull flag — so that NULL keys never propagate NULL into the hash and groups differing only in NULL positions (e.g. `(NULL,'x')` vs `('x',NULL)`) produce distinct row_ids. VARCHAR keys skip the inner `CAST`.
 - **Aggregate MV (scalar, no GROUP BY)**: row_id is the literal `0` (only one output row).
 
