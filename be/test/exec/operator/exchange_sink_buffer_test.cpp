@@ -92,7 +92,7 @@ TEST(ExchangeSinkBufferTest, BorrowBlockCopiesMetadataAndBorrowsPayload) {
     PTransmitDataParams request;
     // Return the borrows on every exit, so a failing assertion cannot turn into a double free.
     Defer give_back([&]() { release_borrowed_blocks(&request); });
-    borrow_block(&owner, request.mutable_block(), BlockSource::SHARED);
+    borrow_block(&owner, request.mutable_block());
 
     EXPECT_TRUE(equal_except_column_values(owner, request.block()));
     EXPECT_EQ(&request.block().column_values(), owner_payload);
@@ -105,21 +105,19 @@ TEST(ExchangeSinkBufferTest, BorrowBlockCopiesMetadataAndBorrowsPayload) {
     EXPECT_TRUE(equal_except_column_values(make_block(column_values), owner));
 }
 
-// An owned (unicast) block hands its column_metas over without copying; the payload is still only
-// borrowed, so release returns it to the owner exactly like the shared case.
-TEST(ExchangeSinkBufferTest, BorrowOwnedBlockMovesMetadataAndBorrowsPayload) {
+// column_metas is copied regardless of whether the block is unicast-owned or broadcast-shared,
+// so the owner keeps its own metas untouched; only column_values is borrowed.
+TEST(ExchangeSinkBufferTest, BorrowBlockCopiesMetadataWithoutMutatingOwner) {
     const std::string column_values = "owned-column-values";
     auto owner = make_block(column_values);
     const std::string* owner_payload = &owner.column_values();
-    const PColumnMeta* first_meta = &owner.column_metas(0);
 
     PTransmitDataParams request;
     Defer give_back([&]() { release_borrowed_blocks(&request); });
-    borrow_block(&owner, request.add_blocks(), BlockSource::OWNED);
+    borrow_block(&owner, request.add_blocks());
 
     EXPECT_TRUE(equal_except_column_values(make_block(column_values), request.blocks(0)));
-    EXPECT_EQ(&request.blocks(0).column_metas(0), first_meta);
-    EXPECT_EQ(owner.column_metas_size(), 0);
+    EXPECT_EQ(owner.column_metas_size(), 2);
     EXPECT_EQ(&request.blocks(0).column_values(), owner_payload);
 
     release_borrowed_blocks(&request);
@@ -127,13 +125,12 @@ TEST(ExchangeSinkBufferTest, BorrowOwnedBlockMovesMetadataAndBorrowsPayload) {
     EXPECT_EQ(&owner.column_values(), owner_payload);
     EXPECT_EQ(owner.column_values(), column_values);
 
-    // The request is reused: a second owned block takes over the pooled, cleared metas.
+    // The request is reused: a second block's metas simply overwrite the pooled ones.
     auto next_owner = make_block("next");
-    borrow_block(&next_owner, request.add_blocks(), BlockSource::OWNED);
+    borrow_block(&next_owner, request.add_blocks());
     EXPECT_EQ(request.blocks(0).column_metas_size(), 2);
     EXPECT_EQ(request.blocks(0).column_metas(1).children_size(), 1);
-    EXPECT_EQ(next_owner.column_metas_size(), 0);
-    // next_owner is destroyed before the Defer runs; return its borrow first.
+    EXPECT_EQ(next_owner.column_metas_size(), 2);
     release_borrowed_blocks(&request);
 }
 
@@ -143,8 +140,8 @@ TEST(ExchangeSinkBufferTest, ReleaseBorrowedBlocksReturnsEveryPayload) {
 
     PTransmitDataParams request;
     Defer give_back([&]() { release_borrowed_blocks(&request); });
-    borrow_block(&first, request.add_blocks(), BlockSource::SHARED);
-    borrow_block(&second, request.add_blocks(), BlockSource::SHARED);
+    borrow_block(&first, request.add_blocks());
+    borrow_block(&second, request.add_blocks());
     ASSERT_EQ(request.blocks_size(), 2);
     EXPECT_EQ(&request.blocks(0).column_values(), &first.column_values());
     EXPECT_EQ(&request.blocks(1).column_values(), &second.column_values());
@@ -155,7 +152,7 @@ TEST(ExchangeSinkBufferTest, ReleaseBorrowedBlocksReturnsEveryPayload) {
     EXPECT_EQ(second.column_values(), "second");
 
     // The request is reused for the next rpc; borrowing again must start from a clean slate.
-    borrow_block(&first, request.add_blocks(), BlockSource::SHARED);
+    borrow_block(&first, request.add_blocks());
     ASSERT_EQ(request.blocks_size(), 1);
     EXPECT_EQ(request.blocks(0).column_metas_size(), 2);
     release_borrowed_blocks(&request);
@@ -184,8 +181,8 @@ TEST(ExchangeSinkBufferTest, HttpSendDoesNotMutateSharedBlock) {
         request->set_eos(false);
         request->set_packet_seq(6);
     }
-    borrow_block(&shared, http_request.mutable_block(), BlockSource::SHARED);
-    borrow_block(&shared, other_request.mutable_block(), BlockSource::SHARED);
+    borrow_block(&shared, http_request.mutable_block());
+    borrow_block(&shared, other_request.mutable_block());
 
     auto closure = std::make_unique<ExchangeSinkBufferTestClosure>();
     auto status = request_embed_attachment_borrowed_blocksv2(&http_request, closure);

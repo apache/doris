@@ -51,14 +51,10 @@
 
 namespace doris {
 
-void borrow_block(PBlock* src, PBlock* dst, BlockSource source) {
-    if (source == BlockSource::OWNED) {
-        // O(1) pointer swap; the owner is destroyed right after the send and takes the request's
-        // cleared metas with it.
-        dst->mutable_column_metas()->Swap(src->mutable_column_metas());
-    } else {
-        dst->mutable_column_metas()->CopyFrom(src->column_metas());
-    }
+void borrow_block(PBlock* src, PBlock* dst) {
+    // column_metas is small (a handful of PColumnMeta per block), so it is always copied; src
+    // keeps ownership of it regardless of whether the block is unicast-owned or broadcast-shared.
+    dst->mutable_column_metas()->CopyFrom(src->column_metas());
     // set_allocated_column_values() stores the owner's std::string pointer as is; the thirdparty
     // protobuf is built without NDEBUG checks, otherwise ArenaStringPtr::SetAllocated would move the
     // string into a fresh copy and delete the owner's one.
@@ -78,12 +74,12 @@ namespace {
 // Borrow every block of the batch into `dst`: one `blocks` element per block in multi-block mode,
 // the singular `block` otherwise (a single-block batch holds exactly one request).
 template <typename Requests, typename GetBlock>
-void borrow_blocks(Requests& requests, GetBlock get_block, BlockSource source, bool multi_blocks,
+void borrow_blocks(Requests& requests, GetBlock get_block, bool multi_blocks,
                    PTransmitDataParams* dst) {
     DCHECK(multi_blocks || requests.size() == 1);
     for (auto& req : requests) {
         if (PBlock* block = get_block(req); block && !block->column_metas().empty()) {
-            borrow_block(block, multi_blocks ? dst->add_blocks() : dst->mutable_block(), source);
+            borrow_block(block, multi_blocks ? dst->add_blocks() : dst->mutable_block());
         }
     }
 }
@@ -110,8 +106,8 @@ Status BroadcastPBlockHolder::prepare_serialized_block(bool send_multi_blocks,
     PTransmitDataParams fragment;
     // Match the metadata and proto2 field presence of the request _send_rpc() builds.
     Defer release_blocks([&]() { release_borrowed_blocks(&fragment); });
-    borrow_block(_pblock.get(), send_multi_blocks ? fragment.add_blocks() : fragment.mutable_block(),
-                 BlockSource::SHARED);
+    borrow_block(_pblock.get(),
+                 send_multi_blocks ? fragment.add_blocks() : fragment.mutable_block());
     // Protobuf cannot encode >= 2 GiB messages. Leave these on the existing path,
     // where the complete request is checked for HTTP attachment transport.
     if (fragment.ByteSizeLong() >= MIN_HTTP_BRPC_SIZE) {
@@ -386,8 +382,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         // returns the borrows already taken before the owners in `requests` are destroyed.
         Defer release_blocks([&]() { release_borrowed_blocks(brpc_request.get()); });
         borrow_blocks(
-                requests, [](TransmitInfo& req) { return req.block.get(); }, BlockSource::OWNED,
-                _send_multi_blocks, brpc_request.get());
+                requests, [](TransmitInfo& req) { return req.block.get(); }, _send_multi_blocks,
+                brpc_request.get());
 
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
@@ -501,7 +497,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         Defer release_blocks([&]() { release_borrowed_blocks(brpc_request.get()); });
         borrow_blocks(
                 requests, [](BroadcastTransmitInfo& req) { return req.block_holder->get_block(); },
-                BlockSource::SHARED, _send_multi_blocks, brpc_request.get());
+                _send_multi_blocks, brpc_request.get());
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
         brpc_request->set_eos(requests.back().eos);

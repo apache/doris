@@ -122,11 +122,6 @@ struct TransmitInfo {
     bool eos;
 };
 
-// Where a block handed to borrow_block() comes from. An OWNED block (TransmitInfo, unicast) is
-// discarded once its request is sent, so its column_metas are moved into the request; a SHARED
-// block (BroadcastPBlockHolder, broadcast) is sent by every channel, so they are copied.
-enum class BlockSource { OWNED, SHARED };
-
 // Fill `dst` with everything of `src` but column_values, which `dst` only borrows: the payload
 // is neither copied nor moved and `src` stays its owner. Every block an ExchangeSinkBuffer
 // request carries goes through here, whether owned by a TransmitInfo (unicast) or shared by all
@@ -134,7 +129,7 @@ enum class BlockSource { OWNED, SHARED };
 // serializing it, including the http attachment path, never mutates a shared owner. The borrow
 // must be returned through release_borrowed_blocks() before the request is cleared, reused or
 // destroyed.
-void borrow_block(PBlock* src, PBlock* dst, BlockSource source);
+void borrow_block(PBlock* src, PBlock* dst);
 void release_borrowed_blocks(PTransmitDataParams* request);
 
 struct BroadcastTransmitInfo {
