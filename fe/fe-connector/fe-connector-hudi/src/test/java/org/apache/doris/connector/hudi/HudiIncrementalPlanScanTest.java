@@ -57,6 +57,24 @@ public class HudiIncrementalPlanScanTest {
     // ── fallback → degrade (Optional.empty), collect* NOT called ─────────────────────────────────────────────
 
     @Test
+    public void morIncrementalRespectsPhysicalPartitionEncoding() {
+        for (boolean encoded : Arrays.asList(false, true)) {
+            for (boolean forceJni : Arrays.asList(false, true)) {
+                String path = encoded ? "dt=%253A" : "dt=%3A";
+                FakeRelation mor = new FakeRelation();
+                mor.fileSlices = Collections.singletonList(baseOnlySlice(path,
+                        BASE_PATH + "/" + path + "/fileid_0_20240101000000.parquet"));
+                HudiScanRange range = (HudiScanRange) HudiScanPlanProvider.incrementalRanges(
+                        mor, false, forceJni, BASE_PATH, INPUT_FORMAT, SERDE,
+                        Collections.singletonList("dt"), Collections.singletonList("string"),
+                        Collections.singletonList("dt"), UnaryOperator.identity(), encoded).get().get(0);
+                Assertions.assertEquals("%3A", range.getPartitionValues().get("dt"));
+                Assertions.assertEquals(forceJni ? "jni" : "parquet", range.getFileFormat());
+            }
+        }
+    }
+
+    @Test
     public void fallbackFullTableScanDegradesToSnapshotScanWithoutCollecting() {
         // relation.fallbackFullTableScan()==true must yield Optional.empty() = the caller degrades to the normal
         // latest-snapshot scan (legacy HudiScanNode.getSplits:470), and NEITHER collect method is invoked (both
@@ -67,7 +85,7 @@ public class HudiIncrementalPlanScanTest {
         fallback.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 fallback, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity(), true);
         Assertions.assertFalse(result.isPresent(),
                 "fallbackFullTableScan must signal degrade to the snapshot scan (Optional.empty)");
     }
@@ -85,7 +103,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity(), true);
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         Assertions.assertSame(native1, result.get().get(0), "COW ranges must be the relation's collectSplits output");
@@ -102,7 +120,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity(), true);
         Assertions.assertTrue(result.isPresent());
         Assertions.assertSame(native1, result.get().get(0),
                 "COW incremental must stay native even under force_jni (never call collectFileSlices)");
@@ -123,7 +141,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, UnaryOperator.identity());
+                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, UnaryOperator.identity(), true);
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -145,7 +163,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity(), true);
         Assertions.assertTrue(result.isPresent());
         Assertions.assertTrue(result.get().isEmpty());
     }
@@ -159,7 +177,7 @@ public class HudiIncrementalPlanScanTest {
         FileSlice slice = baseOnlySlice("year=2024/month=01",
                 "s3://b/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
         Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
-                slice.getPartitionPath(), YEAR_MONTH);
+                slice.getPartitionPath(), YEAR_MONTH, true);
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, partValues, END_TS, /*forceJni*/ true,
                 BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L,
                 UnaryOperator.identity());
@@ -199,7 +217,7 @@ public class HudiIncrementalPlanScanTest {
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
                 Collections.emptyList(), Collections.emptyList(), YEAR_MONTH,
-                s -> s.replace("s3a://", "s3://"));
+                s -> s.replace("s3a://", "s3://"), true);
         Assertions.assertTrue(result.isPresent());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
         Assertions.assertEquals("s3://datalake/warehouse/t/f1.parquet", range.getPath().orElse(null),

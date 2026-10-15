@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.oss;
 
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -56,6 +58,29 @@ import java.util.Map;
  * <p>Cloud calls are replaced with mocks; no real OSS credentials are required.
  */
 class OssObjStorageTest {
+
+    @Test
+    void legacyAuthorityListsPartitionFilesWithTheConfiguredClient() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        String key = "partition=a+b/file%2Fname#x.parquet";
+        OSSObjectSummary summary = new OSSObjectSummary();
+        summary.setKey(key);
+        summary.setSize(12L);
+        summary.setLastModified(new Date(123L));
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(List.of(summary));
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class))).thenReturn(listing);
+        String prefix = "oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/";
+        try (OssFileSystem fs = new OssFileSystem(new TestableOssObjStorage(buildBasicProps(), mockOss))) {
+            List<FileEntry> files = fs.listFiles(Location.of(prefix + "partition=a+b/"));
+            Assertions.assertEquals(1, files.size());
+            Assertions.assertEquals(prefix + key, files.get(0).location().uri());
+        }
+        ArgumentCaptor<ListObjectsRequest> request = ArgumentCaptor.forClass(ListObjectsRequest.class);
+        Mockito.verify(mockOss).listObjects(request.capture());
+        Assertions.assertEquals("my-bucket", request.getValue().getBucketName());
+        Assertions.assertEquals("partition=a+b/", request.getValue().getPrefix());
+    }
 
     @Test
     void getPresignedUrl_returnsSignedUrlFromOssClient() throws Exception {

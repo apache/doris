@@ -423,9 +423,45 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
         if (fallback != nullptr &&
             (!fallback->children.empty() || fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
              !valid_fallback_repetition)) {
+            // Resolve the Variant-relative path only on failure; valid schemas need no extra
+            // per-node path allocation just to distinguish repeated wrapper names such as element.
+            std::string path;
+            std::function<bool(const NativeFieldSchema&)> find_path =
+                    [&](const NativeFieldSchema& field) {
+                        const auto prefix_size = path.size();
+                        if (!path.empty()) {
+                            path += '.';
+                        }
+                        path += field.name;
+                        if (&field == fallback) {
+                            return true;
+                        }
+                        for (const auto& child : field.children) {
+                            if (find_path(child)) {
+                                return true;
+                            }
+                        }
+                        path.resize(prefix_size);
+                        return false;
+                    };
+            find_path(group_field);
+            const auto* physical = &fallback->parquet_schema;
+            // A repeated primitive is normalized into an array whose child retains the original
+            // SchemaElement. Report that declaration rather than the synthetic array wrapper.
+            if (!physical->__isset.repetition_type && fallback->children.size() == 1 &&
+                fallback->children[0].parquet_schema.repetition_type ==
+                        tparquet::FieldRepetitionType::REPEATED) {
+                physical = &fallback->children[0].parquet_schema;
+            }
             return Status::Corruption(
-                    "Parquet Variant wrapper {} value must be an {} BYTE_ARRAY", wrapper.name,
-                    allow_required_fallback ? "optional or required" : "optional");
+                    "Parquet Variant wrapper {} value must be an {} BYTE_ARRAY; "
+                    "variant_path={}, physical_type={}, repetition={}, children={}",
+                    wrapper.name, allow_required_fallback ? "optional or required" : "optional",
+                    path, physical->__isset.type ? tparquet::to_string(physical->type) : "GROUP",
+                    physical->__isset.repetition_type
+                            ? tparquet::to_string(physical->repetition_type)
+                            : "UNSET",
+                    physical->__isset.num_children ? physical->num_children : 0);
         }
         if (typed != nullptr) {
             if (!typed->parquet_schema.__isset.repetition_type ||
@@ -898,6 +934,11 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         // sub-second values are silently truncated by the target SerDe.
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);
     } else if (logicalType.__isset.TIMESTAMP) {
+        if (logicalType.TIMESTAMP.unit.__isset.NANOS && !logicalType.TIMESTAMP.isAdjustedToUTC) {
+            // Materialize nanoseconds before any table cast; DATETIMEV2 would discard the remainder.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, nullable);
+            return ans;
+        }
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
                 // treat TIMESTAMP with isAdjustedToUTC as TIMESTAMPTZ

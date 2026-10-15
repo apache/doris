@@ -87,9 +87,8 @@ public class IcebergTypeMappingReadTest {
 
     @Test
     public void unknownTypesDegradeButSpatialTypesRemainTyped() {
-        // TIMESTAMP_NANO / UNKNOWN remain unsupported, while V3 spatial annotations are preserved as
-        // typed connector values so FE and BE can carry their CRS/algorithm metadata.
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
+        // Preserve unzoned nanosecond timestamps and spatial metadata; unsupported types still degrade.
+        Assertions.assertEquals("TIMESTAMP_NS", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
         Assertions.assertEquals("GEOMETRY", mapOff(Types.GeometryType.crs84()).getTypeName());
         Assertions.assertEquals("OGC:CRS84", mapOff(Types.GeometryType.crs84()).getSpatialCrs());
