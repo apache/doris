@@ -17,6 +17,11 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <string_view>
+
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -238,6 +243,61 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
     LOG(INFO) << "collect packed file index: " << file_path << " -> " << index.packed_file_path
               << ", offset: " << index.offset << ", size: " << index.size;
     return Status::OK();
+}
+
+// Files of a local rowset are `<rowset_id>_<segment_id>.dat` and inverted index files
+// `<rowset_id>_<segment_id>.idx` (V2) or `<rowset_id>_<segment_id>_<index_id>[@suffix].idx` (V1),
+// where `rowset_id` is a 48 hex string starting with version "02".
+static bool is_local_rowset_file(std::string_view name) {
+    constexpr size_t rowset_id_len = 48;
+    if (name.size() <= rowset_id_len + 1 || name[rowset_id_len] != '_' || !name.starts_with("02")) {
+        return false;
+    }
+    if (!name.ends_with(".dat") && !name.ends_with(".idx")) {
+        return false;
+    }
+    return std::all_of(name.begin(), name.begin() + rowset_id_len,
+                       [](char c) { return std::isxdigit(static_cast<unsigned char>(c)); });
+}
+
+size_t CloudRowsetWriter::remove_stale_local_rowset_files(const std::string& dir,
+                                                          const UniqueId& backend_uid) {
+    // The last 32 hex characters of a rowset id come from the backend uid of the BE process
+    // which generated it, see `UniqueRowsetIdGenerator::next_id`.
+    RowsetId current_rowset_id;
+    current_rowset_id.init(2, 0, backend_uid.hi, backend_uid.lo);
+    const std::string current_uid = current_rowset_id.to_string().substr(16);
+
+    size_t num_removed = 0;
+    uint64_t removed_bytes = 0;
+    std::error_code ec;
+    std::filesystem::directory_iterator it {dir, ec};
+    for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        const std::string name = it->path().filename().native();
+        std::error_code file_ec;
+        if (!it->is_regular_file(file_ec) || !is_local_rowset_file(name) ||
+            name.compare(16, 32, current_uid) == 0) {
+            continue;
+        }
+        auto size = it->file_size(file_ec);
+        if (file_ec) {
+            size = 0;
+        }
+        if (std::filesystem::remove(it->path(), file_ec)) {
+            ++num_removed;
+            removed_bytes += size;
+        } else {
+            LOG(WARNING) << "failed to remove stale local rowset file " << it->path().native()
+                         << ", err=" << file_ec.message();
+        }
+    }
+    if (ec) {
+        LOG(WARNING) << "failed to list stale local rowset files in " << dir
+                     << ", err=" << ec.message();
+    }
+    LOG(INFO) << "removed " << num_removed << " stale local rowset files in " << dir
+              << ", bytes=" << removed_bytes;
+    return num_removed;
 }
 
 } // namespace doris
