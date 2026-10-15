@@ -131,7 +131,7 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 // 13: start from Doris 4.1
 //   a. support strict ownership hash routing for external table sink writers.
 //   b. support Paimon default fixed-bucket routing in the external sink exchange.
-// 18: start from master
+// 19: start from master
 //   a. support FILE types and six-child PBlock serialization.
 // Versions 14-17 are reserved for master features not backported to this branch.
 
