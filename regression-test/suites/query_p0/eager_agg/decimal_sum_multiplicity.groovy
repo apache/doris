@@ -46,11 +46,11 @@ suite("decimal_sum_multiplicity") {
                 sql "SET eager_aggregation_mode=${mode}"
                 def suffix = "${decimal256}_${checkOverflow}_${mode == -1 ? 'off' : 'on'}"
                 // The alias used to expose the stale output type; without it, scale could be lost silently.
-                order_qt_alias_${suffix} """
+                "order_qt_alias_${suffix}" """
                     SELECT l.k AS g, SUM(l.v) AS sv, SUM(r.w) AS sw
                     FROM decimal_sum_l l JOIN [shuffle] decimal_sum_r r ON l.k=r.k GROUP BY l.k
                 """
-                order_qt_no_alias_${suffix} """
+                "order_qt_no_alias_${suffix}" """
                     SELECT l.k, SUM(l.v), SUM(r.w)
                     FROM decimal_sum_l l JOIN [shuffle] decimal_sum_r r ON l.k=r.k GROUP BY l.k
                 """
@@ -59,7 +59,7 @@ suite("decimal_sum_multiplicity") {
                     SELECT l.k AS g, CAST(SUM(l.v) AS DECIMAL(38,18)), SUM(r.w)
                     FROM decimal_sum_l l JOIN [shuffle] decimal_sum_r r ON l.k=r.k GROUP BY l.k
                 """
-                order_qt_insert_${suffix} "SELECT * FROM decimal_sum_out"
+                "order_qt_insert_${suffix}" "SELECT * FROM decimal_sum_out"
             }
         }
     }
