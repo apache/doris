@@ -144,25 +144,38 @@ public class HiveScanBatchModeTest {
                 new HiveFileStatus(location + "/small.parquet", 3, 2),
                 new HiveFileStatus(location + "/large.parquet", 35, 3)));
         HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
-                part("year=2024/month=01"), part("year=2024/month=02"))).build();
+                new HmsPartitionInfo(Arrays.asList("2024", "01"), "year=2024/month=01",
+                        null, null, null, Collections.emptyMap()),
+                new HmsPartitionInfo(Arrays.asList("2024", "02"), "year=2024/month=02",
+                        null, null, null, Collections.emptyMap()))).build();
         FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "8"));
-        List<ConnectorScanRange> expected = provider.planScan(session,
+        List<ConnectorScanRange> synchronous = provider.planScan(session,
                 ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
-        List<ConnectorScanRange> actual = new ArrayList<>();
+        List<ConnectorScanRange> streaming = new ArrayList<>();
         try (ConnectorSplitSource source = provider.streamSplits(session, handle,
                 Collections.emptyList(), Optional.empty(), -1)) {
             while (source.hasNext()) {
-                actual.add(source.next());
+                streaming.add(source.next());
             }
         }
-        Assertions.assertEquals(12, actual.size());
-        for (int i = 0; i < expected.size(); i++) {
-            HiveScanRange synchronous = (HiveScanRange) expected.get(i);
-            HiveScanRange streaming = (HiveScanRange) actual.get(i);
-            Assertions.assertEquals(synchronous.getPath(), streaming.getPath());
-            Assertions.assertEquals(synchronous.getStart(), streaming.getStart());
-            Assertions.assertEquals(synchronous.getLength(), streaming.getLength());
-            Assertions.assertEquals(synchronous.getPartitionValues(), streaming.getPartitionValues());
+        long[] starts = {0, 0, 8, 16, 24, 32};
+        long[] lengths = {3, 8, 8, 8, 8, 3};
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+            Assertions.assertEquals(12, ranges.size());
+            for (int partition = 0; partition < 2; partition++) {
+                String month = partition == 0 ? "01" : "02";
+                Map<String, String> partitionValues = new HashMap<>();
+                partitionValues.put("year", "2024");
+                partitionValues.put("month", month);
+                for (int i = 0; i < starts.length; i++) {
+                    HiveScanRange range = (HiveScanRange) ranges.get(partition * starts.length + i);
+                    String fileName = i == 0 ? "small.parquet" : "large.parquet";
+                    Assertions.assertEquals("year=2024/month=" + month + "/" + fileName, range.getPath().get());
+                    Assertions.assertEquals(starts[i], range.getStart());
+                    Assertions.assertEquals(lengths[i], range.getLength());
+                    Assertions.assertEquals(partitionValues, range.getPartitionValues());
+                }
+            }
         }
     }
 

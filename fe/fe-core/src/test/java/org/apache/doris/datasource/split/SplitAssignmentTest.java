@@ -118,48 +118,19 @@ public class SplitAssignmentTest {
     }
 
     @Test
-    void testInitTimeout() throws Exception {
-        // Use spy to simulate timeout behavior quickly instead of waiting 30 seconds
-        SplitAssignment testAssignment = Mockito.spy(new SplitAssignment(
-                mockBackendPolicy,
-                mockSplitGenerator,
-                mockSplitToScanRange,
-                locationProperties,
-                pathPartitionKeys,
-                true
-        ));
-
-        Mockito.doThrow(new UserException("Failed to get first split after waiting for 0 seconds."))
-                .when(testAssignment).init();
-
-        // Test & Verify - should timeout immediately now
-        UserException exception = Assertions.assertThrows(UserException.class, () -> testAssignment.init());
-        Assertions.assertTrue(exception.getMessage().contains("Failed to get first split after waiting for"));
-    }
-
-    @Test
     void testInitInterrupted() throws Exception {
-        CountDownLatch initStarted = new CountDownLatch(1);
-        CountDownLatch shouldInterrupt = new CountDownLatch(1);
-
-        Thread initThread = new Thread(() -> {
-            try {
-                initStarted.countDown();
-                shouldInterrupt.await();
-                splitAssignment.init();
-            } catch (Exception e) {
-                // Expected interruption
-            }
-        });
-
-        initThread.start();
-        initStarted.await();
-
-        // Interrupt the init thread
-        initThread.interrupt();
-        shouldInterrupt.countDown();
-
-        initThread.join(1000);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<UserException> result = executor.submit(() -> {
+                Thread.currentThread().interrupt();
+                return Assertions.assertThrows(UserException.class, splitAssignment::init);
+            });
+            Assertions.assertInstanceOf(InterruptedException.class, result.get(5, TimeUnit.SECONDS).getCause());
+            Mockito.verify(mockSplitGenerator).startSplit(mockBackendPolicy.numBackends());
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test
@@ -299,48 +270,17 @@ public class SplitAssignmentTest {
     void testAddToQueueSampleSplitAlreadySet() throws Exception {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
+        Split secondSplit = Mockito.mock(Split.class);
+        Multimap<Backend, Split> secondBatch = ArrayListMultimap.create();
+        secondBatch.put(mockBackend, secondSplit);
 
-        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch, secondBatch);
         Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
 
-        // Setup: First call to set sample split
-        List<Split> firstSplits = Collections.singletonList(mockSplit);
-
-        splitAssignment.addToQueue(firstSplits);
-        Split firstSampleSplit = splitAssignment.getSampleSplit();
-
-        // Test: Second call should not change sample split
-        List<Split> secondSplits = Collections.singletonList(mockSplit);
-
-        splitAssignment.addToQueue(secondSplits);
-
-        // Verify sample split unchanged
-        Assertions.assertEquals(firstSampleSplit, splitAssignment.getSampleSplit());
-    }
-
-    @Test
-    void testAddToQueueWithQueueBlockingScenario() throws Exception {
-        Multimap<Backend, Split> batch = ArrayListMultimap.create();
-        batch.put(mockBackend, mockSplit);
-
-        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
-        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
-
-        // This test simulates a scenario where appendBatch might experience queue blocking
-        // by adding multiple batches rapidly
-
-        List<Split> splits = Collections.singletonList(mockSplit);
-
-        // First, fill up the queue by adding many batches
-        for (int i = 0; i < 10; i++) {
-            splitAssignment.addToQueue(splits);
-        }
-
-        // Verify the queue has data
-        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        Assertions.assertNotNull(queue);
+        splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+        splitAssignment.addToQueue(Collections.singletonList(secondSplit));
+        Assertions.assertSame(mockSplit, splitAssignment.getSampleSplit());
     }
 
     @Test
@@ -423,36 +363,6 @@ public class SplitAssignmentTest {
         Assertions.assertNotNull(queue);
 
         splitsProvider.join(1000);
-    }
-
-    // ==================== appendBatch() behavior tests ====================
-
-    @Test
-    void testAppendBatchTimeoutBehavior() throws Exception {
-        Multimap<Backend, Split> batch = ArrayListMultimap.create();
-        batch.put(mockBackend, mockSplit);
-
-        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
-        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
-
-        // This test verifies that appendBatch properly handles queue offer timeouts
-        // We'll simulate this by first filling the assignment and then trying to add more
-
-        List<Split> splits = Collections.singletonList(mockSplit);
-
-        // Add multiple splits to potentially cause queue pressure
-        for (int i = 0; i < 50; i++) {
-            try {
-                splitAssignment.addToQueue(splits);
-            } catch (Exception e) {
-                // Expected if queue gets full and times out
-                break;
-            }
-        }
-
-        // Verify that splits were processed
-        Assertions.assertNotNull(splitAssignment.getSampleSplit());
     }
 
     @Test
