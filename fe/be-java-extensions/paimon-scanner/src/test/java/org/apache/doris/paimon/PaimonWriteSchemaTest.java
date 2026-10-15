@@ -267,7 +267,7 @@ public class PaimonWriteSchemaTest {
 
     @Test
     public void testCharPaddingPadsCharValuesNestedInArraysMapsAndRows() {
-        // Spark and Flink pad nested CHAR values too. A map keeps every entry, in order, as it did before.
+        // Spark and Flink pad nested CHAR values too. A map keeps its entries in their order.
         // MUTATION: padding only top-level values -> red.
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "codes", DataTypes.ARRAY(DataTypes.CHAR(3))),
@@ -302,16 +302,43 @@ public class PaimonWriteSchemaTest {
         Assertions.assertEquals("x ", tableRow.getArray(3).getRow(0, 1).getString(0).toString());
         Assertions.assertSame(numbers, tableRow.getArray(4));
 
-        // Two keys that only padding makes equal both stay; the writer does not deduplicate map keys.
         Map<BinaryString, BinaryString> keys = new LinkedHashMap<>();
         keys.put(string("k"), string("1"));
-        keys.put(string("k "), string("2"));
+        keys.put(string("ab"), string("2"));
         InternalMap padded = tableRow(schema, null, new GenericMap(keys), null, null, null).getMap(1);
         Assertions.assertEquals(2, padded.size());
         Assertions.assertEquals("k ", padded.keyArray().getString(0).toString());
-        Assertions.assertEquals("k ", padded.keyArray().getString(1).toString());
+        Assertions.assertEquals("ab", padded.keyArray().getString(1).toString());
         Assertions.assertEquals("1  ", padded.valueArray().getString(0).toString());
         Assertions.assertEquals("2  ", padded.valueArray().getString(1).toString());
+    }
+
+    @Test
+    public void testMapKeysThatPaddingMakesEqualFailTheRow() {
+        // A map holds one entry per key, and Paimon's Avro reader keeps only one of the two 'k ' keys that padding
+        // makes of the distinct keys 'k' and 'k ', so such a map fails the row. Keys that were equal before padding
+        // are kept as they are, and keys that stay distinct are padded.
+        // MUTATION: no check, or failing keys that were equal before padding too -> red.
+        RowType tableType = new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.INT()))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"labels"}, false, true);
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> tableRow(schema, map(new Object[] {string("k"), string("k ")}, new Object[] {1, 2})));
+        Assertions.assertTrue(e.getMessage().contains("column 'labels'"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("keys 'k' and 'k ' into the same key 'k '"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("enable_paimon_write_char_padding"), e.getMessage());
+
+        InternalMap equalKeys = tableRow(schema, map(new Object[] {string("k"), string("k")}, new Object[] {1, 2}))
+                .getMap(0);
+        Assertions.assertEquals(2, equalKeys.size());
+        Assertions.assertEquals("k ", equalKeys.keyArray().getString(0).toString());
+        Assertions.assertEquals("k ", equalKeys.keyArray().getString(1).toString());
+        InternalMap distinctKeys = tableRow(schema,
+                map(new Object[] {string("k"), string("kk")}, new Object[] {1, 2})).getMap(0);
+        Assertions.assertEquals("k ", distinctKeys.keyArray().getString(0).toString());
+        Assertions.assertEquals("kk", distinctKeys.keyArray().getString(1).toString());
+        Assertions.assertEquals(2, distinctKeys.valueArray().getInt(1));
     }
 
     @Test
@@ -353,6 +380,87 @@ public class PaimonWriteSchemaTest {
         InternalRow tableRow = tableRow(schema, 1, string("+I"), string("a"));
         Assertions.assertEquals("+I", tableRow.getString(1).toString());
         Assertions.assertEquals("a  ", tableRow.getString(2).toString());
+    }
+
+    @Test
+    public void testRowKindFieldValueDecidesWhetherARowIsPadded() {
+        // A table with a rowkind.field takes the kind of a row from that field's value when Paimon writes it, so a
+        // '-D', '-U' or '+U' row carries a key to match, as an UPDATE or DELETE row does, and is not padded: a '-D'
+        // row whose key Doris read back as 'k' has to delete the stored 'k', not 'k  '. Only a '+I' row is padded,
+        // whether Doris writes the value or the field's default fills it in; a NULL is left for Paimon to reject.
+        // MUTATION: padding by the row's RowKind alone, or reading the value from the input only -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "code", new CharType(false, 3)),
+                new DataField(1, "kind", new VarCharType(2)),
+                new DataField(2, "label", new CharType(3))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
+                new String[] {"code", "kind", "label"}, false, true, "kind", Collections.singletonList("code"));
+
+        InternalRow inserted = tableRow(schema, string("k"), string("+I"), string("a"));
+        Assertions.assertEquals("k  ", inserted.getString(0).toString());
+        Assertions.assertEquals("a  ", inserted.getString(2).toString());
+        for (String kind : Arrays.asList("-D", "-U", "+U")) {
+            InternalRow row = tableRow(schema, string("k"), string(kind), string("a"));
+            Assertions.assertEquals("k", row.getString(0).toString(), kind);
+            Assertions.assertEquals("a", row.getString(2).toString(), kind);
+        }
+        Assertions.assertEquals("k", tableRow(schema, string("k"), null, string("a")).getString(0).toString());
+
+        for (String kind : Arrays.asList("+I", "-D")) {
+            RowType withDefault = new RowType(Arrays.asList(
+                    new DataField(0, "code", new CharType(false, 3)),
+                    new DataField(1, "kind", new VarCharType(2), null, kind)));
+            PaimonWriteSchema defaulted = PaimonWriteSchema.create(withDefault, new String[] {"code"}, false, true,
+                    "kind", Collections.singletonList("code"));
+            Assertions.assertEquals("+I".equals(kind) ? "k  " : "k",
+                    tableRow(defaulted, string("k")).getString(0).toString(), kind);
+        }
+    }
+
+    @Test
+    public void testOrcTablePadsOnlyItsPartitionValues() {
+        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so padding changes
+        // nothing that ORC stores, only the bucket of a CHAR key: an UPDATE or DELETE that reads 'k' back would
+        // hash another bucket than the padded 'k  ' went to, and miss the row. A partition value is read back as
+        // it is stored, so it is padded, and a MERGE that inserts a short one fails as for any padded key, while a
+        // short key that is not padded does not. MUTATION: padding every column of an ORC table -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "p", new CharType(false, 3)),
+                new DataField(1, "code", new CharType(false, 3)),
+                new DataField(2, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.INT()))));
+        PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, new String[] {"p", "code", "labels"},
+                false, true, null, Arrays.asList("p", "code"), Collections.singletonList("p"), true);
+
+        InternalRow row = tableRow(insert, string("x"), string("k"),
+                map(new Object[] {string("k"), string("k ")}, new Object[] {1, 2}));
+        Assertions.assertEquals("x  ", row.getString(0).toString());
+        Assertions.assertEquals("k", row.getString(1).toString());
+        Assertions.assertEquals(2, row.getMap(2).size());
+        Assertions.assertEquals("k", row.getMap(2).keyArray().getString(0).toString());
+
+        PaimonWriteSchema merge = PaimonWriteSchema.create(tableType,
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code"}, true, true, null,
+                Arrays.asList("p", "code"), Collections.singletonList("p"), true);
+        Assertions.assertEquals("k", tableRow(merge, PaimonWriteSchema.INSERT_OPERATION, string("abc"),
+                string("k")).getString(1).toString());
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> tableRow(merge, PaimonWriteSchema.INSERT_OPERATION, string("x"), string("k")));
+        Assertions.assertTrue(e.getMessage().contains("CHAR(3) primary key column 'p'"), e.getMessage());
+    }
+
+    @Test
+    public void testOrcFilesAreReadFromTheTableFormatOptions() {
+        // MUTATION: ignoring file.format.per.level -> red.
+        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "orc")));
+        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "ORC")));
+        Map<String, String> perLevel = new HashMap<>();
+        perLevel.put("file.format", "parquet");
+        perLevel.put("file.format.per.level", "0:avro,5:orc");
+        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(perLevel));
+        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(Collections.emptyMap()));
+        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "avro")));
+        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(
+                Collections.singletonMap("file.format.per.level", "0:avro")));
     }
 
     @Test
@@ -458,6 +566,28 @@ public class PaimonWriteSchemaTest {
 
     private static BinaryString string(String value) {
         return BinaryString.fromString(value);
+    }
+
+    /** A map over key and value arrays, which unlike GenericMap can hold one key twice. */
+    private static InternalMap map(Object[] keys, Object[] values) {
+        InternalArray keyArray = new GenericArray(keys);
+        InternalArray valueArray = new GenericArray(values);
+        return new InternalMap() {
+            @Override
+            public int size() {
+                return keys.length;
+            }
+
+            @Override
+            public InternalArray keyArray() {
+                return keyArray;
+            }
+
+            @Override
+            public InternalArray valueArray() {
+                return valueArray;
+            }
+        };
     }
 
     private static InternalRow changelogRow(PaimonWriteSchema schema, byte operation) {

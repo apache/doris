@@ -8,6 +8,10 @@
 -- !nested_padded --
 1	[a  ]	true	[abc]	[k ]	[v  ]	[a  ]	7
 
+-- !map_keys_made_equal_fail --
+2	2	[k |kk]	1|2
+3	2	[k|k ]	1|2
+
 -- !partition_padded --
 1	[x  ]
 2	[y  ]
@@ -30,6 +34,10 @@
 [k  ]	3	2
 [w]	1	40
 
+-- !orc_dml_reaches_keys --
+[ab]	2	20
+[abc]	3	60
+
 -- !bucketed_padded --
 100	100	3	3
 
@@ -39,6 +47,14 @@
 
 -- !rowkind_field_not_padded --
 2	[+I]	[b  ]
+
+-- !rowkind_key_inserted --
+[j  ]	+I	3
+[k  ]	+I	2
+[k]	+I	1
+
+-- !rowkind_key_deleted --
+[j  ]	+I	3
 
 -- !merge_short_key_fails --
 

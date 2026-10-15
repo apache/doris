@@ -96,6 +96,36 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'primary-key' = 'c',
             'bucket' = '1'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_bucketed;
+        CREATE TABLE paimon.${dbName}.t_char_orc_bucketed (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_key;
+        CREATE TABLE paimon.${dbName}.t_char_rowkind_key (
+            c CHAR(3), rk STRING, v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'rowkind.field' = 'rk'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_map_avro;
+        CREATE TABLE paimon.${dbName}.t_char_map_avro (
+            id INT, m MAP<CHAR(2), INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'file.format' = 'avro'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -140,6 +170,23 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             FROM t_char_nested
         """
 
+        // Padding would turn the distinct map keys 'k' and 'k ' into the same key 'k ', and a map holds one entry
+        // per key (Paimon's Avro reader keeps one of the two), so such a map fails the write. Keys that stay
+        // distinct are padded, and with padding off both keys are written as they are.
+        test {
+            sql """INSERT INTO t_char_map_avro VALUES (1, map('k', 1, 'k ', 2))"""
+            exception "turns the keys 'k' and 'k ' into the same key 'k '"
+        }
+        sql """INSERT INTO t_char_map_avro VALUES (2, map('k', 1, 'kk', 2))"""
+        sql """set enable_paimon_write_char_padding = false"""
+        sql """INSERT INTO t_char_map_avro VALUES (3, map('k', 1, 'k ', 2))"""
+        sql """set enable_paimon_write_char_padding = true"""
+        order_qt_map_keys_made_equal_fail """
+            SELECT id, map_size(m), concat('[', array_join(array_sort(map_keys(m)), '|'), ']'),
+                array_join(array_sort(map_values(m)), '|')
+            FROM t_char_map_avro
+        """
+
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a
         // second static overwrite of 'x' replaces the partition the first one wrote.
         sql """INSERT OVERWRITE TABLE t_char_part PARTITION (p = 'x') SELECT 1"""
@@ -161,6 +208,14 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         sql """DELETE FROM t_char_pk WHERE v = 3"""
         sql """UPDATE t_char_pk SET v = 40 WHERE v = 4"""
         order_qt_dml_matches_unpadded_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+
+        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so only the
+        // partition values of an ORC table are padded: padding a key would only change its bucket, and the DELETE
+        // and UPDATE below, which read the keys back without the spaces, would hash other buckets and miss them.
+        sql """INSERT INTO t_char_orc_bucketed VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6)"""
+        sql """DELETE FROM t_char_orc_bucketed WHERE v IN (1, 3, 4, 5)"""
+        sql """UPDATE t_char_orc_bucketed SET v = v * 10 WHERE v IN (2, 6)"""
+        order_qt_orc_dml_reaches_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_bucketed"""
 
         // BE cannot route a CHAR bucket key by Paimon's bucket while padding is on, since it would hash the
         // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
@@ -184,6 +239,17 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_rowkind_field_not_padded """
             SELECT id, concat('[', rk, ']'), concat('[', code, ']') FROM t_char_rowkind
         """
+
+        // Paimon takes the kind of a row from its rowkind.field, so only a '+I' row inserts and is padded. A '-D'
+        // row carries a key to delete, which Doris reads back as it is stored: here 'k', written with padding off,
+        // and 'k  '.
+        sql """set enable_paimon_write_char_padding = false"""
+        sql """INSERT INTO t_char_rowkind_key VALUES ('k', '+I', 1)"""
+        sql """set enable_paimon_write_char_padding = true"""
+        sql """INSERT INTO t_char_rowkind_key VALUES ('k', '+I', 2), ('j', '+I', 3)"""
+        order_qt_rowkind_key_inserted """SELECT concat('[', c, ']'), rk, v FROM t_char_rowkind_key"""
+        sql """INSERT INTO t_char_rowkind_key SELECT c, '-D', v FROM t_char_rowkind_key WHERE v IN (1, 2)"""
+        order_qt_rowkind_key_deleted """SELECT concat('[', c, ']'), rk, v FROM t_char_rowkind_key"""
 
         // MERGE matches its source rows to the table, and checks the keys it inserts for duplicates, by the key as
         // Doris holds it, unpadded. Padding a shorter key that MERGE inserts would change the key after those
