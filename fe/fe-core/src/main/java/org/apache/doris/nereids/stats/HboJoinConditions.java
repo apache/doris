@@ -20,7 +20,10 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 
 import com.google.common.hash.Hashing;
@@ -29,6 +32,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Canonical description and fingerprint of the equality conditions of a join, used as the key of
@@ -82,14 +87,40 @@ public class HboJoinConditions {
         pairs.sort(String::compareTo);
         List<String> residuals = new ArrayList<>();
         for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            // a residual predicate decides how many partner rows a row finds (`b > u.b + 1` is not
+            // `b > u.b + 2`), so its literals are part of the key and are never folded
             residuals.add(GroupStructInfo.normalizeExpression(conjunct,
-                    GroupStructInfo.LiteralMode.NO_LITERAL));
+                    GroupStructInfo.LiteralMode.WITH_LITERAL));
         }
         residuals.sort(String::compareTo);
         StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());
         pairs.forEach(pair -> canonical.append(SEP).append(pair));
         residuals.forEach(residual -> canonical.append(SEP).append(residual));
+        if (join.getJoinType() != JoinType.INNER_JOIN) {
+            // `A LEFT JOIN B` and `B LEFT JOIN A` keep the same join type and the same (sorted) equality
+            // pairs, but they preserve different rows and expand a different side, so the side each
+            // relation is on is part of the key of an outer join. An inner join is commutative and keeps
+            // the side insensitive form.
+            // a join node is a plan: the algebra interface only adds the join conditions
+            Plan joinPlan = (Plan) join;
+            canonical.append(SEP).append("sides:[").append(relationsOf(joinPlan.child(0))).append('|')
+                    .append(relationsOf(joinPlan.child(1))).append(']');
+        }
         return Optional.of(canonical.append("}").toString());
+    }
+
+    /**
+     * The relations a side of a join reads, as the qualifiers of its output slots (sorted and
+     * de-duplicated). Empty when the side projects nothing, which cannot happen for a join input.
+     */
+    private static String relationsOf(Plan plan) {
+        Set<String> qualifiers = new TreeSet<>();
+        for (Slot slot : plan.getOutput()) {
+            if (slot instanceof SlotReference) {
+                qualifiers.add(String.join(".", ((SlotReference) slot).getQualifier()));
+            }
+        }
+        return String.join(",", qualifiers);
     }
 
     /** sha256 of the canonical string, empty when there is no equality condition. */
