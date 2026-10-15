@@ -1297,7 +1297,7 @@ public class MTMVTask extends AbstractTask {
             // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
             Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
                     ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
-            if (!mtmv.isIvm()) {
+            if (!mtmv.isIvm() && hasOlapPctTable()) {
                 requireDescribedPartitions(context, execPartitionNames);
             }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
@@ -1512,6 +1512,23 @@ public class MTMVTask extends AbstractTask {
      * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
      * again, and trying again realigns.
      */
+    /**
+     * Whether any of the tables the MV is partitioned on is an olap one, which is where the check below can
+     * read anything. It reads a partition no base partition describes as the alignment having fallen behind an
+     * olap table's change, and that is a state only an olap table has: an external table describes its
+     * partitions from the snapshot the read is taken at, and one it cannot describe -- a row whose partition
+     * key is null, say -- is not a state the alignment can catch up with at all. So the check is taken where
+     * its reading can be true, and an MV partitioned on external tables alone is left to the read's own scope.
+     */
+    private boolean hasOlapPctTable() throws AnalysisException {
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
             throws AnalysisException {
         for (String mvPartitionName : execPartitionNames) {
