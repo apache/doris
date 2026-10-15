@@ -463,6 +463,23 @@ struct TLanceIndexMutationRequest {
     15: optional string index_display_name
 }
 
+// Phase of the worker execution behind one synchronous Lance index mutation
+// answer: where the typed lance_error_code was produced, or that no trusted
+// answer exists at all. Lineage: the worker-phase markers the result struct
+// below promised at ids 4+; values are stable.
+enum TLanceIndexWorkerPhase {
+    // The worker refused the invocation before any mutating native call (or the
+    // supervisor proved the same for a never-mutating worker): a proven
+    // no-commit inside an OK envelope.
+    PRE_INVOCATION_REJECTED = 1,
+    // The typed code is a raw native Lance error code passthrough, produced by
+    // the mutating native invocation itself.
+    NATIVE_RETURN = 2,
+    // The worker was lost or the frame protocol turned ambiguous after launch;
+    // no trusted answer exists, so no code is set.
+    INDETERMINATE_AFTER_LAUNCH = 3
+}
+
 // Typed result of one synchronous Lance index mutation invocation, returned on
 // the request's own connection; there is no callback channel and no second
 // send, so the reply is matched to the request structurally. Field ids are
@@ -476,16 +493,35 @@ struct TLanceIndexMutationResult {
     // below is authoritative. Transport errors, timeouts, or a truncated
     // answer are NOT a status: they stay indeterminate.
     1: required Status.TStatus status
-    // Raw value of the native Lance error code (LanceErrorCode vocabulary;
+    // Raw value of the typed result code (LanceErrorCode vocabulary;
     // 0 = LANCE_OK). The code is consumed BEFORE the message; the message text
     // never participates in classification. Only set when status is OK.
-    // Slice 3 will additively add worker-phase marker fields (pre-invocation
-    // rejection markers, native-return markers) at ids 4+ to distinguish where
-    // the code was produced.
+    // Value bands by worker_phase: with NATIVE_RETURN (and with the phase-less
+    // answers of older backends) the code is a native Lance error code and is
+    // therefore non-negative; with PRE_INVOCATION_REJECTED it is a
+    // worker-defined negative rejection code from a band deliberately isolated
+    // from the native space; INDETERMINATE_AFTER_LAUNCH sets no code.
     2: optional i32 lance_error_code
     // Bounded sanitized message for humans; the FE truncates before use,
     // never echoes provider text verbatim, and never parses it.
     3: optional string message
+    // Phase of the worker execution that produced the typed code, so the FE
+    // can tell a provable pre-invocation no-commit from an indeterminate
+    // answer inside one OK envelope. Absent on the phase-less answers of older
+    // backends, whose set codes stay native passthroughs by definition.
+    4: optional TLanceIndexWorkerPhase worker_phase
+    // Echo of the dispatched request's invocation_id (envelope match): the FE
+    // compares it with the invocation it sent, and a mismatch means the answer
+    // cannot be trusted for that invocation.
+    5: optional string invocation_id
+    // Echo of the dispatched request's be_process_epoch; the backend-side
+    // receipt check uses its live epoch, the FE-side match uses this echo.
+    6: optional i64 be_process_epoch
+    // Only set when worker_phase = PRE_INVOCATION_REJECTED and the worker
+    // observed the dataset's latest version above the admitted one it was
+    // pinned to: evidence of externally advanced metadata for the FE's
+    // evidence-driven local cache refresh. Never set otherwise.
+    7: optional i64 observed_latest_version
 }
 
 service BackendService {
