@@ -164,6 +164,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
+    public static final String SERVER_IDENTITY = "server_identity";
+    public static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -202,6 +204,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -470,6 +474,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_RUNTIME_FILTER_BUCKET_PRUNE =
             "enable_runtime_filter_bucket_prune";
+
+    public static final String ENABLE_SCAN_KEY_BUCKET_PRUNE = "enable_scan_key_bucket_prune";
 
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
@@ -858,7 +864,6 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
-    public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1155,11 +1160,13 @@ public class SessionVariable implements Serializable, Writable {
     // 100MB
     public long maxScanQueueMemByte = 2147483648L / 20;
 
-    @VarAttrDef.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to read "
+    @VarAttrDef.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMaxScannersConcurrency", description = "The max threads to read "
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
 
-    @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to "
+    @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMaxFileScannersConcurrency", description = "The max threads to "
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
@@ -1170,11 +1177,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
 
-    @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency of "
+    @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMinScannersConcurrency", description = "The min concurrency of "
             + "Scanner, default 1")
     public int minScannersConcurrency = 1;
 
-    @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency "
+    @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMinFileScannersConcurrency", description = "The min concurrency "
             + "of Remote Scanner, default 1")
     public int minFileScannersConcurrency = 1;
 
@@ -1385,6 +1394,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = HAVE_QUERY_CACHE, flag = VarAttrDef.READ_ONLY)
     public boolean haveQueryCache = false;
 
+    @VarAttrDef.VarAttr(name = SERVER_IDENTITY, flag = VarAttrDef.READ_ONLY)
+    public String serverIdentity = APACHE_DORIS_SERVER_IDENTITY;
+
     // 8192 minus 16 + 16 bytes padding that in padding pod array.
     // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
     @VarAttrDef.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
@@ -1454,7 +1466,8 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setFragmentInstanceNum", varType = VariableAnnotation.DEPRECATED)
     public int parallelExecInstanceNum = 8;
 
-    @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false)
+    @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false,
+            checker = "checkColocateMaxParallelNum")
     public int colocateMaxParallelNum = 128;
 
     @VarAttrDef.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
@@ -1478,8 +1491,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
     @VarAttrDef.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            needForward = true,
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
+
+    public static final String EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM = "external_scan_consistent_hash_spread_num";
+    @VarAttrDef.VarAttr(name = EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM,
+            checker = "checkExternalScanConsistentHashSpreadNum", needForward = true,
+            description = "1 preserves the original scheduling, candidate counts and redistribution (default). "
+                    + "It does not limit scans to one backend. "
+                    + "0 enables automatic spreading across all eligible backends in the compute group. "
+                    + "Values above 1 bound consistent hash candidates "
+                    + "when file cache or use_consistent_hash_for_external_scan is enabled. "
+                    + "Spreading balances assigned weights with random ties and disables global redistribution.")
+    public int externalScanConsistentHashSpreadNum = 1;
 
     @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
@@ -1519,6 +1544,18 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to allow use binary search algorithm to filter partitions. ON by default."
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VarAttrDef.GLOBAL,
+            description = "Whether to prevent background dynamic partition tasks from automatically dropping "
+                    + "partitions. OFF by default."
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VarAttrDef.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
@@ -1641,7 +1678,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
 
-    @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
+    @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true, checker = "checkSendBatchParallelism")
     public int sendBatchParallelism = 1;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DML, varType = VariableAnnotation.REMOVED)
@@ -1680,7 +1717,8 @@ public class SessionVariable implements Serializable, Writable {
     private boolean optimizeIndexScanParallelism = true;
 
     @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
-            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true,
+            checker = "checkParallelScanMaxScannersCount")
     private int parallelScanMaxScannersCount = 0;
 
     @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
@@ -2181,6 +2219,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_BUCKET_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterBucketPrune = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_SCAN_KEY_BUCKET_PRUNE, needForward = true, fuzzy = true,
+            description = "Prune exact VARCHAR scan keys by their HASH distribution bucket.")
+    public boolean enableScanKeyBucketPrune = true;
+
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
      * For example, trace_id can be passed to trace the query request sent by the user.
@@ -2347,7 +2389,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = "Set wether to use file cache. "
             + "This variable takes effect only if the BE config enable_file_cache=true. "
             + "The cache is not used when BE config enable_file_cache=false.")
-    public boolean enableFileCache = false;
+    public boolean enableFileCache = true;
 
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
@@ -2694,7 +2736,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = true;
 
-    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE)
+    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE, checker = "checkLoadStreamPerNode")
     public int loadStreamPerNode = 2;
 
     @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true)
@@ -2928,6 +2970,18 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
+
+    public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
+
+    @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
+            checker = "checkFlussUnionReadMode",
+            options = {"", "auto", "required", "disabled"},
+            description = "For this statement, how a fluss table's scan combines the lake with the log: "
+                    + "auto reads the lake when it has a readable snapshot and reads fluss alone when it "
+                    + "does not, required fails instead of reading fluss alone, disabled always reads fluss "
+                    + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
+                    + "The value set belongs to the fluss connector, which rejects anything else")
+    public String flussUnionReadMode = "";
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
@@ -3263,9 +3317,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
     public long lowMemoryModeBufferLimit = 33554432;
 
-    // The memory limit of streaming agg when spilling is enabled
+    // The memory limit of streaming agg when spilling is enabled. It is applied on top of the
+    // query-limit-based budget (1/5 of the query memory limit shared among the tasks);
+    // 0 disables this explicit bound.
     // NOTE: streaming agg operator will not spill to disk.
-    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
+    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
@@ -3524,15 +3580,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSubcolumnsCount = 2048;
-
-    @VarAttrDef.VarAttr(
-            name = ENABLE_VARIANT_SCHEMA_AUTO_CAST,
-            needForward = true,
-            affectQueryResultInExecution = true,
-            description = "Whether to enable schema-template-based auto cast for variant expressions. "
-                    + "The default is true."
-    )
-    public boolean enableVariantSchemaAutoCast = true;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -4153,8 +4200,43 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setPipelineTaskNum(String value) throws Exception {
-        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, 256, value);
         this.parallelPipelineTaskNum = val;
+    }
+
+    public void checkColocateMaxParallelNum(String value) throws Exception {
+        checkFieldValue(COLOCATE_MAX_PARALLEL_NUM, 1, 256, value);
+    }
+
+    public void checkMaxScannersConcurrency(String value) throws Exception {
+        // Non-positive scanner concurrency values select the BE defaults.
+        checkFieldValue(MAX_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMaxFileScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MAX_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMinScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MIN_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMinFileScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MIN_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkParallelScanMaxScannersCount(String value) throws Exception {
+        // Non-positive values select the number of CPU cores on the BE.
+        checkFieldValue(PARALLEL_SCAN_MAX_SCANNERS_COUNT, Integer.MIN_VALUE, 256, value);
+    }
+
+    public static void checkSendBatchParallelism(String value) throws Exception {
+        // The tablet writer uses one sender for values less than or equal to one.
+        checkFieldValue(SEND_BATCH_PARALLELISM, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkLoadStreamPerNode(String value) throws Exception {
+        checkFieldValue(LOAD_STREAM_PER_NODE, 1, 256, value);
     }
 
     public void setEnablePipelineEngine(String value) throws Exception {
@@ -4223,12 +4305,21 @@ public class SessionVariable implements Serializable, Writable {
         return val;
     }
 
-    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
+    private static int checkFieldValue(String variableName, int minValue, String value) throws Exception {
         int val = Integer.valueOf(value);
         if (val < minValue) {
             throw new Exception(
                     variableName + " value should greater than or equal " + String.valueOf(minValue)
                             + ", you set value is: " + value);
+        }
+        return val;
+    }
+
+    private static int checkFieldValue(String variableName, int minValue, int maxValue, String value) throws Exception {
+        int val = checkFieldValue(variableName, minValue, value);
+        if (val > maxValue) {
+            throw new Exception(variableName + " value should less than or equal " + maxValue
+                    + ", you set value is: " + value);
         }
         return val;
     }
@@ -4306,6 +4397,16 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkFlussUnionReadMode(String mode) {
+        String normalized = Strings.nullToEmpty(mode).trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty() && !"auto".equals(normalized)
+                && !"required".equals(normalized) && !"disabled".equals(normalized)) {
+            throw new UnsupportedOperationException(
+                    "fluss_union_read_mode value is invalid: " + mode
+                            + "; expected auto, required, disabled, or empty");
+        }
+    }
+
     public void setBackendSelectionMode(String backendSelectionMode) {
         this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
@@ -4363,6 +4464,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum(String clusterName) {
+        // Apply the limit after resolving user properties, automatic sizing, and historical session values.
+        return Math.min(resolveParallelExecInstanceNum(clusterName), 256);
+    }
+
+    private int resolveParallelExecInstanceNum(String clusterName) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
             int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
@@ -5817,12 +5923,29 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    private static int normalizeIntValue(String name, String value) {
+    static int normalizeIntValue(String name, String value) {
         int intValue = Integer.valueOf(value);
-        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
-            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case RUNTIME_FILTER_TYPE:
+                return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+            // Historical and forwarded values bypass statement-time validation. Keep them valid
+            // before SET_VAR saves the original value for restoration through the strict setters.
+            case PARALLEL_PIPELINE_TASK_NUM:
+                return Math.max(0, Math.min(intValue, 256));
+            case COLOCATE_MAX_PARALLEL_NUM:
+            case LOAD_STREAM_PER_NODE:
+                return Math.max(1, Math.min(intValue, 256));
+            case MAX_SCANNERS_CONCURRENCY:
+            case MAX_FILE_SCANNERS_CONCURRENCY:
+            case MIN_SCANNERS_CONCURRENCY:
+            case MIN_FILE_SCANNERS_CONCURRENCY:
+            case PARALLEL_SCAN_MAX_SCANNERS_COUNT:
+            case SEND_BATCH_PARALLELISM:
+                // Non-positive values retain their existing BE default-selection semantics.
+                return Math.min(intValue, 256);
+            default:
+                return intValue;
         }
-        return intValue;
     }
 
     /**
@@ -6376,6 +6499,14 @@ public class SessionVariable implements Serializable, Writable {
         return useConsistentHashForExternalScan;
     }
 
+    public int getExternalScanConsistentHashSpreadNum() {
+        return externalScanConsistentHashSpreadNum;
+    }
+
+    public void checkExternalScanConsistentHashSpreadNum(String value) throws Exception {
+        checkFieldValue(EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, 0, value);
+    }
+
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
     }
@@ -6438,10 +6569,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
-    }
-
-    public boolean isEnableVariantSchemaAutoCast() {
-        return enableVariantSchemaAutoCast;
     }
 
     public void setProfileLevel(String profileLevel) {

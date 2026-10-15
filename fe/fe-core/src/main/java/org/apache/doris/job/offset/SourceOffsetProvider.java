@@ -44,6 +44,9 @@ public interface SourceOffsetProvider {
      */
     default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
+    /** Permanently close runtime resources and prevent subsequent metadata requests. */
+    default void close() {}
+
     /**
      * One-time initialization on fresh job creation (not on FE restart). Subclasses may
      * initialize split progress, fetch initial splits, or open remote readers.
@@ -102,6 +105,11 @@ public interface SourceOffsetProvider {
      */
     void fetchRemoteMeta(Map<String, String> properties) throws Exception;
 
+    default void fetchRemoteMeta(StreamingJobProperties jobProperties, Map<String, String> properties)
+            throws Exception {
+        fetchRemoteMeta(properties);
+    }
+
     /**
      * Whether there is more data to consume
      *
@@ -143,9 +151,7 @@ public interface SourceOffsetProvider {
     }
 
     /**
-     * Restore offset from persisted string during image load (gsonPostProcess).
-     * Called immediately after the provider is created so that even PAUSED jobs
-     * have the correct offset state.
+     * Restore offset from an image or job update journal, including for PAUSED jobs.
      */
     default void restoreFromPersistInfo(String persistInfo) {
     }
@@ -206,12 +212,22 @@ public interface SourceOffsetProvider {
         return 0;
     }
 
+    /** Snapshot phase lasts until splitting and consumption of produced splits both finish. */
+    default boolean isSnapshotPhase() {
+        return !noMoreSplits() || pendingSplitCount() > 0;
+    }
+
     /** Get the latest successfully observed source-log lag in bytes, or -1 before any observation. */
     default long getLagBytes() {
         return -1;
     }
 
-    /** Get the source event timestamp at the committed offset as Unix seconds, or 0 if unavailable. */
+    /** Get the observed message backlog, or -1 if unavailable or not applicable. */
+    default long getLagMessages() {
+        return -1;
+    }
+
+    /** Get the source event timestamp of the latest committed batch as Unix seconds, or 0 if unavailable. */
     default long getLastSourceEventTimestampSeconds() {
         return 0;
     }

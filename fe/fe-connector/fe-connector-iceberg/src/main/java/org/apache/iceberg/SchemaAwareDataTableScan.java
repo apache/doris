@@ -29,17 +29,34 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     }
 
     public static TableScan newScan(Table table) {
-        return new SchemaAwareDataTableScan(table, table.schema(), TableScanContext.empty());
+        // Inherit the context of the table's own scan: it carries the table's metrics reporter (for example a REST
+        // catalog's scan reports), so a historical scan reports like a current one. A catalog-specific Table may
+        // return its own scan type; such a table keeps the plain context it had before.
+        TableScan tableScan = table.newScan();
+        TableScanContext context = tableScan instanceof DataTableScan
+                ? ((DataTableScan) tableScan).context() : TableScanContext.empty();
+        return new SchemaAwareDataTableScan(table, table.schema(), context);
     }
 
-    /** Returns every table spec rebound to {@code schema}. */
-    public static Map<Integer, PartitionSpec> specsFor(Table table, Schema schema) {
+    /** Returns the selected snapshot's specs bound to the scan schema. */
+    public static Map<Integer, PartitionSpec> specsFor(TableScan scan) {
+        Table table = scan.table();
+        Schema schema = scan.schema();
+        Map<Integer, PartitionSpec> tableSpecs = table.specs();
         if (schema.sameSchema(table.schema())) {
-            return table.specs();
+            return tableSpecs;
         }
 
         Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
-        table.specs().forEach((id, spec) -> specs.put(id, spec.toUnbound().bind(schema, true)));
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot != null) {
+            // Later, unused specs can have partition names that conflict with historical columns.
+            // Bind only specs referenced by this snapshot, including those needed for delete files.
+            for (ManifestFile manifest : snapshot.allManifests(table.io())) {
+                specs.computeIfAbsent(manifest.partitionSpecId(),
+                        id -> tableSpecs.get(id).toUnbound().bind(schema, true));
+            }
+        }
         return Collections.unmodifiableMap(specs);
     }
 
@@ -47,7 +64,7 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     protected Map<Integer, PartitionSpec> specs() {
         // A metadata-only schema commit preserves the current snapshot ID, so schema identity—not snapshot
         // identity—must decide whether historical partition specs need rebinding.
-        return specsFor(table(), tableSchema());
+        return specsFor(this);
     }
 
     @Override

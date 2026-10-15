@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/check.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -772,18 +773,45 @@ Status emit_exact_phrase_streaming_positions(const std::vector<size_t>& phrase_p
     return Status::OK();
 }
 
-// candidate_prefilter (optional): an ascending docid set the phrase must ALSO
-// lie in. When provided, the leading-term conjunction is intersected with it so
-// only docs in the prefilter get their positions read. Docs outside the
-// prefilter cannot contribute (the caller guarantees the final answer is a
-// subset), so this is result-preserving while cutting the position decode --
-// used by phrase-prefix to restrict the huge leading-phrase candidate set to
-// the docs that also carry some tail expansion.
+// Candidate restrictions: a prefilter bounds the leading-term conjunction so
+// only its docs get their positions read; a filter drops non-candidates from the
+// conjunction result. Docs outside the restriction cannot contribute (the caller
+// guarantees the final answer is a subset), so both are result-preserving.
+// Phrase-prefix prefilters with the docs that also carry some tail expansion.
+
+constexpr uint64_t kCandidateFilterDfRatio = 8;
+
+uint32_t min_plan_df(const std::vector<TermPlan>& plans) {
+    uint32_t min_df = std::numeric_limits<uint32_t>::max();
+    for (const TermPlan& plan : plans) {
+        min_df = std::min(min_df, plan.df);
+    }
+    return min_df;
+}
 
 } // namespace
+CandidateRestriction restrict_to_candidates(const roaring::Roaring* candidates, uint32_t min_df,
+                                            std::vector<uint32_t>* storage) {
+    if (candidates == nullptr) {
+        return {};
+    }
+    if (candidates->cardinality() > static_cast<uint64_t>(min_df) * kCandidateFilterDfRatio) {
+        return {.filter = candidates};
+    }
+    storage->resize(candidates->cardinality());
+    candidates->toUint32Array(storage->data());
+    return {.prefilter = storage};
+}
+
+void retain_candidates(const roaring::Roaring& candidates, std::vector<uint32_t>* docids) {
+    roaring::BulkContext context;
+    std::erase_if(*docids,
+                  [&](uint32_t docid) { return !candidates.containsBulk(context, docid); });
+}
+
 Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRangeFetcher* round1,
                                     std::vector<TermPlan>* plans, PhraseExecutionState* state,
-                                    const std::vector<uint32_t>* candidate_prefilter,
+                                    CandidateRestriction candidates,
                                     format::PrxDecodeContext* observer_context,
                                     PhraseCandidateMetric candidate_metric) {
     if (round1->pending() > 0) {
@@ -795,15 +823,24 @@ Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRang
     state->owners.clear();
     state->candidates.clear();
     std::vector<DocidSource> doc_sources;
-    if (candidate_prefilter != nullptr) {
-        if (candidate_prefilter->empty()) {
+    DORIS_CHECK(candidates.prefilter == nullptr || candidates.filter == nullptr);
+    if (candidates.prefilter != nullptr) {
+        if (candidates.prefilter->empty()) {
             return Status::OK();
         }
         RETURN_IF_ERROR(internal::filter_docids_by_conjunction(
-                idx, *round1, *plans, *candidate_prefilter, &state->candidates, &doc_sources));
+                idx, *round1, *plans, *candidates.prefilter, &state->candidates, &doc_sources));
     } else {
         RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans,
                                                                &state->candidates, &doc_sources));
+    }
+    if (candidates.filter != nullptr) {
+        // The filter dropped docs these chunks still hold, so no source holds the final
+        // candidates.
+        retain_candidates(*candidates.filter, &state->candidates);
+        for (DocidSource& source : doc_sources) {
+            source.docids_are_final_candidates = false;
+        }
     }
     if (observer_context != nullptr && observer_context->query_stats != nullptr) {
         if (candidate_metric == PhraseCandidateMetric::kExact) {
@@ -829,11 +866,10 @@ Status execute_phrase_plans_at_offsets(
         const std::vector<size_t>& phrase_plan_index, const std::vector<uint32_t>& position_offsets,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* observer_context,
         std::vector<PhraseMatch>* matches, const PhraseQueryOptions& options,
-        const std::vector<uint32_t>* candidate_prefilter,
-        internal::ExactPhrasePositionAccess position_access) {
+        CandidateRestriction candidates, internal::ExactPhrasePositionAccess position_access) {
     DCHECK_EQ(phrase_plan_index.size(), position_offsets.size());
     PhraseExecutionState state;
-    RETURN_IF_ERROR(build_phrase_execution_state(idx, round1, plans, &state, candidate_prefilter,
+    RETURN_IF_ERROR(build_phrase_execution_state(idx, round1, plans, &state, candidates,
                                                  observer_context, PhraseCandidateMetric::kExact));
     if (state.candidates.empty()) {
         return Status::OK();
@@ -877,9 +913,12 @@ Status execute_phrase_plans(const LogicalIndexReader& idx, io::BatchRangeFetcher
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "phrase_query: phrase length exceeds doc position range");
     }
-    return execute_phrase_plans_at_offsets(idx, round1, plans, phrase_plan_index, position_offsets,
-                                           docids, observer_context, matches, options, nullptr,
-                                           internal::ExactPhrasePositionAccess::kAuto);
+    std::vector<uint32_t> candidate_docids;
+    return execute_phrase_plans_at_offsets(
+            idx, round1, plans, phrase_plan_index, position_offsets, docids, observer_context,
+            matches, options,
+            restrict_to_candidates(options.candidates, min_plan_df(*plans), &candidate_docids),
+            internal::ExactPhrasePositionAccess::kAuto);
 }
 
 } // namespace doris::snii::query::phrase_impl
@@ -893,7 +932,7 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
                                               std::vector<uint32_t>* docids,
                                               format::PrxDecodeContext* observer_context,
                                               std::vector<PhraseMatch>* matches,
-                                              const std::vector<uint32_t>* candidate_prefilter,
+                                              const roaring::Roaring* candidates,
                                               internal::ExactPhrasePositionAccess position_access) {
     if (docids == nullptr && matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("resolved_phrase_plan: null out");
@@ -914,8 +953,8 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
         const internal::ResolvedQueryTerm& term = plan.unique_terms[plan.phrase_plan_index.front()];
         RETURN_IF_ERROR(internal::read_docid_posting(idx, term.entry, term.frq_base, term.prx_base,
                                                      docids));
-        if (candidate_prefilter != nullptr) {
-            *docids = internal::intersect_sorted(*docids, *candidate_prefilter);
+        if (candidates != nullptr) {
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }
@@ -925,9 +964,12 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
     RETURN_IF_ERROR(internal::plan_resolved_terms(idx, std::move(plan.unique_terms), &round1,
                                                   &plans,
                                                   /*need_positions=*/false));
-    return execute_phrase_plans_at_offsets(idx, &round1, &plans, plan.phrase_plan_index,
-                                           plan.position_offsets, docids, observer_context, matches,
-                                           {}, candidate_prefilter, position_access);
+    std::vector<uint32_t> candidate_docids;
+    return execute_phrase_plans_at_offsets(
+            idx, &round1, &plans, plan.phrase_plan_index, plan.position_offsets, docids,
+            observer_context, matches, {},
+            restrict_to_candidates(candidates, min_plan_df(plans), &candidate_docids),
+            position_access);
 }
 
 } // namespace doris::snii::query

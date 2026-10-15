@@ -111,6 +111,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
     // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    private static final String CONTAINS_NATIVE_PARQUET = "hudi.contains_native_parquet";
     static final String SCAN_REUSE_NAMESPACE = "hudi.scan-reuse";
 
     // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
@@ -209,15 +210,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // with generation-A schema_id values) could be paired with alias B's generation-B
         // history_schema_info dictionary, causing BE to map files through wrong field identities.
         // The scope is NONE for offline planning and tests, in which case the loader runs on every
-        // call. Session variables are constant within a statement and deliberately absent.
+        // call. Session variables are constant within a statement and deliberately absent. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
         HudiStatementTable statementTable = resolveHudiTable(
                 session, (HudiTableHandle) request.getTableHandle());
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey(
                 (HudiTableHandle) request.getTableHandle(), statementTable.generation);
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
@@ -501,6 +503,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // For MOR tables, default is JNI.
         props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, isCow ? "parquet" : "jni");
         props.put("table_format_type", "hudi");
+        // Lazy MOR splits can reveal a log-free Parquet file after BE has selected its scanner.
+        props.put(CONTAINS_NATIVE_PARQUET, Boolean.toString(!isForceJniScannerEnabled(session)
+                && hudiHandle.getInputFormat() != null
+                && hudiHandle.getInputFormat().toLowerCase(Locale.ROOT).contains("parquet")));
 
         // Partition keys
         List<String> partKeys = hudiHandle.getPartitionKeyNames();
@@ -605,6 +611,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
         HudiSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
+        if (Boolean.parseBoolean(nodeProperties.get(CONTAINS_NATIVE_PARQUET))) {
+            params.setContainsNativeParquet(true);
+        }
     }
 
     /**

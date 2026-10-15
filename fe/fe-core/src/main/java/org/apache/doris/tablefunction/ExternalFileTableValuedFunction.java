@@ -159,6 +159,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
@@ -172,6 +176,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 S3Util.validateAndTestEndpoint(
                         ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
             }
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
+            }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
                 // Always prefer glob semantics: for exact paths it ensures precise matching
@@ -184,8 +192,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     entries = fs.listFiles(Location.of(path));
                 }
                 for (FileEntry e : entries) {
-                    fileStatuses.add(new TBrokerFileStatus(
-                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    TBrokerFileStatus status = new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory());
+                    // BE keys cached blocks of external files by path and modification time, so a
+                    // file overwritten in place must arrive with its new mtime, not as mtime 0.
+                    status.setModificationTime(e.modificationTime());
+                    fileStatuses.add(status);
                 }
             } catch (IOException e) {
                 throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
@@ -222,15 +234,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
-
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
+        fileFormatProperties.enableMappingTimestampTz = true;
 
         String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
                 FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
@@ -502,6 +510,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
         if (!hiveParquetTimeZone.isEmpty()) {
             fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);

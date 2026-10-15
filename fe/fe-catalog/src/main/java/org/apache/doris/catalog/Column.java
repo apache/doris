@@ -174,6 +174,7 @@ public class Column implements GsonPostProcessable {
     // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
     // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
     private transient String connectorDefaultValueSql;
+    private transient Type connectorStringWriteType;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -407,6 +408,7 @@ public class Column implements GsonPostProcessable {
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.connectorDefaultValueSql = column.connectorDefaultValueSql;
+        this.connectorStringWriteType = column.connectorStringWriteType;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
@@ -559,13 +561,14 @@ public class Column implements GsonPostProcessable {
     // string/varchar/char/variant
     // date/datetime/datev2/datetimev2
     // decimal/decimal32/decimal64/decimal128I/decimal256
-    // ipv4/ipv6
+    // ipv4/ipv6/uuid
     public boolean isSupportBloomFilter() {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
                 || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
-                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
+                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType()
+                || pType.isUuidType();
     }
 
     public PrimitiveType getDataType() {
@@ -676,6 +679,14 @@ public class Column implements GsonPostProcessable {
         } else {
             return "'" + defaultValue.replace("'", "''") + "'";
         }
+    }
+
+    public Type getConnectorStringWriteType() {
+        return connectorStringWriteType;
+    }
+
+    public void setConnectorStringWriteType(Type connectorStringWriteType) {
+        this.connectorStringWriteType = connectorStringWriteType;
     }
 
     public String getConnectorDefaultValueSql() {

@@ -46,7 +46,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -2419,6 +2418,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getBinlogConfig().isEnableForStreaming();
     }
 
+    public boolean hasRowBinlogTtl() {
+        return getBinlogConfig().isRowTtlEnabled();
+    }
+
     // Whether the base table physically stores the row LSN column (dup table with row binlog).
     public boolean hasRowLsnColumn() {
         return getBaseSchema(true).stream().anyMatch(Column::isRowLsnColumn);
@@ -4116,11 +4119,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String childName = child.getName();
                 if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
                     try {
-                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
-                        if (compiled.matcher(subPathString).matches()) {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
                             fieldPattern = childName;
                         }
-                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
+                    } catch (Exception e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
@@ -4226,10 +4230,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return original;
         }
         List<Index> matched = new ArrayList<>();
+        List<Index> named = new ArrayList<>();
         for (Index index : original) {
             if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
                 matched.add(index);
+            } else if (InvertedIndexUtil.isAnalyzerNameMatched(index.getProperties(), analyzer)) {
+                named.add(index);
             }
+        }
+        // A built-in IK index is matched by its effective configuration, but an index created
+        // before that rule existed may be configured differently. When it is the only index that
+        // carries the requested name, keep serving the request from it as before; the predicate
+        // sends that index's own mode and lowercase settings to BE.
+        if (matched.isEmpty() && named.size() == 1) {
+            return named;
         }
         return matched;
     }

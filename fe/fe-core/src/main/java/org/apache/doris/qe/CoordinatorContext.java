@@ -276,7 +276,8 @@ public class CoordinatorContext {
 
     public static CoordinatorContext buildForSql(NereidsPlanner planner, NereidsCoordinator coordinator) {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
-        TQueryOptions queryOptions = initQueryOptions(connectContext);
+        TQueryOptions queryOptions = initQueryOptions(
+                connectContext, planner.getQueryOptions().getBeExecVersion());
         TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
         TDescriptorTable descriptorTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
@@ -327,9 +328,9 @@ public class CoordinatorContext {
                 executionProfile);
     }
 
-    private static TQueryOptions initQueryOptions(ConnectContext context) {
+    static TQueryOptions initQueryOptions(ConnectContext context, int beExecVersion) {
         TQueryOptions queryOptions = context.getSessionVariable().toThrift();
-        queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setBeExecVersion(beExecVersion);
         queryOptions.setQueryTimeout(context.getExecTimeoutS());
         queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (queryOptions.getExecutionTimeout() < 1) {
@@ -358,8 +359,8 @@ public class CoordinatorContext {
     public static TQueryGlobals createQueryGlobalsWithoutSession() {
         TQueryGlobals queryGlobals = new TQueryGlobals();
         setQueryGlobalsCurrentTime(queryGlobals);
-        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
-        queryGlobals.setTimeZone(timeZone.equals("CST") ? TimeUtils.DEFAULT_TIME_ZONE : timeZone);
+        queryGlobals.setTimeZone(
+                TimeUtils.getCanonicalTimeZone(VariableMgr.getDefaultSessionVariable().getTimeZone()));
         queryGlobals.setLoadZeroTolerance(false);
         return queryGlobals;
     }
@@ -371,7 +372,7 @@ public class CoordinatorContext {
     public static void setQueryGlobalsForLoad(
             TQueryGlobals queryGlobals, String timezone, boolean loadZeroTolerance) {
         setQueryGlobalsCurrentTime(queryGlobals);
-        queryGlobals.setTimeZone(timezone);
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(timezone));
         queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
     }
 
@@ -383,11 +384,7 @@ public class CoordinatorContext {
 
     public static void refreshQueryGlobals(TQueryGlobals queryGlobals, ConnectContext context) {
         setQueryGlobalsCurrentTime(queryGlobals, context.getStartTimeInstant());
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
         queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
     }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("st04_alter_ttl_n_to_0_runtime") {
+suite("st04_alter_ttl_n_to_0_runtime", "nonConcurrent") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance : false,
         file_cache_enter_disk_resource_limit_mode_percent : 99,
@@ -27,119 +27,160 @@ suite("st04_alter_ttl_n_to_0_runtime") {
     setBeConfigTemporary(customBeConfig) {
         def clusters = sql "SHOW CLUSTERS"
         assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """use @${validCluster};"""
-
+        String clusterName = clusters[0][0].toString()
+        def backends = sql_return_maparray("SHOW BACKENDS").findAll { be ->
+            "${be.Alive}".equalsIgnoreCase("true") &&
+                    parseJson(be.Tag.toString()).compute_group_name == clusterName
+        }.collectEntries { be -> [(be.BackendId as Long): be] }
+        assertTrue(!backends.isEmpty(), "No alive backends in ${clusterName}")
+        def backendIds = backends.keySet()
         String tableName = "st04_ttl_n_to_0_tpl"
-        def ddl = new File("""${context.file.parent}/../ddl/st04_alter_ttl_n_to_0_runtime.sql""").text
-                .replace("\${TABLE_NAME}", tableName)
-        sql ddl
+        String dataQuery = "select count(*), sum(k1), sum(length(v1)) from ${tableName}"
+        def tabletIds = []
+        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache")[0].collect { value ->
+            String setting = value.toString().toLowerCase(Locale.ROOT)
+            assertTrue(setting in ["true", "false", "0", "1"], "Unexpected cache setting: ${value}")
+            setting
+        }
 
-        String[][] backends = sql """show backends"""
-        def backendIdToBackendIP = [:]
-        def backendIdToBackendHttpPort = [:]
-        def backendIdToBackendBrpcPort = [:]
-        for (String[] backend in backends) {
-            if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
-                backendIdToBackendIP.put(backend[0], backend[1])
-                backendIdToBackendHttpPort.put(backend[0], backend[4])
-                backendIdToBackendBrpcPort.put(backend[0], backend[5])
+        def getCache = {
+            sql "use @${clusterName}"
+            def rows = sql """select be_id, cache_path, tablet_id, `hash`, `offset`, size, lower(type)
+                from information_schema.file_cache_info
+                where tablet_id in (${tabletIds.join(',')}) and be_id in (${backendIds.join(',')})"""
+            def blocks = [:]
+            rows.each { row ->
+                def key = [row[0] as Long, row[1].toString(), row[2] as Long,
+                           row[3].toString(), row[4] as Long]
+                assertTrue(backendIds.contains(key[0]) && tabletIds.contains(key[2]),
+                        "Cache outside ${clusterName}/${tabletIds}: ${row}")
+                assertTrue(!blocks.containsKey(key), "Duplicate cache block: ${key}")
+                blocks[key] = [size: row[5] as Long, type: row[6]?.toString()]
+            }
+            blocks
+        }
+        def summarizeCache = { Map blocks ->
+            blocks.groupBy { key, value -> [key[0], key[2]] }.collectEntries { key, entries ->
+                [(key): [blocks: entries.size(),
+                         bytesByType: entries.values().groupBy { it.type }.collectEntries { type, values ->
+                             [(type): values.sum(0L) { it.size }]
+                         }]]
             }
         }
-        assertEquals(backendIdToBackendIP.size(), 1)
-
-        def backendId = backendIdToBackendIP.keySet()[0]
-        def clearUrl = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + "/api/file_cache?op=clear&sync=true"
-        httpTest {
-            endpoint ""
-            uri clearUrl
-            op "get"
-            body ""
-            check { respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-            }
-        }
-
-        def getTabletIds = { String tbl ->
-            def tablets = sql """show tablets from ${tbl}"""
-            assertTrue(tablets.size() > 0, "No tablets found for table ${tbl}")
-            tablets.collect { it[0] as Long }
-        }
-
-        def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 600000L, long intervalMs = 2000L ->
-            long start = System.currentTimeMillis()
-            while (System.currentTimeMillis() - start < timeoutMs) {
-                boolean allMatch = true
-                for (Long tabletId in tabletIds) {
-                    def rows = sql """select type from information_schema.file_cache_info where tablet_id = ${tabletId}"""
-                    if (rows.isEmpty()) {
-                        allMatch = false
-                        break
-                    }
-                    def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
-                    if (mismatch) {
-                        allMatch = false
-                        break
-                    }
+        def waitForCache = { String description, Closure ready ->
+            // Updating the interval cannot interrupt an already sleeping background thread.
+            long deadline = System.currentTimeMillis() + 600000L
+            def blocks = [:]
+            def previous = null
+            while (System.currentTimeMillis() < deadline) {
+                blocks = getCache()
+                if (blocks != previous) {
+                    logger.info("${description}: cluster=${clusterName}, " +
+                            "cache_by_be_tablet=${summarizeCache(blocks)}, blocks=${blocks}")
+                    previous = blocks
                 }
-                if (allMatch) {
-                    return
+                if (ready(blocks)) {
+                    return blocks
                 }
-                sleep(intervalMs)
+                sleep(2000)
             }
-            assertTrue(false, "Timeout waiting for ${expectedType}, tablets=${tabletIds}")
+            assertTrue(false, "Timeout after 600000ms waiting for ${description}: " +
+                    "cluster=${clusterName}, tablets=${tabletIds}, BEs=${backendIds}, blocks=${blocks}")
         }
-
-        def waitTtlCacheSizeZero = { long timeoutMs = 120000L, long intervalMs = 2000L ->
-            long start = System.currentTimeMillis()
-            while (System.currentTimeMillis() - start < timeoutMs) {
-                long ttlCacheSize = -1L
-                httpTest {
-                    endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
-                    uri "/brpc_metrics"
-                    op "get"
-                    check { respCode, body ->
-                        assertEquals("${respCode}".toString(), "200")
-                        String out = "${body}".toString()
-                        def lines = out.split('\n')
-                        for (String line in lines) {
-                            if (line.startsWith("#")) {
-                                continue
-                            }
-                            if (line.contains("ttl_cache_size")) {
-                                def idx = line.indexOf(' ')
-                                ttlCacheSize = line.substring(idx).trim().toLong()
-                                break
-                            }
+        def getGlobalTtlBytes = {
+            // Diagnostic only: other tables and busy blocks may keep the BE's TTL queue nonempty.
+            backends.collectEntries { id, be ->
+                Long bytes = null
+                try {
+                    String metrics = new URL("http://${be.Host}:${be.BrpcPort}/brpc_metrics")
+                            .getText(connectTimeout: 5000, readTimeout: 5000)
+                    def values = metrics.readLines().findResults { line ->
+                        def fields = line.trim().split(/\s+/)
+                        if (fields.size() == 2 && (fields[0] == "file_cache_ttl_cache_size" ||
+                                fields[0].endsWith("_file_cache_ttl_cache_size"))) {
+                            return fields[1] as Long
                         }
+                        null
                     }
+                    if (!values.isEmpty()) {
+                        bytes = values.sum(0L)
+                    }
+                } catch (Exception e) {
+                    logger.warn("Cannot read diagnostic TTL metric for BE ${id}: ${e.message}")
                 }
-                if (ttlCacheSize == 0L) {
-                    return
-                }
-                sleep(intervalMs)
+                [(id): bytes]
             }
-            assertTrue(false, "Timeout waiting ttl_cache_size = 0")
         }
 
-        def insertBatch = { int start, int end ->
-            def values = (start..<end).collect { i -> "(${i}, 'value_${i}')" }.join(",")
-            sql """insert into ${tableName} values ${values}"""
+        try {
+            sql "use @${clusterName}"
+            sql "set enable_sql_cache = false"
+            sql "set enable_query_cache = false"
+            def ddl = new File("${context.file.parent}/../ddl/st04_alter_ttl_n_to_0_runtime.sql").text
+                    .replace('${TABLE_NAME}', tableName)
+            sql ddl
+            tabletIds = sql_return_maparray("show tablets from ${tableName}")
+                    .collect { it.TabletId as Long }.unique().sort()
+            assertTrue(tabletIds.size() == 8, "Expected 8 tablets: ${tabletIds}")
+
+            // Fresh tablet IDs isolate this case without clearing other tables' caches.
+            [0, 200].each { start ->
+                def values = (start..<(start + 200)).collect { i -> "(${i}, 'value_${i}')" }.join(",")
+                sql "insert into ${tableName} values ${values}"
+            }
+            qt_before_alter dataQuery
+
+            def candidate = null
+            long stableSince = 0L
+            def baseline = waitForCache("stable TTL baseline") { blocks ->
+                boolean allTtl = tabletIds.every { id -> blocks.keySet().any { it[2] == id } } &&
+                        blocks.values().every { it.size > 0L && it.type == "ttl" }
+                if (!allTtl || blocks != candidate) {
+                    candidate = allTtl ? blocks : null
+                    stableSince = System.currentTimeMillis()
+                    return false
+                }
+                System.currentTimeMillis() - stableSince >= 3000L
+            }
+            def globalBefore = getGlobalTtlBytes()
+            logger.info("TTL before ALTER: global_by_be=${globalBefore}, " +
+                    "case_by_be_tablet=${summarizeCache(baseline)}")
+            sql "alter table ${tableName} set (\"file_cache_ttl_seconds\"=\"0\")"
+
+            // Do not read table data here: verify the background conversion of existing blocks.
+            def lastDifference = null
+            def converted = waitForCache("existing TTL blocks to become NORMAL") { blocks ->
+                def difference = [missing: baseline.keySet() - blocks.keySet(),
+                                  unexpected: blocks.keySet() - baseline.keySet(),
+                                  changed: blocks.findAll { key, value ->
+                                      value.type != "normal" || value.size != baseline[key]?.size
+                                  }]
+                if (difference != lastDifference) {
+                    logger.info("TTL conversion differences: ${difference}")
+                    lastDifference = difference
+                }
+                difference.values().every { it.isEmpty() }
+            }
+            // Exact block equality also ensures every tablet retains its nonzero baseline bytes.
+            def globalAfter = getGlobalTtlBytes()
+            def globalDelta = backendIds.collectEntries { id ->
+                [(id): globalBefore[id] != null && globalAfter[id] != null ?
+                        globalAfter[id] - globalBefore[id] : null]
+            }
+            logger.info("TTL after ALTER: global_by_be=${globalAfter}, global_delta_by_be=${globalDelta}, " +
+                    "case_by_be_tablet=${summarizeCache(converted)}")
+            qt_after_alter dataQuery
+        } finally {
+            try {
+                sql "use @${clusterName}"
+                sql "drop table if exists ${tableName} force"
+            } finally {
+                try {
+                    sql "set enable_sql_cache = ${originalQueryCache[0]}"
+                } finally {
+                    sql "set enable_query_cache = ${originalQueryCache[1]}"
+                }
+            }
         }
-        insertBatch(0, 200)
-        insertBatch(200, 400)
-
-        qt_sql """select count(*) from ${tableName} where v1 like 'value_%'"""
-        sleep(5000)
-
-        def tabletIds = getTabletIds.call(tableName)
-        waitForFileCacheType.call(tabletIds, "ttl")
-
-        // ST-04 未覆盖点模板：运行期 ALTER N->0 后，缓存类型应从 ttl 转为 normal
-        sql """alter table ${tableName} set ("file_cache_ttl_seconds"="0")"""
-        waitForFileCacheType.call(tabletIds, "normal")
-        waitTtlCacheSizeZero.call()
-
-        sql """drop table if exists ${tableName}"""
     }
 }

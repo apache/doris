@@ -18,16 +18,41 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 
@@ -36,10 +61,8 @@ public class PercentileReservoirParameterTest {
     void testRejectNaNAndOutOfRangeLevels() {
         for (double level : new double[] {Double.NaN, Double.NEGATIVE_INFINITY,
                 Double.POSITIVE_INFINITY, -0.1, 1.1}) {
-            for (Expression expression : variants(level)) {
-                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                        expression::checkLegalityBeforeTypeCoercion);
-                Assertions.assertTrue(exception.getMessage().contains("level must be in [0, 1]"));
+            for (Expression expression : variants(new DoubleLiteral(level))) {
+                assertRejected(expression, "level must be in [0, 1]");
             }
         }
     }
@@ -47,15 +70,310 @@ public class PercentileReservoirParameterTest {
     @Test
     void testAcceptEndpointsAndInteriorLevels() {
         for (double level : new double[] {-0.0, 0.0, 0.5, 1.0}) {
-            for (Expression expression : variants(level)) {
-                Assertions.assertDoesNotThrow(expression::checkLegalityBeforeTypeCoercion);
+            for (Expression expression : variants(new DoubleLiteral(level))) {
+                assertAccepted(expression);
             }
         }
     }
 
-    private List<Expression> variants(double level) {
+    @Test
+    void testFoldableConstantLevelIsRangeCheckedInBothPhases() {
+        // 0.25 + 0.25 is a constant but not a literal before constant folding
+        for (Expression expression : variants(new Add(new DoubleLiteral(0.25), new DoubleLiteral(0.25)))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Add(new DoubleLiteral(0.25), new DoubleLiteral(1.25)))) {
+            assertRejected(expression, "level must be in [0, 1]");
+        }
+        for (Expression expression : variants(new Cast(new DecimalV3Literal(new BigDecimal("0.5")),
+                DoubleType.INSTANCE))) {
+            assertAccepted(expression);
+        }
+    }
+
+    @Test
+    void testRejectConstantLevelThatCannotBeFolded() {
+        // pow has no FE constant folding implementation, so the level never becomes a literal
+        for (Expression expression : variants(new Pow(new DoubleLiteral(0.5), new DoubleLiteral(1)))) {
+            assertRejected(expression, "must be a constant");
+        }
+    }
+
+    @Test
+    void testUserNonNullableLevelIsNotUnwrappedInAnalysis() {
+        // non_nullable rejects a NULL value and FE does not fold it, so analysis must not look beneath it,
+        // otherwise non_nullable(CAST('' AS DOUBLE)) would run as a NULL level and nvl(...) as 0.25
+        Expression nullLevel = new NonNullable(new Cast(new VarcharLiteral(""), DoubleType.INSTANCE));
+        withStrictCast(false, () -> {
+            for (Expression level : Arrays.asList(nullLevel, new Nvl(nullLevel, new DoubleLiteral(0.25)))) {
+                for (Expression expression : variants(level)) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            expression::checkLegalityBeforeTypeCoercion);
+                    Assertions.assertTrue(exception.getMessage().contains("must be a constant"),
+                            exception.getMessage());
+                    Assertions.assertThrows(AnalysisException.class,
+                            ((RewriteWhenAnalyze) expression)::rewriteWhenAnalyze);
+                }
+            }
+            // nullable never changes the value, so the level beneath it is validated and executed
+            assertAnalyzedLevel(new Nullable(new DoubleLiteral(0.25)), new Nullable(new DoubleLiteral(0.25)));
+        });
+    }
+
+    @Test
+    void testRejectNonConstantLevel() {
+        for (Expression expression : variants(SlotReference.of("level", DoubleType.INSTANCE))) {
+            assertRejected(expression, "must be a constant");
+        }
+    }
+
+    @Test
+    void testNonDoubleLiteralLevelIsCastBeforeRangeCheck() {
+        for (Expression expression : variants(new VarcharLiteral("0.5"))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new VarcharLiteral("5"))) {
+            assertRejected(expression, "level must be in [0, 1]");
+        }
+        for (Expression expression : variants(new NullLiteral(DoubleType.INSTANCE))) {
+            assertAccepted(expression);
+        }
+    }
+
+    @Test
+    void testInvalidStringLevelFollowsImplicitCastMode() {
+        // the level takes the same VARCHAR to DOUBLE cast as signature coercion, so the implicit
+        // and the explicit form agree: NULL under non-strict cast, an error under strict cast
+        List<Expression> levels = Arrays.asList(new VarcharLiteral(""), new VarcharLiteral("abc"),
+                new Cast(new VarcharLiteral(""), DoubleType.INSTANCE));
+        withStrictCast(false, () -> {
+            for (Expression level : levels) {
+                for (Expression expression : variants(level)) {
+                    assertAccepted(expression);
+                }
+            }
+        });
+        withStrictCast(true, () -> {
+            for (Expression level : levels) {
+                for (Expression expression : variants(level)) {
+                    assertRejected(expression, "can't cast to double in strict mode");
+                }
+            }
+        });
+    }
+
+    @Test
+    void testNanPayloadStringLevelIsRejected() {
+        // BE parses a NaN payload as NaN, so the check must see NaN instead of a failed cast
+        List<Expression> levels = Arrays.asList(new VarcharLiteral("nan(foo)"),
+                new Cast(new VarcharLiteral(" -nan(ind) "), DoubleType.INSTANCE));
+        for (boolean strictCast : new boolean[] {false, true}) {
+            withStrictCast(strictCast, () -> {
+                for (Expression level : levels) {
+                    for (Expression expression : variants(level)) {
+                        assertRejected(expression, "level must be in [0, 1], but got NaN");
+                    }
+                }
+            });
+        }
+    }
+
+    @Test
+    void testDecimalV2DivisionLevelFoldsLikeBe() {
+        DecimalV2Type type = DecimalV2Type.createDecimalV2Type(27, 9);
+        // 0 / 2 is the valid level 0; FoldConstantTest pins that it folds to 0 rather than NULL
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ZERO), new DecimalLiteral(type, new BigDecimal("2"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, new BigDecimal("3")), new DecimalLiteral(type, new BigDecimal("2"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.5");
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, BigDecimal.ZERO)))) {
+            assertAccepted(expression);
+        }
+        // a recurring or an excess-scale quotient is rounded to scale 9 like BE, not rejected
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, new BigDecimal("3"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, new BigDecimal("1024"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, new BigDecimal("4")), new DecimalLiteral(type, new BigDecimal("3"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.333333333");
+        }
+    }
+
+    @Test
+    void testDecimalV3DivisionLevelFoldsLikeBe() {
+        // type coercion shapes 2.0 / 3 as DECIMALV3(6, 5) / DECIMALV3(3, 0); BE truncates the quotient
+        DecimalV3Type dividendType = DecimalV3Type.createDecimalV3Type(6, 5);
+        DecimalV3Type divisorType = DecimalV3Type.createDecimalV3Type(3, 0);
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(4, 0), new BigDecimal("1024"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("4.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.33333");
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(divisorType, BigDecimal.ZERO)))) {
+            assertAccepted(expression);
+        }
+    }
+
+    @Test
+    void testAnalyzedLevelIsTheValidatedLiteral() {
+        // BE executes the folded level instead of evaluating the constant expression again, so an
+        // unfolded plan (load, DISTINCT, debug_skip_fold_constant) cannot compute another value,
+        // e.g. BE widens FLOAT 0.1 to 0.10000000149011612 while FE folds it to 0.1
+        Expression floatLevel = new Cast(new FloatLiteral(0.1f), DoubleType.INSTANCE);
+        Expression sumLevel = new Add(new DoubleLiteral(0.25), new DoubleLiteral(0.25));
+        Expression invalidStringLevel = new Cast(new VarcharLiteral(""), DoubleType.INSTANCE);
+        withStrictCast(false, () -> {
+            assertAnalyzedLevel(floatLevel, new DoubleLiteral(0.1));
+            assertAnalyzedLevel(sumLevel, new DoubleLiteral(0.5));
+            assertAnalyzedLevel(invalidStringLevel, new NullLiteral(DoubleType.INSTANCE));
+        });
+    }
+
+    @Test
+    void testAnalyzedLevelKeepsStateLayout() {
+        // CAST('0.25' AS DOUBLE) is nullable, so percentile_reservoir_state(v, CAST('0.25' AS DOUBLE)) has the
+        // layout percentile_reservoir(DOUBLE, DOUBLE NULL). The analyzer rebuilds functions without keeping their
+        // signatures, so the executed literal must stay nullable to keep that layout for union / merge.
+        Expression nullableLevel = new Cast(new VarcharLiteral("0.25"), DoubleType.INSTANCE);
+        Assertions.assertTrue(nullableLevel.nullable());
+        withStrictCast(false, () -> {
+            for (Expression expression : variants(nullableLevel)) {
+                Expression rewritten = MoreFieldsThread.keepFunctionSignature(false,
+                        () -> ((RewriteWhenAnalyze) expression).rewriteWhenAnalyze());
+                Assertions.assertEquals(new Nullable(new DoubleLiteral(0.25)), rewritten.child(1));
+                Assertions.assertEquals(expression.getDataType(), rewritten.getDataType());
+                Assertions.assertEquals(expression.nullable(), rewritten.nullable());
+                // a later rebuild during analysis, e.g. NormalizeAggregate, derives the same layout again
+                Expression rebuilt = MoreFieldsThread.keepFunctionSignature(false,
+                        () -> rewritten.withChildren(rewritten.children()));
+                Assertions.assertEquals(expression.getDataType(), rebuilt.getDataType());
+                // the executed level is accepted when the rewritten plan is analyzed or checked again
+                assertAccepted(rewritten);
+            }
+        });
+        Assertions.assertEquals(aggStateType(DoubleType.INSTANCE, true),
+                StateCombinator.create(new PercentileReservoir(
+                        new SlotReference("value", DoubleType.INSTANCE, false), nullableLevel)).getDataType());
+    }
+
+    @Test
+    void testLevelWrappedByAggStateCastIsAccepted() {
         PercentileReservoir function = new PercentileReservoir(
-                SlotReference.of("value", DoubleType.INSTANCE), new DoubleLiteral(level));
+                new SlotReference("value", DoubleType.INSTANCE, false), new DoubleLiteral(0.25));
+        AggStateType nullableLevel = aggStateType(DoubleType.INSTANCE, true);
+        // CAST(percentile_reservoir_state(v, 0.25) AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)>)
+        // wraps the level in Nullable to keep the requested state layout
+        Expression state = convertAggStateCast(StateCombinator.create(function), nullableLevel);
+        Assertions.assertInstanceOf(Nullable.class, state.child(1));
+        Assertions.assertEquals(nullableLevel, state.getDataType());
+        assertAccepted(state);
+
+        // chained casts convert the same state again: back to a NOT NULL level gives NonNullable(Nullable(0.25))
+        Expression chained = convertAggStateCast(state, aggStateType(DoubleType.INSTANCE, false));
+        Assertions.assertInstanceOf(NonNullable.class, chained.child(1));
+        assertAccepted(chained);
+
+        // through a nullable FLOAT level to a nullable DOUBLE level gives Cast(Nullable(Cast(0.25 AS FLOAT)))
+        chained = convertAggStateCast(convertAggStateCast(StateCombinator.create(function),
+                aggStateType(FloatType.INSTANCE, true)), nullableLevel);
+        Assertions.assertInstanceOf(Cast.class, chained.child(1));
+        Assertions.assertInstanceOf(Nullable.class, chained.child(1).child(0));
+        assertAccepted(chained);
+
+        // the analyzed level of a nullable constant such as if(true, 0.25, NULL) is Nullable(0.25), and a cast to
+        // a NOT NULL level gives NonNullable(Nullable(0.25)), which an INSERT that is not planned by the fast
+        // VALUES path analyzes again
+        PercentileReservoir nullableLevelFunction = new PercentileReservoir(
+                new SlotReference("value", DoubleType.INSTANCE, false),
+                new If(BooleanLiteral.TRUE, new DoubleLiteral(0.25), new NullLiteral(DoubleType.INSTANCE)));
+        Expression analyzedState = StateCombinator.create(nullableLevelFunction).rewriteWhenAnalyze();
+        Assertions.assertEquals(new Nullable(new DoubleLiteral(0.25)), analyzedState.child(1));
+        Expression notNullState = convertAggStateCast(analyzedState, aggStateType(DoubleType.INSTANCE, false));
+        Assertions.assertInstanceOf(NonNullable.class, notNullState.child(1));
+        assertAccepted(notNullState);
+
+        for (Expression level : Arrays.asList(new Nullable(new DoubleLiteral(1.5)),
+                new NonNullable(new Nullable(new DoubleLiteral(1.5))))) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> state.withChildren(ImmutableList.of(state.child(0), level)).checkLegalityAfterRewrite());
+            Assertions.assertTrue(exception.getMessage().contains("level must be in [0, 1]"),
+                    exception.getMessage());
+        }
+    }
+
+    private AggStateType aggStateType(DataType levelType, boolean levelNullable) {
+        return new AggStateType("percentile_reservoir", ImmutableList.of(DoubleType.INSTANCE, levelType),
+                ImmutableList.of(false, levelNullable), true);
+    }
+
+    private Expression convertAggStateCast(Expression state, AggStateType target) {
+        Expression converted = ConvertAggStateCast.convert(new Cast(state, target)).child(0);
+        Assertions.assertInstanceOf(StateCombinator.class, converted);
+        return converted;
+    }
+
+    private void assertAnalyzedLevel(Expression level, Expression expected) {
+        for (Expression expression : variants(level)) {
+            Expression rewritten = ((RewriteWhenAnalyze) expression).rewriteWhenAnalyze();
+            Assertions.assertEquals(expression.getClass(), rewritten.getClass());
+            Assertions.assertEquals(expression.child(0), rewritten.child(0));
+            Assertions.assertEquals(expected, rewritten.child(1));
+        }
+    }
+
+    private void withStrictCast(boolean strictCast, Runnable check) {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = strictCast;
+        connectContext.setThreadLocalInfo();
+        try {
+            check.run();
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertAccepted(Expression expression) {
+        Assertions.assertDoesNotThrow(expression::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(expression::checkLegalityAfterRewrite);
+    }
+
+    private void assertRejected(Expression expression, String message) {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                expression::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
+        exception = Assertions.assertThrows(AnalysisException.class, expression::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
+    }
+
+    private List<Expression> variants(Expression level) {
+        PercentileReservoir function = new PercentileReservoir(
+                SlotReference.of("value", DoubleType.INSTANCE), level);
         return Arrays.asList(function, StateCombinator.create(function),
                 new CombineCombinator(function.getArguments(), function));
     }

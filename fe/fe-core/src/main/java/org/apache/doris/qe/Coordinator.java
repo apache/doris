@@ -40,7 +40,6 @@ import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -86,7 +85,6 @@ import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -116,7 +114,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 import org.apache.doris.thrift.TScanRange;
@@ -357,7 +354,10 @@ public class Coordinator implements CoordInterface {
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
 
-        initQueryOptions(context);
+        this.queryOptions = CoordinatorContext.initQueryOptions(
+                context, planner.getQueryOptions().getBeExecVersion());
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
         useNereids = planner instanceof NereidsPlanner;
         if (!useNereids) {
             // Enable local shuffle on pipelineX engine only if Nereids planner is applied.
@@ -365,8 +365,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-        setFromUserProperty(context);
-
         CoordinatorContext.refreshQueryGlobals(this.queryGlobals, context);
         this.queryGlobals.setLoadZeroTolerance(false);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
@@ -402,38 +400,6 @@ public class Coordinator implements CoordInterface {
             fragmentIds.add(fragment.getFragmentId().asInt());
         }
         this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
-    }
-
-    private void setFromUserProperty(ConnectContext connectContext) {
-        String qualifiedUser = connectContext.getQualifiedUser();
-        // set cpu resource limitch
-        int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
-        if (cpuLimit > 0) {
-            // overwrite the cpu resource limit from session variable;
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuLimit);
-            this.queryOptions.setResourceLimit(resourceLimit);
-        }
-        // set exec mem limit
-        long memLimit = connectContext.getMaxExecMemByte();
-        if (memLimit > 0) {
-            // overwrite the exec_mem_limit from session variable;
-            this.queryOptions.setMemLimit(memLimit);
-        }
-    }
-
-    private void initQueryOptions(ConnectContext context) {
-        this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setQueryTimeout(context.getExecTimeoutS());
-        this.queryOptions.setExecutionTimeout(context.getExecTimeoutS());
-        if (this.queryOptions.getExecutionTimeout() < 1) {
-            LOG.info("try set timeout less than 1", new RuntimeException(""));
-        }
-        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-        this.queryOptions.setMysqlRowBinaryFormat(
-                    context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
-        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
-        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {
@@ -767,6 +733,10 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -785,8 +755,12 @@ public class Coordinator implements CoordInterface {
                     // AllBackendComputeGroup may assocatiate with multiple workload groups
                     queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    queueToken.get(DebugUtil.printId(queryId),
-                            this.queryOptions.getExecutionTimeout() * 1000);
+                    try {
+                        queueToken.get(DebugUtil.printId(queryId),
+                                this.queryOptions.getExecutionTimeout() * 1000);
+                    } catch (UserException e) {
+                        throw preferTerminalReason(e);
+                    }
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
@@ -922,6 +896,9 @@ public class Coordinator implements CoordInterface {
     protected void sendPipelineCtx() throws Exception {
         lock();
         try {
+            if (!queryStatus.ok()) {
+                throw new UserException(queryStatus.getErrorMsg());
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -1409,12 +1386,6 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        if (queueToken != null) {
-            queueToken.cancel();
-        }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
@@ -1439,6 +1410,21 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+        if (queueToken != null) {
+            queueToken.cancel();
+        }
+        // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
+        // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
+        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
+        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scannode stop during cancel, query id: {}",
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     public boolean isQueryCancelled() {
@@ -1448,6 +1434,28 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+    }
+
+    protected Status getQueryStatus() {
+        lock();
+        try {
+            return new Status(queryStatus);
+        } finally {
+            unlock();
+        }
+    }
+
+    /**
+     * A queue wait can be unblocked by {@code cancel()}, which records the real TIMEOUT/KILL reason on the
+     * coordinator before cancelling the token, while {@link QueueToken#get} can only report a generic
+     * "query is cancelled". Prefer the retained terminal reason when one is present.
+     */
+    protected UserException preferTerminalReason(UserException queueFailure) {
+        Status current = getQueryStatus();
+        if (!current.ok()) {
+            return new UserException(current.getErrorMsg());
+        }
+        return queueFailure;
     }
 
     private void cancelLatch() {
@@ -2771,8 +2779,7 @@ public class Coordinator implements CoordInterface {
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-        boolean hasExternalCommitData = params.isSetHivePartitionUpdates()
-                || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        boolean hasExternalCommitData = CommitDataSerializer.hasCommitData(params);
         if (ctx == null) {
             if (hasExternalCommitData) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
@@ -2842,18 +2849,9 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+            if (CommitDataSerializer.hasCommitData(params)) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
-                if (params.isSetHivePartitionUpdates()) {
-                    CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
-                }
-                if (params.isSetMcCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getMcCommitDatas());
-                }
+                CommitDataSerializer.feed(txn, params);
             }
 
             accepted = true;

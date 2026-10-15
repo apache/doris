@@ -162,6 +162,7 @@ private:
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
     snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -272,6 +273,10 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
+    // Approximate (gram) index: rows pruned / candidate rows left for expression re-verification.
+    RuntimeProfile::Counter* _gram_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_candidate_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_gate_gave_up_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 

@@ -152,14 +152,16 @@ public class JdbcSQLServerClientTest {
 
     @Test
     public void testSystemTypeNamesTakePrecedence() throws SQLException {
-        // the name based mapping is unchanged, the type code is only consulted for unknown names
+        // Recognized system names keep their mappings; JDBC type-code fallback is only for unknown names.
         Assertions.assertEquals(Type.SMALLINT, client.jdbcTypeToDoris(column("tinyint", Types.TINYINT, 3, 0)));
         Assertions.assertEquals(Type.INT, client.jdbcTypeToDoris(column("int identity", Types.INTEGER, 10, 0)));
         Assertions.assertEquals(ScalarType.createDecimalV3Type(19, 4),
                 client.jdbcTypeToDoris(column("money", Types.DECIMAL, 19, 4)));
-        Assertions.assertEquals(Type.STRING, client.jdbcTypeToDoris(column("varbinary", Types.VARBINARY, 20, 0)));
+        // System binary and offset types retain their native semantics instead of the legacy STRING mapping.
+        Assertions.assertEquals(ScalarType.createVarbinaryType(20),
+                client.jdbcTypeToDoris(column("varbinary", Types.VARBINARY, 20, 0)));
         Assertions.assertEquals(Type.STRING, client.jdbcTypeToDoris(column("timestamp", Types.BINARY, 8, 0)));
-        Assertions.assertEquals(Type.STRING,
+        Assertions.assertEquals(ScalarType.createTimeStampTzType(6),
                 client.jdbcTypeToDoris(column("datetimeoffset", SQL_SS_TIMESTAMPOFFSET, 34, 7)));
     }
 }

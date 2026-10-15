@@ -422,8 +422,9 @@ struct AddQuartersImpl {
 
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = false;
-    static inline ReturnValueType execute(const InputValueType& t, Int32 delta) {
-        return date_time_add<TimeUnit::MONTH, PType, Int32>(t, 3 * delta);
+    static inline ReturnValueType execute(const InputValueType& t, Int64 delta) {
+        // Preserve both the month offset and the negation of INT_MIN in quarters_sub.
+        return date_time_add<TimeUnit::MONTH, PType, Int64>(t, 3 * delta);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -1855,8 +1856,8 @@ private:
     }
 };
 
-using FunctionNextDay = FunctionRelativeDay<true>;
-using FunctionPreviousDay = FunctionRelativeDay<false>;
+using FunctionNextDay = FunctionRelativeDay<false>;
+using FunctionPreviousDay = FunctionRelativeDay<true>;
 
 class FunctionTime : public IFunction {
 public:

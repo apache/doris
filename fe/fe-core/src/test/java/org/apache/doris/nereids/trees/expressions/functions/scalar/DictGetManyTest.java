@@ -137,8 +137,8 @@ public class DictGetManyTest {
     public void testRejectQueryKeyWhenImplicitCastIsNotSupported() throws Exception {
         DictGetMany function = new DictGetMany(new StringLiteral("db.dict"),
                 new ArrayLiteral(ImmutableList.of(new StringLiteral("value"))),
-                new StructLiteral(ImmutableList.of(new Cast(new BigIntLiteral(0), TimeStampNsType.INSTANCE))));
                 new CreateStruct(new Cast(new BigIntLiteral(0), TimeStampNsType.INSTANCE)));
+        Env env = Mockito.mock(Env.class);
         DictionaryManager dictionaryManager = Mockito.mock(DictionaryManager.class);
         Dictionary dictionary = Mockito.mock(Dictionary.class);
         Column valueColumn = Mockito.mock(Column.class);
@@ -159,7 +159,7 @@ public class DictGetManyTest {
                     function::customSignatureDict);
             Assertions.assertEquals(
                     "dict_get_many() query key type timestamp_ns cannot be implicitly cast to "
-                            + "dictionary key type bigint",
+                            + "dictionary key type BIGINT",
                     exception.getMessage());
         }
     }

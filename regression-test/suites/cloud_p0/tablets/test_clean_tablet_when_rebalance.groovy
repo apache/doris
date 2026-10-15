@@ -50,13 +50,12 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     def choseDeadBeIndex = 1
     def table = "test_clean_tablet_when_rebalance"
 
-    def selectTriggerRehash = { ->
-        for (int i = 0; i < 5; i++) {
-            sleep(1000) 
-            try_sql """
-                select count(*) from $table
-            """
-        }
+    def scanTable = { ->
+        // count(*) can be answered by SQL cache or rewritten to an FE-side constant,
+        // neither of which loads the cloud tablet on the selected BE.
+        try_sql """
+            select k1, k2, v1 from $table
+        """
     }
 
     def getTabletInHostFromBe = { bes ->
@@ -76,19 +75,37 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         ret
     }
 
+    def awaitTabletState = { check ->
+        def tabletsInBe = [:]
+        awaitUntil(50) {
+            if (scanTable.call() == null) {
+                return false
+            }
+            tabletsInBe = getTabletInHostFromBe(cluster.getAllBackends(true))
+            check.call(tabletsInBe)
+        }
+        tabletsInBe
+    }
+
     def testCase = { deadTime, mergedCacheDir -> 
         boolean beDeadLong = deadTime > rehashTime ? true : false
         logger.info("begin exec beDeadLong {}", beDeadLong)
 
-        selectTriggerRehash.call()
-
         def beforeGetFromFe = getTabletAndBeHostFromFe(table)
-        def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
-        logger.info("before fe tablets {}, be tablets {}", beforeGetFromFe, beforeGetFromBe)
-        beforeGetFromFe.each {
-            assertTrue(beforeGetFromBe.containsKey(it.Key))
-            assertEquals(beforeGetFromBe[it.Key], it.Value[1])
+        def beforeGetFromBe = awaitTabletState.call { tabletsInBe ->
+            beforeGetFromFe.every { entry ->
+                def hosts = tabletsInBe[entry.key]
+                hosts != null && hosts.size() == 1 && hosts.contains(entry.value[1])
+            }
         }
+        logger.info("before fe tablets {}, be tablets {}", beforeGetFromFe, beforeGetFromBe)
+
+        def deadBe = cluster.getBeByIndex(choseDeadBeIndex)
+        assertNotNull(deadBe)
+        def tabletsOnDeadBe = beforeGetFromFe.findAll { entry ->
+            entry.value[1] == deadBe.host
+        }.keySet()
+        assertFalse(tabletsOnDeadBe.isEmpty())
 
         cluster.stopBackends(choseDeadBeIndex)
         awaitUntil(50) {
@@ -99,9 +116,15 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
             logger.info("before start bes {}, tablets {}", bes, showTablets)
             bes.size() == 2
         }
-        // rehash
-        selectTriggerRehash.call()
-        // curl be, tablets in 2 bes
+
+        def afterFailoverFromFe = getTabletAndBeHostFromFe(table)
+        def afterFailoverFromBe = awaitTabletState.call { tabletsInBe ->
+            afterFailoverFromFe.every { entry ->
+                def hosts = tabletsInBe[entry.key]
+                hosts != null && hosts.contains(entry.value[1])
+            }
+        }
+        logger.info("after failover fe tablets {}, be tablets {}", afterFailoverFromFe, afterFailoverFromBe)
 
         if (beDeadLong) {
             setFeConfig('enable_cloud_partition_balance', false)
@@ -112,9 +135,6 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         // wait report logic
         sleep(deadTime * 1000)
         cluster.startBackends(choseDeadBeIndex)
-        def afterGetFromFe = getTabletAndBeHostFromFe(table)
-        def afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
-        logger.info("after stop one be, rehash fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
 
         awaitUntil(50) {
             def showTablets = sql_return_maparray("SHOW TABLETS FROM ${table}")
@@ -125,36 +145,38 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
             bes.size() == (beDeadLong ? 2 : 3)
         }
 
-        selectTriggerRehash.call()
-        // wait report logic
-        // tablet report clean not work, before sleep, in fe secondary not been clear
-        afterGetFromFe = getTabletAndBeHostFromFe(table)
-        afterGetFromBe = getTabletInHostFromBe(cluster.getAllBackends())
-        logger.info("before sleep rehash time, fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
-        def redundancyTablet = null
-        afterGetFromFe.each {
-            assertTrue(afterGetFromBe.containsKey(it.Key))
-            if (afterGetFromBe[it.Key].size() == 2) {
-                redundancyTablet = it.Key
-                logger.info("find tablet {} redundancy in {}", it.Key, afterGetFromBe[it.Key])
+        def afterGetFromFe = getTabletAndBeHostFromFe(table)
+        def afterGetFromBe = awaitTabletState.call { tabletsInBe ->
+            def primaryTabletsLoaded = afterGetFromFe.every { entry ->
+                def hosts = tabletsInBe[entry.key]
+                hosts != null && hosts.contains(entry.value[1])
             }
-            assertTrue(afterGetFromBe[it.Key].contains(it.Value[1]))
+            if (!primaryTabletsLoaded || beDeadLong) {
+                return primaryTabletsLoaded
+            }
+
+            // For a short outage, the old primary and temporary secondary must both
+            // be loaded before verifying that the secondary is cleaned after expiry.
+            tabletsOnDeadBe.every { tabletId ->
+                def hosts = tabletsInBe[tabletId]
+                hosts != null && hosts.size() == 2
+                        && hosts.contains(beforeGetFromFe[tabletId][1])
+                        && hosts.contains(afterFailoverFromFe[tabletId][1])
+            }
         }
+        logger.info("before sleep rehash time, fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
 
         sleep(rehashTime * 1000 + 10 * 1000)
         // tablet report clean will work, after sleep, in fe secondary been clear
 
-        afterGetFromFe = getTabletAndBeHostFromFe(table)
-        afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
-        if (!beDeadLong) {
-            def checkAfterGetFromBe = getTabletInHostFromBe(cluster.getAllBackends())
-            assertEquals(1, checkAfterGetFromBe[redundancyTablet].size())
+        afterGetFromBe = awaitTabletState.call { tabletsInBe ->
+            afterGetFromFe = getTabletAndBeHostFromFe(table)
+            afterGetFromFe.every { entry ->
+                def hosts = tabletsInBe[entry.key]
+                hosts != null && hosts.size() == 1 && hosts.contains(entry.value[1])
+            }
         }
         logger.info("after sleep rehash time, fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
-        afterGetFromFe.each {
-            assertTrue(afterGetFromBe.containsKey(it.Key))
-            assertEquals(afterGetFromBe[it.Key], it.Value[1])
-        }
 
         // TODO(freemandealer)
         // Once the freemandealer implements file cache cleanup during restart, enabling lines 107 to 145 will allow testing to confirm that after the rebalance, the tablet file cache on the BE will be cleared. In the current implementation, after restarting the BE and triggering the rebalance, the tablets in the tablet manager will be cleared, but the file cache cannot be cleaned up.
@@ -203,6 +225,9 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     }
 
     docker(options) {
+        sql "set enable_sql_cache = false"
+        sql "set enable_query_cache = false"
+
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
         sql """CREATE TABLE $table (

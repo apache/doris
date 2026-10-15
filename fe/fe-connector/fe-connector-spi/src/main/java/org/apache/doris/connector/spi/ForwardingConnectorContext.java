@@ -76,6 +76,11 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public int getClusterId() {
+        return delegate.getClusterId();
+    }
+
+    @Override
     public Map<String, String> getEnvironment() {
         return delegate.getEnvironment();
     }

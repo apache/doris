@@ -25,6 +25,7 @@
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vhive_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
@@ -55,7 +56,11 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _hadoop_conf(hadoop_conf),
           _supports_deferred_azure_multipart(
                   t_sink.hive_table_sink.__isset.supports_deferred_azure_multipart &&
-                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {}
+                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {
+    if (t_sink.hive_table_sink.__isset.hive_parquet_time_zone) {
+        _hive_parquet_time_zone = t_sink.hive_table_sink.hive_parquet_time_zone;
+    }
+}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
@@ -84,34 +89,18 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_hive_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
-            break;
-        }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            return Status::InternalError("Unsupported hive compress type {} with parquet",
-                                         to_string(_hive_compress_type));
-        }
-        }
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_hive_compress_type));
         // TODO: INT96 is kept for Hive 2/3 compatibility. Add an explicit option before
         // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, true};
+        // Match the scan contract: empty means wall-clock, not the insert session zone.
+        // Keep the session fallback only for old FE requests that omit the field entirely.
+        if (_hive_parquet_time_zone.has_value()) {
+            parquet_options.int96_timezone =
+                    _hive_parquet_time_zone->empty() ? "UTC" : *_hive_parquet_time_zone;
+        }
         _file_format_transformer = std::make_unique<VHiveParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options);

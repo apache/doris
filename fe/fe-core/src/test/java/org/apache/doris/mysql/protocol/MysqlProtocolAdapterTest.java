@@ -278,8 +278,29 @@ public class MysqlProtocolAdapterTest {
     }
 
     @Test
+    public void testHttpContextForwardsWithoutMysqlCapabilities() {
+        // HTTP controllers create an internal context without a MySQL handshake.
+        ConnectContext ctx = new ConnectContext();
+        Assertions.assertNull(ctx.getCapability());
+        TMasterOpRequest request = new TMasterOpRequest();
+
+        ctx.getProtocolAdapter().fillForwardRequest(ctx, request);
+
+        Assertions.assertFalse(request.isSetMysqlCapability());
+        Assertions.assertFalse(request.isSetClientDeprecatedEOF());
+        Assertions.assertFalse(request.isSetPrepareExecuteBuffer());
+        Assertions.assertFalse(request.isSetCursorFetchRequested());
+
+        // The master can execute the request using its default proxy capabilities.
+        ConnectContext proxy = ConnectContext.forMysqlProxy("http-session");
+        MysqlProtocolAdapter.of(proxy).restoreFromForwardRequest(proxy, request);
+        Assertions.assertNotNull(proxy.getCapability());
+        Assertions.assertFalse(proxy.getCapability().isDeprecatedEOF());
+    }
+
+    @Test
     public void testForwardRequestCarriesWhatTheMasterNeedsToAnswerTheClient() {
-        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
         ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
         MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
         int flags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
@@ -296,19 +317,23 @@ public class MysqlProtocolAdapterTest {
 
         // A COM_STMT_EXECUTE from a client that deprecated EOF: the execute packet and the cursor
         // flag travel too.
-        channel.setClientDeprecatedEOF();
+        flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        ctx.setCapability(new MysqlCapability(flags));
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(true);
         ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
         ctx.setPrepareExecuteBuffer(ByteBuffer.wrap(new byte[] {7, 0, 0, 0}));
         ctx.setCursorFetchRequested(true);
         request = new TMasterOpRequest();
         protocol.fillForwardRequest(ctx, request);
         Assertions.assertTrue(request.isClientDeprecatedEOF());
+        Assertions.assertEquals(flags, request.getMysqlCapability());
         Assertions.assertArrayEquals(new byte[] {7, 0, 0, 0}, request.getPrepareExecuteBuffer());
         Assertions.assertTrue(request.isCursorFetchRequested());
 
         // The master's proxy context takes them over.
         ConnectContext proxy = ConnectContext.forMysqlProxy("session-1");
         MysqlProtocolAdapter.of(proxy).restoreFromForwardRequest(proxy, request);
+        Assertions.assertEquals(flags, proxy.getCapability().getFlags());
         Assertions.assertTrue(proxy.getCapability().isDeprecatedEOF());
         Assertions.assertTrue(proxy.getMysqlChannel().clientDeprecatedEOF());
         Assertions.assertTrue(proxy.isCursorFetchRequested());

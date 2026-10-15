@@ -617,10 +617,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.9"
-LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
+# Includes lance-c #91/#94: search filters and synchronous index prewarm.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_NAME="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d.tar.gz"
+LANCE_C_SOURCE="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_MD5SUM="9e32aa626caf1cea3bfe62d12d60a2c8"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -710,10 +717,11 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
-# Only defined on the platforms upstream ships a prebuilt driver for (see above).
-if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+# This variable is unset on macOS; callers may source this file with nounset.
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
     read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
     export TP_ARCHIVES
 fi

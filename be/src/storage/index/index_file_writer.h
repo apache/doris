@@ -43,6 +43,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_storage_format.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
@@ -110,6 +111,8 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
+        // The exact gram tokenizer scheme that produced this index's dictionary.
+        std::optional<gram::GramScheme> gram_scheme;
         // One byte of BM25 norms per document; empty for keyword or positionless indexes.
         // If nonempty, its size must equal doc_count, and postings retain frequencies for scoring.
         std::vector<uint8_t> encoded_norms;

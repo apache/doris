@@ -28,7 +28,46 @@ public:
 
     void reset() override { _in->reset(); }
 
+    std::span<const int32_t> get_source_byte_offsets() const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source == nullptr ? std::span<const int32_t> {} : source->get_source_byte_offsets();
+    }
+
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source == nullptr ? std::span<const int32_t> {}
+                                 : source->get_source_byte_end_offsets();
+    }
+
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source != nullptr && source->get_conservative_source_byte_span(start, end);
+    }
+
+    void set_source_byte_offsets_enabled(bool enabled) override {
+        auto* source = dynamic_cast<DorisTokenStream*>(_in.get());
+        if (source != nullptr) {
+            source->set_source_byte_offsets_enabled(enabled);
+        }
+    }
+
 protected:
+    bool get_delegated_source_byte_span(const Token& token, int32_t& start, int32_t& end) const {
+        if (DorisTokenFilter::get_conservative_source_byte_span(start, end)) {
+            return true;
+        }
+        const auto offsets = DorisTokenFilter::get_source_byte_offsets();
+        if (!offsets.empty()) {
+            const auto end_offsets = DorisTokenFilter::get_source_byte_end_offsets();
+            start = offsets.front();
+            end = end_offsets.empty() ? offsets.back() : end_offsets.back();
+            return true;
+        }
+        start = 0;
+        end = token.endOffset() - token.startOffset();
+        return end >= 0;
+    }
+
     TokenStreamPtr _in;
 };
 using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;

@@ -89,6 +89,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
+import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -140,8 +141,16 @@ public class NereidsPlanner extends Planner {
         this.statementContext = statementContext;
     }
 
+    void pinBeExecVersion(org.apache.doris.thrift.TQueryOptions queryOptions) {
+        if (!statementContext.hasBeExecVersion()) {
+            statementContext.initializeBeExecVersion(queryOptions.getBeExecVersion());
+        }
+        queryOptions.setBeExecVersion(statementContext.getBeExecVersion());
+    }
+
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        pinBeExecVersion(queryOptions);
         this.queryOptions = queryOptions;
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -411,6 +420,10 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start collect and lock table");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
+        if (statementContext.isRowBinlogReferenceTsoRequired()) {
+            statementContext.getOrRegisterRowBinlogReferenceTso(
+                    () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
+        }
         // Read the preload result produced by the collect-phase rule before taking internal table locks.
         ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
                 .orElse(ExternalMetadataPreloadResult.skipped(

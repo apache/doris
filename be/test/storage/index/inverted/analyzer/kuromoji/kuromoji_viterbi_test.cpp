@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/kuromoji/kuromoji_viterbi.h"
 
 #include <gtest/gtest.h>
-#include <sys/stat.h>
 
 #include <memory>
 #include <string>
@@ -30,6 +29,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
@@ -40,20 +40,19 @@ static const std::string FU = "\xE5\xBA\x9C";
 
 class KuromojiViterbiTest : public ::testing::Test {
 protected:
-    std::string _dir;
+    doris::test::ScopedTempDirectory _temp_dir {"kuromoji_viterbi"};
+    std::string _dir = _temp_dir.path().string();
     std::unique_ptr<KuromojiDictionary> _dict;
 
     void SetUp() override {
-        _dir = std::string(::testing::TempDir()) + "/kmj_viterbi";
-        ::mkdir(_dir.c_str(), 0755);
-
         // Lexicon: single chars cost 1000 each; the compound "東京" costs 100.
         // With an all-zero connection matrix, the min-cost path must pick "東京".
         SystemDictInput sys;
         sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun,East"}}});
         sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun,Capital"}}});
         sys.surfaces.push_back({TOU + KYO, {{1, 1, 100, "noun,Tokyo"}}});
-        ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
+        auto st = KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys);
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         MatrixInput m;
         m.forward_size = 2; // context ids: 0 = BOS/EOS, 1 = word
@@ -159,13 +158,11 @@ static const std::string KAWA = "\xE5\xB7\x9D";
 // short (<= 2 kanji) compounds are never split.
 class KuromojiSearchModeTest : public ::testing::Test {
 protected:
-    std::string _dir;
+    doris::test::ScopedTempDirectory _temp_dir {"kuromoji_search"};
+    std::string _dir = _temp_dir.path().string();
     std::unique_ptr<KuromojiDictionary> _dict;
 
     void SetUp() override {
-        _dir = std::string(::testing::TempDir()) + "/kmj_search";
-        ::mkdir(_dir.c_str(), 0755);
-
         // Single kanji cost 1000 each; compounds "東京都" and "山川" cost 100.
         SystemDictInput sys;
         sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun"}}});
@@ -175,7 +172,8 @@ protected:
         sys.surfaces.push_back({KAWA, {{1, 1, 1000, "noun"}}});
         sys.surfaces.push_back({TOU + KYO + TO, {{1, 1, 100, "noun"}}});
         sys.surfaces.push_back({YAMA + KAWA, {{1, 1, 100, "noun"}}});
-        ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
+        auto st = KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys);
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         MatrixInput m;
         m.forward_size = 2;

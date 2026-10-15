@@ -48,7 +48,7 @@ suite("test_ivm_refresh_dry_run") {
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
-        AS SELECT k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
+        AS SELECT /*+ SET_VAR(query_timeout=180) */ k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
            FROM test_ivm_refresh_dry_run_base
            GROUP BY k1
     """

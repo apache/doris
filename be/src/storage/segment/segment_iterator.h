@@ -73,7 +73,8 @@ class SegmentIterator : public RowwiseIterator {
 public:
     // Within SegmentIterator, ColumnId means an ordinal in the read schema.
     // Storage UIDs and caller-visible Block positions are named explicitly.
-    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                    const StorageReadOptions& opts);
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
@@ -144,6 +145,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
@@ -155,6 +157,12 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // Publish _row_bitmap as IndexQueryContext::candidate_rows when it is
+    // below the configured engage ratio; refreshed at conjunct boundaries as
+    // earlier index conjuncts shrink the bitmap. No-op once engaged.
+    void _refresh_candidate_pushdown();
+    // Intersect an approximate result and keep its expression for row evaluation.
+    bool _apply_approx_index_result(VExprContext* expr_ctx);
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
@@ -197,8 +205,6 @@ private:
 
     [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& read_ordinals,
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read);
-    void _replace_version_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
-    void _update_tso_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);

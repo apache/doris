@@ -21,6 +21,7 @@ suite("test_python_udtf_complex") {
 
     def pyPath = """${context.file.parent}/py_udf_complex_scripts/py_udf_complex.zip"""
     scp_udf_file_to_all_be(pyPath)
+    scp_udf_file_to_all_fe(pyPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${pyPath}".toString())
 
