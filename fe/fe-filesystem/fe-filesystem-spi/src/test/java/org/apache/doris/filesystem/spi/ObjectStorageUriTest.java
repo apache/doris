@@ -29,6 +29,33 @@ import java.util.Set;
 class ObjectStorageUriTest {
 
     @Test
+    void parseLegacyOssAuthorityWithoutChangingTheRawKey() {
+        String key = "partition=a+b/file%2Fname?part#fragment_{1..3}.parquet";
+        for (String endpoint : new String[] {"oss-cn-hangzhou.aliyuncs.com",
+                "oss-cn-hangzhou-internal.aliyuncs.com"}) {
+            for (boolean pathStyle : new boolean[] {false, true}) {
+                ObjectStorageUri uri = ObjectStorageUri.parse("oss://my-bucket." + endpoint + "/" + key,
+                        pathStyle, Set.of("oss", "s3"));
+                Assertions.assertEquals("my-bucket", uri.bucket());
+                Assertions.assertEquals(key, uri.key());
+            }
+        }
+        Assertions.assertEquals("my-bucket", ObjectStorageUri.parse(
+                "oss://my-bucket.oss-cn-hangzhou.aliyuncs.com", false).bucket());
+    }
+
+    @Test
+    void parseDoesNotStripArbitraryOrOtherProviderAuthorities() {
+        for (String path : new String[] {"oss://my-bucket.example.com/key",
+                "oss://my-bucket.oss-cn-hangzhou.aliyuncs.com.example.com/key",
+                "s3://my-bucket.oss-cn-hangzhou.aliyuncs.com/key",
+                "s3://bucket.with.dots/key"}) {
+            String authority = path.substring(path.indexOf("://") + 3, path.lastIndexOf('/'));
+            Assertions.assertEquals(authority, ObjectStorageUri.parse(path, false).bucket());
+        }
+    }
+
+    @Test
     void parseVirtualHostedStyle() {
         ObjectStorageUri uri = ObjectStorageUri.parse("s3://my-bucket/path/to/file.csv", false);
         Assertions.assertEquals("my-bucket", uri.bucket());
