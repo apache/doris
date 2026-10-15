@@ -17,7 +17,10 @@
 
 #pragma once
 
-#include "storage/compaction/collection_similarity.h"
+#include <memory>
+#include <roaring/roaring.hh>
+
+#include "storage/index/collection_similarity.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
 
 namespace doris::segment_v2 {

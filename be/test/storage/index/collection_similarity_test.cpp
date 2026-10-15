@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 
 #include <gtest/gtest.h>
 
@@ -643,7 +643,7 @@ TEST_F(CollectionSimilarityTest, LargeDataSparseBitmapTest) {
 
     for (size_t i = 0; i < NUM_SCORED_ROWS; ++i) {
         float score = static_cast<float>(i + 1) / static_cast<float>(NUM_SCORED_ROWS);
-        similarity->collect(static_cast<uint32_t>(i * 100), score); // 稀疏分布
+        similarity->collect(static_cast<uint32_t>(i * 100), score);
     }
 
     std::vector<uint32_t> all_ids;
