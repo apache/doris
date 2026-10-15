@@ -29,6 +29,11 @@ suite("test_ctas_with_hdfs", "p0,external") {
         String tableName = "ctas_tvf_1";
         def uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc/orc_all_types/p1_col=desktops/p2_col=bigint_col/*"
 
+        // Native tables cannot store VARBINARY; explicitly store this fixture's UTF-8 binary payload as text.
+        String storageColumns = """tinyint_col, smallint_col, int_col, bigint_col, boolean_col,
+                float_col, double_col, string_col, CAST(binary_col AS STRING) AS binary_col,
+                timestamp_col, decimal_col, char_col, varchar_col, date_col, list_double_col, list_string_col"""
+
         // test varchar type as partition column
         sql """drop table if exists ${tableName}; """
         sql """ create table ${tableName}
@@ -38,7 +43,7 @@ suite("test_ctas_with_hdfs", "p0,external") {
             )
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select ${storageColumns}, p1_col, p2_col from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -58,7 +63,7 @@ suite("test_ctas_with_hdfs", "p0,external") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${storageColumns} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -79,7 +84,7 @@ suite("test_ctas_with_hdfs", "p0,external") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${storageColumns} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -100,7 +105,7 @@ suite("test_ctas_with_hdfs", "p0,external") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${storageColumns} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -116,7 +121,7 @@ suite("test_ctas_with_hdfs", "p0,external") {
             DISTRIBUTED BY HASH(p1_col) BUCKETS 10
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select ${storageColumns}, p1_col, p2_col from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",

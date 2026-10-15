@@ -87,4 +87,21 @@ suite("test_http_rest_v1_auth", "p0,auth") {
             assertEquals(200, respCode)
             assertEquals(200, parseJson(body).code)
     }
+
+    // Exercise both local execution on the master and SHOW PROC forwarding from other FEs.
+    sql_return_maparray("SHOW FRONTENDS").findAll {
+        "${it.Alive}".equalsIgnoreCase("true")
+    }.each { frontend ->
+        httpTest {
+            basicAuthorization "${user}", "${pwd}"
+            endpoint "${frontend.Host}:${frontend.HttpPort}"
+            uri "/rest/v1/system?path=/"
+            op "get"
+            check { respCode, body ->
+                log.info("system (${frontend.Host}:${frontend.HttpPort}) body:${body}")
+                assertEquals(200, respCode)
+                assertEquals(0, parseJson(body).code)
+            }
+        }
+    }
 }

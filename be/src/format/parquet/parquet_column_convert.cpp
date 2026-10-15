@@ -20,6 +20,8 @@
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
 
+#include <utility>
+
 #include "common/cast_set.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
@@ -210,6 +212,22 @@ static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr s
 
 namespace {
 
+class NativeUUIDConverter final : public PhysicalToLogicalConverter {
+public:
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, UUIDValue::BINARY_LENGTH);
+        auto& values =
+                assert_cast<ColumnUUID&>(*get_mutable_inner_column(src_logical_column)).get_data();
+        for (size_t i = 0; i < src_data.rows; ++i) {
+            // File UUIDs use network byte order, unlike the native column's integer layout.
+            values.push_back(UUIDValue::from_big_endian(reinterpret_cast<const uint8_t*>(
+                    src_data.data + i * UUIDValue::BINARY_LENGTH)));
+        }
+        return Status::OK();
+    }
+};
+
 class UUIDStringConverter final : public PhysicalToLogicalConverter {
 public:
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -298,6 +316,14 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         } else if (src_physical_type == tparquet::Type::INT64) {
             convert_params->reset_time_scale_if_missing(src_logical_type->get_scale());
             physical_converter = std::make_unique<Int64ToTimestamp>();
+        } else {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        }
+    } else if (src_logical_primitive == TYPE_UUID) {
+        if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+            std::cmp_equal(parquet_schema.type_length, UUIDValue::BINARY_LENGTH)) {
+            physical_converter = std::make_unique<NativeUUIDConverter>();
         } else {
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);

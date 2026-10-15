@@ -188,8 +188,8 @@
 2	Bob	2023-12-01
 
 -- !one_partition_timestamp --
-1	Alice	2023-12-01T08:00
-2	Bob	2023-12-01T08:00
+1	Alice	2023-12-01 08:00:00.000000+08:00
+2	Bob	2023-12-01 08:00:00.000000+08:00
 
 -- !dropped_partition_latest --
 1	keep1	KEEP
@@ -395,8 +395,8 @@
 2	Bob	2023-12-01
 
 -- !one_partition_timestamp --
-1	Alice	2023-12-01T08:00
-2	Bob	2023-12-01T08:00
+1	Alice	2023-12-01 08:00:00.000000+08:00
+2	Bob	2023-12-01 08:00:00.000000+08:00
 
 -- !dropped_partition_latest --
 1	keep1	KEEP

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.cost;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
@@ -37,6 +39,12 @@ public class CostCalculator {
             List<PhysicalProperties> childrenProperties, CostWeight costWeight) {
         PlanContext planContext = new PlanContext(
                 connectContext, groupExpression, childrenProperties, costWeight);
+        // The children of an aggregate are optimized before its final cost is computed
+        // (see CostAndEnforcerJob), so the memo tells whether the translator fuses it.
+        if (groupExpression.getPlan() instanceof PhysicalHashAggregate && childrenProperties.size() == 1
+                && AggregateUtils.isBucketedHashAggFusible(groupExpression, childrenProperties.get(0))) {
+            planContext.setBucketedAggFusion();
+        }
         CostModel costModelV1 = new CostModel(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }

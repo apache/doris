@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -111,6 +112,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
+    // Older backends reject the iceberg_transform external sink partition function.
+    private static final int SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION = 18;
+    private static final String TRANSFORM_PARTITION_FUNCTION = "iceberg_transform";
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
@@ -614,6 +618,67 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         return new ConnectorWritePartitionSpec(spec.specId(), fields);
     }
 
+    /**
+     * Routes a partitioned INSERT / INSERT OVERWRITE by the Iceberg partition value: the BE
+     * {@code iceberg_transform} partition function hashes each partition field's transformed source column, so the
+     * rows of one partition reach one writer (SKEWED lets a large partition scale out). Without it every writer
+     * receives every partition, opens a file per partition it sees, and fails past
+     * {@code table_sink_partition_write_max_partition_nums_per_writer} open partitions.
+     *
+     * <p>{@code null} keeps the engine's random parallel write: an unpartitioned table, a partition field on a nested
+     * source (the route columns are top-level sink outputs), a partition value the backend cannot hash (see the
+     * loop), or a backend older than the routing function.</p>
+     */
+    @Override
+    public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        if (session.getBeExecVersion() < SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION) {
+            return null;
+        }
+        IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
+        Optional<IcebergWriteSchemaContext> active =
+                IcebergStatementScope.activeWriteSchema(
+                        session, handle.getDbName(), handle.getTableName());
+        Table table = active.isPresent() ? null : resolveTable(session, handle);
+        PartitionSpec spec = active.isPresent()
+                ? active.get().getPartitionSpec() : table.spec();
+        if (spec == null || !spec.isPartitioned()) {
+            return null;
+        }
+        Schema schema = active.isPresent()
+                ? active.get().getSchema() : table.schema();
+        List<String> routeColumns = new ArrayList<>();
+        List<String> transforms = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String sourceColumnName = findTopLevelColumnName(schema, field.sourceId());
+            if (sourceColumnName == null) {
+                return null;
+            }
+            // The exchange hashes the transformed value, and the BE column of a BINARY or FIXED value
+            // (ColumnVarbinary) has no shuffle hash: identity(binary_key) or truncate(1, binary_key) would fail the
+            // INSERT with "update_crc32c_batch is not supported for ColumnVarbinary" as soon as it has two writers
+            // to route to. bucket(16, binary_key) yields an INT and is routed.
+            Type.TypeID transformedType = field.transform().getResultType(schema.findType(field.sourceId())).typeId();
+            if (transformedType == Type.TypeID.BINARY || transformedType == Type.TypeID.FIXED) {
+                return null;
+            }
+            routeColumns.add(sourceColumnName);
+            transforms.add(field.transform().toString());
+        }
+        return ConnectorWriteDistribution.externalHash(routeColumns, TRANSFORM_PARTITION_FUNCTION,
+                Collections.singletonMap("transforms", String.join(",", transforms)),
+                ConnectorWriteDistribution.WriterAssignment.SKEWED);
+    }
+
+    private static String findTopLevelColumnName(Schema schema, int sourceId) {
+        for (NestedField column : schema.columns()) {
+            if (column.fieldId() == sourceId) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
     private static String findPartitionSourceColumnName(Schema schema, int sourceId) {
         List<NestedField> columns = schema.columns();
         for (NestedField column : columns) {
@@ -724,9 +789,20 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
-        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
+        return new IcebergWriteContext(op, handle.isOverwrite(), staticPartitionSpec(handle),
                 handle.getBranchName(), readSnapshotId, readSnapshotResolved,
                 schemaContext, handle.getBoundWriteMetadataIdentity());
+    }
+
+    private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle) {
+        Map<String, String> spec = handle.getStaticPartitionSpec();
+        if (handle.getStaticPartitionNullKeys().isEmpty()) {
+            return spec;
+        }
+        // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
+        Map<String, String> normalized = new HashMap<>(spec);
+        normalized.replaceAll((key, value) -> handle.getStaticPartitionNullKeys().contains(key) ? null : value);
+        return normalized;
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,
@@ -780,9 +856,19 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
-        Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
+        Map<String, String> staticPartitionSpec = staticPartitionSpec(handle);
         if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
-            tSink.setStaticPartitionValues(staticPartitionSpec);
+            Map<String, String> values = new java.util.HashMap<>();
+            java.util.Set<String> nullKeys = new java.util.HashSet<>();
+            staticPartitionSpec.forEach((key, value) -> {
+                // Thrift map values cannot be null; keep SQL NULL distinct from the text "null".
+                values.put(key, value == null ? "null" : value);
+                if (value == null) {
+                    nullKeys.add(key);
+                }
+            });
+            tSink.setStaticPartitionValues(values);
+            tSink.setStaticPartitionNullKeys(nullKeys);
         }
         return tSink;
     }

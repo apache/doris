@@ -366,8 +366,14 @@ DataTypePtr apply_projection_timestamp_semantics(ParquetColumnSchema* column_sch
         const bool physical_timestamp =
                 descriptor.physical_type == tparquet::Type::INT96 || descriptor.is_timestamp;
         if (physical_timestamp && projection.timestamp_is_adjusted_to_utc.has_value()) {
-            const auto target =
-                    *projection.timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+            // A table's wall-clock annotation must not narrow a nanosecond physical column.
+            auto target = TYPE_DATETIMEV2;
+            if (*projection.timestamp_is_adjusted_to_utc) {
+                target = TYPE_TIMESTAMPTZ;
+            } else if (column_schema->type != nullptr &&
+                       column_schema->type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                target = TYPE_TIMESTAMP_NS;
+            }
             column_schema->type = DataTypeFactory::instance().create_data_type(
                     target, column_schema->type != nullptr && column_schema->type->is_nullable(), 0,
                     timestamp_tz_scale(descriptor));

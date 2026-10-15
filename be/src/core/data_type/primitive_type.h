@@ -60,6 +60,8 @@ using ColumnHLL = ColumnComplexType<TYPE_HLL>;
 using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 template <PrimitiveType T>
 class DataTypeNumber;
+template <PrimitiveType T>
+class DataTypeUInt;
 using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
 using DataTypeInt16 = DataTypeNumber<TYPE_SMALLINT>;
 using DataTypeInt32 = DataTypeNumber<TYPE_INT>;
@@ -69,6 +71,8 @@ using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
 using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+using DataTypeUInt32 = DataTypeUInt<TYPE_UINT32>;
+using DataTypeUInt64 = DataTypeUInt<TYPE_UINT64>;
 
 class DataTypeNothing;
 class DataTypeTimeV2;
@@ -544,59 +548,15 @@ template <>
 struct PrimitiveTypeTraits<TYPE_UINT32> {
     using CppType = UInt32;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt32;
     using ColumnType = ColumnOffset32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT64> {
     using CppType = UInt64;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt64;
     using ColumnType = ColumnOffset64;
-};
-
-template <PrimitiveType PT>
-struct PrimitiveTypeConvertor {
-    using CppType = typename PrimitiveTypeTraits<PT>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-
-    static inline StorageFieldType&& to_storage_field_type(CppType&& value) {
-        return static_cast<StorageFieldType&&>(std::forward<CppType>(value));
-    }
-
-    static inline const StorageFieldType& to_storage_field_type(const CppType& value) {
-        return *reinterpret_cast<const StorageFieldType*>(&value);
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATE> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return StorageFieldType(cast_set<uint32_t>(value.to_olap_date()));
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATETIME> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_datetime();
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return {value.int_value(), value.frac_value()};
-    }
 };
 
 inline TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int scale = 0) {

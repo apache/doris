@@ -43,6 +43,7 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -73,6 +74,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -888,6 +890,89 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void promotedDateStaticOverwriteRejectsUnsafeRetainedBounds() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()));
+        Table table = catalog.createTable(id, schema, PartitionSpec.unpartitioned(), props("format-version", "3"));
+        Map<Integer, java.nio.ByteBuffer> bounds = Collections.singletonMap(1,
+                org.apache.iceberg.types.Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://bucket/retained-date.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withMetrics(new org.apache.iceberg.Metrics(1L, null, null, null, null, bounds, bounds))
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        org.apache.iceberg.TableOperations ops = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = ops.current();
+        ops.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base).setCurrentSchema(new Schema(
+                Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone())), 1).build());
+        table.refresh();
+        table.updateSpec().addField("ts").commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-02")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 100L,
+                Collections.singletonList("2024-01-02 00:00:00.000000000"))));
+        // DATE metrics are days, so silently committing a nanos equality would retain the old file.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("historical DATE bounds"), ex.getMessage());
+        table.refresh();
+        Assertions.assertEquals(snapshotId, table.currentSnapshot().snapshotId());
+    }
+
+    @Test
+    public void dateOnlyNanosecondStaticOverwriteKeepsAdjacentPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(id, schema, spec, props("format-version", "3"));
+        long midnight = 1704067200000000000L;
+        for (long nanos : new long[] {midnight, midnight + 1}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("s3://bucket/" + nanos + ".parquet").withFileSizeInBytes(1024)
+                    .withRecordCount(1).withPartition(partition).withFormat(FileFormat.PARQUET).build()).commit();
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+                Collections.singletonList("2024-01-01 00:00:00.000000000"))));
+        txn.commit();
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size());
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.partition().get(0, Long.class) == midnight + 1));
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.path().toString().endsWith("replacement.parquet")));
+    }
+
+    @Test
+    public void offsetNanosecondStaticOverwriteKeepsAdjacentPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(id, schema, spec, props("format-version", "3"));
+        long midnight = 1704067200000000000L;
+        for (long nanos : new long[] {midnight, midnight - 8 * 3600_000_000_000L}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("s3://bucket/" + nanos + ".parquet").withFileSizeInBytes(1024)
+                    .withRecordCount(1).withPartition(partition).withFormat(FileFormat.PARQUET).build()).commit();
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01 00:00:00+08:00")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+                Collections.singletonList("2023-12-31 16:00:00.000000000"))));
+        txn.commit();
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size());
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.partition().get(0, Long.class) == midnight));
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.path().toString().endsWith("replacement.parquet")));
+    }
+
+    @Test
     public void overwriteStaticPartitionRejectsUnmatchedPartitionField() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -905,6 +990,65 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
         Assertions.assertTrue(ex.getMessage().contains("partition spec changed"),
                 "a stale static overwrite must fail at begin before it can degrade to an always-true filter");
+    }
+
+    @Test
+    public void overwriteStaticNullBinaryKeyReplacesOnlyTheNullPartition() {
+        // A NULL static key must become key IS NULL for full and hybrid specs; matching bytes or text
+        // instead would replace the wrong partition.
+        for (org.apache.iceberg.types.Type keyType : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get())) {
+            for (boolean hybrid : new boolean[] {false, true}) {
+                InMemoryCatalog catalog = freshCatalog();
+                TableIdentifier id = TableIdentifier.of("db1", "t1");
+                Schema schema = new Schema(Types.NestedField.optional(1, "key", keyType),
+                        Types.NestedField.optional(2, "region", Types.StringType.get()));
+                PartitionSpec.Builder builder = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    builder.identity("region");
+                }
+                PartitionSpec spec = builder.build();
+                Table table = catalog.createTable(id, schema, spec, props("write.format.default", "parquet"));
+                Object nonNullKey = keyType.typeId() == org.apache.iceberg.types.Type.TypeID.UUID
+                        ? java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
+                        : ByteBuffer.wrap(new byte[16]);
+                table.newAppend()
+                        .appendFile(binaryKeyFile(spec, "s3://b/db1/t1/null-key.parquet", null))
+                        .appendFile(binaryKeyFile(spec, "s3://b/db1/t1/non-null-key.parquet", nonNullKey))
+                        .commit();
+
+                IcebergConnectorTransaction txn = txnFor(
+                        opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+                txn.beginWrite(SESSION, "db1", "t1",
+                        overwriteStaticCtx(table, Collections.singletonMap("key", null)));
+                txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/replacement.parquet", 1L, 1024L,
+                        hybrid ? Arrays.asList("null", "us") : Collections.singletonList("null"))));
+                txn.commit();
+
+                Set<String> live = new HashSet<>();
+                for (DataFile file : currentDataFiles(catalog.loadTable(id))) {
+                    live.add(file.path().toString());
+                }
+                Assertions.assertEquals(new HashSet<>(Arrays.asList(
+                        "s3://b/db1/t1/non-null-key.parquet", "s3://b/db1/t1/replacement.parquet")),
+                        live, keyType + " hybrid=" + hybrid);
+            }
+        }
+    }
+
+    private static DataFile binaryKeyFile(PartitionSpec spec, String path, Object key) {
+        org.apache.iceberg.PartitionData partition = new org.apache.iceberg.PartitionData(spec.partitionType());
+        partition.set(0, key);
+        if (spec.fields().size() > 1) {
+            partition.set(1, "us");
+        }
+        return DataFiles.builder(spec)
+                .withPath(path)
+                .withFileSizeInBytes(1024)
+                .withRecordCount(1)
+                .withFormat(FileFormat.PARQUET)
+                .withPartition(partition)
+                .build();
     }
 
     @Test

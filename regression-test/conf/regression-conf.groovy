@@ -274,6 +274,11 @@ s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
 
+// Optional Trino JDBC regressions use the Trino service in the Iceberg Docker stack.
+// Match trino_jdbc_port to its published TRINO_JDBC_PORT and externalEnvIp to the Docker host.
+enableTrinoJdbcTest = false
+trino_jdbc_port = 8080
+
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 

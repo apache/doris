@@ -117,8 +117,8 @@ suite("test_streaming_postgres_job_uuid", "p0,external,pg,external_docker,extern
             throw ex
         }
 
-        // Key contract: UUID columns must surface as the 36-char hyphenated
-        // form (lower-case, no surrounding quotes) and arrays preserve order.
+        // CDC target types are UUID and ARRAY<UUID>, while the JSON transport still uses text.
+        // Values retain the lower-case, 36-char hyphenated form, and arrays preserve order.
         qt_desc_uuid """desc ${currentDb}.${table1};"""
         qt_select_snapshot """select id, tag, uuid_col, uuid_arr from ${currentDb}.${table1} order by id;"""
 

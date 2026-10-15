@@ -77,20 +77,20 @@ suite ("different_serialize_cloud") {
     qt_select_mv "select k1,bitmap_count(bitmap_agg(k2)) from d_table group by k1 order by 1;"
 
     explain {
-        sql("select k1,array_agg(k2) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(array_agg(k2)) from d_table group by k1 order by 1;")
         contains "(mv3)"
     }
-    qt_select_mv "select k1,array_agg(k2) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(array_agg(k2)) from d_table group by k1 order by 1;"
 
     explain {
-        sql("select k1,collect_list(k2,3) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(collect_list(k2,3)) from d_table group by k1 order by 1;")
         contains "(mv4)"
     }
-    qt_select_mv "select k1,collect_list(k2,3) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(collect_list(k2,3)) from d_table group by k1 order by 1;"
 
     explain {
-        sql("select k1,collect_set(k2,3) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(collect_set(k2,3)) from d_table group by k1 order by 1;")
         contains "(mv5)"
     }
-    qt_select_mv "select k1,collect_set(k2,3) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(collect_set(k2,3)) from d_table group by k1 order by 1;"
 }
