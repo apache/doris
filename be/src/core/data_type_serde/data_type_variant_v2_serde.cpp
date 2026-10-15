@@ -50,6 +50,7 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_payload_validator.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_document.h"
@@ -541,6 +542,7 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
         // A driver supplies untrusted bytes. Validate into a temporary batch before mutating
         // the destination, and copy buffers so the column survives Arrow batch release.
         VariantBatchBuilder decoded;
+        VariantPayloadValidator payload_validator;
         for (int64_t i = 0; i < slice->length(); ++i) {
             auto row = decoded.begin_row();
             if (storage.IsNull(i)) {
@@ -556,7 +558,7 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
                         (VariantRef {.metadata = {.data = meta.data(), .size = meta.size()},
                                      .value = {value.data(), value.size()}});
                 validate_variant_metadata(ref.metadata);
-                validate_variant_payload(ref);
+                payload_validator.validate(ref);
                 row.add_value(ref);
             }
             row.finish();

@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -231,7 +232,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             variantCompatibilityDeferred = true;
             return;
         }
-        checkVariantBackendCompatibility(projectsVariant, backends);
+        checkVariantBackendCompatibility(projectsVariant, backends, scanContext.getBeExecVersion());
     }
 
     static boolean projectsComputeVariant(TupleDescriptor tuple) {
@@ -260,12 +261,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return false;
     }
 
-    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends,
+            int beExecVersion)
             throws UserException {
         if (!projectsVariant) {
             return;
         }
-        if (Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+        if (beExecVersion < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
             // The query-wide execution version covers every eligible backend, including ordinary
             // rolling-upgrade nodes that are not marked as cloud smooth-upgrade sources.
             throw new UserException("Iceberg Variant requires backend execution version "
@@ -1126,7 +1128,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
             // The optional wire field alone cannot fence old readers during a rolling upgrade.
-            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+            if (scanContext.getBeExecVersion() < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
                 throw new UserException("Hive OpenCSVSerde requires backend execution version "
                         + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
             }
@@ -1728,6 +1730,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
+                .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
                 // partition a query EXECUTES it) needs to know the plan is only going to be shown.
@@ -1742,7 +1746,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (variantCompatibilityDeferred) {
             checkVariantBackendCompatibility(
                     plannedScanDecodesVariant(projectsComputeVariant(desc), countPushdown, ranges),
-                    backendPolicy.getBackends());
+                    backendPolicy.getBackends(), scanContext.getBeExecVersion());
         }
 
         List<Split> splits = new ArrayList<>(ranges.size());
@@ -1853,6 +1857,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public boolean cannotBeRedispatched() {
         return plannedSingleUseRange;
+    }
+
+    /** Capabilities supported by every backend eligible for this scan. */
+    static Set<String> commonBackendCapabilities(Iterable<Backend> backends) {
+        Set<String> common = null;
+        for (Backend backend : backends) {
+            if (common == null) {
+                common = new HashSet<>(backend.getConnectorCapabilities());
+            } else {
+                common.retainAll(backend.getConnectorCapabilities());
+            }
+        }
+        return common == null ? Collections.emptySet() : common;
     }
 
     /**
@@ -2559,10 +2576,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static ConnectorColumnHandle withProjectedFieldIds(
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
+        boolean hasNestedProjection = false;
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            hasNestedProjection |= accessPath.getPath().size() > 1;
             collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
-        return projectedFieldIds.isEmpty()
+        return projectedFieldIds.isEmpty() && !hasNestedProjection
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 

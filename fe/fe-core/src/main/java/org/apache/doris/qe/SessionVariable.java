@@ -204,6 +204,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -806,6 +808,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -1489,8 +1493,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
     @VarAttrDef.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            needForward = true,
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
+
+    public static final String EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM = "external_scan_consistent_hash_spread_num";
+    @VarAttrDef.VarAttr(name = EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM,
+            checker = "checkExternalScanConsistentHashSpreadNum", needForward = true,
+            description = "1 preserves the original scheduling, candidate counts and redistribution (default). "
+                    + "It does not limit scans to one backend. "
+                    + "0 enables automatic spreading across all eligible backends in the compute group. "
+                    + "Values above 1 bound consistent hash candidates "
+                    + "when file cache or use_consistent_hash_for_external_scan is enabled. "
+                    + "Spreading balances assigned weights with random ties and disables global redistribution.")
+    public int externalScanConsistentHashSpreadNum = 1;
 
     @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
@@ -1530,6 +1546,18 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to allow use binary search algorithm to filter partitions. ON by default."
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VarAttrDef.GLOBAL,
+            description = "Whether to prevent background dynamic partition tasks from automatically dropping "
+                    + "partitions. OFF by default."
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VarAttrDef.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
@@ -2940,6 +2968,11 @@ public class SessionVariable implements Serializable, Writable {
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
 
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = "Prefer paimon-rust for eligible Paimon reads")
+    private boolean enablePaimonRustReader = false;
+
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
@@ -3818,6 +3851,9 @@ public class SessionVariable implements Serializable, Writable {
         this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
         this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
         this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // paimon
+        this.enablePaimonRustReader = random.nextBoolean();
 
         // jni
         this.forceJniScanner = random.nextBoolean();
@@ -5630,6 +5666,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6456,6 +6493,10 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6471,6 +6512,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
+    }
+
+    public int getExternalScanConsistentHashSpreadNum() {
+        return externalScanConsistentHashSpreadNum;
+    }
+
+    public void checkExternalScanConsistentHashSpreadNum(String value) throws Exception {
+        checkFieldValue(EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, 0, value);
     }
 
     public void setForceJniScanner(boolean force) {

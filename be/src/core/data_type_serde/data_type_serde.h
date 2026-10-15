@@ -118,13 +118,15 @@ struct FieldInfo {
     int precision = 0;
 };
 
+struct OrcTimestampDecodeContext;
+
 struct OrcDecodedColumnView {
     const orc::Type* file_type = nullptr;
     const orc::Type* selected_type = nullptr;
     const orc::ColumnVectorBatch* batch = nullptr;
     size_t rows = 0;
     const std::vector<size_t>* selected_rows = nullptr;
-    const cctz::time_zone* timezone = nullptr;
+    const OrcTimestampDecodeContext* timestamp_context = nullptr;
     bool enable_mapping_timestamp_tz = false;
 };
 
@@ -356,7 +358,7 @@ public:
 
     /// Parse a human-readable string from FE (delete conditions, default values,
     /// schema change defaults) into a Field. Uses standard decimal parsing with full
-    /// scale. Callers: delete_handler.cpp, column_reader.cpp (DefaultValueColumnIterator),
+    /// scale. Callers: delete_handler.cpp, segment.cpp (Segment::get_default_value_field),
     /// schema_change.cpp.
     virtual Status from_fe_string(const std::string& str, Field& field) const {
         FormatOptions options;

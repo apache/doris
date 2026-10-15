@@ -47,6 +47,17 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             }
         }
 
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                return explainString.contains("all access paths: [payload.name]")
+                        && nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() == 0
+                        && nativeSplits.group(2).toInteger() > 0
+            }
+        }
+
         // Keep the complete DESC shape so the external column's Extra metadata remains covered.
         order_qt_desc """desc variant_smoke"""
 
@@ -93,6 +104,57 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // Exercise Paimon's metadata-marked read type against a physically shredded file. The
+        // variant_smoke cases above read unshredded files.
+        order_qt_jni_shredded_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int)
+            from variant_shredded
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
+
+        // profile.city is physically shredded. This covers the complete FE -> BE -> JNI ->
+        // Paimon readType path for a nested object projection, beyond the Java projection UT.
+        explain {
+            sql "select id, cast(payload['profile']['city'] as string) from variant_shredded"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                return explainString.contains("all access paths: [payload.profile.city]")
+                        && nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() == 0
+                        && nativeSplits.group(2).toInteger() > 0
+            }
+        }
+
+        order_qt_jni_nested_shredded_path """
+            select id, cast(payload['profile']['city'] as string)
+            from variant_shredded
+            order by id
+        """
+
+        // Doris Variant array indexes are one-based. The numeric path segment is intentionally
+        // unsupported by Paimon's metadata projection, so it must make the whole Variant column
+        // fall back even though payload.name alone is projectable.
+        order_qt_jni_unsupported_array_path_fallback """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['tags'][1] as string)
+            from variant_shredded
+            order by id
+        """
+
+        // A table can contain files written before and after shredding was enabled. Paimon must
+        // apply physical projection per file while returning one consistent partial Variant.
+        order_qt_jni_mixed_us_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['layout'] as string)
+            from variant_mixed_us
+            order by id
+        """
+
         sql """set force_jni_scanner = false"""
 
         explain {
@@ -101,6 +163,17 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                 def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
                 // Paimon can change the physical split count; every planned split must stay native.
                 return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
+        }
+
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                return explainString.contains("all access paths: [payload.name]")
+                        && nativeSplits.find()
                         && nativeSplits.group(1).toInteger() > 0
                         && nativeSplits.group(1) == nativeSplits.group(2)
             }

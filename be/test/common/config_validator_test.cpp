@@ -83,7 +83,7 @@ TEST_F(ConfigValidatorTest, Validator) {
     EXPECT_EQ(cfg_validator_2, 8);
 }
 
-TEST(ConfigValidatorTest, LookupConnectionCacheBlockPoolSize) {
+TEST_F(ConfigValidatorTest, LookupConnectionCacheBlockPoolSize) {
     const auto old_value = config::get_lookup_connection_cache_block_pool_size();
 
     EXPECT_TRUE(config::set_config("lookup_connection_cache_block_pool_size", "1").ok());

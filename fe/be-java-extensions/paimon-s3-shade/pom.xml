@@ -58,6 +58,27 @@ under the License.
         </dependency>
     </dependencies>
 
+    <profiles>
+        <profile>
+            <id>coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <!-- Retain embedded multi-release classes in the runtime jar, but do not
+                                     analyze their duplicate class names in the coverage report. -->
+                                <exclude>**/META-INF/versions/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
     <build>
         <finalName>paimon-s3-shade</finalName>
         <directory>${project.basedir}/target/</directory>

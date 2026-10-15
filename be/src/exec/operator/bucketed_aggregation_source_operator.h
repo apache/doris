@@ -20,11 +20,14 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <memory>
+#include <utility>
 
 #include "common/status.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
+class BucketedAggSinkOperatorX;
 class BucketedAggSourceOperatorX;
 
 /// Source-side local state for bucketed hash aggregation.
@@ -77,6 +80,13 @@ private:
 
     void _make_nullable_output_key(Block* block);
 
+    /// Account for the memory this source instance adds while merging: its merge arena
+    /// and the growth of the merge target's bucket hash tables caused by its merges.
+    /// The sink's memory counters stop updating once the sink has finished, so the
+    /// source-side merge is otherwise invisible to the profile and to the pipeline
+    /// task's memory reservation.
+    void _update_memusage(Arena& merge_arena);
+
     /// Wake up all source instances (including self) by setting their dependencies ready.
     /// Called when this source releases a bucket CAS lock, so that blocked
     /// source instances can re-check for available work.
@@ -99,6 +109,10 @@ private:
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_merge_arena = nullptr;
+    RuntimeProfile::Counter* _memory_usage_merged_hash_tables = nullptr;
+    /// Bytes the merge target's bucket hash tables grew by in this instance's merges.
+    int64_t _hash_table_merge_growth = 0;
 };
 
 class BucketedAggSourceOperatorX : public OperatorX<BucketedAggLocalState> {
@@ -112,10 +126,19 @@ public:
 
     bool is_source() const override { return true; }
 
+    // The source merges and finalizes the states built by the sink, so it runs the same
+    // (possibly blocking) aggregate functions as the paired sink operator.
+    void set_sink_operator(std::shared_ptr<BucketedAggSinkOperatorX> sink_operator) {
+        _sink_operator = std::move(sink_operator);
+    }
+
+    bool is_blockable(RuntimeState* state) const override;
+
 private:
     friend class BucketedAggLocalState;
 
     bool _needs_finalize;
+    std::shared_ptr<BucketedAggSinkOperatorX> _sink_operator;
 };
 
 } // namespace doris

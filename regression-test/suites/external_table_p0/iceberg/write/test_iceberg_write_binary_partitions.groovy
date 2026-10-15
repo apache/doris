@@ -92,6 +92,26 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                 }
             }
         }
+
+        // The VALUES writes above have a single-instance source, so their sink has one writer and its exchange
+        // does not hash. A multi-instance source reaches several writers through a hashing exchange, which must
+        // not route by a binary partition value: the BE cannot hash it ("update_crc32c_batch is not supported
+        // for ColumnVarbinary"). Pin the writers, since a fuzzy session can pick one.
+        sql "set parallel_pipeline_task_num = 8"
+        for (String transform : ["identity", "truncate"]) {
+            String table = "binary_multi_writer_${transform}"
+            String expression = transform == "identity" ? "binary_key" : "truncate(1, binary_key)"
+            sql "DROP TABLE IF EXISTS ${table}"
+            spark_iceberg """CREATE TABLE demo.${dbName}.${table} (id BIGINT, binary_key BINARY)
+                USING iceberg PARTITIONED BY (${expression})
+                TBLPROPERTIES ('format-version'='2', 'write.format.default'='parquet')"""
+            for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
+                sql """${operation} ${table}
+                    SELECT number, CAST(CAST(number % 4 + 10 AS STRING) AS VARBINARY) FROM numbers("number" = "10000")"""
+                "order_qt_${table}_${operation.replace(' ', '_')}" """
+                    SELECT HEX(binary_key), count(*), min(id), max(id) FROM ${table} GROUP BY HEX(binary_key) ORDER BY 1"""
+            }
+        }
     } finally {
         sql "SWITCH internal"
     }

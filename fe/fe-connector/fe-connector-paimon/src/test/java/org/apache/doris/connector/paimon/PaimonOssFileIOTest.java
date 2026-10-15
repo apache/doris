@@ -15,21 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.connector.paimon;
 
-#include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
+import org.apache.paimon.fs.FileIOLoader;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-namespace doris {
+import java.util.ServiceLoader;
 
-inline Status validate_iceberg_external_file_report_ack(const TQueryOptions& query_options) {
-    if (!query_options.__isset.supports_external_file_report_ack ||
-        !query_options.supports_external_file_report_ack) {
-        // A pre-ACK coordinator cannot safely take ownership of files created by this sink.
-        return Status::NotSupported(
-                "Iceberg writes require a coordinator that acknowledges external-file reports");
+class PaimonOssFileIOTest {
+    @Test
+    void discoversOssFileIOLoader() {
+        // REST catalogs resolve their FileIO through Paimon's SPI, independently of fs.oss.impl.
+        Assertions.assertTrue(ServiceLoader.load(FileIOLoader.class).stream()
+                .map(ServiceLoader.Provider::get)
+                .anyMatch(loader -> "oss".equals(loader.getScheme())));
     }
-    return Status::OK();
 }
-
-} // namespace doris

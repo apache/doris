@@ -27,6 +27,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -213,6 +215,45 @@ public class IcebergCatalogFactoryTest {
                 props("iceberg.catalog.type", "rest", "io.manifest.cache-enabled", "false",
                         "meta.cache.iceberg.manifest.enable", "true"), false);
         Assertions.assertEquals("false", opts.get("io.manifest.cache-enabled"));
+    }
+
+    @Test
+    public void buildBaseDefaultsIcebergAwsHttpClientToUrlConnection() {
+        // WHY: iceberg 1.12's default "apache" client type is Apache5HttpClient, absent from the AWS SDK Doris
+        // pins, so without this default every S3FileIO / Glue / STS client fails with NoClassDefFoundError.
+        // Building a client here runs on the plugin's own SDK, so it fails exactly as production would.
+        // MUTATION: dropping the default -> "apache" -> NoClassDefFoundError -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                props("iceberg.catalog.type", "rest"), false);
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                opts.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertDoesNotThrow(
+                () -> new HttpClientProperties(opts).applyHttpClientConfigurations(S3Client.builder()));
+    }
+
+    @Test
+    public void buildBaseTreatsABlankHttpClientTypeAsUnset() {
+        // WHY: iceberg-aws maps an empty http-client.type back to its "apache" default (Apache5HttpClient), so an
+        // empty value set at CREATE or by ALTER must get the supported default too. MUTATION: putIfAbsent keeps "" ->
+        // NoClassDefFoundError on the client build -> red.
+        for (String blank : new String[] {"", " "}) {
+            Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                    props("iceberg.catalog.type", "rest", HttpClientProperties.CLIENT_TYPE, blank), false);
+            Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                    opts.get(HttpClientProperties.CLIENT_TYPE));
+            Assertions.assertDoesNotThrow(
+                    () -> new HttpClientProperties(opts).applyHttpClientConfigurations(S3Client.builder()));
+        }
+    }
+
+    @Test
+    public void buildBaseKeepsAnExplicitHttpClientType() {
+        // WHY: the default only fills a missing key; a user's choice is passed through (and "apache" is rejected
+        // at CREATE/ALTER by IcebergCatalogProperties, not silently rewritten here). MUTATION: put instead of
+        // putIfAbsent -> the user's value is overwritten -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                props("iceberg.catalog.type", "rest", HttpClientProperties.CLIENT_TYPE, "apache"), false);
+        Assertions.assertEquals("apache", opts.get(HttpClientProperties.CLIENT_TYPE));
     }
 
     @Test
