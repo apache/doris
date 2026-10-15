@@ -162,8 +162,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
                 .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
-        output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
-                .append("\n");
+        output.append(prefix).append("partition=").append(selectedPartitionNum).append("/")
+                .append(totalPartitionNum < 0 ? "?" : totalPartitionNum).append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE && !isBatch) {
             appendBackendScanRangeDetail(output, prefix);
