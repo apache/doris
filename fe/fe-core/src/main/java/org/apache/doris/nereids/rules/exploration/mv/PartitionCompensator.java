@@ -193,23 +193,33 @@ public class PartitionCompensator {
                 uncoveredRecorded = true;
             }
         }
+        // Narrowing a table's read keeps the MV partitions answering for the rest, which only works when one
+        // table is short: the pass that turns the compensation into a plan puts the filters it is given on one
+        // join, so compensating two tables of a join independently reads the rows the two filters both reach
+        // and loses the pairs only one of them does -- an a_old x b_kept row, say, when A and B each have a
+        // partition the mapping does not name. Nor can a table be left as it is while the MV partitions that
+        // answered for it are taken out. So the MV partitions are taken out, and every table the MV is
+        // partitioned on is read for the query's own partitions, whenever more than one of them is short of
+        // the mapping or a refresh read one of those partitions into an MV partition.
+        boolean takeMvPartitionsOut = uncoveredRecorded || uncoveredByTable.size() > 1;
         if (!uncoveredByTable.isEmpty()) {
-            for (Entry<MTMVRelatedTableIf, Set<String>> uncoveredEntry : uncoveredByTable.entrySet()) {
-                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(uncoveredEntry.getKey()));
+            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+                if (CollectionUtils.isEmpty(queryUsed)) {
+                    continue;
+                }
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
                 if (pctInfo == null) {
                     continue;
                 }
-                // With the MV partitions taken out the MV answers none of what the query reads, so the whole of
-                // the query's partitions comes from the base; otherwise the MV answers the partitions the
-                // mapping names and the base branch reads the ones it does not.
-                Set<String> toRead = uncoveredRecorded
-                        ? queryUsedBaseTablePartitionMap.getOrDefault(
-                                uncoveredEntry.getKey().getFullQualifiers(), Sets.newHashSet())
-                        : uncoveredEntry.getValue();
+                Set<String> toRead = takeMvPartitionsOut ? queryUsed : uncoveredByTable.get(pctTable);
+                if (CollectionUtils.isEmpty(toRead)) {
+                    continue;
+                }
                 baseTablePartitionNeedUnionNameMap
                         .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(toRead);
             }
-            if (uncoveredRecorded && !rewrittenPlanUsePartitionNameSet.isEmpty()) {
+            if (takeMvPartitionsOut && !rewrittenPlanUsePartitionNameSet.isEmpty()) {
                 mvPartitionNeedRemoveNameMap
                         .computeIfAbsent(new BaseTableInfo(mtmv), k -> new HashSet<>())
                         .addAll(rewrittenPlanUsePartitionNameSet);

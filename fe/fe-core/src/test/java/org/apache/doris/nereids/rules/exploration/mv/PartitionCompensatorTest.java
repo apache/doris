@@ -482,19 +482,18 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         // Each table keeps its own partitions: a name means the keys of the table it belongs to, and the
         // tables of a multi-table MV can reuse a name for different keys, so merging the sets would make one
-        // table's base branch read the other's partitions. Each table's base branch reads the query-used
-        // partitions the mapping does not name -- the MV partitions the plan uses answer the ones it does --
-        // and they are left in place, since the MV's refresh snapshots (none here) record nothing of the
-        // uncovered partitions: a partition whose rows a refresh did read into one of them is the one that
-        // takes those MV partitions out, and then the table is read for the query's own partitions.
+        // table's base branch read the other's partitions. With two tables short of the mapping the MV
+        // partitions the plan uses are taken out and each table is read for the query's own partitions: the
+        // compensation reaches one plan, and narrowing both tables there would read the pairs only one of the
+        // filters reaches and lose the mixed ones.
         Assertions.assertNotNull(result);
-        Assertions.assertEquals(ImmutableSet.of("t1_p2"), result.value().get(colInfo1));
-        Assertions.assertEquals(ImmutableSet.of("t2_p1"), result.value().get(colInfo2));
+        Assertions.assertEquals(ImmutableSet.of("t1_p1", "t1_p2"), result.value().get(colInfo1));
+        Assertions.assertEquals(ImmutableSet.of("t2_p1", "t2_p2"), result.value().get(colInfo2));
     }
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testCalcInvalidPartitionsCompensatesATableTheMappingDoesNotMention()
+    public void testCalcInvalidPartitionsReadsOnlyAnUncoveredPartitionOfOneTable()
             throws Exception {
         // Shared catalog/db for both related base tables
         CatalogIf<?> baseCatalog = Mockito.mock(CatalogIf.class);
@@ -546,8 +545,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mvPartitionInfo.getType()).thenReturn(PartitionType.RANGE);
         MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
-        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable1, relatedTable2));
-        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1, colInfo2));
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable1));
+        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1));
         // All MV partitions contain data
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(ImmutableList.of(1L));
@@ -585,15 +584,13 @@ public class PartitionCompensatorTest extends TestWithFeService {
                         PartitionCompensator.calcInvalidPartitions(
                                 queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx));
 
-        // A table every query-used partition of which the mapping does not name -- the query's filtering left
-        // it out of the mapping entirely, the partition it reads having been dropped by the sync window -- is
-        // read for the query's own partitions from the base table: the MV partitions the plan uses answer the
-        // partitions the mapping names, and for this table those are none, so the MV alone would answer for it
-        // and the rows of the partition the query reads would be lost. A table the mapping does mention keeps
-        // its own partitions and is read only for the ones the mapping does not name.
+        // One table short of the mapping: the partition it does not name is read from the base and the MV
+        // partitions the plan uses are left in place, since the refresh snapshots here (none) record nothing
+        // of it -- a partition a refresh did read into one of them is what takes them out. Reading the whole
+        // table instead would count the partitions the MV answers for twice.
         Assertions.assertNotNull(result);
         Assertions.assertEquals(ImmutableSet.of("t1_p2"), result.value().get(colInfo1));
-        Assertions.assertEquals(ImmutableSet.of("t2_p1", "t2_p2"), result.value().get(colInfo2));
+        Assertions.assertNull(result.key().get(new BaseTableInfo(mtmv)));
     }
 
     @SuppressWarnings("unchecked")
