@@ -554,7 +554,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                // BE sends the bytes of a string as they are, but a FE string literal holds only valid UTF-8:
+                // getStringValue(i) would turn other bytes, such as the 0xFF of unhex('FF'), into U+FFFD.
+                // Leave such a result unfolded, so that BE evaluates the expression.
+                ByteString bytesValue = resultContent.getStringValueBytes(i);
+                if (!bytesValue.isValidUtf8()) {
+                    return Collections.emptyList();
+                }
+                Literal literal = new StringLiteral(bytesValue.toStringUtf8());
                 res.add(literal);
             }
         } else if (type.isArrayType()) {
