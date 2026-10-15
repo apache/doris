@@ -2135,32 +2135,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         Runnable dispatch = () -> {
             try {
-                for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
-                    int end = Math.min(begin + batchSize, allPartitions.size());
+                for (SplitProducer.BatchSource source : createPartitionBatchSources(scanProvider, batchRequest,
+                        allPartitions, batchSize, Config.max_external_cache_loader_thread_pool_size)) {
                     if (batchException.get() != null || splitAssignment.isStop()) {
                         break;
                     }
-                    List<String> batch = allPartitions.subList(begin, end);
                     profileFinalizer.taskSubmitted();
-                    new SplitProducer(splitAssignment, scheduleExecutor, new SplitProducer.BatchSource() {
-                        private Iterator<ConnectorScanRange> ranges;
-
-                        @Override
-                        public List<Split> getNextBatch() {
-                            return onPluginClassLoader(scanProvider, () -> {
-                                if (ranges == null) {
-                                    ranges = scanProvider.planScanForPartitionBatch(
-                                            connectorSession, batchRequest, batch).iterator();
-                                }
-                                List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
-                                while (splits.size() < splitAssignment.getSplitBatchSize()
-                                        && splitAssignment.needMoreSplit() && ranges.hasNext()) {
-                                    splits.add(toSplit(ranges.next()));
-                                }
-                                return splits;
-                            });
-                        }
-                    }, failure -> {
+                    new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
                         try {
                             if (failure != null) {
                                 publishBatchFailure(batchException, splitAssignment,
@@ -2185,6 +2166,44 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 profileFinalizer.closeDispatch();
             }
         }
+    }
+
+    List<SplitProducer.BatchSource> createPartitionBatchSources(ConnectorScanPlanProvider scanProvider,
+            ConnectorScanRequest request, List<String> partitions, int partitionsPerBatch, int parallelism) {
+        AtomicInteger nextPartition = new AtomicInteger();
+        int sourceCount = Math.min(parallelism, (partitions.size() - 1) / partitionsPerBatch + 1);
+        List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
+        // A partition batch returns a fully materialized range list. Keep at most the old scheduler's
+        // parallelism worth of lists alive, even when full queues make producers yield their workers.
+        for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
+            sources.add(new SplitProducer.BatchSource() {
+                private Iterator<ConnectorScanRange> ranges = Collections.emptyIterator();
+
+                @Override
+                public List<Split> getNextBatch() {
+                    return onPluginClassLoader(scanProvider, () -> {
+                        List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
+                        while (splits.size() < splitAssignment.getSplitBatchSize()
+                                && splitAssignment.needMoreSplit()) {
+                            if (!ranges.hasNext()) {
+                                ranges = Collections.emptyIterator();
+                                int begin = nextPartition.getAndAdd(partitionsPerBatch);
+                                if (begin >= partitions.size()) {
+                                    break;
+                                }
+                                int end = Math.min(begin + partitionsPerBatch, partitions.size());
+                                ranges = scanProvider.planScanForPartitionBatch(connectorSession, request,
+                                        partitions.subList(begin, end)).iterator();
+                            } else {
+                                splits.add(toSplit(ranges.next()));
+                            }
+                        }
+                        return splits;
+                    });
+                }
+            });
+        }
+        return sources;
     }
 
     /**
