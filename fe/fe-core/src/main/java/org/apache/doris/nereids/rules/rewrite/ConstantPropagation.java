@@ -29,12 +29,14 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -79,6 +81,17 @@ import java.util.Set;
  * finally use the combine uniforms to replace this plan's expression's slot with literals.
  */
 public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> implements CustomRewriter {
+    /**
+     * When this rule replaces a slot with a constant, the new slot describes another value than the replaced
+     * slot: the nullable and the data type may differ. Reusing the exprId of the replaced slot would make two
+     * different definitions share one exprId, and every rule which only compares exprIds (e.g.
+     * EliminateUnnecessaryProject) would treat them as the same column.
+     *
+     * <p>So the constant slot gets a fresh exprId, and this map records {@code replaced exprId -> fresh exprId}
+     * to refresh the references in the plan above.
+     */
+    private final Map<ExprId, ExprId> replacedExprIds = Maps.newHashMap();
+    private ExprIdRewriter exprIdRewriter;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -86,12 +99,23 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         if (plan.containsType(LogicalApply.class)) {
             return plan;
         }
+        replacedExprIds.clear();
+        exprIdRewriter = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replacedExprIds, true), jobContext);
         return plan.accept(this, jobContext.getCascadesContext());
+    }
+
+    @Override
+    public Plan visit(Plan plan, CascadesContext context) {
+        plan = visitChildren(this, plan, context);
+        // the children may have replaced some slots by constants with fresh exprIds, refresh the references of
+        // this node before rewriting it
+        return exprIdRewriter.rewriteExpr(plan, replacedExprIds);
     }
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, CascadesContext context) {
         filter = visitChildren(this, filter, context);
+        filter = (LogicalFilter<? extends Plan>) exprIdRewriter.rewriteExpr(filter, replacedExprIds);
         Expression oldPredicate = filter.getPredicate();
         Expression newPredicate = replaceConstantsAndRewriteExpr(filter, oldPredicate, context);
         if (isExprEqualIgnoreOrder(oldPredicate, newPredicate)) {
@@ -105,6 +129,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     @Override
     public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having, CascadesContext context) {
         having = visitChildren(this, having, context);
+        having = (LogicalHaving<? extends Plan>) exprIdRewriter.rewriteExpr(having, replacedExprIds);
         Expression oldPredicate = having.getPredicate();
         Expression newPredicate = replaceConstantsAndRewriteExpr(having, oldPredicate, context);
         if (isExprEqualIgnoreOrder(oldPredicate, newPredicate)) {
@@ -118,6 +143,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, CascadesContext context) {
         project = visitChildren(this, project, context);
+        project = (LogicalProject<? extends Plan>) exprIdRewriter.rewriteExpr(project, replacedExprIds);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(project, context);
         Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait =
                 getChildEqualSetAndConstants(project, rewriteContext);
@@ -135,6 +161,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     @Override
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, CascadesContext context) {
         sort = visitChildren(this, sort, context);
+        sort = (LogicalSort<? extends Plan>) exprIdRewriter.rewriteExpr(sort, replacedExprIds);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(sort, context);
         Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait
                 = getChildEqualSetAndConstants(sort, rewriteContext);
@@ -163,6 +190,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, CascadesContext context) {
         aggregate = visitChildren(this, aggregate, context);
+        aggregate = (LogicalAggregate<? extends Plan>) exprIdRewriter.rewriteExpr(aggregate, replacedExprIds);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(aggregate, context);
         Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait =
                 getChildEqualSetAndConstants(aggregate, rewriteContext);
@@ -192,6 +220,9 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         List<NamedExpression> newOutputExprs = Lists.newArrayListWithExpectedSize(oldOutputExprs.size());
         ImmutableList.Builder<NamedExpression> projectBuilder
                 = ImmutableList.builderWithExpectedSize(oldOutputExprs.size());
+        // the constant outputs above the aggregate, recorded as replaced exprId -> fresh exprId. They are only
+        // registered if the project is really built, see the comment below.
+        List<Pair<ExprId, ExprId>> freshExprIds = Lists.newArrayList();
 
         boolean containsConstantOutput = false;
 
@@ -208,8 +239,15 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 newOutputExprs.add((NamedExpression) newOutputExpr);
             }
 
-            if (replacedExpr.isConstant()) {
-                projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
+            if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
+                // A constant output describes another value than the output slot of the aggregate: its nullable
+                // and data type may differ, so it must be materialized with a fresh exprId instead of reusing
+                // the exprId of the aggregate output. Otherwise the plan would contain two definitions for one
+                // exprId, and rules which compare exprIds only, e.g. EliminateUnnecessaryProject, would treat the
+                // constant project as a pass-through project of the aggregate and remove it.
+                ExprId freshExprId = StatementScopeIdGenerator.newExprId();
+                projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
+                freshExprIds.add(Pair.of(expr.getExprId(), freshExprId));
                 containsConstantOutput = true;
             } else {
                 Preconditions.checkArgument(newOutputExpr instanceof NamedExpression, newOutputExpr);
@@ -218,11 +256,16 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         }
 
         if (newGroupByExprs.equals(oldGroupByExprs) && newOutputExprs.equals(oldOutputExprs)) {
+            // the aggregate is not changed, the plan above keeps referencing the output slots of the aggregate,
+            // so neither the constant project nor its fresh exprIds are used
             return aggregate;
         }
 
         aggregate = aggregate.withGroupByAndOutput(newGroupByExprs, newOutputExprs);
         if (containsConstantOutput) {
+            for (Pair<ExprId, ExprId> freshExprId : freshExprIds) {
+                replacedExprIds.put(freshExprId.first, freshExprId.second);
+            }
             return PlanUtils.projectOrSelf(projectBuilder.build(), aggregate);
         } else {
             return aggregate;
@@ -238,6 +281,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         // update: BE not support nested loop mark join, so mark join condition need to be an equation,
         // but constant propagation may rewrite an equal to TRUE/FALSE/NULL, so we don't rewrite mark join condition.
         join = visitChildren(this, join, context);
+        join = (LogicalJoin<? extends Plan, ? extends Plan>) exprIdRewriter.rewriteExpr(join, replacedExprIds);
         if (join.getJoinType().isAsofJoin()) {
             return join;
         }
@@ -295,7 +339,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         // // the select will add a parent plan: result sink. the result sink contains a output slot reference, and its
         // // data type is varchar(30),  but if replace the slot reference with a varchar literal '1',
         // // then the data type info varchar(30) will lost, because varchar literal '1' data type is always varchar(1),
-        // // so t's column will get a error type. so we don't rewrite logical sink then.
+        // // so t's column will get a error type. so we don't replace the slots of the sink by literals.
         // Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait
         //         = getChildEqualSetAndConstants(sink, context);
         // List<NamedExpression> newOutputExprs = sink.getOutputExprs().stream()
@@ -303,7 +347,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         //                 replaceNameExpressionConstants(expr, context, childEqualTrait.first, childEqualTrait.second))
         //         .collect(ImmutableList.toImmutableList());
         // return newOutputExprs.equals(sink.getOutputExprs()) ? sink : sink.withOutputExprs(newOutputExprs);
-        return sink;
+        // The sink still has to follow the fresh exprIds of the constants materialized below it, otherwise it
+        // would reference a slot which its child does not output any more. Only the exprId is remapped here, so
+        // the name and the data type declared by the sink are kept.
+        return (LogicalSink<? extends Plan>) exprIdRewriter.rewriteExpr(sink, replacedExprIds);
     }
 
     /**
@@ -374,9 +421,16 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         Expression newExpr = replaceConstants(expr, false, context, equalSet, constants);
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
-        } else {
-            return new Alias(expr.getExprId(), newExpr, expr.getName());
         }
+        if (newExpr.equals(expr.child(0))) {
+            return expr;
+        }
+        // the project item is replaced by a constant (or another expression), which describes another value than
+        // the original alias: give it a fresh exprId and refresh the references above, see the comment of
+        // replacedExprIds
+        ExprId freshExprId = StatementScopeIdGenerator.newExprId();
+        replacedExprIds.put(expr.getExprId(), freshExprId);
+        return new Alias(freshExprId, newExpr, expr.getName());
     }
 
     private Expression replaceConstants(Expression expression, boolean useInnerInfer, ExpressionRewriteContext context,

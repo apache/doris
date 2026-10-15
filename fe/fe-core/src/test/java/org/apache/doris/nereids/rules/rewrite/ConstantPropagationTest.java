@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -361,7 +362,16 @@ class ConstantPropagationTest {
         LogicalAggregate rewrittenAgg1 = (LogicalAggregate) rewrittenProject1.child();
         Assertions.assertEquals(expectGroupby1, rewrittenAgg1.getGroupByExpressions());
         Assertions.assertEquals(expectAggOutput1, rewrittenAgg1.getOutputExpressions());
-        Assertions.assertEquals(expectProjection1, rewrittenProject1.getProjects());
+        // the constant outputs above the aggregate are materialized with a fresh exprId, so that one exprId
+        // does not describe both the output slot of the aggregate and the constant
+        List<NamedExpression> actualProjects1 = rewrittenProject1.getProjects();
+        Assertions.assertEquals(expectProjection1.subList(0, 5), actualProjects1.subList(0, 5));
+        assertConstantProjectItem(actualProjects1.get(5), aggOutput.get(5).getExprId(),
+                new IntegerLiteral(1), aggOutput.get(5).getName());
+        Assertions.assertEquals(expectProjection1.get(6), actualProjects1.get(6));
+        assertConstantProjectItem(actualProjects1.get(7), aggOutput.get(7).getExprId(),
+                new IntegerLiteral(11), aggOutput.get(7).getName());
+        Assertions.assertEquals(expectProjection1.subList(8, 10), actualProjects1.subList(8, 10));
 
         Set<Expression> conjunctions2 = ImmutableSet.of(
                 new EqualTo(studentId, new IntegerLiteral(3)),
@@ -396,7 +406,34 @@ class ConstantPropagationTest {
         LogicalAggregate rewrittenAgg2 = (LogicalAggregate) rewrittenProject2.child();
         Assertions.assertEquals(expectGroupby2, rewrittenAgg2.getGroupByExpressions());
         Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
-        Assertions.assertEquals(expectProjection2, rewrittenProject2.getProjects());
+        List<NamedExpression> actualProjects2 = rewrittenProject2.getProjects();
+        Assertions.assertEquals(expectProjection2.subList(0, 5), actualProjects2.subList(0, 5));
+        assertConstantProjectItem(actualProjects2.get(5), expectAggOutput2.get(5).getExprId(),
+                new IntegerLiteral(3), null);
+        assertConstantProjectItem(actualProjects2.get(6), aggOutput.get(6).getExprId(),
+                new IntegerLiteral(3), aggOutput.get(6).getName());
+        assertConstantProjectItem(actualProjects2.get(7), aggOutput.get(7).getExprId(),
+                new IntegerLiteral(13), aggOutput.get(7).getName());
+        assertConstantProjectItem(actualProjects2.get(8), aggOutput.get(8).getExprId(),
+                new IntegerLiteral(13), aggOutput.get(8).getName());
+        assertConstantProjectItem(actualProjects2.get(9), aggOutput.get(9).getExprId(),
+                new IntegerLiteral(6), aggOutput.get(9).getName());
+    }
+
+    /**
+     * A constant output above the aggregate describes another value than the replaced output slot, so it must
+     * be materialized with a fresh exprId instead of reusing the exprId of the replaced slot.
+     */
+    private static void assertConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
+            Expression expectedExpr, String expectedName) {
+        Assertions.assertTrue(actual instanceof Alias, actual.toString());
+        Alias alias = (Alias) actual;
+        Assertions.assertEquals(expectedExpr, alias.child());
+        if (expectedName != null) {
+            Assertions.assertEquals(expectedName, alias.getName());
+        }
+        Assertions.assertNotEquals(replacedExprId, alias.getExprId(),
+                "the constant project item must not reuse the exprId of the replaced output slot");
     }
 
     @Test
