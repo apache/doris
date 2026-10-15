@@ -82,5 +82,4 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         return Status::OK();
     };
 }
-#include "common/compile_check_end.h"
 } // namespace doris::CastWrapper
