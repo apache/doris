@@ -37,6 +37,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/function/search/function_search_leaf.h"
 #include "exprs/function/search/search_lowering.h"
 #include "exprs/function/search/variant_inverted_index_search.h"
@@ -54,6 +56,7 @@
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
 #include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/collect/top_k_collector.h"
+#include "storage/index/inverted/query/engine/null_masked_query.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/logical/node.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
@@ -110,6 +113,43 @@ static std::string extract_segment_prefix(
 }
 
 namespace {
+
+// A SEARCH result is cached as two entries: its TRUE rows, and its UNKNOWN rows under the
+// signature with a "__null" suffix.
+InvertedIndexQueryCache::CacheKey dsl_cache_key(const std::string& seg_prefix,
+                                                const std::string& signature) {
+    return {seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY, signature};
+}
+
+// Either entry can be evicted, or not yet inserted, without the other, and TRUE rows found
+// without their UNKNOWN rows are no result.
+bool lookup_dsl_result(InvertedIndexQueryCache* cache, const std::string& seg_prefix,
+                       const std::string& signature, InvertedIndexResultBitmap* result) {
+    InvertedIndexQueryCacheHandle rows_handle;
+    InvertedIndexQueryCacheHandle nulls_handle;
+    if (!cache->lookup(dsl_cache_key(seg_prefix, signature), &rows_handle) ||
+        !cache->lookup(dsl_cache_key(seg_prefix, signature + "__null"), &nulls_handle)) {
+        return false;
+    }
+    auto rows = rows_handle.get_bitmap();
+    auto nulls = nulls_handle.get_bitmap();
+    if (rows == nullptr || nulls == nullptr) {
+        return false;
+    }
+    *result = InvertedIndexResultBitmap(std::move(rows), std::move(nulls));
+    return true;
+}
+
+// The UNKNOWN rows go in first, so a search that finds the TRUE rows finds them as well.
+void insert_dsl_result(InvertedIndexQueryCache* cache, const std::string& seg_prefix,
+                       const std::string& signature, const InvertedIndexResultBitmap& result) {
+    auto nulls = result.get_null_bitmap() != nullptr ? result.get_null_bitmap()
+                                                     : std::make_shared<roaring::Roaring>();
+    InvertedIndexQueryCacheHandle nulls_handle;
+    cache->insert(dsl_cache_key(seg_prefix, signature + "__null"), std::move(nulls), &nulls_handle);
+    InvertedIndexQueryCacheHandle rows_handle;
+    cache->insert(dsl_cache_key(seg_prefix, signature), result.get_data_bitmap(), &rows_handle);
+}
 
 bool is_nested_group_search_supported() {
     auto provider = segment_v2::create_nested_group_read_provider();
@@ -203,6 +243,31 @@ query_v2::Occur to_query_occur(logical::Occur occur) {
 Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key);
+
+// An array column can keep values in a row whose array is NULL, and its index lists the row
+// under them; the leaf leaves such a row UNKNOWN, not TRUE.
+Status mask_array_nulls(const FieldReaderBinding& binding, const FieldReaderResolver& resolver,
+                        const std::string& field, query_v2::QueryPtr* query) {
+    if (binding.column_type == nullptr ||
+        remove_nullable(binding.column_type)->get_primitive_type() != TYPE_ARRAY) {
+        return Status::OK();
+    }
+    IndexIterator* iterator = resolver.get_iterator(field);
+    if (iterator == nullptr) {
+        return Status::OK();
+    }
+    auto has_null = iterator->has_null();
+    if (!has_null.has_value() || !has_null.value()) {
+        return Status::OK();
+    }
+    InvertedIndexQueryCacheHandle handle;
+    RETURN_IF_ERROR(iterator->read_null_bitmap(&handle));
+    auto nulls = handle.get_bitmap();
+    if (nulls != nullptr && !nulls->isEmpty()) {
+        *query = std::make_shared<query_v2::NullMaskedQuery>(std::move(*query), std::move(nulls));
+    }
+    return Status::OK();
+}
 
 using Clauses = std::vector<std::pair<logical::Occur, logical::NodePtr>>;
 
@@ -316,6 +381,7 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
     } else {
         RETURN_IF_ERROR(binding->leaf_compiler->compile(node, ctx, out));
     }
+    RETURN_IF_ERROR(mask_array_nulls(*binding, resolver, field->name, out));
     return resolver.map_leaf_query(field->name, out);
 }
 
@@ -408,47 +474,24 @@ Status FunctionSearch::_evaluate_search_param(
             enable_cache && !enable_scoring ? InvertedIndexQueryCache::instance() : nullptr;
     std::string seg_prefix;
     std::string dsl_sig;
-    InvertedIndexQueryCache::CacheKey dsl_cache_key;
     bool cache_usable = false;
     if (dsl_cache) {
         seg_prefix = extract_segment_prefix(iterators);
         dsl_sig = dsl_cache_signature(search_param, index_query_context.get());
         if (!seg_prefix.empty() && !dsl_sig.empty()) {
-            dsl_cache_key = InvertedIndexQueryCache::CacheKey {
-                    seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
-                    dsl_sig};
             cache_usable = true;
-            InvertedIndexQueryCacheHandle dsl_cache_handle;
             bool dsl_hit = false;
             {
                 int64_t lookup_dummy = 0;
                 SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_lookup_timer
                                              : &lookup_dummy);
-                dsl_hit = dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle);
+                dsl_hit = lookup_dsl_result(dsl_cache, seg_prefix, dsl_sig, &bitmap_result);
             }
             if (dsl_hit) {
-                auto cached_bitmap = dsl_cache_handle.get_bitmap();
-                if (cached_bitmap) {
-                    if (outer_stats) {
-                        outer_stats->inverted_index_query_cache_hit++;
-                    }
-                    // Also retrieve cached null bitmap for three-valued SQL logic
-                    // (needed by compound operators NOT, OR, AND in VCompoundPred)
-                    auto null_cache_key = InvertedIndexQueryCache::CacheKey {
-                            seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
-                            dsl_sig + "__null"};
-                    InvertedIndexQueryCacheHandle null_cache_handle;
-                    std::shared_ptr<roaring::Roaring> null_bitmap;
-                    if (dsl_cache->lookup(null_cache_key, &null_cache_handle)) {
-                        null_bitmap = null_cache_handle.get_bitmap();
-                    }
-                    if (!null_bitmap) {
-                        null_bitmap = std::make_shared<roaring::Roaring>();
-                    }
-                    bitmap_result =
-                            InvertedIndexResultBitmap(cached_bitmap, std::move(null_bitmap));
-                    return Status::OK();
+                if (outer_stats) {
+                    outer_stats->inverted_index_query_cache_hit++;
                 }
+                return Status::OK();
             }
             if (outer_stats) {
                 outer_stats->inverted_index_query_cache_miss++;
@@ -550,10 +593,10 @@ Status FunctionSearch::_evaluate_search_param(
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
-            query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k,
-                                                  roaring,
-                                                  index_query_context->collection_similarity,
-                                                  use_wand, index_query_context->delete_bitmap);
+            query_v2::collect_multi_segment_top_k(
+                    weight, exec_ctx, root_binding_key, top_k, roaring,
+                    index_query_context->collection_similarity, use_wand,
+                    index_query_context->delete_bitmap, three_valued ? null_bitmap.get() : nullptr);
         } else {
             // The scorers listing the rows report the UNKNOWN ones as they go.
             query_v2::collect_multi_segment_doc_set(
@@ -565,19 +608,6 @@ Status FunctionSearch::_evaluate_search_param(
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
 
-    // The top-k collector keeps no scorer, so the UNKNOWN rows come from one built for them.
-    if (three_valued && top_k_path) {
-        auto scorer = weight->scorer(exec_ctx, root_binding_key);
-        if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-            if (bitmap != nullptr) {
-                *null_bitmap = *bitmap;
-                VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
-                           << " NULL documents";
-            }
-        }
-    }
-
     VLOG_TRACE << "search: Before mask - true_bitmap=" << roaring->cardinality()
                << ", null_bitmap=" << null_bitmap->cardinality();
 
@@ -588,19 +618,10 @@ Status FunctionSearch::_evaluate_search_param(
     VLOG_TRACE << "search: After mask - result_bitmap="
                << bitmap_result.get_data_bitmap()->cardinality();
 
-    // Insert post-mask_out_null result into DSL cache for future reuse
-    // Cache both data bitmap and null bitmap so compound operators (NOT, OR, AND)
-    // can apply correct three-valued SQL logic on cache hit
+    // The cached result keeps its UNKNOWN rows, so NOT, OR and AND over a cache hit stay
+    // three-valued.
     if (dsl_cache && cache_usable) {
-        InvertedIndexQueryCacheHandle insert_handle;
-        dsl_cache->insert(dsl_cache_key, bitmap_result.get_data_bitmap(), &insert_handle);
-        if (bitmap_result.get_null_bitmap()) {
-            auto null_cache_key = InvertedIndexQueryCache::CacheKey {
-                    seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
-                    dsl_sig + "__null"};
-            InvertedIndexQueryCacheHandle null_insert_handle;
-            dsl_cache->insert(null_cache_key, bitmap_result.get_null_bitmap(), &null_insert_handle);
-        }
+        insert_dsl_result(dsl_cache, seg_prefix, dsl_sig, bitmap_result);
     }
 
     return Status::OK();

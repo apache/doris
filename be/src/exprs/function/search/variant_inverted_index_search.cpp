@@ -390,12 +390,8 @@ std::shared_ptr<roaring::Roaring> VariantSearchNullBitmapAdapter::bitmap_for(
         return nullptr;
     }
     segment_v2::InvertedIndexQueryCacheHandle cache_handle;
-    auto status = iterator->read_null_bitmap(&cache_handle);
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to read null bitmap for field '" << logical_field
-                     << "': " << status.to_string();
-        return nullptr;
-    }
+    // A failed read fails the search: read as no NULL rows, the rows would turn TRUE under NOT.
+    THROW_IF_ERROR(iterator->read_null_bitmap(&cache_handle));
     auto bitmap = cache_handle.get_bitmap();
     return bitmap == nullptr ? nullptr : std::make_shared<roaring::Roaring>(*bitmap);
 }

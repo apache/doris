@@ -43,12 +43,12 @@
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/engine/all_query/all_query.h"
-#include "storage/index/inverted/query/engine/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query/engine/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query/engine/boolean_query/listed_terms.h"
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
 #include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/complete_null_bitmap.h"
+#include "storage/index/inverted/query/engine/empty_query.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
 #include "storage/index/inverted/query/engine/phrase_prefix_query/phrase_prefix_query.h"
 #include "storage/index/inverted/query/engine/phrase_query/multi_phrase_query.h"
@@ -224,7 +224,7 @@ Status plan_query(const logical::Node& leaf, const IndexQueryContextPtr& context
     } else if (leaf.as<logical::Exists>() != nullptr) {
         *out = std::make_shared<query_v2::AllQuery>(field, /*nullable=*/true);
     } else if (leaf.as<logical::Empty>() != nullptr) {
-        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
+        *out = std::make_shared<query_v2::EmptyQuery>(field);
     } else {
         return Status::InternalError("leaf kind {} cannot run on a CLucene field",
                                      leaf.value.index());

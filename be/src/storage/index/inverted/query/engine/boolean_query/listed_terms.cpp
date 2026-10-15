@@ -84,24 +84,23 @@ uint64_t ListedTerms::cheapest_doc_freq() const {
 
 index_query::TruthSet ListedTerms::conjunction(const std::vector<uint32_t>* candidates) {
     index_query::TruthSet result;
+    if (_nulls != nullptr) {
+        result.null_rows = *_nulls;
+    }
     if (has_absent_term()) {
         return result;
     }
     std::vector<uint32_t> docs;
     THROW_IF_ERROR(index_query::chain_cursors(_cursors, candidates, &docs));
     result.true_rows.addMany(docs.size(), docs.data());
-    if (_nulls != nullptr) {
-        result.null_rows = *_nulls;
-    }
     return result;
 }
 
 index_query::TruthSet ListedTerms::disjunction() {
     index_query::TruthSet result;
-    bool any_present = false;
     index_query::RoaringDocIdSink sink(result.true_rows);
-    THROW_IF_ERROR(_source->collect_terms(_terms, sink, &any_present));
-    if (any_present && _nulls != nullptr) {
+    THROW_IF_ERROR(_source->collect_terms(_terms, sink));
+    if (_nulls != nullptr) {
         result.null_rows = *_nulls;
     }
     return result;
@@ -196,13 +195,13 @@ private:
 // The chain lists the rows, then the terms read their positions a wave at a time, one round
 // each, and score each row on the positions it holds there and the source's norm.
 ScorerPtr ListedTerms::scored_conjunction() {
-    if (has_absent_term()) {
-        return std::make_shared<EmptyScorer>();
-    }
     std::vector<uint32_t> rows;
-    THROW_IF_ERROR(index_query::chain_cursors(_cursors, nullptr, &rows));
+    if (!has_absent_term()) {
+        THROW_IF_ERROR(index_query::chain_cursors(_cursors, nullptr, &rows));
+    }
     if (rows.empty()) {
-        return std::make_shared<EmptyScorer>();
+        return std::make_shared<ScoredRowsScorer>(std::vector<uint32_t> {}, std::vector<float> {},
+                                                  _nulls);
     }
     std::vector<uint32_t> norms;
     THROW_IF_ERROR(_source->encoded_norms(rows, &norms));
@@ -283,7 +282,8 @@ ScorerPtr ListedTerms::scored_disjunction() {
                 return Status::OK();
             }));
     if (!any_present) {
-        return std::make_shared<EmptyScorer>();
+        return std::make_shared<ScoredRowsScorer>(std::vector<uint32_t> {}, std::vector<float> {},
+                                                  _nulls);
     }
     if (slots.has_value()) {
         slots->list(&rows, &scores);

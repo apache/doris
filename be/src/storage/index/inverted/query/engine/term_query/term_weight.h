@@ -20,6 +20,7 @@
 #include <string>
 #include <variant>
 
+#include "storage/index/inverted/query/engine/nullable_scorer.h"
 #include "storage/index/inverted/query/engine/segment_postings.h"
 #include "storage/index/inverted/query/engine/term_query/term_scorer.h"
 #include "storage/index/inverted/query/engine/wand/block_wand.h"
@@ -45,7 +46,13 @@ public:
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto result = specialized_scorer(ctx, binding_key);
-        return std::visit([](auto&& sc) -> ScorerPtr { return sc; }, result);
+        if (auto* term = std::get_if<TermScorerPtr>(&result); term != nullptr) {
+            return std::move(*term);
+        }
+        // An absent term matches no row, and the rows where its field is NULL stay UNKNOWN.
+        return make_nullable_scorer(std::get<EmptyScorerPtr>(std::move(result)),
+                                    logical_field_or_fallback(ctx, binding_key, _field),
+                                    ctx.null_resolver);
     }
 
     template <typename Callback>

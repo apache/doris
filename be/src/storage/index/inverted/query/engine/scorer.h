@@ -35,6 +35,8 @@ class Scorer;
 class NullBitmapResolver {
 public:
     virtual ~NullBitmapResolver() = default;
+    // The rows where `logical_field` is NULL, or null when it has none. Throws when they cannot
+    // be read.
     virtual std::shared_ptr<roaring::Roaring> bitmap_for(
             const Scorer& scorer, const std::string& logical_field) const = 0;
 };

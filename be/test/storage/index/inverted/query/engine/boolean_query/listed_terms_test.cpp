@@ -527,12 +527,13 @@ TEST_F(ListedTermsTest, ANegationListsItsTermsBeforeNegating) {
             expected, roaring::Roaring::bitmapOf(2, 40U, 41U));
 }
 
-TEST_F(ListedTermsTest, AnAbsentTermMakesTheConjunctionFalseEverywhere) {
+// An absent term holds no row, and the rows where its field is NULL stay UNKNOWN.
+TEST_F(ListedTermsTest, AnAbsentTermLeavesOnlyTheNullRowsUnknown) {
     auto listed = expect_alike(
             [&] {
                 return boolean(OperatorType::OP_AND, {term("a"), term("absent")});
             },
-            roaring::Roaring(), roaring::Roaring());
+            roaring::Roaring(), roaring::Roaring::bitmapOf(2, 40U, 41U));
     // A term surely absent opens nothing on either source.
     EXPECT_TRUE(listed->opened_together.empty());
     EXPECT_TRUE(listed->prefetches["a"].empty());
@@ -545,7 +546,7 @@ TEST_F(ListedTermsTest, AnAbsentTermMakesTheConjunctionFalseEverywhere) {
             [&] {
                 return boolean(OperatorType::OP_OR, {term("absent"), term("missing")});
             },
-            roaring::Roaring(), roaring::Roaring());
+            roaring::Roaring(), roaring::Roaring::bitmapOf(2, 40U, 41U));
 }
 
 TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {

@@ -98,10 +98,13 @@ private:
     std::vector<ScoredDoc> _buffer;
 };
 
+// With `null_rows`, the rows the query leaves UNKNOWN are added to it, taken from the scorer the
+// TopK ranks with; that scorer runs without the weight's own pruning.
 void collect_multi_segment_top_k(
         const WeightPtr& weight, const QueryExecutionContext& context,
         const std::string& binding_key, size_t k, const std::shared_ptr<roaring::Roaring>& roaring,
         const CollectionSimilarityPtr& similarity, bool use_wand = true,
-        const std::shared_ptr<const roaring::Roaring>& delete_bitmap = nullptr);
+        const std::shared_ptr<const roaring::Roaring>& delete_bitmap = nullptr,
+        roaring::Roaring* null_rows = nullptr);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

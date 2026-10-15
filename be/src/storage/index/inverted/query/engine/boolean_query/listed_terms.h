@@ -51,20 +51,22 @@ public:
     // Opens a conjunction's terms together, for its chain and its costs, and none when the
     // source surely lacks one of them; a disjunction opens its terms as it reads them.
     void open(bool conjunctive, bool scoring = false);
-    // Whether the dictionary lacks a term, so the conjunction is FALSE everywhere.
+    // Whether the dictionary lacks a term, so the conjunction holds no row.
     bool has_absent_term() const;
+    // Whether the field leaves some rows UNKNOWN.
+    bool has_nulls() const { return _nulls != nullptr && !_nulls->isEmpty(); }
     // The fewest documents any term holds: what the conjunction's first term lists.
     uint64_t cheapest_doc_freq() const;
     // The rows holding every term among `candidates` (every row when null), with the field's
-    // UNKNOWN rows; FALSE everywhere when a term is absent.
+    // UNKNOWN rows; no row is TRUE when a term is absent.
     index_query::TruthSet conjunction(const std::vector<uint32_t>* candidates);
-    // The rows holding any term, with the field's UNKNOWN rows; FALSE everywhere when every
-    // term is absent.
+    // The rows holding any term, with the field's UNKNOWN rows.
     index_query::TruthSet disjunction();
-    // The rows holding every term, each with the sum of the terms' scores there; empty when a
-    // term is absent.
+    // The rows holding every term, each with the sum of the terms' scores there, and the field's
+    // UNKNOWN rows; no row when a term is absent.
     ScorerPtr scored_conjunction();
-    // The rows holding any term, each with the sum of the scores of the terms holding it.
+    // The rows holding any term, each with the sum of the scores of the terms holding it, and the
+    // field's UNKNOWN rows.
     ScorerPtr scored_disjunction();
 
 private:

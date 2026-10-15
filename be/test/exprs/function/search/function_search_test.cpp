@@ -556,6 +556,12 @@ static Status insert_search_dsl_cache(
     if (signature.empty()) {
         return Status::InternalError("the search param cannot be serialized");
     }
+    // A cached result is its rows and its UNKNOWN rows, here none.
+    segment_v2::InvertedIndexQueryCache::CacheKey null_key {
+            index_file_reader->get_index_path_prefix(), "__search_dsl__",
+            segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY, signature + "__null"};
+    segment_v2::InvertedIndexQueryCacheHandle null_handle;
+    cache->insert(null_key, std::make_shared<roaring::Roaring>(), &null_handle);
     segment_v2::InvertedIndexQueryCache::CacheKey key {
             index_file_reader->get_index_path_prefix(), "__search_dsl__",
             segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY, std::move(signature)};

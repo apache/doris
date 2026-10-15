@@ -267,8 +267,10 @@ private:
     index_query::TruthSet evaluate_conjunction(const QueryExecutionContext& context,
                                                std::vector<ListedTerms>& groups) {
         index_query::TruthSet result;
-        if (std::ranges::any_of(groups,
-                                [](const ListedTerms& group) { return group.has_absent_term(); })) {
+        // An absent term leaves no row TRUE; only its field's NULL rows can still be UNKNOWN.
+        if (std::ranges::any_of(groups, [](const ListedTerms& group) {
+                return group.has_absent_term() && !group.has_nulls();
+            })) {
             return result;
         }
         struct Step {

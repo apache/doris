@@ -23,7 +23,8 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
                                  const std::string& binding_key, size_t k,
                                  const std::shared_ptr<roaring::Roaring>& roaring,
                                  const CollectionSimilarityPtr& similarity, bool use_wand,
-                                 const std::shared_ptr<const roaring::Roaring>& delete_bitmap) {
+                                 const std::shared_ptr<const roaring::Roaring>& delete_bitmap,
+                                 roaring::Roaring* null_rows) {
     if (context.segment_num_rows == 0) {
         return;
     }
@@ -37,11 +38,18 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
         threshold = collector.collect(doc_id, score);
         return threshold;
     };
-    if (use_wand) {
+    if (use_wand && null_rows == nullptr) {
         weight->for_each_pruning(context, binding_key, initial_threshold, callback);
     } else {
         auto scorer = weight->scorer(context, binding_key);
         if (scorer) {
+            // A scorer knows its UNKNOWN rows once built, before it is read.
+            if (null_rows != nullptr && scorer->has_null_bitmap(context.null_resolver)) {
+                if (const auto* nulls = scorer->get_null_bitmap(context.null_resolver);
+                    nulls != nullptr) {
+                    *null_rows |= *nulls;
+                }
+            }
             Weight::for_each_pruning_scorer(scorer, initial_threshold, callback);
         }
     }
