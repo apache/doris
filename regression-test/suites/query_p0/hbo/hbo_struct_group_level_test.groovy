@@ -175,6 +175,57 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         assertTrue(unionTwo.contains("const:["), unionTwo)
         assertNotEquals(fingerprintsOf(unionTwo, "aggregation"), fingerprintsOf(unionThree, "aggregation"))
 
+        // (9) the operators which bound or expand rows are part of the key of every node above them: a
+        // top-n, a limit, a generator, a repeat and a set operation. The assertions are relational - a
+        // text appears, two keys differ - so a future identity which is a little more or less specific
+        // does not break the suite for nothing.
+        def boundedByTopN = { int bound -> explainText("select count(*) from (select a from hbo_sg_t1" +
+                " order by a limit $bound) x") }
+        assertTrue(aggStructsOf(boundedByTopN(5)).any { it.contains("T{5,0") }, boundedByTopN(5))
+        assertNotEquals(fingerprintsOf(boundedByTopN(5), "aggregation"),
+                fingerprintsOf(boundedByTopN(7), "aggregation"))
+        def boundedByLimit = { int bound -> explainText("select count(*) from (select a from hbo_sg_t1" +
+                " limit $bound) x") }
+        assertTrue(aggStructsOf(boundedByLimit(5)).any { it.contains("L{5,0}") }, boundedByLimit(5))
+        assertNotEquals(fingerprintsOf(boundedByLimit(5), "aggregation"),
+                fingerprintsOf(boundedByLimit(7), "aggregation"))
+        // a generator decides how many rows a row expands into, and the delimiter it splits by is part of
+        // that (it is kept in both literal modes for that reason)
+        def generated = { String delimiter -> explainText("select count(*) from hbo_sg_t1" +
+                " lateral view explode_split(cast(a as varchar), '$delimiter') tmp as x") }
+        assertTrue(aggStructsOf(generated(",")).any { it.contains("G{tf:[") }, generated(","))
+        assertNotEquals(fingerprintsOf(generated(","), "aggregation"),
+                fingerprintsOf(generated(";"), "aggregation"))
+        // a repeat adds the grouping sets it was given
+        def repeated = explainText("select count(*) from (select a from hbo_sg_t1" +
+                " group by grouping sets ((a), ())) x")
+        assertTrue(aggStructsOf(repeated).any { it.contains("R{gs:[") }, repeated)
+        assertNotEquals(fingerprintsOf(repeated, "aggregation"),
+                fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 group by a) x"),
+                        "aggregation"))
+        // a set operation names its qualifier and its compared columns; a distinct one is not an all one
+        assertTrue(aggStructsOf(explainText("select count(*) from (select a from hbo_sg_t1 intersect" +
+                " select a from hbo_sg_t2) x")).any { it.contains("I{") })
+        assertTrue(aggStructsOf(explainText("select count(*) from (select a from hbo_sg_t1 except" +
+                " select a from hbo_sg_t2) x")).any { it.contains("E{") })
+        assertNotEquals(fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 union all" +
+                " select a from hbo_sg_t2) x"), "aggregation"),
+                fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 union" +
+                        " select a from hbo_sg_t2) x"), "aggregation"))
+        // (10) a mark join keeps the condition which decides its rows: the two queries below differ only in
+        // the column the sub query selects, and the executed null aware join matches a different set of rows
+        assertNotEquals(
+                fingerprintsOf(explainText("select count(*) from hbo_sg_t1 x where x.a not in" +
+                        " (select b from hbo_sg_t2) or x.b = 1"), "aggregation"),
+                fingerprintsOf(explainText("select count(*) from hbo_sg_t1 x where x.a not in" +
+                        " (select c from hbo_sg_t2) or x.b = 1"), "aggregation"))
+        // (11) a CTE anchor describes its consumer side: the sub tree below it is described (the join above
+        // the anchor has a key), and a different body gives the join above it a different key
+        def cteWith = { int predicate -> explainText("with c as (select a from hbo_sg_t1 where b = $predicate)" +
+                " select count(*) from c join hbo_sg_t2 y on c.a = y.a") }
+        assertNotEquals([], fingerprintsOf(cteWith(1), "join"))
+        assertNotEquals(fingerprintsOf(cteWith(1), "join"), fingerprintsOf(cteWith(2), "join"))
+
     } finally {
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
