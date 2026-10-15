@@ -91,6 +91,18 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             'partition.default-name' = '__CUSTOM_DEFAULT_PARTITION__'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_static_cast;
+        CREATE TABLE paimon.${dbName}.t_static_cast (
+            id INT, name STRING, p INT, dt DATE
+        ) USING paimon
+        PARTITIONED BY (p, dt);
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_static_ltz;
+        CREATE TABLE paimon.${dbName}.t_static_ltz (
+            id INT, ts TIMESTAMP
+        ) USING paimon
+        PARTITIONED BY (ts);
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_dynamic_multi;
         CREATE TABLE paimon.${dbName}.t_dynamic_multi (
             id INT, name STRING, region STRING
@@ -272,6 +284,43 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             IF(region = '', '<EMPTY>', region) AS region
             FROM t_static_default ORDER BY id"""
         assertTableEquals("t_static_default", "ORDER BY id")
+
+        // Paimon's static overwrite reads partition.default-name as the NULL
+        // partition, so the same string as a value cannot be overwritten.
+        test {
+            sql """INSERT OVERWRITE TABLE t_static_default
+                PARTITION (region = '__CUSTOM_DEFAULT_PARTITION__') SELECT 1, 'unused' LIMIT 0"""
+            exception "cannot be represented in a static overwrite"
+        }
+        assertTableEquals("t_static_default", "ORDER BY id")
+
+        // A static partition value is cast to its column type, as the written
+        // rows are: PARTITION (p = true) names p = 1 and dt = 20240101 names
+        // 2024-01-01.
+        sql """INSERT INTO t_static_cast VALUES
+            (1, 'p1_d1', 1, '2024-01-01'),
+            (2, 'p1_d2', 1, '2024-01-02'),
+            (3, 'p2_d1', 2, '2024-01-01')"""
+        sql """INSERT OVERWRITE TABLE t_static_cast
+            PARTITION (p = true) VALUES (10, 'p1_new', '2024-01-01')"""
+        assertEquals([[3], [10]], sql("""SELECT id FROM t_static_cast ORDER BY id"""))
+        sql """INSERT OVERWRITE TABLE t_static_cast
+            PARTITION (p = 2, dt = 20240101) VALUES (20, 'p2_new')"""
+        assertEquals([[10], [20]], sql("""SELECT id FROM t_static_cast ORDER BY id"""))
+        assertTableEquals("t_static_cast", "ORDER BY id")
+
+        // An LTZ static partition value is local time in the session zone,
+        // while Paimon parses the overwrite value in the FE JVM zone; keep the
+        // session zone away from the JVM zone so a value left unconverted
+        // names another partition.
+        sql """set time_zone = 'Asia/Kolkata'"""
+        sql """INSERT INTO t_static_ltz VALUES
+            (1, '2024-01-15 08:30:45'), (2, '2024-01-15 16:30:45')"""
+        sql """INSERT OVERWRITE TABLE t_static_ltz
+            PARTITION (ts = '2024-01-15 08:30:45') VALUES (10)"""
+        def staticLtzIds = sql """SELECT id FROM t_static_ltz ORDER BY id"""
+        sql """set time_zone = default"""
+        assertEquals([[2], [10]], staticLtzIds)
 
         // A partial static specification must use typed partition identity.
         // NULL, blank, the literal "null", escaped path characters, and DATE

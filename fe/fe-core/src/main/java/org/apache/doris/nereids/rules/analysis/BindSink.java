@@ -312,10 +312,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
-        ConnectContext connCtx = ConnectContext.get();
-        final boolean truncateString = needTruncateStringWhenInsert
-                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
-                && !SessionVariable.enableStrictCast();
+        final boolean truncateString = needTruncateStringWhenInsert && truncatesStringOnInsert();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -359,6 +356,16 @@ public class BindSink implements AnalysisRuleFactory {
             fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
         }
         return fullOutputProject;
+    }
+
+    /**
+     * Whether the session lets an INSERT write a string into a shorter CHAR / VARCHAR column cut to the column
+     * length, counted in code points (the {@link Substring} above), instead of as is.
+     */
+    public static boolean truncatesStringOnInsert() {
+        ConnectContext connCtx = ConnectContext.get();
+        return (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
     }
 
     @VisibleForTesting

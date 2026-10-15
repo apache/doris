@@ -2822,6 +2822,45 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void nanosecondColumnsRetainPhysicalMetadata(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (String format : Arrays.asList("parquet", "orc")) {
+                Identifier id = Identifier.create("db", "events_" + format);
+                catalog.createTable(id, Schema.newBuilder()
+                        .column("id", DataTypes.INT())
+                        .column("event_time", new org.apache.paimon.types.TimestampType(9))
+                        .option("file.format", format).build(), false);
+                Table table = catalog.getTable(id);
+                BatchWriteBuilder builder = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = builder.newWrite()) {
+                    write.write(GenericRow.of(1, org.apache.paimon.data.Timestamp.fromLocalDateTime(
+                            java.time.LocalDateTime.parse("2024-01-01T00:00:00.123456789"))));
+                    try (BatchTableCommit commit = builder.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", id.getObjectName(), Collections.emptyList(), Collections.emptyList());
+                List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                        ConnectorScanRequest.builder(handle, Arrays.asList(
+                                new PaimonColumnHandle("event_time", 1),
+                                new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1),
+                                new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1))).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                for (ConnectorScanRange range : ranges) {
+                    Assertions.assertTrue(range.getProperties().containsKey("paimon.split"));
+                }
+            }
+        }
+    }
+
+    @Test
     public void legacyPrimaryKeyFilesCannotExposePhysicalMetadata(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {

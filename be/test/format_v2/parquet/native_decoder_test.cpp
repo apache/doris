@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
@@ -1329,6 +1330,36 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDateTimeSelectionBatchesPhys
     EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 2);
     EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, NullableNanosSelectionBatchesPhysicalPayload) {
+    const std::vector<int64_t> nanos {-1, 123456789, 987654321, 1, 999999999};
+    const std::vector<uint32_t> ids {0, 1, 2, 3, 4};
+    const std::vector<uint16_t> null_runs(9, 1);
+    const std::vector<uint8_t> filter {1, 1, 1, 0, 0, 1, 1, 1, 0};
+    const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                        .logical_type = ParquetLogicalType::TIMESTAMP,
+                                        .time_unit = ParquetTimeUnit::NANOS};
+    for (bool dictionary : {false, true}) {
+        DataTypeTimeStampNs type;
+        auto column = type.create_column();
+        NullMap nulls;
+        ColumnChunkReaderStatistics statistics;
+        auto status = dictionary ? materialize_selected_dictionary_int64(
+                                           nanos, ids, 9, null_runs, filter, type, &column, &nulls,
+                                           &statistics, context)
+                                 : materialize_selected_plain_int64(nanos, 9, null_runs, filter,
+                                                                    type, &column, &nulls,
+                                                                    &statistics, context);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(column->size(), 6);
+        const auto& values = assert_cast<const ColumnTimeStampNs&>(*column);
+        EXPECT_EQ(values.get_element(0).epoch_nanos(), -1);
+        EXPECT_EQ(values.get_element(2).epoch_nanos(), 123456789);
+        EXPECT_EQ(values.get_element(4).epoch_nanos(), 1);
+        EXPECT_EQ(nulls, (NullMap {0, 1, 0, 1, 0, 1}));
+        EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, NegativeNanosFloorAcrossPlainAndDictionaryTimestamps) {

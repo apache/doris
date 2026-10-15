@@ -1050,8 +1050,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         if (filter.isPresent()) {
-            List<Expression> predicates = new IcebergPredicateConverter(
-                    metadataTable.schema(), resolveSessionZone(session)).convert(filter.get());
+            List<Expression> predicates = IcebergPredicateConverter.forTable(
+                    metadataTable, metadataTable.schema(), resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -1264,7 +1265,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Schema predicateSchema = handle.isSystemTable() && handle.hasSnapshotPin()
                     ? pinnedSchema(table, handle) : selectedSchema;
             List<Expression> predicates =
-                    new IcebergPredicateConverter(predicateSchema, resolveSessionZone(session)).convert(filter.get());
+                    IcebergPredicateConverter.forTable(table, predicateSchema, resolveSessionZone(session),
+                            IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -2129,8 +2131,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // IcebergScanNode `if (!pushdownIcebergPredicates.isEmpty())`).
         if (!systemTable && filter.isPresent()) {
             Schema predicateSchema = iceHandle.hasSnapshotPin() ? pinnedSchema(table, iceHandle) : table.schema();
-            List<Expression> pushed = new IcebergPredicateConverter(
-                    predicateSchema, resolveSessionZone(session)).convert(filter.get());
+            List<Expression> pushed = IcebergPredicateConverter.forTable(
+                    table, predicateSchema, resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             if (!pushed.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 for (Expression predicate : pushed) {
@@ -2811,7 +2814,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
         Schema scanSchema = scan.schema();
-        Expression filterExpr = combineFilter(filter, scanSchema, session);
+        Expression filterExpr = combineFilter(filter, table, scanSchema, session);
         Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
         boolean caseSensitive = true;
 
@@ -2969,12 +2972,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the T02 {@link IcebergPredicateConverter} on the scan-bound schema; an absent filter is
      * {@code alwaysTrue()} (scan everything).
      */
-    private Expression combineFilter(Optional<ConnectorExpression> filter, Schema schema, ConnectorSession session) {
+    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table,
+            Schema schema, ConnectorSession session) {
         if (!filter.isPresent()) {
             return Expressions.alwaysTrue();
         }
         List<Expression> predicates =
-                new IcebergPredicateConverter(schema, resolveSessionZone(session)).convert(filter.get());
+                IcebergPredicateConverter.forTable(table, schema, resolveSessionZone(session),
+                        IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
         Expression combined = Expressions.alwaysTrue();
         for (Expression predicate : predicates) {
             combined = Expressions.and(combined, predicate);

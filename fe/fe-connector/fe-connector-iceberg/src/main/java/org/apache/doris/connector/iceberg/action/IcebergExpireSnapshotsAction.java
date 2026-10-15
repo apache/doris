@@ -50,13 +50,14 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 /**
  * Removes old snapshots from an iceberg table to free storage and improve metadata performance. Connector
  * port of legacy {@code IcebergExpireSnapshotsAction} — the most involved of the snapshot procedures (five
  * optional arguments, a custom validation pass, an FE-local fixed thread pool for concurrent deletes, a
  * {@code deleteWith} callback that classifies deleted files into the six Spark-compatible counters, and the
- * delete-file content map). The validation messages and the SDK call chain are verbatim; the validation
+ * file kind map it classifies them by). The validation messages and the SDK call chain are verbatim; the validation
  * failures throw {@link DorisConnectorException} in place of the legacy {@code AnalysisException}/
  * {@code UserException} (message-identical, T08 byte-parity). {@code parseTimestamp} keeps the legacy
  * {@code ZoneId.systemDefault()} (this procedure, unlike {@code rollback_to_timestamp}, never used the
@@ -70,10 +71,25 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     public static final String SNAPSHOT_IDS = "snapshot_ids";
     public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
 
+    // The names Iceberg gives a manifest list and a manifest; see metadataFileKindByName.
+    private static final String UUID_REGEX = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    private static final Pattern MANIFEST_LIST_FILE_NAME = Pattern.compile("snap-\\d+-\\d+-" + UUID_REGEX + "\\.avro");
+    private static final Pattern MANIFEST_FILE_NAME =
+            Pattern.compile("(" + UUID_REGEX + "-m\\d+|optimized-m-" + UUID_REGEX + ")\\.avro");
+
     // Test-only gate for the delete-manifest dedup: the number of DISTINCT delete manifests read by the most
-    // recent buildDeleteFileContentMap call. Asserts each manifest is read once, not once per referencing snapshot.
+    // recent buildFileKindMap call. Asserts each manifest is read once, not once per referencing snapshot.
     @VisibleForTesting
     int lastDeleteManifestReadCount;
+
+    /** The kinds of file that expiring snapshots deletes, other than data and statistics files. */
+    @VisibleForTesting
+    enum FileKind {
+        POSITION_DELETES,
+        EQUALITY_DELETES,
+        MANIFEST,
+        MANIFEST_LIST
+    }
 
     public IcebergExpireSnapshotsAction(Map<String, String> properties, List<String> partitionNames,
             ConnectorPredicate whereCondition) {
@@ -173,8 +189,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
         ExecutorService deleteExecutor = null;
         try {
-            Map<String, FileContent> deleteFileContentByPath =
-                    buildDeleteFileContentMap(icebergTable);
+            Map<String, FileKind> fileKindByPath = buildFileKindMap(icebergTable);
             ExpireSnapshots expireSnapshots = icebergTable.expireSnapshots();
 
             // Configure older_than timestamp
@@ -221,14 +236,17 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
             // Set up delete callback to count files by type
             expireSnapshots.deleteWith(path -> {
-                FileContent deleteContent = deleteFileContentByPath.get(path);
-                if (deleteContent == FileContent.POSITION_DELETES) {
+                FileKind fileKind = fileKindByPath.get(path);
+                if (fileKind == null) {
+                    fileKind = metadataFileKindByName(path);
+                }
+                if (fileKind == FileKind.POSITION_DELETES) {
                     deletedPositionDeleteFilesCount.incrementAndGet();
-                } else if (deleteContent == FileContent.EQUALITY_DELETES) {
+                } else if (fileKind == FileKind.EQUALITY_DELETES) {
                     deletedEqualityDeleteFilesCount.incrementAndGet();
-                } else if (path.contains("-m-") && path.endsWith(".avro")) {
+                } else if (fileKind == FileKind.MANIFEST) {
                     deletedManifestFilesCount.incrementAndGet();
-                } else if (path.contains("snap-") && path.endsWith(".avro")) {
+                } else if (fileKind == FileKind.MANIFEST_LIST) {
                     deletedManifestListsCount.incrementAndGet();
                 } else if (path.endsWith(".stats") || path.contains("statistics")) {
                     deletedStatisticsFilesCount.incrementAndGet();
@@ -276,9 +294,14 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         }
     }
 
+    /**
+     * Maps the delete files, manifests and manifest lists of every snapshot to their kind, so that the delete
+     * callback can count each file it is handed. Manifests are found by path, not by name: SnapshotProducer
+     * names a manifest {@code <commit UUID>-m<N>.avro}.
+     */
     @VisibleForTesting
-    Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) {
-        Map<String, FileContent> deleteFileContentByPath = new HashMap<>();
+    Map<String, FileKind> buildFileKindMap(Table icebergTable) {
+        Map<String, FileKind> fileKindByPath = new HashMap<>();
         // Dedup delete-manifest reads across snapshots. Iceberg manifests are immutable and adjacent snapshots
         // carry the same delete manifests forward unchanged, so re-reading one yields the identical DeleteFile
         // set (putIfAbsent already made the re-read a no-op). Reading each DISTINCT manifest exactly once
@@ -289,6 +312,12 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         int reads = 0;
         try {
             for (Snapshot snapshot : icebergTable.snapshots()) {
+                if (snapshot.manifestListLocation() != null) {
+                    fileKindByPath.put(snapshot.manifestListLocation(), FileKind.MANIFEST_LIST);
+                }
+                for (ManifestFile manifest : snapshot.allManifests(icebergTable.io())) {
+                    fileKindByPath.put(manifest.path(), FileKind.MANIFEST);
+                }
                 List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
                 if (deleteManifests == null || deleteManifests.isEmpty()) {
                     continue;
@@ -301,8 +330,9 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                     try (CloseableIterable<DeleteFile> deleteFiles = ManifestFiles.readDeleteManifest(
                             manifest, icebergTable.io(), icebergTable.specs())) {
                         for (DeleteFile deleteFile : deleteFiles) {
-                            deleteFileContentByPath.putIfAbsent(
-                                    deleteFile.location(), deleteFile.content());
+                            fileKindByPath.putIfAbsent(deleteFile.location(),
+                                    deleteFile.content() == FileContent.POSITION_DELETES
+                                            ? FileKind.POSITION_DELETES : FileKind.EQUALITY_DELETES);
                         }
                     }
                 }
@@ -311,7 +341,29 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             throw new DorisConnectorException("Failed to build delete file content map: " + e.getMessage(), e);
         }
         lastDeleteManifestReadCount = reads;
-        return deleteFileContentByPath;
+        return fileKindByPath;
+    }
+
+    /**
+     * Tells a manifest or manifest list that {@link #buildFileKindMap} did not see apart by its file name. The
+     * expiration refreshes the table when it commits, so it also expires snapshots that another writer committed
+     * after the map was built. SnapshotProducer names a manifest list
+     * {@code snap-<snapshot id>-<attempt>-<commit UUID>.avro} and a manifest {@code <commit UUID>-m<N>.avro};
+     * Spark's {@code rewrite_manifests} names a manifest {@code optimized-m-<UUID>.avro}. Returns null for any
+     * other file. The whole name must match, UUID included: every data file takes this path, as the map holds
+     * no data files, so a looser rule would count an Avro data file such as {@code sales-m1.avro} as a manifest.
+     * A delete file of such a snapshot still counts as a data file, as its name does not tell the two apart.
+     */
+    @VisibleForTesting
+    static FileKind metadataFileKindByName(String path) {
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        if (MANIFEST_LIST_FILE_NAME.matcher(fileName).matches()) {
+            return FileKind.MANIFEST_LIST;
+        }
+        if (MANIFEST_FILE_NAME.matcher(fileName).matches()) {
+            return FileKind.MANIFEST;
+        }
+        return null;
     }
 
     @Override
