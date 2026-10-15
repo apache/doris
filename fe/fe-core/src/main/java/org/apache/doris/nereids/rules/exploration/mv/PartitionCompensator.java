@@ -107,6 +107,17 @@ public class PartitionCompensator {
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
                 = materializationContext.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
+        // How many inputs of this plan read a table the MV is partitioned on: a query can read one of them
+        // twice -- a self-join, whose aliases are one table -- while a narrowed read is a property of the
+        // table, so it would reach both of the inputs.
+        Set<String> pctTableQualifiers = Sets.newHashSet();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            pctTableQualifiers.add(String.join(".", pctTable.getFullQualifiers()));
+        }
+        int pctInputsInPlan = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
+                && pctTableQualifiers.contains(
+                        String.join(".", ((CatalogRelation) node).getTable().getFullQualifiers())))
+                .size();
         boolean allCompensateIsNull = true;
 
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
@@ -193,15 +204,28 @@ public class PartitionCompensator {
                 uncoveredRecorded = true;
             }
         }
-        // Narrowing a table's read keeps the MV partitions answering for the rest, which only works when one
-        // table is short: the pass that turns the compensation into a plan puts the filters it is given on one
-        // join, so compensating two tables of a join independently reads the rows the two filters both reach
-        // and loses the pairs only one of them does -- an a_old x b_kept row, say, when A and B each have a
-        // partition the mapping does not name. Nor can a table be left as it is while the MV partitions that
-        // answered for it are taken out. So the MV partitions are taken out, and every table the MV is
-        // partitioned on is read for the query's own partitions, whenever more than one of them is short of
-        // the mapping or a refresh read one of those partitions into an MV partition.
-        boolean takeMvPartitionsOut = uncoveredRecorded || uncoveredByTable.size() > 1;
+        // Narrowing a table's read keeps the MV partitions answering for the rest, and that only holds while
+        // one input of the plan reads the tables it narrows: the pass that turns the compensation into a plan
+        // puts the filters it is given on one join, so two narrowed inputs read the pairs both filters reach
+        // and lose the mixed ones -- an a_old x b_kept row, say, when A is narrowed for a partition the
+        // mapping does not name and B for one the MV no longer holds, or when a self-join narrows both of its
+        // aliases at once. Nor can a table be left as it is while the MV partitions that answered for it are
+        // taken out. So the MV partitions are taken out, and every table the MV is partitioned on is read for
+        // the query's own partitions, whenever more than one table is narrowed, a single table is narrowed
+        // while the plan reads such a table in more than one input, or a refresh read one of the uncovered
+        // partitions into an MV partition.
+        int narrowedTables = 0;
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+            Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+            Set<String> stale = pctInfo == null ? null : baseTablePartitionNeedUnionNameMap.get(pctInfo);
+            boolean narrowedByStalePass = CollectionUtils.isNotEmpty(stale) && !stale.containsAll(queryUsed);
+            if (narrowedByStalePass || uncoveredByTable.containsKey(pctTable)) {
+                narrowedTables++;
+            }
+        }
+        boolean takeMvPartitionsOut = uncoveredRecorded || narrowedTables > 1
+                || (narrowedTables > 0 && pctInputsInPlan > narrowedTables);
         if (!uncoveredByTable.isEmpty()) {
             for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
                 Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
@@ -212,12 +236,16 @@ public class PartitionCompensator {
                 if (pctInfo == null) {
                     continue;
                 }
-                Set<String> toRead = takeMvPartitionsOut ? queryUsed : uncoveredByTable.get(pctTable);
-                if (CollectionUtils.isEmpty(toRead)) {
+                if (takeMvPartitionsOut) {
+                    baseTablePartitionNeedUnionNameMap.put(pctInfo, new HashSet<>(queryUsed));
+                    continue;
+                }
+                Set<String> uncovered = uncoveredByTable.get(pctTable);
+                if (CollectionUtils.isEmpty(uncovered)) {
                     continue;
                 }
                 baseTablePartitionNeedUnionNameMap
-                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(toRead);
+                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(uncovered);
             }
             if (takeMvPartitionsOut && !rewrittenPlanUsePartitionNameSet.isEmpty()) {
                 mvPartitionNeedRemoveNameMap
