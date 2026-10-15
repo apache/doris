@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
@@ -135,6 +136,84 @@ TYPED_TEST(VCaseSelectionTest, MaximumAndWideBranchIndices) {
     const size_t branches = sizeof(typename TypeParam::IndexType) == 1 ? 255 : 257;
     this->check_selection(4099, branches, false);
     this->check_selection(4099, branches, true);
+}
+
+TEST(VCaseExprTest, FileBranchesPreserveValuesAndNulls) {
+    const auto file_type = std::make_shared<DataTypeFile>();
+    const auto file_value = [](const std::string& uri) {
+        const auto bytes = uri + std::string("\0\xff", 2);
+        return Field::create_field<TYPE_FILE>(
+                File {Field::create_field<TYPE_STRING>(uri), Field(), Field(), Field(),
+                      Field::create_field<TYPE_STRING>("ETAG:" + uri),
+                      Field::create_field<TYPE_VARBINARY>(StringView(bytes))});
+    };
+    struct Scenario {
+        bool nullable;
+        bool constant;
+        bool has_else;
+        bool null_branch;
+    };
+    const Scenario scenarios[] {{false, false, true, false}, {false, true, true, false},
+                                {true, false, true, false},  {true, true, true, false},
+                                {true, true, true, true},    {true, false, false, false}};
+    constexpr size_t rows = 4;
+    const uint8_t indices[] {0, 1, 1, 0};
+    for (const auto& scenario : scenarios) {
+        SCOPED_TRACE(::testing::Message() << "nullable=" << scenario.nullable << " constant="
+                                          << scenario.constant << " has_else=" << scenario.has_else
+                                          << " null_branch=" << scenario.null_branch);
+        const auto result_type = scenario.nullable ? make_nullable(file_type) : file_type;
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::CASE_EXPR);
+        node.__set_type(file_type->to_thrift());
+        node.__set_is_nullable(scenario.nullable);
+        node.case_expr.__set_has_else_expr(scenario.has_else);
+        VCaseExpr expression(node);
+
+        std::vector<ColumnPtr> columns {nullptr};
+        if (scenario.has_else) {
+            auto otherwise = file_type->create_column();
+            for (size_t row = 0; row < rows; ++row) {
+                otherwise->insert(file_value("urn:left"));
+            }
+            columns[0] = std::move(otherwise);
+        }
+        auto branch = result_type->create_column();
+        for (size_t row = 0; row < (scenario.constant ? 1 : rows); ++row) {
+            if (scenario.nullable && (scenario.null_branch || (!scenario.constant && row == 1))) {
+                branch->insert_default();
+            } else {
+                branch->insert(file_value("urn:right"));
+            }
+        }
+        if (scenario.constant) {
+            columns.push_back(ColumnConst::create(std::move(branch), rows));
+        } else {
+            columns.push_back(std::move(branch));
+        }
+        auto result = expression._execute_update_result<uint8_t>(indices, columns, rows);
+        columns.clear();
+        ASSERT_EQ(result->size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            const bool expected_null =
+                    indices[row] == 0 ? !scenario.has_else
+                                      : scenario.nullable && (scenario.null_branch ||
+                                                              (!scenario.constant && row == 1));
+            ASSERT_EQ(result->is_null_at(row), expected_null) << row;
+            if (expected_null) {
+                continue;
+            }
+            const std::string uri = indices[row] == 0 ? "urn:left" : "urn:right";
+            const auto value = (*result)[row];
+            const auto& file = value.get<TYPE_FILE>();
+            EXPECT_EQ(file[0].get<TYPE_STRING>(), uri);
+            EXPECT_TRUE(file[1].is_null());
+            EXPECT_TRUE(file[2].is_null());
+            EXPECT_TRUE(file[3].is_null());
+            EXPECT_EQ(file[4].get<TYPE_STRING>(), "ETAG:" + uri);
+            EXPECT_EQ(file[5].get<TYPE_VARBINARY>().str(), uri + std::string("\0\xff", 2));
+        }
+    }
 }
 
 } // namespace doris

@@ -899,8 +899,7 @@ public class TypeCoercionUtils {
         }
 
         // type coercion
-        Expression result = implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
-        return result instanceof ElementAt ? ((ElementAt) result).rewriteFileAccess() : result;
+        return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
     }
 
     /**
@@ -1594,7 +1593,7 @@ public class TypeCoercionUtils {
      */
     public static Expression processInPredicate(InPredicate inPredicate) {
         // check
-        inPredicate.children().forEach(argument -> Expression.checkFileKey(argument, "IN"));
+        inPredicate.children().forEach(argument -> ExpressionUtils.checkFileKey(argument, "IN"));
         inPredicate.checkLegalityBeforeTypeCoercion();
         checkNoVarbinaryComparison("IN/NOT IN", inPredicate.children());
 

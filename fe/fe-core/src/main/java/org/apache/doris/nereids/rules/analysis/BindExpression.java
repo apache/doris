@@ -1161,7 +1161,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         project = project.withProjects(boundProjectionsBuilder.build());
         if (project.isDistinct()) {
-            project.getProjects().forEach(value -> Expression.checkFileKey(
+            project.getProjects().forEach(value -> ExpressionUtils.checkFileKey(
                     value, "SELECT DISTINCT"));
         }
         return rewriteProjectForDisabledFullGroupBy(project).orElse(project);

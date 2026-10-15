@@ -22,7 +22,6 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.nereids.StatementContext;
@@ -242,24 +241,8 @@ public class ThriftPlansBuilder {
         return aiResourceMap;
     }
 
-    public static TS3Resource resolveS3Resource(ConnectContext context, String resourceName) {
-        StatementContext statement = context.getStatementContext();
-        // Bind once per execution, including reused prepared statements. Cache the wire value
-        // directly; callers receive their own copy because Thrift objects are mutable.
-        TS3Resource resource = statement.getOrRegisterCache(S3Resource.class.getName() + ":" + resourceName,
-                Suppliers.memoize(() -> S3Resource.checkResource(resourceName, context).toThrift()));
-        return resource.deepCopy();
-    }
-
     public static Map<String, TS3Resource> collectS3Resources(ConnectContext context) {
-        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
-        if (context == null || context.getStatementContext() == null) {
-            return resources;
-        }
-        for (String name : context.getStatementContext().getUsedS3ResourceNames()) {
-            resources.put(name, resolveS3Resource(context, name));
-        }
-        return resources;
+        return context == null ? Maps.newLinkedHashMap() : context.getS3Resources();
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
