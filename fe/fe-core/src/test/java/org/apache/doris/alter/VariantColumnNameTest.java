@@ -54,9 +54,11 @@ public class VariantColumnNameTest extends TestWithFeService {
             Assertions.assertTrue(table.getColumn("s.x").getType().isStringType());
             Assertions.assertNotNull(table.getColumn("v"));
         }
-        Assertions.assertThrows(Exception.class, () -> createTable(
+        Exception createError = Assertions.assertThrows(Exception.class, () -> createTable(
                 "CREATE TABLE bad (k INT, `v.x` VARIANT) DUPLICATE KEY(k) "
                         + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')"));
+        Assertions.assertTrue(createError.getMessage().contains(
+                "`VARIANT` type column named with a `.` character"), createError.getMessage());
         alterTableSync("ALTER TABLE t ADD COLUMN good VARIANT");
         Assertions.assertTrue(table.getColumn("good").getType().isVariantType());
         alterTableSync("ALTER TABLE t RENAME COLUMN good renamed");
