@@ -1431,9 +1431,20 @@ public class GroupStructInfo {
             StringBuilder withLiteral, StringBuilder noLiteral) {
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
-            String text = "col(" + String.join(".", slot.getQualifier()) + "." + slot.getName() + ")";
-            withLiteral.append(text);
-            noLiteral.append(text);
+            StringBuilder text = new StringBuilder("col(")
+                    .append(String.join(".", slot.getQualifier())).append('.').append(slot.getName());
+            // the sub path of a variant column is part of the identity of the slot: after the variant sub
+            // path pruning `v['age']` and `v['score']` are two slots which read different values, so a
+            // predicate above them keeps a different number of rows, while the column name alone is the
+            // same for both. The parts are encoded like a literal value, so a field name which contains a
+            // delimiter cannot be read as the end of a scan token or as the end of a predicate.
+            for (String subPathPart : slot.getSubPath()) {
+                text.append("['").append(encodeLiteralValue(subPathPart)).append("']");
+            }
+            text.append(')');
+            String rendered = text.toString();
+            withLiteral.append(rendered);
+            noLiteral.append(rendered);
         } else if (expression instanceof Literal) {
             Literal literal = (Literal) expression;
             withLiteral.append("lit(").append(encodeLiteralValue(String.valueOf(literal.getValue())))

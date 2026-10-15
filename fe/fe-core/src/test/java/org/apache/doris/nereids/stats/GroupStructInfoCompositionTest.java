@@ -20,7 +20,10 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -280,5 +283,33 @@ public class GroupStructInfoCompositionTest {
                 new LogicalTopN<>(ImmutableList.of(new OrderKey(a, true, true)), 1, 0, t1), t2, null);
         Assertions.assertEquals(ascendingInfo.getFingerprint(NO_LITERAL),
                 GroupStructInfo.describeGroup(new Memo(null, same).getRoot()).getFingerprint(NO_LITERAL));
+    }
+
+    @Test
+    void testTheSubPathOfAVariantSlotIsPartOfTheKey() {
+        // after the variant sub path pruning, `v['age']` and `v['score']` are two slots which read
+        // different values of the same column: a predicate over them keeps a different number of rows,
+        // while the column name alone is the same for both
+        LogicalOlapScan t = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        SlotReference v = (SlotReference) t.getOutput().get(0);
+        LogicalFilter<LogicalOlapScan> age = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(v.withSubPath(ImmutableList.of("age")), new IntegerLiteral(30))), t);
+        LogicalFilter<LogicalOlapScan> score = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(v.withSubPath(ImmutableList.of("score")), new IntegerLiteral(30))), t);
+        GroupStructInfo ageInfo = GroupStructInfo.describeGroup(new Memo(null, age).getRoot());
+        GroupStructInfo scoreInfo = GroupStructInfo.describeGroup(new Memo(null, score).getRoot());
+        Assertions.assertTrue(ageInfo.isValid(), ageInfo.getSkipReason());
+        Assertions.assertTrue(ageInfo.getShape(WITH_LITERAL).contains("['age']"),
+                ageInfo.getShape(WITH_LITERAL));
+        // the sub path is structure, not a literal: the constant agnostic mode keeps it as well
+        Assertions.assertTrue(ageInfo.getShape(NO_LITERAL).contains("['age']"),
+                ageInfo.getShape(NO_LITERAL));
+        Assertions.assertNotEquals(ageInfo.getFingerprint(NO_LITERAL), scoreInfo.getFingerprint(NO_LITERAL),
+                "two sub paths of one variant column share one key");
+        // a nested sub path is rendered part by part
+        LogicalFilter<LogicalOlapScan> nested = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(v.withSubPath(ImmutableList.of("age", "min")), new IntegerLiteral(30))), t);
+        Assertions.assertTrue(GroupStructInfo.describeGroup(new Memo(null, nested).getRoot())
+                .getShape(NO_LITERAL).contains("['age']['min']"));
     }
 }
