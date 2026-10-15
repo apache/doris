@@ -157,6 +157,16 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         assertTrue(sampled.contains("tablesample of internal.hbo_test.hbo_sg_t1"), sampled)
         assertFalse(sampled.contains("type=exact"), sampled)
 
+        // (7) a window computes its columns from the rows of its partition: a predicate above it reads
+        // different values when the partition changes, so the definition is part of every key above it
+        def windowByB = explainText("select count(*) from (select a, b, row_number() over" +
+                " (partition by b order by a) rn from hbo_sg_t1) w where rn % 2 = 0")
+        def windowByA = explainText("select count(*) from (select a, b, row_number() over" +
+                " (partition by a order by b) rn from hbo_sg_t1) w where rn % 2 = 0")
+        assertTrue(windowByB.contains("W{"), windowByB)
+        assertNotEquals([], fingerprintsOf(windowByB, "aggregation"))
+        assertNotEquals(fingerprintsOf(windowByB, "aggregation"), fingerprintsOf(windowByA, "aggregation"))
+
     } finally {
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }

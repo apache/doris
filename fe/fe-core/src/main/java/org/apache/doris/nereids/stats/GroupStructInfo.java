@@ -24,9 +24,12 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -663,10 +666,11 @@ public class GroupStructInfo {
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
-        } else if (plan instanceof Project || plan instanceof Sort || plan instanceof Window) {
-            // a project, a sort and a window are transparent for structure matching: none of them
-            // changes the number of rows, and the parameters of a sort / window do not influence a row
-            // count either, so the nodes above them are described by the shape below and they must not
+        } else if (plan instanceof Window) {
+            appendWindow((Window) plan, ge, out, ctx);
+        } else if (plan instanceof Project || plan instanceof Sort) {
+            // a project and a sort are transparent for structure matching: neither of them changes the
+            // number of rows, so the nodes above them are described by the shape below and they must not
             // make the struct info of those nodes disappear
             if (ge.arity() == 1) {
                 appendChild(ge, 0, out, ctx);
@@ -844,9 +848,11 @@ public class GroupStructInfo {
         }
         // a top-n must not be flattened into the chain although it is a sort: it keeps a bounded number
         // of rows, so it is a boundary of the chain like a limit, and the ordering it keeps them by is
-        // part of the identity of every node above it
+        // part of the identity of every node above it. A window is a boundary as well: it keeps every
+        // row, but the values of the columns it computes depend on its definition, and a node above it
+        // reads those values.
         if ((plan instanceof Project || plan instanceof Sort || plan instanceof Window)
-                && !(plan instanceof TopN) && ge.arity() == 1) {
+                && !(plan instanceof TopN) && !(plan instanceof Window) && ge.arity() == 1) {
             ChainInfo child = chainInfoOf(ge.child(0));
             if (!child.valid) {
                 return child;
@@ -964,6 +970,77 @@ public class GroupStructInfo {
         }
         withLiteral.append("]}");
         noLiteral.append("]}");
+    }
+
+    /**
+     * A window computes its columns from the rows of its partition, so its definition decides the values a
+     * node above it reads: `row_number() OVER (PARTITION BY b ORDER BY a) AS rn` and the same expression
+     * partitioned by another column produce the same column name with different values, and a predicate
+     * above them (`rn % 2 = 0`) therefore keeps a different number of rows. The definition is part of the
+     * identity for that reason, while the window itself adds no rows - which is also why it is not a leaf
+     * of a join chain, and why a chain below it is described as its child.
+     */
+    private static void appendWindow(Window window, GroupExpression ge, Canonical out, Ctx ctx) {
+        if (ge.arity() != 1) {
+            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
+            return;
+        }
+        StringBuilder withLiteral = new StringBuilder("W{");
+        StringBuilder noLiteral = new StringBuilder("W{");
+        boolean firstExpression = true;
+        for (NamedExpression namedExpression : window.getWindowExpressions()) {
+            // the algebra interface exposes the named expressions; each of them is the alias which gives
+            // the computed column its name, and the window expression is its child (the same shape
+            // LogicalWindow#getActualWindowExpressions reads)
+            WindowExpression windowExpression = (WindowExpression) namedExpression.child(0);
+            if (!firstExpression) {
+                withLiteral.append(';');
+                noLiteral.append(';');
+            }
+            firstExpression = false;
+            appendNormalizedExpression(windowExpression.getFunction(), withLiteral, noLiteral);
+            withLiteral.append(";part:[");
+            noLiteral.append(";part:[");
+            appendNormalizedList(windowExpression.getPartitionKeys(), withLiteral, noLiteral);
+            withLiteral.append("];ord:[");
+            noLiteral.append("];ord:[");
+            boolean firstKey = true;
+            for (OrderExpression orderExpression : windowExpression.getOrderKeys()) {
+                if (!firstKey) {
+                    withLiteral.append(',');
+                    noLiteral.append(',');
+                }
+                firstKey = false;
+                OrderKey orderKey = orderExpression.getOrderKey();
+                appendNormalizedExpression(orderKey.getExpr(), withLiteral, noLiteral);
+                String direction = (orderKey.isAsc() ? ":asc" : ":desc")
+                        + (orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
+                withLiteral.append(direction);
+                noLiteral.append(direction);
+            }
+            // a frame boundary is a number of rows, so its text is the same in both modes: folding it
+            // would let a bounded frame share a key with an unbounded one
+            String frame = windowExpression.getWindowFrame().map(Object::toString).orElse("");
+            withLiteral.append("];frame:[").append(frame).append("]}");
+            noLiteral.append("];frame:[").append(frame).append("]}");
+        }
+        out.modes(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
+        appendChild(ge, 0, out, ctx);
+        out.same(")");
+    }
+
+    /** Append a comma separated list of normalized expressions (both literal modes). */
+    private static void appendNormalizedList(List<? extends Expression> expressions,
+            StringBuilder withLiteral, StringBuilder noLiteral) {
+        boolean first = true;
+        for (Expression expression : expressions) {
+            if (!first) {
+                withLiteral.append(',');
+                noLiteral.append(',');
+            }
+            first = false;
+            appendNormalizedExpression(expression, withLiteral, noLiteral);
+        }
     }
 
     /** The bound of a limit / top-n: the same text in both modes, a bound is never folded. */
