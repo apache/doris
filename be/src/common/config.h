@@ -1269,6 +1269,16 @@ DECLARE_mInt64(lance_io_buffer_size_bytes);
 DECLARE_mInt32(lance_batch_readahead);
 DECLARE_mInt32(lance_fragment_readahead);
 
+// Lance index worker isolation boundary (be/src/lance/index/lance_index_supervisor.h).
+DECLARE_mInt64(lance_index_worker_memory_limit_bytes);
+DECLARE_mInt64(lance_index_worker_pids_max);
+DECLARE_mInt64(lance_index_worker_wallclock_limit_seconds);
+DECLARE_mInt64(lance_index_worker_as_limit_bytes);
+DECLARE_mInt32(lance_index_worker_cpu_limit_multiplier);
+DECLARE_mInt64(lance_index_worker_term_grace_seconds);
+DECLARE_Bool(lance_index_isolation_preflight);
+DECLARE_String(lance_index_worker_cgroup_parent);
+
 // block file cache
 DECLARE_Bool(enable_file_cache);
 DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);

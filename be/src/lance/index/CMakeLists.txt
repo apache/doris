@@ -31,10 +31,12 @@
 #     frame in, handshake + at most one result frame out, pinned-version
 #     reopen, contract/IF/DROP physical-snapshot semantics, single native
 #     call. Registered as the --lance-worker subcommand of doris_main (before
-#     any BE global state); the supervisor (a later commit) execs it via
-#     /proc/self/exe.
-#   * (later commits) lance_index_supervisor / lance_index_worker_service:
-#     the in-BE supervisor and the thrift-facing service.
+#     any BE global state); the supervisor execs it via /proc/self/exe.
+#   * lance_index_supervisor: the in-BE supervisor of the isolated workers —
+#     cgroup v2 isolation (invocation-named groups), pidfd reaping, the kill
+#     ladder, and the synchronous execute() entry whose return is the
+#     respond-after-reap boundary.
+#   * (a later commit) lance_index_worker_service: the thrift-facing service.
 
 file(GLOB LANCE_SOURCES CONFIGURE_DEPENDS *.cpp)
 
