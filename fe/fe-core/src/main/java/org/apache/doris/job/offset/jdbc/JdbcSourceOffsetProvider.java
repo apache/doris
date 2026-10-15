@@ -167,7 +167,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         synchronized (splitsLock) {
             JdbcOffset nextOffset = new JdbcOffset();
             if (!remainingSplits.isEmpty()) {
-                int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
+                int taskParallelism = Integer.parseInt(properties.getOrDefault(
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(snapshotParallelism)));
+                int splitsNum = Math.min(remainingSplits.size(), taskParallelism);
                 List<SnapshotSplit> snapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
                 nextOffset.setSplits(snapshotSplits);
                 return nextOffset;
@@ -527,12 +529,56 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public void validateAlterOffset(String offset) throws Exception {
-        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+    public void validateAlterOffset(String offset) throws AnalysisException {
+        JsonNode offsetNode;
+        try {
+            offsetNode = objectMapper.readTree(offset);
+        } catch (Exception e) {
+            offsetNode = null;
+        }
+        if (offsetNode == null || !offsetNode.isObject()) {
             throw new AnalysisException(
                     "ALTER JOB for CDC only supports JSON specific offset, "
                     + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
                     + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
+
+        if ((sourceType == DataSourceType.MYSQL || sourceType == DataSourceType.OCEANBASE)
+                && offsetNode.has("kind") && !"SPECIFIC".equals(offsetNode.path("kind").asText())) {
+            throw new AnalysisException("ALTER JOB offset kind must be SPECIFIC when specified");
+        }
+
+        boolean valid;
+        switch (sourceType) {
+            case POSTGRES:
+                valid = isNonNegativeLong(offsetNode.get("lsn"));
+                break;
+            case MYSQL:
+            case OCEANBASE:
+                valid = offsetNode.has("file") && offsetNode.has("pos")
+                        ? hasText(offsetNode.path("file")) && isNonNegativeLong(offsetNode.get("pos"))
+                        : hasText(offsetNode.path("gtids"));
+                break;
+            default:
+                throw new AnalysisException("Unsupported CDC source type for ALTER JOB offset: " + sourceType);
+        }
+        if (!valid) {
+            throw new AnalysisException("Invalid offset for " + sourceType);
+        }
+    }
+
+    private static boolean hasText(JsonNode value) {
+        return value.isTextual() && !value.asText().trim().isEmpty();
+    }
+
+    private static boolean isNonNegativeLong(JsonNode value) {
+        if (value == null || (!value.isTextual() && !value.isIntegralNumber())) {
+            return false;
+        }
+        try {
+            return Long.parseLong(value.asText()) >= 0;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 
@@ -742,6 +788,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public int pendingSplitCount() {
         synchronized (splitsLock) {
             return remainingSplits.size();
+        }
+    }
+
+    @Override
+    public boolean isSnapshotPhase() {
+        synchronized (splitsLock) {
+            return !remainingSplits.isEmpty() || !noMoreSplits();
         }
     }
 
