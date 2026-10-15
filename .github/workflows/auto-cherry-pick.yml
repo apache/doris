@@ -29,9 +29,32 @@ permissions:
   contents: write
   pull-requests: write
 jobs:
-  auto_cherry_pick:
+  check_eligibility:
     runs-on: ubuntu-latest
-    if: ${{(contains(github.event.pull_request.labels.*.name, 'dev/4.1.x') || github.event.label.name == 'dev/4.1.x') && github.event.pull_request.merged == true }}
+    if: >-
+      ${{ github.event.pull_request.merged == true &&
+          contains(github.event.pull_request.labels.*.name, 'dev/4.1.x') &&
+          (github.event.action == 'closed' ||
+           (github.event.action == 'labeled' &&
+            (github.event.label.name == 'dev/4.1.x' ||
+             github.event.label.name == 'usercase' ||
+             startsWith(github.event.label.name, 'p0_')))) }}
+    outputs:
+      eligible: ${{ steps.labels.outputs.result }}
+    steps:
+      - name: Check required labels for branch-4.1
+        id: labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(label => label.name);
+            return labels.includes('dev/4.1.x') &&
+              labels.some(label => label === 'usercase' || label.startsWith('p0_'));
+
+  auto_cherry_pick:
+    needs: check_eligibility
+    runs-on: ubuntu-latest
+    if: ${{ needs.check_eligibility.outputs.eligible == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -56,7 +79,6 @@ jobs:
             fi    
 
       - name: Auto cherry-pick to branch-4.1
-        if: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'dev/4.1.x'))|| ((github.event_name == 'pull_request_target' && github.event.action == 'closed') && contains(github.event.pull_request.labels.*.name, 'dev/4.1.x')) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
