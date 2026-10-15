@@ -32,9 +32,15 @@ import java.util.List;
 public class HboScanDescriptorIdentityTest {
 
     private static HboScanDescriptor descriptor(String table, List<Long> selectedIds, long totalPartitions) {
+        return descriptor(table, selectedIds, totalPartitions, Collections.emptyList());
+    }
+
+    private static HboScanDescriptor descriptor(String table, List<Long> selectedIds, long totalPartitions,
+            List<Long> selectedTabletIds) {
         return new HboScanDescriptor(table, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
                 selectedIds.size(), totalPartitions,
-                HboScanDescriptor.partitionIdentityOf(selectedIds, totalPartitions));
+                HboScanDescriptor.partitionIdentityOf(selectedIds, totalPartitions),
+                HboScanDescriptor.tabletIdentityOf(selectedTabletIds));
     }
 
     @Test
@@ -90,5 +96,40 @@ public class HboScanDescriptorIdentityTest {
         // a pasted struct info would not match the fingerprint printed for the plan
         Assertions.assertEquals("F{b = 1}(S{db.t#pt:10:30})",
                 GroupStructInfo.stripScanBaseline("F{b = 1}(S{db.t#pt:10:30,v3,r1000,p2/5})"));
+    }
+
+    @Test
+    public void testAnExplicitTabletSelectionIsPartOfTheIdentity() {
+        // two tablet selections of one partition read different data: the partition count, the total
+        // count and the row count are the same for both, so only the tablet ids can tell them apart
+        HboScanDescriptor first = descriptor("db.t", Collections.singletonList(10L), 2,
+                Collections.singletonList(5001L));
+        HboScanDescriptor second = descriptor("db.t", Collections.singletonList(10L), 2,
+                Collections.singletonList(5002L));
+        Assertions.assertEquals("5001", first.getTabletIdentity());
+        Assertions.assertEquals("db.t#pt:10#tb:5001", first.getShapeIdentity());
+        Assertions.assertNotEquals(first.getShapeIdentity(), second.getShapeIdentity());
+    }
+
+    @Test
+    public void testATabletSelectionWithoutPartitionSelection() {
+        HboScanDescriptor descriptor = descriptor("db.t", Arrays.asList(1L, 2L), 2,
+                Arrays.asList(5002L, 5001L));
+        Assertions.assertEquals("", descriptor.getPartitionIdentity());
+        Assertions.assertEquals("5001:5002", descriptor.getTabletIdentity());
+        Assertions.assertEquals("db.t#tb:5001:5002", descriptor.getShapeIdentity());
+    }
+
+    @Test
+    public void testBothSelectionsSurviveTheTextRoundTrip() {
+        HboScanDescriptor parsed = HboScanDescriptor.parse(
+                descriptor("db.t", Collections.singletonList(10L), 2,
+                        Arrays.asList(5002L, 5001L)).render());
+        Assertions.assertEquals("db.t", parsed.getTable());
+        Assertions.assertEquals("10", parsed.getPartitionIdentity());
+        Assertions.assertEquals("5001:5002", parsed.getTabletIdentity());
+        Assertions.assertEquals("db.t#pt:10#tb:5001:5002", parsed.getShapeIdentity());
+        Assertions.assertEquals("F{b = 1}(S{db.t#pt:10#tb:5001:5002})",
+                GroupStructInfo.stripScanBaseline("F{b = 1}(S{db.t#pt:10#tb:5001:5002,v3,r1000,p1/2})"));
     }
 }

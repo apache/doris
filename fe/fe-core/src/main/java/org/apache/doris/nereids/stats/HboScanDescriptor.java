@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -60,6 +62,7 @@ public class HboScanDescriptor {
      */
     static final String PARTITION_IDENTITY_SEPARATOR = ":";
     private static final String PARTITION_IDENTITY_MARK = "#pt";
+    private static final String TABLET_IDENTITY_MARK = "#tb";
 
     private final String table;
     private final long visibleVersion;
@@ -75,9 +78,17 @@ public class HboScanDescriptor {
      * apart, and they are stable across renames (a rename keeps the id, so a pinned entry keeps applying).
      */
     private final String partitionIdentity;
+    /**
+     * The tablets this scan selects explicitly ({@code TABLET(id1, id2)}), ascending, empty when the
+     * scan reads whole partitions. Like the partition ids they are part of the identity: two tablet
+     * selections of one partition read different data while they report the same partition count and
+     * the same row count.
+     */
+    private final String tabletIdentity;
 
     HboScanDescriptor(String table, long visibleVersion, long scanRows, RowsKind rowsKind,
-            long selectedPartitions, long totalPartitions, String partitionIdentity) {
+            long selectedPartitions, long totalPartitions, String partitionIdentity,
+            String tabletIdentity) {
         this.table = table;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
@@ -85,6 +96,24 @@ public class HboScanDescriptor {
         this.selectedPartitions = selectedPartitions;
         this.totalPartitions = totalPartitions;
         this.partitionIdentity = partitionIdentity;
+        this.tabletIdentity = tabletIdentity;
+    }
+
+    /** The stable ids of the explicitly selected tablets, ascending, empty when none were selected. */
+    static String tabletIdentityOf(List<Long> selectedTabletIds) {
+        if (selectedTabletIds.isEmpty()) {
+            return "";
+        }
+        List<Long> sorted = new ArrayList<>(selectedTabletIds);
+        sorted.sort(null);
+        StringBuilder sb = new StringBuilder();
+        for (Long id : sorted) {
+            if (sb.length() > 0) {
+                sb.append(PARTITION_IDENTITY_SEPARATOR);
+            }
+            sb.append(id);
+        }
+        return sb.toString();
     }
 
     /**
@@ -157,11 +186,18 @@ public class HboScanDescriptor {
     public static HboScanDescriptor of(OlapScan scan) throws RpcException {
         OlapTable table = scan.getTable();
         List<Long> selectedPartitionIds = scan.getSelectedPartitionIds();
+        // only a TABLET(...) selection belongs to the identity: the effective tablet set of a plain scan
+        // (which the optimizer derives from the selected partitions and the index) is not an identity of
+        // its own, and naming it would move the key of every ordinary scan
+        List<Long> specifiedTabletIds = scan instanceof LogicalOlapScan
+                ? ((LogicalOlapScan) scan).getManuallySpecifiedTabletIds()
+                : Collections.emptyList();
         Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), table.getVisibleVersion(),
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size(),
-                partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()));
+                partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()),
+                tabletIdentityOf(specifiedTabletIds));
     }
 
     /**
@@ -171,7 +207,7 @@ public class HboScanDescriptor {
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), UNKNOWN, UNKNOWN,
-                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "");
+                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "");
     }
 
     /**
@@ -278,12 +314,24 @@ public class HboScanDescriptor {
         String identity = parts[0];
         String table = identity;
         String partitionIdentity = "";
-        int mark = identity.indexOf(PARTITION_IDENTITY_MARK);
-        if (mark >= 0) {
-            table = identity.substring(0, mark);
-            partitionIdentity = identity.substring(mark + PARTITION_IDENTITY_MARK.length() + 1);
+        String tabletIdentity = "";
+        int partitionMark = identity.indexOf(PARTITION_IDENTITY_MARK);
+        if (partitionMark >= 0) {
+            table = identity.substring(0, partitionMark);
+            int end = identity.indexOf(TABLET_IDENTITY_MARK, partitionMark);
+            partitionIdentity = end < 0
+                    ? identity.substring(partitionMark + PARTITION_IDENTITY_MARK.length() + 1)
+                    : identity.substring(partitionMark + PARTITION_IDENTITY_MARK.length() + 1, end);
         }
-        return new HboScanDescriptor(table, version, rows, kind, selected, total, partitionIdentity);
+        int tabletMark = identity.indexOf(TABLET_IDENTITY_MARK);
+        if (tabletMark >= 0) {
+            tabletIdentity = identity.substring(tabletMark + TABLET_IDENTITY_MARK.length() + 1);
+            if (partitionMark < 0) {
+                table = identity.substring(0, tabletMark);
+            }
+        }
+        return new HboScanDescriptor(table, version, rows, kind, selected, total, partitionIdentity,
+                tabletIdentity);
     }
 
     /**
@@ -291,9 +339,19 @@ public class HboScanDescriptor {
      * it does not read all of them ({@code db.t#pt:10001:10002}).
      */
     public String getShapeIdentity() {
-        return partitionIdentity.isEmpty()
-                ? table
-                : table + PARTITION_IDENTITY_MARK + ":" + partitionIdentity;
+        StringBuilder sb = new StringBuilder(table);
+        if (!partitionIdentity.isEmpty()) {
+            sb.append(PARTITION_IDENTITY_MARK).append(':').append(partitionIdentity);
+        }
+        if (!tabletIdentity.isEmpty()) {
+            sb.append(TABLET_IDENTITY_MARK).append(':').append(tabletIdentity);
+        }
+        return sb.toString();
+    }
+
+    /** The tablets the scan selects explicitly, as stable ids, empty when it reads whole partitions. */
+    public String getTabletIdentity() {
+        return tabletIdentity;
     }
 
     /** The partitions the scan selects, as stable ids, empty when it reads the whole table. */
