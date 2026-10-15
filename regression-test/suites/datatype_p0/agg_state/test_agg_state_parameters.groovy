@@ -62,9 +62,9 @@ suite("test_agg_state_parameters") {
     def ignoredCases = [
         ["percentile_approx_weighted", "7, 0, 0.25", "7, 1, 0.75"],
         ["percentile_array", "7, cast([] as array<double>)", "7, [0.25]"],
-        ["topn_weighted", "1, 1, 1, 0", "1, 1, 1, 2"],
-        ["topn_array", "1, 1, 0", "1, 1, 2"],
-        ["topn", "'a', 1, 0", "'a', 1, 2"]
+        ["topn_weighted", "cast(NULL as int), 1, 1, 0", "nullable(cast(1 as int)), 1, 1, 2"],
+        ["topn_array", "cast(NULL as int), 1, 0", "nullable(cast(1 as int)), 1, 2"],
+        ["topn", "cast(NULL as string), 1, 0", "nullable(cast('a' as string)), 1, 2"]
     ]
     def cases = [
         ["topn", "'a', 1", "'a', 3"],
@@ -105,6 +105,12 @@ suite("test_agg_state_parameters") {
         ["sequence_count", "'(?1)', non_nullable(cast('2024-01-01' as datetime)), true, false",
                            "'(?2)', non_nullable(cast('2024-01-01' as datetime)), true, false"]
     ]
+    // Unlimited states retain samples, so they cannot merge with finite-capacity states.
+    for (def rate : [0, -1, -2147483648]) {
+        cases.add(["topn", "'a', 1, ${rate}", "'a', 1, 2"])
+        cases.add(["topn_array", "1, 1, ${rate}", "1, 1, 2"])
+        cases.add(["topn_weighted", "1, 1, 1, ${rate}", "1, 1, 1, 2"])
+    }
     // States without contributing samples ignore their parameter values.
     // Keep AggState argument nullability identical across both sides of the UNION.
     for (def quantile : ["0.0", "0.25", "1.0"]) {

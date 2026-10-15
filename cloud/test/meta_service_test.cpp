@@ -1880,6 +1880,85 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
     }
 }
 
+TEST(MetaServiceTest, PrecommitTxnReplayDoesNotChangeTxnMetadata) {
+    auto meta_service = get_meta_service();
+    const int64_t db_id = 563413;
+    const int64_t table_id = 417417878;
+
+    brpc::Controller begin_cntl;
+    BeginTxnRequest begin_req;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB begin_info;
+    begin_info.set_db_id(db_id);
+    begin_info.set_label("precommit_replay_terminal_state");
+    begin_info.add_table_ids(table_id);
+    begin_info.set_timeout_ms(36000);
+    begin_req.mutable_txn_info()->CopyFrom(begin_info);
+    BeginTxnResponse begin_res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_cntl),
+                            &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK);
+    const int64_t txn_id = begin_res.txn_id();
+
+    PrecommitTxnRequest precommit_req;
+    precommit_req.set_cloud_unique_id("test_cloud_unique_id");
+    precommit_req.set_db_id(db_id);
+    precommit_req.set_txn_id(txn_id);
+    precommit_req.set_precommit_timeout_ms(36000);
+    brpc::Controller precommit_cntl;
+    PrecommitTxnResponse precommit_res;
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::OK);
+
+    const std::string info_key = txn_info_key({mock_instance, db_id, txn_id});
+    const std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string info_val;
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info;
+    ASSERT_TRUE(txn_info.ParseFromString(info_val));
+    ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    // A fixed old timestamp makes a replayed precommit write observable.
+    txn_info.set_precommit_time(1);
+    const std::string precommitted_info_val = txn_info.SerializeAsString();
+    txn->put(info_key, precommitted_info_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string running_val;
+    ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_OK);
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_PRECOMMITED);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(info_val, precommitted_info_val);
+    std::string replay_running_val;
+    ASSERT_EQ(txn->get(running_key, &replay_running_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(replay_running_val, running_val);
+
+    txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    const std::string visible_info_val = txn_info.SerializeAsString();
+    txn->put(info_key, visible_info_val);
+    txn->remove(running_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    meta_service->precommit_txn(
+            reinterpret_cast<::google::protobuf::RpcController*>(&precommit_cntl), &precommit_req,
+            &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(info_val, visible_info_val);
+    ASSERT_EQ(txn->get(running_key, &replay_running_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
     int64_t table_id = 1234;
@@ -2352,7 +2431,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         txn_info_pb.set_db_id(db_id);
         txn_info_pb.set_label(label);
         txn_info_pb.add_table_ids(t1);
-        txn_info_pb.set_timeout_ms(36000);
+        // Creating 1,500 subtransactions can exceed 36 seconds under ASAN. This case checks
+        // committing subtransactions; CommitTxnExpiredTest covers transaction expiration.
+        txn_info_pb.set_timeout_ms(5 * 60 * 1000);
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
         BeginTxnResponse res;
         meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
@@ -2782,6 +2863,95 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
 
     ASSERT_EQ(max_txn_id_res.status().code(), MetaServiceCode::OK);
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
+}
+
+TEST(MetaServiceTest, TsoFenceIsMonotonicAndRejectsStaleCommit) {
+    bool old_enable_check_commit_tso_fence = config::enable_check_commit_tso_fence;
+    DORIS_CLOUD_DEFER {
+        config::enable_check_commit_tso_fence = old_enable_check_commit_tso_fence;
+    };
+    config::enable_check_commit_tso_fence = true;
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    AdvanceTsoFenceRequest fence_request;
+    fence_request.set_cloud_unique_id("test_cloud_unique_id");
+    fence_request.set_proposed_fence_tso(100);
+    AdvanceTsoFenceResponse fence_response;
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    fence_request.set_proposed_fence_tso(90);
+    fence_response.Clear();
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    int64_t txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_commit", 1234, txn_id);
+    CommitTxnRequest commit_request;
+    commit_request.set_db_id(666);
+    commit_request.set_txn_id(txn_id);
+    commit_request.set_commit_tso(100);
+    commit_request.set_enable_check_commit_tso_fence(true);
+    CommitTxnResponse commit_response;
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().actual_code(), MetaServiceCode::TXN_COMMIT_TSO_EXPIRED);
+    ASSERT_EQ(commit_response.tso_fence(), 100);
+
+    commit_request.set_commit_tso(101);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // A response retry after the transaction became visible remains idempotent.
+    commit_request.set_commit_tso(100);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // FE can disable the check for one request.
+    int64_t request_check_disabled_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_request_check_disabled", 1234,
+              request_check_disabled_txn_id);
+    CommitTxnRequest request_check_disabled;
+    request_check_disabled.set_db_id(666);
+    request_check_disabled.set_txn_id(request_check_disabled_txn_id);
+    request_check_disabled.set_commit_tso(100);
+    CommitTxnResponse request_check_disabled_response;
+    meta_service->commit_txn(&cntl, &request_check_disabled, &request_check_disabled_response,
+                             nullptr);
+    ASSERT_EQ(request_check_disabled_response.status().code(), MetaServiceCode::OK);
+
+    // MS can disable the check globally.
+    config::enable_check_commit_tso_fence = false;
+    int64_t server_check_disabled_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_server_check_disabled", 1234,
+              server_check_disabled_txn_id);
+    CommitTxnRequest server_check_disabled;
+    server_check_disabled.set_db_id(666);
+    server_check_disabled.set_txn_id(server_check_disabled_txn_id);
+    server_check_disabled.set_commit_tso(100);
+    server_check_disabled.set_enable_check_commit_tso_fence(true);
+    CommitTxnResponse server_check_disabled_response;
+    meta_service->commit_txn(&cntl, &server_check_disabled, &server_check_disabled_response,
+                             nullptr);
+    ASSERT_EQ(server_check_disabled_response.status().code(), MetaServiceCode::OK);
+
+    // Transactions without a commit TSO do not participate in binlog fencing.
+    int64_t non_tso_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_non_tso_commit", 1234, non_tso_txn_id);
+    CommitTxnRequest non_tso_commit_request;
+    non_tso_commit_request.set_db_id(666);
+    non_tso_commit_request.set_txn_id(non_tso_txn_id);
+    CommitTxnResponse non_tso_commit_response;
+    meta_service->commit_txn(&cntl, &non_tso_commit_request, &non_tso_commit_response, nullptr);
+    ASSERT_EQ(non_tso_commit_response.status().code(), MetaServiceCode::OK);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(txn_tso_fence_key({mock_instance}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 TEST(MetaServiceTest, CreateMetaSyncPointTest) {
@@ -5358,6 +5528,52 @@ TEST(MetaServiceTest, UpdateTablet) {
         tablet_meta_info->set_is_persistent(true);
         meta_service->update_tablet(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    get_and_check_tablet_meta(tablet_id1, 300, true, true);
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        auto* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->mutable_binlog_config()->set_ttl_seconds(61);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        EXPECT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        auto* binlog_config = tablet_meta_info->mutable_binlog_config();
+        binlog_config->set_enable(true);
+        binlog_config->set_ttl_seconds(3600);
+        binlog_config->set_max_bytes(4096);
+        binlog_config->set_max_history_nums(7);
+        binlog_config->set_binlog_format(BinlogFormatPB::ROW);
+        binlog_config->set_need_historical_value(true);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    {
+        brpc::Controller cntl;
+        GetTabletRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_tablet_id(tablet_id1);
+        GetTabletResponse resp;
+        meta_service->get_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(resp.tablet_meta().has_binlog_config());
+        const auto& binlog_config = resp.tablet_meta().binlog_config();
+        EXPECT_TRUE(binlog_config.enable());
+        EXPECT_EQ(binlog_config.ttl_seconds(), 3600);
+        EXPECT_EQ(binlog_config.max_bytes(), 4096);
+        EXPECT_EQ(binlog_config.max_history_nums(), 7);
+        EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::ROW);
+        EXPECT_TRUE(binlog_config.need_historical_value());
     }
     get_and_check_tablet_meta(tablet_id1, 300, true, true);
 }
@@ -14591,7 +14807,10 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
             TableStreamOffsetKeyInfo key_info {instance_id,  db_id,     table_id,
                                                stream_db_id, stream_id, existing_partition_id};
             txn->put(table_stream_offset_key(key_info), value);
-            versioned_put(txn.get(), versioned::table_stream_offset_key(key_info), version, value);
+            versioned_put(txn.get(),
+                          versioned::table_stream_offset_key(
+                                  versioned::TableStreamOffsetKeyInfo(key_info)),
+                          version, value);
             expected_offsets.push_back({stream_id, std::move(value), version});
         }
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -14627,10 +14846,11 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
             EXPECT_EQ(value, expected.value);
 
             Versionstamp actual_version;
-            ASSERT_EQ(
-                    versioned_get(txn.get(), versioned::table_stream_offset_key(existing_key_info),
-                                  &actual_version, &value),
-                    TxnErrorCode::TXN_OK);
+            ASSERT_EQ(versioned_get(txn.get(),
+                                    versioned::table_stream_offset_key(
+                                            versioned::TableStreamOffsetKeyInfo(existing_key_info)),
+                                    &actual_version, &value),
+                      TxnErrorCode::TXN_OK);
             EXPECT_EQ(value, expected.value);
             EXPECT_EQ(actual_version, expected.version);
 
@@ -14639,7 +14859,9 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
                                                    expected.stream_id, new_partition_id};
             EXPECT_EQ(txn->get(table_stream_offset_key(new_key_info), &value),
                       TxnErrorCode::TXN_KEY_NOT_FOUND);
-            EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(new_key_info),
+            EXPECT_EQ(versioned_get(txn.get(),
+                                    versioned::table_stream_offset_key(
+                                            versioned::TableStreamOffsetKeyInfo(new_key_info)),
                                     &actual_version, &value),
                       TxnErrorCode::TXN_KEY_NOT_FOUND);
         }
@@ -14900,8 +15122,10 @@ TEST(MetaServiceTest, TableStreamCreateDisabled) {
         EXPECT_EQ(actual_offset.SerializeAsString(), expected_offset.SerializeAsString());
 
         Versionstamp version;
-        EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(key_info), &version,
-                                &value),
+        EXPECT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(key_info)),
+                                &version, &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
         EXPECT_EQ(versioned_get(txn.get(),
                                 versioned::meta_partition_key(
@@ -15089,7 +15313,9 @@ TEST(MetaServiceTest, TableStreamOffsetInitializationConflictsWithDropPartition)
         EXPECT_EQ(txn->get(table_stream_offset_key(key_info), &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
         Versionstamp versionstamp;
-        EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(key_info),
+        EXPECT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(key_info)),
                                 &versionstamp, &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
@@ -15168,7 +15394,9 @@ TEST(MetaServiceTest, TableStreamCreateVersionedModes) {
         std::string value;
         ASSERT_EQ(txn->get(table_stream_offset_key(offset_key_info), &value), TxnErrorCode::TXN_OK);
         Versionstamp offset_version;
-        ASSERT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(offset_key_info),
+        ASSERT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(offset_key_info)),
                                 &offset_version, &value),
                   TxnErrorCode::TXN_OK);
         TableStreamOffsetPB versioned_offset;

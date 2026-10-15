@@ -22,6 +22,8 @@ import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
+import org.apache.iceberg.aws.HttpClientProperties;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -144,6 +146,14 @@ public final class IcebergCatalogProperties {
         if (TYPE_DLF.equals(flavor) && externalCatalogName != null) {
             throw new IllegalArgumentException("external_catalog.name is not supported for Iceberg DLF catalogs");
         }
+        // iceberg-aws's "apache" client is Apache5HttpClient, which the AWS SDK Doris ships does not contain;
+        // fail here rather than with a NoClassDefFoundError on the first S3 or Glue call.
+        if (HttpClientProperties.CLIENT_TYPE_APACHE.equalsIgnoreCase(raw.get(HttpClientProperties.CLIENT_TYPE))) {
+            throw new IllegalArgumentException(HttpClientProperties.CLIENT_TYPE + "="
+                    + HttpClientProperties.CLIENT_TYPE_APACHE + " is not supported: it requires an AWS SDK newer than"
+                    + " the one Doris ships. Use " + HttpClientProperties.CLIENT_TYPE_URLCONNECTION
+                    + " (the default) instead.");
+        }
         // Selects the backend by flavor and enforces its fail-fast rules -- REST (security/creds enums,
         // OAuth2, signing, AK/SK), Glue (AK/SK-together, endpoint https, at-least-one-credential), JDBC
         // (uri/catalog_name/warehouse), the shared HMS connection checks; hadoop/s3tables are no-op (their
@@ -163,7 +173,7 @@ public final class IcebergCatalogProperties {
     private static void checkMetaCacheProperties(
             Map<String, String> properties, Map<String, String> submittedProperties) {
         CacheSpec.checkWeightProperties(properties, submittedProperties, "iceberg",
-                "table", "partition", "manifest", "partition_view");
+                IcebergConnector.WEIGHTED_CACHE_ENTRIES);
         CacheSpec.checkBooleanProperty(properties.get(IcebergConnector.TABLE_CACHE_ENABLE),
                 IcebergConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.TABLE_CACHE_TTL_SECOND),
@@ -185,11 +195,13 @@ public final class IcebergCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** Empty when the catalog names no extra namespace level. */

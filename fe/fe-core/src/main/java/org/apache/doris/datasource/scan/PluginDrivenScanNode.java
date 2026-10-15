@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -178,6 +179,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private int nativeReadSplitNum;
     private int totalReadSplitNum;
 
+    // Whether the connector planned a range that can be read only once (ConnectorScanRange.isSingleUse),
+    // which keeps the plan from being dispatched again (cannotBeRedispatched). Set by toSplit, which the
+    // asynchronous batch-mode split generation runs on other threads as well.
+    private volatile boolean plannedSingleUseRange;
+
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
@@ -226,7 +232,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             variantCompatibilityDeferred = true;
             return;
         }
-        checkVariantBackendCompatibility(projectsVariant, backends);
+        checkVariantBackendCompatibility(projectsVariant, backends, scanContext.getBeExecVersion());
     }
 
     static boolean projectsComputeVariant(TupleDescriptor tuple) {
@@ -255,12 +261,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return false;
     }
 
-    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends,
+            int beExecVersion)
             throws UserException {
         if (!projectsVariant) {
             return;
         }
-        if (Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+        if (beExecVersion < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
             // The query-wide execution version covers every eligible backend, including ordinary
             // rolling-upgrade nodes that are not marked as cloud smooth-upgrade sources.
             throw new UserException("Iceberg Variant requires backend execution version "
@@ -355,6 +362,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
+    @Override
+    protected boolean applyColumnDefaultsOnRead() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        return scanProvider == null || onPluginClassLoader(
+                scanProvider, scanProvider::applyColumnDefaultsOnRead);
+    }
+
     /**
      * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
      * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
@@ -436,6 +450,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return null;
         }
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
+    }
+
+    /** Whether an opt-out connector must distinguish this scan-all encoding from an unpruned scan. */
+    static boolean partitionsPrunedToEmpty(SelectedPartitions selectedPartitions,
+            boolean ignorePartitionPruneShortCircuit) {
+        return ignorePartitionPruneShortCircuit
+                && selectedPartitions != null
+                && selectedPartitions.isPruned
+                && selectedPartitions.totalPartitionNum > 0
+                && selectedPartitions.selectedPartitions.isEmpty();
     }
 
     /**
@@ -1104,7 +1128,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
             // The optional wire field alone cannot fence old readers during a rolling upgrade.
-            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+            if (scanContext.getBeExecVersion() < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
                 throw new UserException("Hive OpenCSVSerde requires backend execution version "
                         + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
             }
@@ -1641,6 +1665,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
                 selectedPartitions, ignorePartitionPruneShortCircuit);
+        // Preserve why an opt-out request has an empty/scan-all partition list. A connector whose
+        // snapshot retains history outside the live FE universe must still plan that history, but it
+        // must not reinterpret "no live partition matched" as "validate every live partition".
+        boolean partitionsPrunedToEmpty = partitionsPrunedToEmpty(
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -1699,7 +1728,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .filter(remainingFilter)
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
+                .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
+                .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
                 // partition a query EXECUTES it) needs to know the plan is only going to be shown.
@@ -1714,12 +1746,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (variantCompatibilityDeferred) {
             checkVariantBackendCompatibility(
                     plannedScanDecodesVariant(projectsComputeVariant(desc), countPushdown, ranges),
-                    backendPolicy.getBackends());
+                    backendPolicy.getBackends(), scanContext.getBeExecVersion());
         }
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
-            splits.add(new PluginDrivenSplit(range));
+            splits.add(toSplit(range));
         }
         // FIX-E (explain gap): accumulate the native/total scan-range counts (for the connector
         // EXPLAIN line paimonNativeReadSplits) and, under COUNT(*) pushdown, the precomputed merged row
@@ -1806,6 +1838,38 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return false;
         }
         return ctx.getExecutor().getParsedStmt().isExplain();
+    }
+
+    // Every range the connector plans becomes a split here, on the planning thread or on the batch-mode
+    // split generation threads, so that the plan's single-use ranges are known (cannotBeRedispatched).
+    private Split toSplit(ConnectorScanRange range) {
+        if (range.isSingleUse()) {
+            plannedSingleUseRange = true;
+        }
+        return new PluginDrivenSplit(range);
+    }
+
+    /**
+     * True once the connector planned a range that can be read only once (ConnectorScanRange#isSingleUse):
+     * a partition of a remote query that already ran, which the failed attempt may have drained. The same
+     * plan dispatched again would read only what that attempt left of it.
+     */
+    @Override
+    public boolean cannotBeRedispatched() {
+        return plannedSingleUseRange;
+    }
+
+    /** Capabilities supported by every backend eligible for this scan. */
+    static Set<String> commonBackendCapabilities(Iterable<Backend> backends) {
+        Set<String> common = null;
+        for (Backend backend : backends) {
+            if (common == null) {
+                common = new HashSet<>(backend.getConnectorCapabilities());
+            } else {
+                common.retainAll(backend.getConnectorCapabilities());
+            }
+        }
+        return common == null ? Collections.emptySet() : common;
     }
 
     /**
@@ -2095,7 +2159,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                                 connectorSession, batchRequest, batch));
                                 List<Split> batchSplits = new ArrayList<>(ranges.size());
                                 for (ConnectorScanRange range : ranges) {
-                                    batchSplits.add(new PluginDrivenSplit(range));
+                                    batchSplits.add(toSplit(range));
                                 }
                                 if (splitAssignment.needMoreSplit()) {
                                     splitAssignment.addToQueue(batchSplits);
@@ -2186,7 +2250,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // heap stays bounded for million-file scans.
                 while (splitAssignment.needMoreSplit() && source.hasNext()) {
                     List<Split> one = new ArrayList<>(1);
-                    one.add(new PluginDrivenSplit(source.next()));
+                    one.add(toSplit(source.next()));
                     splitAssignment.addToQueue(one);
                 }
                 splitAssignment.finishSchedule();
@@ -2220,6 +2284,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+            // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
+            params.setContainsNativeParquet(true);
+        }
 
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -2508,10 +2576,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static ConnectorColumnHandle withProjectedFieldIds(
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
+        boolean hasNestedProjection = false;
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            hasNestedProjection |= accessPath.getPath().size() > 1;
             collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
-        return projectedFieldIds.isEmpty()
+        return projectedFieldIds.isEmpty() && !hasNestedProjection
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 
@@ -2573,28 +2643,33 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             filteredToOriginalIndex = null;
             return Optional.empty();
         }
-        List<Expr> pushableConjuncts = conjuncts;
-        ConnectorMetadata metadata = metadata();
-        if (!metadata.supportsCastPredicatePushdown(connectorSession)) {
-            filteredToOriginalIndex = new ArrayList<>();
-            pushableConjuncts = new ArrayList<>();
-            for (int i = 0; i < conjuncts.size(); i++) {
-                if (!containsCastExpr(conjuncts.get(i))) {
-                    pushableConjuncts.add(conjuncts.get(i));
-                    filteredToOriginalIndex.add(i);
-                }
+        List<Expr> pushableConjuncts = new ArrayList<>();
+        filteredToOriginalIndex = new ArrayList<>();
+        boolean supportsCast = metadata().supportsCastPredicatePushdown(connectorSession);
+        for (int i = 0; i < conjuncts.size(); i++) {
+            Expr conjunct = conjuncts.get(i);
+            // The neutral converter strips CASTs. Instant casts can depend on the Doris session
+            // timezone, so both the predicate and its LIMIT must stay local before type information is lost.
+            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)) {
+                continue;
             }
-            // If no filtering occurred, clear the mapping (1:1)
-            if (filteredToOriginalIndex.size() == conjuncts.size()) {
-                filteredToOriginalIndex = null;
-            }
-        } else {
+            pushableConjuncts.add(conjunct);
+            filteredToOriginalIndex.add(i);
+        }
+        if (filteredToOriginalIndex.size() == conjuncts.size()) {
             filteredToOriginalIndex = null;
         }
         if (pushableConjuncts.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
+    }
+
+    static boolean containsTimestampTzCast(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr
+                && (node.getType().isTimeStampTz() || node.getChild(0).getType().isTimeStampTz()), casts);
+        return !casts.isEmpty();
     }
 
     static boolean containsCastExpr(Expr expr) {

@@ -46,6 +46,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
 #include "exec/scan/file_scan_io_context.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -58,6 +59,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -138,28 +140,54 @@ bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
     return table_format == "remote_doris" || table_format == "adbc";
 }
 
+bool is_supported_paimon_jni_payload(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    if (params.__isset.reader_type) {
+        if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
+            return params.__isset.paimon_split;
+        }
+        if (params.reader_type == TPaimonReaderType::PAIMON_RUST) {
+            return params.__isset.paimon_split && params.__isset.paimon_table_schema_json &&
+                   !params.paimon_table_schema_json.empty();
+        }
+        return false;
+    }
+    if (params.__isset.paimon_split) {
+        // Before reader_type was added, an encoded split unambiguously selected the Java
+        // reader; native scans carried only their physical Parquet or ORC range.
+        return true;
+    }
+    return params.__isset.file_format &&
+           (params.file_format == "parquet" || params.file_format == "orc");
+}
+
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
     if (table_format == "paimon") {
-        if (!range.__isset.table_format_params ||
-            !range.table_format_params.__isset.paimon_params) {
-            return false;
-        }
-        const auto& params = range.table_format_params.paimon_params;
-        if (params.__isset.reader_type) {
-            return params.reader_type == TPaimonReaderType::PAIMON_JNI &&
-                   params.__isset.paimon_split;
-        }
-        if (params.__isset.paimon_split) {
-            // Before reader_type was added, an encoded split unambiguously selected the Java
-            // reader; native scans carried only their physical Parquet or ORC range.
-            return true;
-        }
-        return params.__isset.file_format &&
-               (params.file_format == "parquet" || params.file_format == "orc");
+        return is_supported_paimon_jni_payload(range);
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
+}
+
+bool is_supported_fluss_range(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
+    const auto format_type = get_range_format_type(params, range);
+    if (format::fluss::FlussHybridReader::is_lake_range(range)) {
+        // A lake split is the paimon sibling's own split, wrapped, so it arrives in whichever form
+        // the sibling planned it and whether it can be read here is the paimon answer, asked of the
+        // paimon payload it carries.
+        if (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) {
+            return true;
+        }
+        return format_type == TFileFormatType::FORMAT_JNI && is_supported_paimon_jni_payload(range);
+    }
+    // A range of fluss's own log - a log slice, a primary-key bucket, a primary-key log tail - is
+    // read through the JNI scanner alone.
+    return format_type == TFileFormatType::FORMAT_JNI;
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -185,10 +213,6 @@ bool is_text_format(TFileFormatType::type format_type) {
 
 bool is_json_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_JSON;
-}
-
-bool is_native_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_NATIVE;
 }
 
 bool is_wal_format(TFileFormatType::type format_type) {
@@ -320,6 +344,12 @@ bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
 #endif
 
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
+    if (table_format_name(range) == "fluss") {
+        // Every range of a fluss scan carries the one format "fluss" and is dispatched inside
+        // FlussHybridReader, so its support is answered by the same per-range key the reader
+        // dispatches on rather than by the file-format buckets below.
+        return is_supported_fluss_range(params, range);
+    }
     const auto format_type = get_range_format_type(params, range);
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
@@ -331,7 +361,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     } else if (is_wal_format(format_type)) {
         return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
-               is_json_format(format_type) || is_native_format(format_type)) {
+               is_json_format(format_type)) {
         return is_supported_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
@@ -350,15 +380,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
 }
 
 Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection) {
-    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+    // ADBC validates native Variant storage before decoding; other Arrow readers do not.
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW ||
+        table_format == "adbc") {
         return Status::OK();
     }
-    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
-    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    // Keep the capability guard for readers without a native Variant carrier contract.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; "
-            "file format ARROW is not supported");
+            "External Variant Arrow reads require an ADBC native Variant carrier; "
+            "table format {} is not supported",
+            table_format);
 }
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
@@ -472,7 +505,10 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
             const auto status = _table_reader->get_block(block, eof);
-            if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+            if (_should_skip_not_found(
+                        status,
+                        can_ignore_not_found_file(
+                                _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
@@ -483,10 +519,9 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             }
             if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
                 // END_OF_FILE here means the reader discovered a valid split with no data while
-                // opening or probing it, not that the Scanner has exhausted all splits. Examples
-                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
-                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
-                // discard partial reader state, and let the loop fetch the next split.
+                // opening or probing it, not that the Scanner has exhausted all splits, e.g. a
+                // zero-byte CSV with an explicit schema. Treat it like V1's empty-file path: finish
+                // this range, discard partial reader state, and let the loop fetch the next split.
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_empty_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
@@ -559,7 +594,10 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
                 _prepare_table_reader_split(_current_range, std::move(partition_values));
-        if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+        if (_should_skip_not_found(
+                    status,
+                    can_ignore_not_found_file(_current_range,
+                                              config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
             _state->update_num_finished_scan_range(1);
@@ -737,6 +775,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
+    } else if (table_format == "fluss") {
+        *reader = std::make_unique<format::fluss::FlussHybridReader>();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else if (table_format == "max_compute") {
@@ -860,6 +900,9 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
     auto column = data_type->create_column();
     auto serde = data_type->get_serde();
     DataTypeSerDe::FormatOptions options;
+    // FE partition keys interpret offset-free TIMESTAMPTZ text in the session zone. Use the same
+    // zone here so runtime partition pruning compares the same instant as the FE and row reader.
+    options.timezone = &_state->timezone_obj();
     options.converted_from_string = true;
     StringRef ref(value.data(), value.size());
     RETURN_IF_ERROR(serde->from_string(ref, *column, options));
@@ -939,7 +982,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
     RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
-                                                 _has_variant_projection));
+                                                 _has_variant_projection,
+                                                 table_format_name(_current_range)));
     return Status::OK();
 }
 
@@ -1015,9 +1059,6 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_JSON:
         *file_format = format::FileFormat::JSON;
-        return Status::OK();
-    case TFileFormatType::FORMAT_NATIVE:
-        *file_format = format::FileFormat::NATIVE;
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;

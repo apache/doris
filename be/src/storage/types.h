@@ -197,6 +197,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
     using UnsignedCppType = uint128_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     using CppType = Slice;
 };
@@ -294,6 +299,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
@@ -433,6 +442,7 @@ inline size_t field_type_size(FieldType field_type) {
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMESTAMPTZ)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_IPV4)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_IPV6)
+        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_UUID)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_CHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_VARCHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_STRING)

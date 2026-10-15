@@ -23,7 +23,9 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +59,22 @@ public class BindConnectorSinkStaticPartitionTest {
     private static final Column REGION = new Column("region", PrimitiveType.INT);
     // Base schema appends partition columns after the data columns (as the connector reports it).
     private static final List<Column> BASE_SCHEMA = ImmutableList.of(ID, VAL, DS, REGION);
+
+    @Test
+    void binaryStaticPartitionsRequireTypedBytes() {
+        Column binary = new Column("part_key", PrimitiveType.VARBINARY);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        stubWriteSchemaSnapshot(table, ImmutableList.of(ID, binary), ImmutableList.of(binary));
+        for (String value : new String[] {"0xDEAD", "", "plain text"}) {
+            Assertions.assertThrows(AnalysisException.class, () -> BindSink.canonicalStaticPartitionColNames(
+                    table, Collections.singletonMap("PART_KEY", new StringLiteral(value))));
+        }
+        for (Expression value : new Expression[] {new VarBinaryLiteral(new byte[] {(byte) 0xde, (byte) 0xad}),
+                new VarBinaryLiteral(new byte[0]), NullLiteral.INSTANCE}) {
+            Assertions.assertEquals(ImmutableSet.of("part_key"), BindSink.canonicalStaticPartitionColNames(
+                    table, Collections.singletonMap("PART_KEY", value)));
+        }
+    }
 
     private static PluginDrivenExternalTable partitionedTable() {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
@@ -169,6 +187,15 @@ public class BindConnectorSinkStaticPartitionTest {
                 partitionedTable(), ImmutableList.of("val", "id"), ImmutableSet.of("ds"), false);
         Assertions.assertEquals(ImmutableList.of("val", "id"), names(bound),
                 "explicit column list is bound in user order");
+    }
+
+    @Test
+    public void explicitColumnListRejectsCaseInsensitiveDuplicate() {
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
+                BindSink.selectConnectorSinkBindColumns(
+                        partitionedTable(), ImmutableList.of("id", "ID"), Collections.emptySet(), false));
+        Assertions.assertEquals(
+                "Column 'ID' specified twice", ex.getMessage());
     }
 
     @Test

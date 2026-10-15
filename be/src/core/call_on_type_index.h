@@ -41,6 +41,7 @@ class DataTypeTimeStampNs;
 class DataTypeDateTime;
 class DataTypeIPv4;
 class DataTypeIPv6;
+class DataTypeUUID;
 class DataTypeString;
 template <PrimitiveType T>
 class DataTypeNumber;
@@ -97,6 +98,8 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
         return f(TypePair<DataTypeIPv4, T>());
     case PrimitiveType::TYPE_IPV6:
         return f(TypePair<DataTypeIPv6, T>());
+    case PrimitiveType::TYPE_UUID:
+        return f(TypePair<DataTypeUUID, T>());
 
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:
@@ -161,10 +164,11 @@ struct DispatchDataTypeMask {
     static constexpr uint32_t IP = 1 << 4;
     static constexpr uint32_t STRING = 1 << 5;
     static constexpr uint32_t DECIMALV3 = 1 << 6;
+    static constexpr uint32_t UUID = 1 << 7;
 
-    static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP;
+    static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP | UUID;
     static constexpr uint32_t NUMBER = INT | FLOAT | DECIMAL;
-    static constexpr uint32_t ALL = INT | FLOAT | DECIMAL | DATETIME | IP | STRING;
+    static constexpr uint32_t ALL = INT | FLOAT | DECIMAL | DATETIME | IP | STRING | UUID;
 };
 
 template <typename F, uint32_t TypeMaskV = DispatchDataTypeMask::ALL>
@@ -258,6 +262,15 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
             return f(DispatchDataType<TYPE_IPV4>());
         case PrimitiveType::TYPE_IPV6:
             return f(DispatchDataType<TYPE_IPV6>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::UUID) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_UUID:
+            return f(DispatchDataType<TYPE_UUID>());
         default:
             break;
         }

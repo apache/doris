@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -29,8 +30,8 @@
 
 namespace doris::snii::writer {
 
-// Per-WRITER accurate byte counter for build-time RAM (one per SniiCompoundWriter =
-// one per segment's inverted index). Legacy modules report resident-byte deltas
+// Build-time byte counter for one logical index writer or merge session. Writers
+// sharing a reporter share its posting budget. Legacy modules report resident-byte deltas
 // after their allocation; hard-gated modules own a Reservation that atomically
 // pre-charges before allocation. current_bytes() is their shared live total.
 // consume_release mirrors successful changes into the process-wide SNII
@@ -84,10 +85,12 @@ public:
 
     private:
         friend class MemoryReporter;
-        explicit Reservation(MemoryReporter* owner) : owner_(owner) {}
+        explicit Reservation(MemoryReporter* owner, bool postings = false)
+                : owner_(owner), postings_(postings) {}
 
         MemoryReporter* owner_ = nullptr;
         uint64_t bytes_ = 0;
+        bool postings_ = false;
     };
 
     // cap_bytes is the shared gate-2 threshold (0 = unlimited). Hard-limit
@@ -96,10 +99,12 @@ public:
     // drive reclaim without turning irreducible vocabulary growth into an import
     // failure.
     explicit MemoryReporter(ConsumeReleaseFn consume_release = nullptr, uint64_t cap_bytes = 0,
-                            CapPolicy cap_policy = CapPolicy::kHardLimit)
+                            CapPolicy cap_policy = CapPolicy::kHardLimit,
+                            uint64_t postings_cap_bytes = 32ULL * 1024 * 1024)
             : consume_release_(std::move(consume_release)),
               cap_bytes_(cap_bytes),
-              cap_policy_(cap_policy) {}
+              cap_policy_(cap_policy),
+              postings_cap_bytes_(postings_cap_bytes) {}
 
     MemoryReporter(const MemoryReporter&) = delete;
     MemoryReporter& operator=(const MemoryReporter&) = delete;
@@ -129,6 +134,33 @@ public:
     }
 
     Reservation make_reservation() { return Reservation(this); }
+
+    // One hard workspace limit shared by spill, merge and the final posting
+    // encoder. These bytes are also included in current_bytes(), exactly once.
+    // Persistent vocabulary and the input posting arena use ordinary reservations.
+    Reservation make_postings_reservation() { return Reservation(this, true); }
+    uint64_t postings_cap_bytes() const { return postings_cap_bytes_; }
+    uint64_t postings_available_bytes() const {
+        const uint64_t used = postings_current_bytes();
+        uint64_t available = used < postings_cap_bytes_ ? postings_cap_bytes_ - used : 0;
+        if (cap_policy_ == CapPolicy::kHardLimit && cap_bytes_ != 0) {
+            const auto total = static_cast<uint64_t>(current_bytes());
+            available = std::min(available, total < cap_bytes_ ? cap_bytes_ - total : 0);
+        }
+        return available;
+    }
+    uint64_t postings_current_bytes() const {
+        return postings_current_.load(std::memory_order_relaxed);
+    }
+    uint64_t postings_peak_bytes() const { return postings_peak_.load(std::memory_order_relaxed); }
+    void record_postings_io(uint64_t read_bytes, uint64_t written_bytes) {
+        postings_read_.fetch_add(read_bytes, std::memory_order_relaxed);
+        postings_written_.fetch_add(written_bytes, std::memory_order_relaxed);
+    }
+    uint64_t postings_read_bytes() const { return postings_read_.load(std::memory_order_relaxed); }
+    uint64_t postings_written_bytes() const {
+        return postings_written_.load(std::memory_order_relaxed);
+    }
 
     // Observe-only legacy path: delta > 0 grows, delta < 0 shrinks/frees. New
     // hard-gated allocations must use Reservation instead.
@@ -163,17 +195,24 @@ public:
     uint64_t cap_bytes() const { return cap_bytes_; }
 
 private:
-    Status try_acquire(uint64_t bytes);
-    void release(uint64_t bytes);
+    Status try_acquire(uint64_t bytes, bool postings = false);
+    void release(uint64_t bytes, bool postings = false);
 
     std::atomic<int64_t> current_ {0};
     ConsumeReleaseFn consume_release_;
     uint64_t cap_bytes_ = 0;
     CapPolicy cap_policy_ = CapPolicy::kHardLimit;
+    const uint64_t postings_cap_bytes_;
+    std::atomic<uint64_t> postings_current_ {0};
+    std::atomic<uint64_t> postings_peak_ {0};
+    std::atomic<uint64_t> postings_read_ {0};
+    std::atomic<uint64_t> postings_written_ {0};
 };
 
 inline MemoryReporter::Reservation::Reservation(Reservation&& other) noexcept
-        : owner_(std::exchange(other.owner_, nullptr)), bytes_(std::exchange(other.bytes_, 0)) {}
+        : owner_(std::exchange(other.owner_, nullptr)),
+          bytes_(std::exchange(other.bytes_, 0)),
+          postings_(other.postings_) {}
 
 inline MemoryReporter::Reservation& MemoryReporter::Reservation::operator=(
         Reservation&& other) noexcept {
@@ -181,6 +220,7 @@ inline MemoryReporter::Reservation& MemoryReporter::Reservation::operator=(
         reset();
         owner_ = std::exchange(other.owner_, nullptr);
         bytes_ = std::exchange(other.bytes_, 0);
+        postings_ = other.postings_;
     }
     return *this;
 }
@@ -192,9 +232,9 @@ inline MemoryReporter::Reservation::~Reservation() {
 inline Status MemoryReporter::Reservation::set_bytes(uint64_t target_bytes) {
     DORIS_CHECK(owner_ != nullptr);
     if (target_bytes > bytes_) {
-        RETURN_IF_ERROR(owner_->try_acquire(target_bytes - bytes_));
+        RETURN_IF_ERROR(owner_->try_acquire(target_bytes - bytes_, postings_));
     } else if (target_bytes < bytes_) {
-        owner_->release(bytes_ - target_bytes);
+        owner_->release(bytes_ - target_bytes, postings_);
     }
     bytes_ = target_bytes;
     return Status::OK();
@@ -205,7 +245,7 @@ inline Status MemoryReporter::Reservation::prepare_replacement(uint64_t target_b
     DORIS_CHECK(owner_ != nullptr);
     DORIS_CHECK(replacement != nullptr);
     DORIS_CHECK(replacement->owner_ == nullptr);
-    Reservation pending(owner_);
+    Reservation pending(owner_, postings_);
     RETURN_IF_ERROR(pending.set_bytes(target_bytes));
     *replacement = std::move(pending);
     return Status::OK();
@@ -213,14 +253,30 @@ inline Status MemoryReporter::Reservation::prepare_replacement(uint64_t target_b
 
 inline void MemoryReporter::Reservation::reset() {
     if (owner_ != nullptr && bytes_ != 0) {
-        owner_->release(bytes_);
+        owner_->release(bytes_, postings_);
         bytes_ = 0;
     }
 }
 
-inline Status MemoryReporter::try_acquire(uint64_t bytes) {
+inline Status MemoryReporter::try_acquire(uint64_t bytes, bool postings) {
     if (bytes == 0) {
         return Status::OK();
+    }
+    uint64_t workspace = 0;
+    if (postings) {
+        workspace = postings_current_.load(std::memory_order_relaxed);
+        while (true) {
+            if (workspace > postings_cap_bytes_ || bytes > postings_cap_bytes_ - workspace) {
+                return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
+                        "SNII posting workspace exceeds limit: request={} current={} cap={} "
+                        "(snii_postings_workspace_bytes)",
+                        bytes, workspace, postings_cap_bytes_);
+            }
+            if (postings_current_.compare_exchange_weak(workspace, workspace + bytes,
+                                                        std::memory_order_relaxed)) {
+                break;
+            }
+        }
     }
     int64_t current = current_.load(std::memory_order_relaxed);
     while (true) {
@@ -231,6 +287,9 @@ inline Status MemoryReporter::try_acquire(uint64_t bytes) {
         const bool exceeds_counter =
                 bytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - current_bytes;
         if (exceeds_cap || exceeds_counter) {
+            if (postings) {
+                postings_current_.fetch_sub(bytes, std::memory_order_relaxed);
+            }
             return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
                     "SNII memory reservation exceeds limit: request={} current={} cap={}", bytes,
                     current_bytes, cap_bytes_);
@@ -241,16 +300,28 @@ inline Status MemoryReporter::try_acquire(uint64_t bytes) {
             if (consume_release_) {
                 consume_release_(static_cast<int64_t>(bytes));
             }
+            if (postings) {
+                uint64_t peak = postings_peak_.load(std::memory_order_relaxed);
+                while (peak < workspace + bytes &&
+                       !postings_peak_.compare_exchange_weak(peak, workspace + bytes,
+                                                             std::memory_order_relaxed)) {
+                }
+            }
             return Status::OK();
         }
     }
 }
 
-inline void MemoryReporter::release(uint64_t bytes) {
+inline void MemoryReporter::release(uint64_t bytes, bool postings) {
     DCHECK_LE(bytes, static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
     const int64_t delta = static_cast<int64_t>(bytes);
     const int64_t previous = current_.fetch_sub(delta, std::memory_order_relaxed);
     DCHECK_GE(previous, delta);
+    if (postings) {
+        [[maybe_unused]] const uint64_t previous_workspace =
+                postings_current_.fetch_sub(bytes, std::memory_order_relaxed);
+        DCHECK_GE(previous_workspace, bytes);
+    }
     if (consume_release_) {
         consume_release_(-delta);
     }

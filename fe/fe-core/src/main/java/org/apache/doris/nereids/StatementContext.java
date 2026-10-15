@@ -40,6 +40,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostWeight;
@@ -65,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
@@ -75,6 +77,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -96,6 +99,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -129,6 +133,10 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Immutable for one statement execution. PREPARE does not initialize this value: each EXECUTE
+    // receives a fresh StatementContext and NereidsPlanner pins the query-option snapshot before
+    // analysis starts.
+    private Integer beExecVersion;
     // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
     private CostWeight costWeight;
     private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
@@ -138,6 +146,8 @@ public class StatementContext implements Closeable {
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
+    private boolean rowBinlogReferenceTsoRequired;
+    private Long rowBinlogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -217,6 +227,19 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // Scan nodes that hold something on this frontend for the backend (a remote Doris scan's Flight
+    // SQL session on the other frontend) and release it in ScanNode.stop(), which the coordinator
+    // of the statement calls when it closes. Not every plan gets a coordinator, and not every
+    // coordinator is closed: a plan probed and discarded (INSERT OVERWRITE), a statement failing
+    // between planning and dispatch (a SQL block rule on the scan, an INSERT whose transaction
+    // cannot begin), a load job created from the plan. close() stops what is still registered here
+    // as the fallback (stop() is idempotent, so a coordinator that already closed costs nothing).
+    // A coordinator that outlives the statement on purpose - an Arrow Flight SQL query kept alive
+    // until DoGet, StmtExecutor.deferForArrowFlight - takes its nodes out first
+    // (handOverScanNodesToDeferredCoordinator). Guarded by its own monitor: registered on the
+    // planning thread, closed on the statement's thread or the forwarded-request finally.
+    private final Set<ScanNode> scanNodesToStopAtClose = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -314,6 +337,10 @@ public class StatementContext implements Closeable {
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
+
+    // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan.
+    private final Map<Pair<Long, Boolean>, MTMVCache> queryLocalMtmvCaches = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -448,6 +475,26 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    /** Pins the backend execution version selected for this statement execution. */
+    public void initializeBeExecVersion(int beExecVersion) {
+        Preconditions.checkState(this.beExecVersion == null || this.beExecVersion == beExecVersion,
+                "BE execution version is already pinned to %s, cannot change it to %s",
+                this.beExecVersion, beExecVersion);
+        this.beExecVersion = beExecVersion;
+    }
+
+    /** Returns whether this context belongs to an execution whose query options have been pinned. */
+    public boolean hasBeExecVersion() {
+        return beExecVersion != null;
+    }
+
+    /** Returns the backend execution version pinned for this statement execution. */
+    public int getBeExecVersion() {
+        Preconditions.checkState(beExecVersion != null,
+                "BE execution version must be initialized at the execution entry point");
+        return beExecVersion;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -760,6 +807,29 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
+    public synchronized void requireRowBinlogReferenceTso() {
+        rowBinlogReferenceTsoRequired = true;
+        getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
+    }
+
+    public synchronized boolean isRowBinlogReferenceTsoRequired() {
+        return rowBinlogReferenceTsoRequired;
+    }
+
+    public synchronized long getOrRegisterRowBinlogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (rowBinlogReferenceTso == null) {
+            rowBinlogReferenceTso = tsoSupplier.get();
+        }
+        return rowBinlogReferenceTso;
+    }
+
+    public synchronized long getRowBinlogReferenceTso() {
+        if (rowBinlogReferenceTso == null) {
+            throw new AnalysisException("Row binlog reference TSO was not initialized");
+        }
+        return rowBinlogReferenceTso;
+    }
+
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
         if (this.disableRules != null) {
             return this.disableRules;
@@ -782,6 +852,17 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Drops the values of this statement's connector scope that only planning reads (see
+     * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
+     * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
+     */
+    private synchronized void endConnectorPlanning() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.endPlanning();
+        }
+    }
+
+    /**
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
@@ -797,6 +878,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        rowBinlogReferenceTsoRequired = false;
+        rowBinlogReferenceTso = null;
     }
 
     /**
@@ -1087,9 +1170,55 @@ public class StatementContext implements Closeable {
                 }
             }
         }
+        // NereidsPlanner.planWithLock runs this once its plan is translated and the scans are finalized, so what
+        // connectors kept only for planning, such as the ranges identical scans share, can go, also when a resource
+        // failed to close.
+        endConnectorPlanning();
         if (throwable != null) {
             Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release resource failed", throwable);
+        }
+    }
+
+    /**
+     * Registers a scan node whose {@link ScanNode#stop()} must have run by the time this statement
+     * ends: the coordinator of the statement runs it when it closes, and {@link #close()} runs it
+     * for a plan that never got a coordinator or whose coordinator nobody closed (see
+     * {@link #scanNodesToStopAtClose}).
+     */
+    public void stopScanNodeAtClose(ScanNode scanNode) {
+        synchronized (scanNodesToStopAtClose) {
+            scanNodesToStopAtClose.add(scanNode);
+        }
+    }
+
+    /**
+     * The coordinator of the statement outlives it on purpose (an Arrow Flight SQL query kept alive
+     * until the client has pulled its result, see {@code StmtExecutor.deferForArrowFlight}) and
+     * takes over these nodes: their {@link ScanNode#stop()} runs when that coordinator closes, not
+     * when this statement ends.
+     */
+    public void handOverScanNodesToDeferredCoordinator(Collection<ScanNode> scanNodes) {
+        synchronized (scanNodesToStopAtClose) {
+            scanNodesToStopAtClose.removeAll(scanNodes);
+        }
+    }
+
+    // The fallback of scanNodesToStopAtClose. Never throws: this runs on the statement's teardown
+    // path, after the statement's outcome is decided, and one node failing to stop must not keep
+    // the next from stopping.
+    private void stopScanNodesLeftBehind() {
+        List<ScanNode> leftBehind;
+        synchronized (scanNodesToStopAtClose) {
+            leftBehind = new ArrayList<>(scanNodesToStopAtClose);
+            scanNodesToStopAtClose.clear();
+        }
+        for (ScanNode scanNode : leftBehind) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.warn("failed to stop scan node {} at the end of the statement", scanNode.getId(), t);
+            }
         }
     }
 
@@ -1107,6 +1236,9 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+        // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
+        // frontend, which must not be waited for under a lock.
+        stopScanNodesLeftBehind();
         // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
         // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
         // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
@@ -1543,6 +1675,14 @@ public class StatementContext implements Closeable {
 
     public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded) {
+        return queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+    }
+
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), cache);
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

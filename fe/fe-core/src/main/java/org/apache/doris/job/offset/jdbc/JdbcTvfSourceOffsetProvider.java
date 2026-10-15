@@ -96,6 +96,11 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         super();
     }
 
+    @Override
+    public String getSourceType() {
+        return CdcStreamTableValuedFunction.NAME;
+    }
+
     /** Initializes provider state from TVF properties; called every schedule tick. */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
@@ -432,8 +437,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     }
 
     /**
-     * Restore chw/bop/ts from the image-persisted JSON. Called by gsonPostProcess on FE startup
-     * before any journal replay; recovers state lost when pre-checkpoint journal is GC'd.
+     * Restore chw/bop/ts from image or job update journal JSON; preserves cumulative snapshot progress.
      */
     @Override
     public void restoreFromPersistInfo(String persistInfo) {
@@ -445,6 +449,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             this.chunkHighWatermarkMap = tmp.getChunkHighWatermarkMap();
             this.binlogOffsetPersist = tmp.getBinlogOffsetPersist();
             this.tableSchemas = tmp.getTableSchemas();
+            if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
+                this.currentOffset = new JdbcOffset(
+                        Collections.singletonList(new BinlogSplit(binlogOffsetPersist)));
+            }
             log.info("Restored TVF offset provider from persist: chw={}, bop={}, ts.len={}",
                     chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size(),
                     binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),

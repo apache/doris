@@ -281,7 +281,7 @@ Status OlapScanner::_prepare_impl() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
+                _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
@@ -475,6 +475,9 @@ Status OlapScanner::_init_tablet_reader_params(
         const bool no_runtime_filters = _total_rf_num == 0;
         const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
         const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+        // Storage TopN compares key columns that TabletReader prepares only for DUP and
+        // merge-on-write tablets, so a MOR table read as DUP cannot use it.
+        const bool storage_topn_supported = storage_no_merge && !read_mor_as_dup;
 
         if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
             for (const auto& conjunct : _conjuncts) {
@@ -486,9 +489,10 @@ Status OlapScanner::_init_tablet_reader_params(
 
         // Segment LIMIT has only two legal states: completely disabled, or enabled after every
         // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
-        const bool can_push_down_segment_limit = _limit > 0 && no_runtime_filters &&
-                                                 _conjuncts.empty() && segment_limit_enabled &&
-                                                 storage_no_merge;
+        // A key TopN also needs storage TopN support, otherwise nothing is pushed.
+        const bool can_push_down_segment_limit =
+                _limit > 0 && no_runtime_filters && _conjuncts.empty() && segment_limit_enabled &&
+                storage_no_merge && (!has_key_topn || storage_topn_supported);
         if (can_push_down_segment_limit) {
             if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;
@@ -877,6 +881,9 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_downgrade_count);
     COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
                    stats.inverted_index_conjuncts_short_circuited);
+    COUNTER_UPDATE(local_state->_gram_index_filter_counter, stats.rows_gram_index_filtered);
+    COUNTER_UPDATE(local_state->_gram_index_candidate_counter, stats.gram_index_candidate_rows);
+    COUNTER_UPDATE(local_state->_gram_index_gate_gave_up_counter, stats.gram_index_gate_gave_up);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
@@ -920,6 +927,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_lookup_counter,
+                   stats.condition_cache_lookup_count);
     COUNTER_UPDATE(local_state->_condition_cache_hit_counter, stats.condition_cache_hit_seg_nums);
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);

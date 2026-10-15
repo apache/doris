@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
@@ -90,6 +91,7 @@ public class CloudAuthTest {
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(new AuthenticationIntegrationMgr());
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         mockedCtxStatic.when(ConnectContext::get).thenReturn(ctx);
         Mockito.when(ctx.getQualifiedUser()).thenReturn("root");
@@ -371,9 +373,9 @@ public class CloudAuthTest {
         ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
         ShowResultSet showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assertions.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(11));
+        Assertions.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(12));
         // compute group field
-        Assertions.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(15));
+        Assertions.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(16));
 
         // -------------------- case 2 -------------------------
         // grant usage_priv on cluster 'cg1' to 'testUser'@'%'
@@ -390,10 +392,10 @@ public class CloudAuthTest {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assertions.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(11));
+                showResultSet.getResultRows().get(0).get(12));
         // compute group field
         Assertions.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(15));
+                showResultSet.getResultRows().get(0).get(16));
 
         // revoke cg1 from test user
         String revokeCgSql1 = "revoke usage_priv on cluster 'cg1' from 'testUser'@'%'";
@@ -407,10 +409,10 @@ public class CloudAuthTest {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assertions.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(11));
+                showResultSet.getResultRows().get(0).get(12));
         // compute group field
         Assertions.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(15));
+                showResultSet.getResultRows().get(0).get(16));
 
         // grant cg2 to user
         String grantVcgUser3 = "grant usage_priv on cluster 'cg2' to 'testUser'@'%'";
@@ -438,10 +440,10 @@ public class CloudAuthTest {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assertions.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(11));
+                showResultSet.getResultRows().get(0).get(12));
         // compute group field
         Assertions.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(15));
+                showResultSet.getResultRows().get(0).get(16));
         // revoke cg2 from user
 
         String revokeCgSql3 = "revoke usage_priv on cluster 'cg2' from 'testUser'";
@@ -465,9 +467,9 @@ public class CloudAuthTest {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assertions.assertEquals("\\N", showResultSet.getResultRows().get(0).get(11));
+        Assertions.assertEquals("\\N", showResultSet.getResultRows().get(0).get(12));
         // compute group field
-        Assertions.assertEquals("\\N", showResultSet.getResultRows().get(0).get(15));
+        Assertions.assertEquals("\\N", showResultSet.getResultRows().get(0).get(16));
 
         // drop user
         String dropUserSql5 = "DROP USER testUser";

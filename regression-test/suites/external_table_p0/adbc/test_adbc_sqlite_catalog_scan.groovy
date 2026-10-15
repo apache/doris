@@ -103,6 +103,8 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         INSERT INTO t1 VALUES (4, 'O''Brien', 4.5);
         CREATE TABLE t2 (a INTEGER);
         INSERT INTO t2 VALUES (10);
+        CREATE TABLE t_blob (id INTEGER, payload BLOB);
+        INSERT INTO t_blob VALUES (1, x'00ff');
         CREATE VIEW v1 AS SELECT * FROM t1;
     """
 
@@ -136,8 +138,14 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         // ---- metadata ----
 
         def databases = sql """SHOW DATABASES FROM ${catalogName}"""
-        assertTrue(databases.any { it[0] == dbName },
+        def reportedNames = databases.collect { it[0].toString() }
+        assertTrue(reportedNames.contains(dbName),
                 "SHOW DATABASES did not report the SQLite namespace as 'main': ${databases}")
+        // ...and no second one was invented from the level SQLite does not have. It reports the absent
+        // db_schema as the EMPTY STRING rather than as null, so a reader that treats only null as absent
+        // produces a database whose name is "". The membership check above would not notice it; this does.
+        assertFalse(reportedNames.contains(""),
+                "the empty schema name was turned into a database: ${reportedNames}")
 
         // Views are excluded: the connector asks the source for base tables only, so v1 must not be
         // here even though it exists in the fixture.
@@ -148,6 +156,14 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         assertFalse(tableNames.contains("v1"), "the view v1 was surfaced as a table: ${tableNames}")
 
         qt_desc_t1 """DESC ${catalogName}.${dbName}.t1"""
+
+        // A source BLOB column: the driver reports it as Arrow binary, and Doris has no binary column type
+        // here, so it maps to the string type -- the same one a TEXT column maps to, which is why the
+        // assertion is on what DESC renders rather than on a name that would merely repeat the mapping.
+        def blobColumns = sql("""DESC ${catalogName}.${dbName}.t_blob""")
+                .collectEntries { [(it[0].toString()): it[1].toString()] }
+        assertEquals("text", blobColumns["payload"],
+                "a BLOB column was not mapped to the string type: ${blobColumns}")
 
         // ---- reading ----
 
@@ -323,6 +339,15 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         // cannot re-derive on its own: it caches the schema too, and clears its copy either way.
         sqliteExec("ALTER TABLE t_created_later ADD COLUMN extra TEXT;"
                 + " UPDATE t_created_later SET extra = 'x';")
+
+        // The schema was read once, above. Until a REFRESH arrives the connector keeps serving that copy,
+        // and this is the half that gives the assertion below its meaning: a connector that re-read on every
+        // statement would satisfy that one while remembering nothing.
+        def columnsBeforeRefresh = sql("""DESC ${catalogName}.${dbName}.t_created_later""")
+                .collect { it[0] } as Set
+        assertFalse(columnsBeforeRefresh.contains("extra"),
+                "the source's new column was visible before any REFRESH: ${columnsBeforeRefresh}")
+
         sql """REFRESH CATALOG ${catalogName}"""
         def refreshedColumns = sql("""DESC ${catalogName}.${dbName}.t_created_later""")
                 .collect { it[0] } as Set

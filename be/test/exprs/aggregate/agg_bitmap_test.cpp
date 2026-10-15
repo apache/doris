@@ -16,6 +16,7 @@
 // under the License.
 
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,11 +25,13 @@
 #include "core/column/column_complex.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
+#include "exprs/aggregate/agg_function_test.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
@@ -297,6 +300,96 @@ TEST(AggBitmapTest, bitmap_union_int_test) {
     validate_bitmap_union_int_test<TYPE_SMALLINT>();
     validate_bitmap_union_int_test<TYPE_INT>();
     validate_bitmap_union_int_test<TYPE_BIGINT>();
+}
+
+class BitmapIntegerAggregateTest : public AggregateFunctiontest {
+protected:
+    template <PrimitiveType T>
+    void check_input(const std::vector<typename PrimitiveTypeTraits<T>::CppType>& values,
+                     const BitmapValue& expected, bool nullable) {
+        DataTypePtr type = std::make_shared<typename PrimitiveTypeTraits<T>::DataType>();
+        if (nullable) {
+            type = make_nullable(type);
+        }
+        auto input = type->create_column();
+        for (auto value : values) {
+            input->insert(Field::create_field<T>(value));
+        }
+        if (nullable) {
+            input->insert_default();
+        }
+        Block block({{std::move(input), type, "input"}});
+
+        // The shared helper covers single-place batches, streaming aggregation,
+        // reset, serialization and all column-based merge paths.
+        create_agg("bitmap_agg", false, {type}, std::make_shared<DataTypeBitMap>());
+        execute(block, ColumnHelper::create_column_with_name<DataTypeBitMap>({expected}));
+        create_agg("bitmap_union_int", false, {type}, std::make_shared<DataTypeInt64>());
+        execute(block, ColumnHelper::create_column_with_name<DataTypeInt64>(
+                               {static_cast<Int64>(expected.cardinality())}));
+    }
+
+    template <PrimitiveType T>
+    void check_negative_inputs() {
+        using CppType = typename PrimitiveTypeTraits<T>::CppType;
+        constexpr auto min = std::numeric_limits<CppType>::min();
+        constexpr auto max = std::numeric_limits<CppType>::max();
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(nullable);
+            check_input<T>({-1}, BitmapValue(), nullable);
+            check_input<T>({min, -2, -1, -1}, BitmapValue(), nullable);
+            BitmapValue expected(std::vector<uint64_t> {0, 1, static_cast<uint64_t>(max)});
+            check_input<T>({min, -2, -1, 0, 1, 1, max}, expected, nullable);
+            check_input<T>({0, 1, 1, max}, expected, nullable);
+
+            // Cross the small-set threshold and exercise repeated negative values.
+            std::vector<CppType> dense_values;
+            BitmapValue dense_expected;
+            for (int i = 0; i < 100; ++i) {
+                dense_values.push_back(-1);
+                dense_values.push_back(i);
+                dense_expected.add(i);
+            }
+            check_input<T>(dense_values, dense_expected, nullable);
+        }
+        // One NULL and no non-NULL values.
+        check_input<T>({}, BitmapValue(), true);
+    }
+};
+
+TEST_F(BitmapIntegerAggregateTest, IgnoreNegativeTinyInt) {
+    check_negative_inputs<TYPE_TINYINT>();
+}
+
+TEST_F(BitmapIntegerAggregateTest, IgnoreNegativeSmallInt) {
+    check_negative_inputs<TYPE_SMALLINT>();
+}
+
+TEST_F(BitmapIntegerAggregateTest, IgnoreNegativeInt) {
+    check_negative_inputs<TYPE_INT>();
+}
+
+TEST_F(BitmapIntegerAggregateTest, IgnoreNegativeBigInt) {
+    check_negative_inputs<TYPE_BIGINT>();
+}
+
+TEST_F(BitmapIntegerAggregateTest, PreserveUnsignedBitmapValues) {
+    const BitmapValue bitmap(std::vector<uint64_t> {0, std::numeric_limits<uint64_t>::max()});
+    for (bool nullable : {false, true}) {
+        DataTypePtr type = std::make_shared<DataTypeBitMap>();
+        if (nullable) {
+            type = make_nullable(type);
+        }
+        auto input = type->create_column();
+        input->insert(Field::create_field<TYPE_BITMAP>(bitmap));
+        input->insert(Field::create_field<TYPE_BITMAP>(bitmap));
+        if (nullable) {
+            input->insert_default();
+        }
+        create_agg("bitmap_union_count", false, {type}, std::make_shared<DataTypeInt64>());
+        execute(Block({{std::move(input), type, "input"}}),
+                ColumnHelper::create_column_with_name<DataTypeInt64>({2}));
+    }
 }
 
 } // namespace doris

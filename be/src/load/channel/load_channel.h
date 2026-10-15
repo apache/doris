@@ -35,11 +35,13 @@
 
 namespace doris {
 
+class EosCompletion;
 class PTabletWriterOpenRequest;
 class PTabletWriterAddBlockRequest;
 class PTabletWriterAddBlockResult;
 class OpenPartitionRequest;
 class BaseTabletsChannel;
+class AtomicStatus;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -52,14 +54,21 @@ public:
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
-    // this batch must belong to a index in one transaction
+    // This batch must belong to one index in one transaction. For hang_wait EOS,
+    // return the sender-arrival barrier in eos_completion. Final flush/commit
+    // stays synchronous on the last sender. The caller must register its RPC
+    // completion only after all synchronous request/response access has ended.
     Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+                     PTabletWriterAddBlockResult* response,
+                     std::shared_ptr<EosCompletion>* eos_completion);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
-    Status cancel();
+    // Publish cancellation without taking channel/writer locks. In-flight
+    // requests retain ownership and release writers after their work finishes.
+    Status cancel(const Status& reason = Status::Cancelled("load channel cancelled"));
+    Status cancel_status() const;
 
     time_t last_updated_time() const { return _last_updated_time.load(); }
 
@@ -69,7 +78,7 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
-    bool is_cancelled() const { return _cancelled.load(); }
+    bool is_cancelled() const;
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
 
@@ -112,7 +121,7 @@ private:
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
-    std::atomic<bool> _cancelled {false};
+    const std::shared_ptr<AtomicStatus> _cancel_status;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 

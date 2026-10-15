@@ -749,7 +749,8 @@ private:
 
     template <typename TemporalValue>
     static int compare_timestamp_ns_with_temporal(const TimeStampNsValue& timestamp,
-                                                  const TemporalValue& temporal) {
+                                                  const TemporalValue& temporal,
+                                                  uint32_t temporal_nanosecond) {
         const auto timestamp_datetime = timestamp.to_datetime();
         const auto compare_part = [](auto left, auto right) {
             if (left < right) {
@@ -760,7 +761,8 @@ private:
             }
             return 0;
         };
-        int comparison = compare_part(timestamp_datetime.year(), temporal.year());
+        int comparison = compare_part(static_cast<int64_t>(timestamp_datetime.year()),
+                                      static_cast<int64_t>(temporal.year()));
         if (comparison == 0) {
             comparison = compare_part(timestamp_datetime.month(), temporal.month());
         }
@@ -777,7 +779,7 @@ private:
             comparison = compare_part(timestamp_datetime.second(), temporal.second());
         }
         if (comparison == 0) {
-            comparison = compare_part(timestamp.nanosecond(), temporal.microsecond() * 1000);
+            comparison = compare_part(timestamp.nanosecond(), temporal_nanosecond);
         }
         return comparison;
     }
@@ -786,7 +788,6 @@ private:
     Status execute_timestamp_ns_temporal(FunctionContext* context, Block& block, uint32_t result,
                                          const ColumnPtr& left_column,
                                          const ColumnPtr& right_column,
-                                         const DataTypePtr& temporal_type,
                                          size_t input_rows_count) const {
         static_assert(TemporalPType == TYPE_DATE || TemporalPType == TYPE_DATEV2 ||
                       TemporalPType == TYPE_DATETIME || TemporalPType == TYPE_DATETIMEV2 ||
@@ -809,18 +810,19 @@ private:
                     reinterpret_cast<const TemporalValue&>(temporals[temporal_is_const ? 0 : row]);
             int comparison;
             if constexpr (TemporalPType == TYPE_TIMESTAMPTZ) {
-                DateV2Value<DateTimeV2ValueType> local_datetime;
-                const auto scale = temporal_type->get_scale();
-                if (!temporal.to_datetime(local_datetime, context->state()->timezone_obj(), scale,
-                                          scale)) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "can not compare timestamptz {} with TIMESTAMP_NS in timezone {}",
-                            temporal.to_string(context->state()->timezone_obj(), scale),
-                            context->state()->timezone());
-                }
-                comparison = compare_timestamp_ns_with_temporal(timestamp, local_datetime);
+                const auto utc_datetime = temporal.utc_dt();
+                const cctz::civil_second utc_civil(utc_datetime.year(), utc_datetime.month(),
+                                                   utc_datetime.day(), utc_datetime.hour(),
+                                                   utc_datetime.minute(), utc_datetime.second());
+                const auto utc_time = cctz::convert(utc_civil, cctz::utc_time_zone());
+                const auto local_civil = cctz::convert(utc_time, context->state()->timezone_obj());
+                // Keep the signed civil year across date boundaries. NULL payloads are
+                // normalized without validation; the nullable framework masks their results.
+                comparison = compare_timestamp_ns_with_temporal(timestamp, local_civil,
+                                                                utc_datetime.microsecond() * 1000);
             } else {
-                comparison = compare_timestamp_ns_with_temporal(timestamp, temporal);
+                comparison = compare_timestamp_ns_with_temporal(timestamp, temporal,
+                                                                temporal.microsecond() * 1000);
             }
             if constexpr (!timestamp_ns_on_left) {
                 comparison = -comparison;
@@ -968,17 +970,16 @@ public:
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
 
-#define EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE)                                             \
-    if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&                                    \
-        right_type->get_primitive_type() == TYPE) {                                                \
-        return execute_timestamp_ns_temporal<TYPE, true>(context, block, result, col_left_ptr,     \
-                                                         col_right_ptr, right_type,                \
-                                                         input_rows_count);                        \
-    }                                                                                              \
-    if (left_type->get_primitive_type() == TYPE &&                                                 \
-        right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {                                   \
-        return execute_timestamp_ns_temporal<TYPE, false>(                                         \
-                context, block, result, col_left_ptr, col_right_ptr, left_type, input_rows_count); \
+#define EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE)                                          \
+    if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&                                 \
+        right_type->get_primitive_type() == TYPE) {                                             \
+        return execute_timestamp_ns_temporal<TYPE, true>(context, block, result, col_left_ptr,  \
+                                                         col_right_ptr, input_rows_count);      \
+    }                                                                                           \
+    if (left_type->get_primitive_type() == TYPE &&                                              \
+        right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {                                \
+        return execute_timestamp_ns_temporal<TYPE, false>(context, block, result, col_left_ptr, \
+                                                          col_right_ptr, input_rows_count);     \
     }
 
         EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATE)
@@ -1056,6 +1057,8 @@ public:
             return execute_num_type<TYPE_IPV4>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_IPV6:
             return execute_num_type<TYPE_IPV6>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_UUID:
+            return execute_num_type<TYPE_UUID>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_FLOAT:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:

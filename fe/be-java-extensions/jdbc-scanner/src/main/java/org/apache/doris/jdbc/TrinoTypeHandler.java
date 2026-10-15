@@ -20,14 +20,20 @@ package org.apache.doris.jdbc;
 import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
+import com.google.common.collect.Lists;
+
 import java.math.BigDecimal;
 import java.sql.Array;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -43,7 +49,17 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
+        if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+            // The remote projection and driver preserve the instant; JNI receives UTC fields.
+            ZonedDateTime value = rs.getObject(columnIndex, ZonedDateTime.class);
+            return value == null ? null : checkedUtcTimestamp(value.toInstant());
+        }
         switch (type.getType()) {
+            case UUID: {
+                // Driver UUID objects and textual GUIDs share the canonical JDBC string form.
+                String value = rs.getString(columnIndex);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
             case TINYINT:
@@ -107,7 +123,93 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
         }
     }
 
-    private Object convertArray(List<?> input, ColumnType childType) {
-        return input;
+    protected LocalDateTime convertTimestampTzArrayElement(Object element) {
+        return checkedUtcTimestamp(((Timestamp) element).toInstant());
     }
+
+    private List<?> convertArray(List<?> array, ColumnType type) {
+        if (array == null) {
+            return null;
+        }
+        if (array.isEmpty()) {
+            return Collections.emptyList();
+        }
+        switch (type.getType()) {
+            case UUID: {
+                List<java.util.UUID> result = Lists.newArrayList();
+                for (Object element : array) {
+                    result.add(element == null ? null : java.util.UUID.fromString(element.toString()));
+                }
+                return result;
+            }
+            case DATE:
+            case DATEV2: {
+                List<LocalDate> result = Lists.newArrayList();
+                for (Object element : array) {
+                    result.add(element != null ? ((Date) element).toLocalDate() : null);
+                }
+                return result;
+            }
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = Lists.newArrayList();
+                for (Object element : array) {
+                    result.add(element == null ? null
+                            : convertTimestampTzArrayElement(element));
+                }
+                return result;
+            }
+            case DATETIME:
+            case DATETIMEV2: {
+                List<LocalDateTime> result = Lists.newArrayList();
+                for (Object element : array) {
+                    result.add(element != null ? ((Timestamp) element).toLocalDateTime() : null);
+                }
+                return result;
+            }
+            case ARRAY: {
+                List<List<?>> resultArray = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        resultArray.add(null);
+                    } else {
+                        resultArray.add(
+                                Lists.newArrayList(convertArray((List<?>) element, type.getChildTypes().get(0))));
+                    }
+                }
+                return resultArray;
+            }
+            default:
+                return array;
+        }
+    }
+
+    private static final DateTimeFormatter TIMESTAMP_TZ_WRITE_FORMATTER =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // Trino/Presto require a string for typed zoned binds; Timestamp drops the zone and sub-millisecond digits.
+        statement.setObject(parameterIndex, value.format(TIMESTAMP_TZ_WRITE_FORMATTER) + " UTC",
+                Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
+    @Override
+    public void setTimestampTzNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        // These drivers reject TIMESTAMP_WITH_TIMEZONE in setNull; SQL NULL is coerced by the target column.
+        statement.setNull(parameterIndex, Types.NULL);
+    }
+
+    @Override
+    public void setUuid(java.sql.PreparedStatement statement, int parameterIndex, java.util.UUID value)
+            throws SQLException {
+        // These drivers accept canonical text rather than a java.util.UUID object.
+        statement.setString(parameterIndex, value.toString());
+    }
+
+    @Override
+    public void setUuidNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, java.sql.Types.VARCHAR);
+    }
+
 }

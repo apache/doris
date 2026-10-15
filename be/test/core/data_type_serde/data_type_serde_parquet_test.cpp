@@ -33,7 +33,9 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 
@@ -1108,5 +1110,97 @@ TEST(DataTypeSerDeParquetTest, NonNullableDictionaryConversionFailureRemainsAnEr
     EXPECT_EQ(column->size(), 0);
 }
 
+TEST(DataTypeSerDeParquetTest, UuidPlainAndDictionaryPreserveBigEndianBits) {
+    const std::vector<uint8_t> bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                      0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    DataTypeUUID type;
+    auto serde = type.get_serde();
+    ParquetDecodeContext context;
+    context.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY;
+    context.type_length = 16;
+    context.logical_uuid = true;
+    for (bool dictionary : {false, true}) {
+        TestParquetDecodeSource source;
+        source.set_fixed_bytes(bytes, 16);
+        source.set_dictionary(bytes, 16, {0, 0});
+        context.encoding =
+                dictionary ? ParquetValueEncoding::DICTIONARY : ParquetValueEncoding::PLAIN;
+        ParquetMaterializationState state;
+        auto column = type.create_column();
+        ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+        EXPECT_EQ(type.to_string(*column, 0), "00112233-4455-6677-8899-aabbccddeeff");
+        if (dictionary) {
+            ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+            EXPECT_EQ(source.dictionary_decode_calls(), 1);
+            EXPECT_EQ(type.to_string(*column, 1), type.to_string(*column, 0));
+            source.set_dictionary(std::vector<uint8_t>(16, 0xff), 16, {0});
+            ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+            EXPECT_EQ(source.dictionary_decode_calls(), 2);
+            EXPECT_EQ(type.to_string(*column, 2), "ffffffff-ffff-ffff-ffff-ffffffffffff");
+        }
+    }
+    TestParquetDecodeSource bad;
+    bad.set_fixed_bytes(std::vector<uint8_t>(15), 15);
+    ParquetMaterializationState state;
+    auto column = type.create_column();
+    context.encoding = ParquetValueEncoding::PLAIN;
+    EXPECT_FALSE(serde->read_column_from_parquet(*column, bad, context, 1, state).ok());
+    EXPECT_EQ(column->size(), 0);
+    context.type_length = 15;
+    EXPECT_FALSE(serde->read_column_from_parquet(*column, bad, context, 1, state).ok());
+}
+
 } // namespace
+TEST(DataTypeSerDeParquetTest, TimestampNsPreservesSignedNanosecondsAndDictionary) {
+    DataTypeTimeStampNs type;
+    auto serde = type.get_serde();
+    ParquetDecodeContext context;
+    context.physical_type = ParquetPhysicalType::INT64;
+    context.time_unit = ParquetTimeUnit::NANOS;
+    const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1, 123456789,
+                                         std::numeric_limits<int64_t>::max()};
+    for (bool dictionary : {false, true}) {
+        TestParquetDecodeSource source;
+        if (dictionary) {
+            source.set_fixed_dictionary<int64_t>(values, {0, 1, 2, 3, 4, 5});
+            context.encoding = ParquetValueEncoding::DICTIONARY;
+        } else {
+            source.set_fixed_values<int64_t>(values);
+        }
+        auto column = type.create_column();
+        ParquetMaterializationState state;
+        ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, values.size(), state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnTimeStampNs&>(*column).get_data();
+        ASSERT_EQ(data.size(), values.size());
+        for (size_t i = 0; i < values.size(); ++i) {
+            EXPECT_EQ(data[i].epoch_nanos(), values[i]);
+        }
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, TimestampNsReadsInt96AndRejectsOverflow) {
+    DataTypeTimeStampNs type;
+    auto serde = type.get_serde();
+    ParquetDecodeContext context;
+    context.physical_type = ParquetPhysicalType::INT96;
+    TestParquetDecodeSource source;
+    source.set_fixed_values<TestParquetInt96Timestamp>(
+            {{.nanos_of_day = NANOS_PER_DAY - 1, .julian_day = JULIAN_UNIX_EPOCH - 1},
+             {.nanos_of_day = 1, .julian_day = JULIAN_UNIX_EPOCH}});
+    auto column = type.create_column();
+    ParquetMaterializationState state;
+    ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 2, state).ok());
+    const auto& data = assert_cast<const ColumnTimeStampNs&>(*column).get_data();
+    EXPECT_EQ(data[0].epoch_nanos(), -1);
+    EXPECT_EQ(data[1].epoch_nanos(), 1);
+
+    TestParquetDecodeSource overflow;
+    overflow.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+    context.physical_type = ParquetPhysicalType::INT64;
+    context.time_unit = ParquetTimeUnit::MICROS;
+    EXPECT_FALSE(serde->read_column_from_parquet(*column, overflow, context, 1, state).ok());
+    EXPECT_EQ(column->size(), 2);
+}
+
 } // namespace doris

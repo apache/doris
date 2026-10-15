@@ -210,7 +210,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
                                                           _row_sources_buffer, _context_stats);
     }
     // init collect iterator
-    StorageReadOptions opts;
+    StorageReadOptions opts(_stats);
     opts.record_rowids = read_params.record_rowids;
     opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
@@ -270,13 +270,17 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
 Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
-    StorageReadOptions opts;
+    StorageReadOptions opts(_stats);
     if (read_params.batch_size > 0) {
         _reader_context.batch_size = cast_set<int>(read_params.batch_size);
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
     RETURN_IF_ERROR(TabletReader::init(read_params));
+
+    RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(*_tablet_schema,
+                                                          /*merge_by_sequence_mapping=*/false,
+                                                          /*map_row_binlog_columns=*/false));
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {

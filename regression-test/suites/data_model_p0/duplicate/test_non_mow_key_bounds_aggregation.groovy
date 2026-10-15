@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.util.Http
-
 // Verifies that when `enable_aggregate_non_mow_key_bounds` is on, non-MOW
 // rowsets collapse per-segment key bounds into a single [min, max] entry
 // while MOW rowsets keep per-segment bounds regardless of the config.
@@ -26,25 +24,10 @@ suite("test_non_mow_key_bounds_aggregation", "nonConcurrent") {
     def keyNormalMarker = new String(new Byte[]{2})
 
     def fetchRowsetMetaAtVersion = { String table, int version ->
-        def metaUrl = sql_return_maparray("show tablets from ${table};").get(0).MetaUrl
-        def jsonMeta = Http.GET(metaUrl, true, false)
-        for (def meta : jsonMeta.rs_metas) {
-            if (meta.end_version as int == version) {
-                return meta
-            }
-        }
-        if (isCloudMode()) {
-            for (int i = 0; i < 60; i++) {
-                Thread.sleep(1000)
-                jsonMeta = Http.GET(metaUrl, true, false)
-                for (def meta : jsonMeta.rs_metas) {
-                    if (meta.end_version as int == version) {
-                        return meta
-                    }
-                }
-            }
-        }
-        return null
+        def tablet = sql_return_maparray("show tablets from ${table};").get(0)
+        // A fixed wait cannot force CloudTablet cache advancement. Explicitly request a sync on
+        // the serving BE before fetching the exact rowset metadata from BE/MS.
+        return syncAndWaitCloudRowsetMeta(tablet, version)
     }
 
     def dupTable = "test_non_mow_key_bounds_aggregation_dup"

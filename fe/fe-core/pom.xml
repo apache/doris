@@ -34,6 +34,8 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
+        <!-- Set by run-fe-ut.sh; direct Maven invocations keep the JVM defaults. -->
+        <fe.ut.jvm.args></fe.ut.jvm.args>
 
         <!--
           The LINEAGE plugin API version, declared exactly once. Filtered into this module's
@@ -753,6 +755,10 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>
             <exclusions>
                 <exclusion>
@@ -1034,7 +1040,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx1024m --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
+                        -Xmx1024m ${fe.ut.jvm.args} --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

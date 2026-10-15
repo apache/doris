@@ -626,7 +626,7 @@ TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
     EXPECT_EQ(rowset_meta.num_segments(), 3);
     EXPECT_EQ(rowset_meta.segment_id(0), 0);
     EXPECT_EQ(rowset_meta.segment_id(2), 2);
-    EXPECT_EQ(rowset_meta.position_of(2), 2);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(2)), 2);
 
     // Non-contiguous segment_ids: position <-> real id mapping.
     rowset_meta.set_segment_ids({0, 2, 5});
@@ -635,9 +635,29 @@ TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
     EXPECT_EQ(rowset_meta.segment_id(0), 0);
     EXPECT_EQ(rowset_meta.segment_id(1), 2);
     EXPECT_EQ(rowset_meta.segment_id(2), 5);
-    EXPECT_EQ(rowset_meta.position_of(0), 0);
-    EXPECT_EQ(rowset_meta.position_of(2), 1);
-    EXPECT_EQ(rowset_meta.position_of(5), 2);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(0)), 0);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(2)), 1);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(5)), 2);
+}
+
+TEST_F(RowsetMetaTest, TestPositionOfMissingSegment) {
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    rowset_meta.set_num_segments(0);
+    EXPECT_TRUE(TEST_RESULT_ERROR(rowset_meta.position_of(0)).is<ErrorCode::NOT_FOUND>());
+    rowset_meta.set_num_segments(3);
+    EXPECT_TRUE(TEST_RESULT_ERROR(rowset_meta.position_of(3)).is<ErrorCode::NOT_FOUND>());
+
+    rowset_meta.set_segment_ids({2, 6});
+    for (int64_t seg_id : {0, 3, 7}) {
+        auto status = TEST_RESULT_ERROR(rowset_meta.position_of(seg_id));
+        EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+        EXPECT_NE(status.to_string().find("segment " + std::to_string(seg_id)), std::string::npos);
+        EXPECT_NE(status.to_string().find(rowset_meta.rowset_id().to_string()), std::string::npos);
+        EXPECT_NE(status.to_string().find("tablet " + std::to_string(rowset_meta.tablet_id())),
+                  std::string::npos);
+    }
 }
 
 TEST_F(RowsetMetaTest, TestSegmentIdsMustBeStrictlyIncreasing) {

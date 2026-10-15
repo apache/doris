@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -27,8 +28,10 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * RenameColumnOp
@@ -95,6 +98,21 @@ public class RenameColumnOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return true;
+    }
+
+    @Override
+    public Set<String> queryJudgedColumnNames() {
+        // Both names: the column the query used to reach under the old one, and the name the new one takes
+        // over, which a query that reaches that name from anywhere else can be bound to from now on.
+        return Sets.newHashSet(getColName(), newColName);
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // The name the query spells is what a rename takes away, so a table that no longer has it is one
+        // the change has reached -- the question a drop asks as well. A path into a column is the case this
+        // cannot answer for, as it is for a drop.
+        return !columnPath.isNested() && table.getColumn(getColName()) == null;
     }
 
     @Override

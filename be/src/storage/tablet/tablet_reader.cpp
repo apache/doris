@@ -159,7 +159,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.reader_type = read_params.reader_type;
     _reader_context.read_row_binlog = read_params.read_row_binlog;
     _reader_context.version = read_params.version;
-    _reader_context.tablet_schema = _tablet_schema;
+    _reader_context.variant_compaction_paths = read_params.variant_compaction_paths;
     _reader_context.need_ordered_result = need_ordered_result || read_params.force_key_ordered_read;
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
@@ -191,7 +191,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.extra_columns = read_params.extra_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
-    _reader_context.ttl_seconds = _tablet->ttl_seconds();
+    _reader_context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     _reader_context.score_runtime = read_params.score_runtime;
     _reader_context.collection_statistics = read_params.collection_statistics;
 
@@ -377,6 +377,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
                     "_orderby_key_columns.size()={}",
                     read_params.read_orderby_key_num_prefix_columns, _orderby_key_columns.size());
         }
+    }
+
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
     }
 
     return Status::OK();

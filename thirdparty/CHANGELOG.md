@@ -2,6 +2,12 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260921
+
+- Added: google-cloud-cpp 2.45.0 for OAuth2 authentication. Build static auth/common
+  REST components only, with the Google Cloud Storage SDK, examples, tests, and mocks
+  excluded.
+
 ## 20260911
 
 - Modified: libunwind 1.6.2 -> 1.8.3. 1.6.2 hard-codes a 4 KiB page size in the

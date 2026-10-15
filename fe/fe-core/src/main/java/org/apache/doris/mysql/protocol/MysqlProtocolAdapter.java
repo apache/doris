@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.protocol;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -33,9 +34,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectProcessor;
-import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -170,10 +169,15 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * The master encodes the response of a forwarded statement for this connection's client, so
      * it needs the client's negotiated capabilities, and for a forwarded COM_STMT_EXECUTE the
      * execute packet and whether it asked for a cursor. {@link #restoreFromForwardRequest} is the
-     * master's side.
+     * master's side. HTTP and internal contexts have no client protocol state to forward.
      */
     @Override
     public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+        // HTTP and internal contexts have no negotiated capability. A dummy channel with an
+        // explicitly supplied capability still carries that state when forwarding.
+        if (channel instanceof DummyMysqlChannel && capability == null) {
+            return;
+        }
         if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
             if (prepareExecuteBuffer != null) {
                 request.setPrepareExecuteBuffer(prepareExecuteBuffer);
@@ -189,7 +193,10 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * client it is answering, as {@link #fillForwardRequest} put them in the request. A request
      * from an old frontend carries neither the capability flags nor the cursor flag; it gets the
      * default capabilities without CLIENT_DEPRECATE_EOF, plus that flag when set separately, and
-     * its ordinary prepared statements are not rejected.
+     * its ordinary prepared statements are not rejected. The defaults carry the multi-statement
+     * flags, which an old frontend did not advertise; that is of no consequence here, because the
+     * master answers one forwarded statement at a time and the channel's multi-statement flag is
+     * set only by the handshake on the frontend the client is connected to.
      */
     public void restoreFromForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
         int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
@@ -216,8 +223,8 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
-    public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
-        return scheduler.getConnectPoolMgr();
+    public void releaseSession(ConnectContext ctx) {
+        // Nothing is held for a MySQL session beyond its channel, which closeConnection closes.
     }
 
     /**

@@ -17,20 +17,28 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.flight.ActionType;
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.CloseSessionResult;
+import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightProducer.CallContext;
@@ -66,6 +74,87 @@ import java.util.stream.Collectors;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+
+    @Test
+    public void testWindowNotReadyHasRetryableFlightStatusAndStableBusinessCode() {
+        QueryState state = new QueryState();
+        IncrWindowNotReadyException error = new IncrWindowNotReadyException(2000, 100, 1000);
+        state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+        FlightRuntimeException result = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+        Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, result.status().code());
+        Assertions.assertEquals(Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()),
+                result.status().metadata().get("doris-error-code"));
+        Assertions.assertTrue(result.status().description().contains("requestedEndTimestampMs=2000"));
+        Assertions.assertTrue(result.status().description().contains("retryAfterMs=1000"));
+        state.setError(ErrorCode.ERR_UNKNOWN_ERROR, "other failure");
+        Assertions.assertEquals(FlightStatusCode.INTERNAL,
+                DorisFlightSqlProducer.queryFailure(state, "other failure", error).status().code());
+    }
+
+    @Test
+    public void testGetFlightInfoPreservesBothWindowErrors() throws Exception {
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            QueryState state = new QueryState();
+            IncrWindowNotReadyException error = new IncrWindowNotReadyException(code, "test reason",
+                    2000, 3000, 100, 1000, 5000);
+            state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+            FlightRuntimeException failure = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+            Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, failure.status().code());
+            Assertions.assertEquals(Integer.toString(code.getCode()), failure.status().metadata().get("doris-error-code"));
+            Assertions.assertEquals(code.name(), failure.status().metadata().get("doris-error-name"));
+            Assertions.assertTrue(failure.status().description().contains("currentTSO=3000"));
+            Assertions.assertTrue(failure.status().description().contains("committedTSO=100"));
+            Assertions.assertTrue(failure.status().description().contains("timeoutMs=5000"));
+            Assertions.assertSame(failure, getFlightInfoFailure(failure));
+        }
+    }
+
+    // A Flight status chosen by the session layer reaches the client as is, whatever it is: the
+    // session's command lock (UNAVAILABLE), a closed session (UNAUTHENTICATED), a refused session
+    // (RESOURCE_EXHAUSTED). Only a non-Flight failure is wrapped as INTERNAL.
+    @Test
+    public void testGetFlightInfoPassesOtherFlightErrorsThrough() throws Exception {
+        for (CallStatus status : new CallStatus[] {CallStatus.INTERNAL, CallStatus.UNAVAILABLE,
+                CallStatus.INVALID_ARGUMENT, CallStatus.UNAUTHENTICATED, CallStatus.RESOURCE_EXHAUSTED}) {
+            FlightRuntimeException failure = status.withDescription("other flight failure").toRuntimeException();
+            Assertions.assertSame(failure, getFlightInfoFailure(failure));
+        }
+    }
+
+    @Test
+    public void testGetFlightInfoPassesOtherBusinessErrorsThrough() throws Exception {
+        ErrorFlightMetadata metadata = new ErrorFlightMetadata();
+        metadata.insert("doris-error-code", Integer.toString(ErrorCode.ERR_UNKNOWN_ERROR.getCode()));
+        FlightRuntimeException failure = CallStatus.UNAVAILABLE.withDescription("other business failure")
+                .withMetadata(metadata).toRuntimeException();
+
+        Assertions.assertSame(failure, getFlightInfoFailure(failure));
+    }
+
+    @Test
+    public void testGetFlightInfoWrapsNonFlightErrors() throws Exception {
+        RuntimeException failure = new RuntimeException("session lookup failed");
+        FlightRuntimeException result = getFlightInfoFailure(failure);
+        Assertions.assertEquals(FlightStatusCode.INTERNAL, result.status().code());
+        Assertions.assertSame(failure, result.getCause());
+        Assertions.assertEquals("get flight info statement failed, " + failure.getMessage(),
+                result.status().description());
+        Assertions.assertFalse(result.status().metadata().containsKey("doris-error-code"));
+    }
+
+    private FlightRuntimeException getFlightInfoFailure(RuntimeException failure) throws Exception {
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext("token")).thenThrow(failure);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager)) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
+            return Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callContext, FlightDescriptor.command(new byte[0])));
+        }
+    }
 
     @BeforeEach
     public void setUp() {
@@ -104,12 +193,12 @@ public class DorisFlightSqlProducerTest {
 
         FlightSessionsManager sessionsManager = new FlightSessionsManager() {
             @Override
-            public ConnectContext getConnectContext(String peerIdentity) {
-                return connectContext;
+            public String openSession(FlightAuthResult authResult) {
+                throw new UnsupportedOperationException("not exercised by this test");
             }
 
             @Override
-            public ConnectContext createConnectContext(String peerIdentity) {
+            public ConnectContext getConnectContext(String peerIdentity) {
                 return connectContext;
             }
 
@@ -348,11 +437,12 @@ public class DorisFlightSqlProducerTest {
     // statement runs, all start wait_timeout over.
     @Test
     public void testSessionOptionActionsKeepTheSessionAlive() throws Exception {
-        ConnectContext ctx = ConnectContext.forFlight("token");
+        ConnectContext ctx = ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100),
+                UserIdentity.ROOT, "token");
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         long waitTimeoutMs = ctx.getSessionVariable().getWaitTimeoutS() * 1000L;

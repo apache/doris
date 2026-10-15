@@ -161,6 +161,10 @@ public class AuditEvent {
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
 
+    // the protocol the session runs, as SHOW PROCESSLIST names it: MySQL / ArrowFlightSQL
+    @AuditField(value = "Protocol", colName = "protocol")
+    public String protocol = "";
+
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
     public String stmt = "";
@@ -210,6 +214,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setCloudCluster(String cloudClusterName) {
             auditEvent.cloudClusterName = cloudClusterName;
+            return this;
+        }
+
+        public AuditEventBuilder setProtocol(String protocol) {
+            auditEvent.protocol = protocol;
             return this;
         }
 

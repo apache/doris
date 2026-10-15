@@ -562,7 +562,10 @@ protected:
 class Int64ChildGreaterThanExpr final : public VExpr {
 public:
     explicit Int64ChildGreaterThanExpr(int64_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        // A synthetic predicate must not inherit VExpr's default SLOT_REF discriminator.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -2169,6 +2172,38 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
 }
 
+// DORIS-29685: an ID-less Parquet file is matched by positional ids, so a struct root can be
+// mapped while its children stay unmatched. Final materialization then substitutes NULL for those
+// children, which means the physical slot no longer carries the table value: a whole-root predicate
+// such as LIKE(CAST(s AS STRING), '%null%') must stay above TableReader instead of being evaluated
+// on the raw file slot (which would still see the child's physical value and drop the row).
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedStructRootPredicateStaysAboveFileReader) {
+    auto table_struct = struct_col("s", 1, {field_id_col("inner", 2, i32())});
+    // Positional fallback stamped the root only; the child keeps its physical name identifier.
+    auto file_struct = struct_col("s", 1, {name_col("inner", i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+
+    auto cast_to_string = cast_expr(table_slot(11, 0, table_struct.type, "s"), str());
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(like_expr(cast_to_string, "%null%")),
+            .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
+
+    // No file-local copy of the predicate: the row must be filtered on the materialized
+    // {"inner": null} value, not on the physical {"inner": <file value>}.
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     const auto binary_type = varbinary();
     const auto table_column = name_col("partition_key", binary_type);
@@ -2836,6 +2871,37 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
     ASSERT_NE(ltz_projection, nullptr);
     ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
     EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
+// A hidden slot can use a full struct type without explicit child mappings. Its physical
+// timestamp overrides must survive even though the parent has no timestamp annotation.
+TEST(ColumnMapperScanRequestTest, HiddenFullStructRetainsNestedTimestampSemantics) {
+    const auto instant_type = timestamptz(6);
+    auto table_id = field_id_col("id", 1, i32());
+    auto file_id = field_id_col("id", 1, i32(), 0);
+    auto file_instant = field_id_col("instant", 3, instant_type, 0);
+    file_instant.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 2, {file_instant}, 1);
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_id}, {}, {file_id, file_struct}).ok());
+    auto expr = null_predicate(
+            struct_element(table_slot(1, 1, file_struct.type, "s"), instant_type, "instant"),
+            false);
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({{.conjunct = VExprContext::create_shared(expr),
+                                             .global_indices = {GlobalIndex(1)}}},
+                                           {table_id}, &request)
+                        .ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root = request.predicate_columns[0];
+    ASSERT_TRUE(root.project_all_children);
+    // These children carry metadata; the normal partial-projection accessor intentionally
+    // ignores them for a full projection.
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& child = root.children.front();
+    EXPECT_EQ(child.local_id(), 0);
+    ASSERT_TRUE(child.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*child.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper

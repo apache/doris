@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("big_join_build") {
+suite("big_join_build", "p2,nonConcurrent") {
 
     sql """ DROP TABLE IF EXISTS b_table; """
     sql """ DROP TABLE IF EXISTS p_table; """

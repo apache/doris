@@ -36,6 +36,7 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
+import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -155,13 +156,13 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVCacheManager;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
-import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
@@ -432,12 +433,14 @@ public class Env {
 
     protected boolean isFirstTimeStartUp = false;
     protected boolean isElectable;
-    // set to true after finished replay all meta and ready to serve
-    // set to false when catalog is not ready.
+    // Metadata readiness, updated by the replayer independently of startup initialization.
     private AtomicBoolean isReady = new AtomicBoolean(false);
+    // Published after the first successful MASTER/FOLLOWER/OBSERVER initialization and FE type commit.
+    // Keep this true across UNKNOWN transitions so initialized nodes retain their existing read policy.
+    private volatile boolean startupInitialized = false;
     // set to true after http server start
     private AtomicBoolean httpReady = new AtomicBoolean(false);
-    // set to true if FE can offer READ service.
+    // Metadata read eligibility; serving reads also requires startupInitialized.
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
@@ -565,6 +568,7 @@ public class Env {
     private ConstraintManager constraintManager;
 
     private BinlogGcer binlogGcer;
+    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
 
     private QueryCancelWorker queryCancelWorker;
 
@@ -588,6 +592,8 @@ public class Env {
     private final NereidsSqlCacheManager sqlCacheManager;
 
     private final NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager;
+
+    private final MTMVCacheManager mtmvCacheManager;
 
     private final SplitSourceManager splitSourceManager;
 
@@ -887,6 +893,7 @@ public class Env {
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
+        this.mtmvCacheManager = new MTMVCacheManager();
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
@@ -1304,13 +1311,18 @@ public class Env {
             Thread.sleep(100);
             if (counter++ % 100 == 0) {
                 String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
-                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
-                        feType, isReady.get(), counter, reason);
+                LOG.info("wait catalog to be ready. feType:{} metadataReady:{} startupInitialized:{}, "
+                                + "counter:{} reason: {}",
+                        feType, isMetadataReady(), startupInitialized, counter, reason);
             }
         }
     }
 
     public boolean isReady() {
+        return startupInitialized && isMetadataReady();
+    }
+
+    private boolean isMetadataReady() {
         return isReady.get();
     }
 
@@ -1881,6 +1893,11 @@ public class Env {
             // so no need to check 'isReady' flag in this method
             postProcessAfterMetadataReplayed(false);
 
+            // Replicate legacy type mapping markers before queries/checkpoints can expose a local-only
+            // upgrade. Followers consume the ordinary ALTER records even on older binaries.
+            toMasterProgress = "migrate catalog type mappings";
+            catalogMgr.migrateVarbinaryMappingProperties();
+
             insertOverwriteManager.allTaskFail();
 
             toMasterProgress = "start daemon threads";
@@ -1953,7 +1970,8 @@ public class Env {
      */
     public boolean postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
-            while (!isReady()) {
+            // Startup initialization itself must not wait for the serving gate that it will open.
+            while (!isMetadataReady()) {
                 // Avoid endless waiting if the state has changed.
                 //
                 // Consider the following situation:
@@ -2065,6 +2083,9 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        if (Config.isCloudMode()) {
+            rowBinlogTtlDiscovery.start();
+        }
         columnIdFlusher.start();
         insertOverwriteManager.start();
         dictionaryManager.start();
@@ -2114,7 +2135,7 @@ public class Env {
         splitSourceManager.start();
     }
 
-    private void transferToNonMaster(FrontendNodeType newType) {
+    private boolean transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
         try {
@@ -2124,7 +2145,7 @@ public class Env {
                 // not set canRead here, leave canRead as what is was.
                 // if meta out of date, canRead will be set to false in replayer thread.
                 metaReplayState.setTransferToUnknown();
-                return;
+                return true;
             }
 
             // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
@@ -2134,10 +2155,13 @@ public class Env {
                 replayer.start();
             }
 
-            // 'isReady' will be set to true in 'setCanRead()' method
+            // The replayer publishes metadata readiness before startup initialization completes.
             if (!postProcessAfterMetadataReplayed(true)) {
-                // the state has changed, exit early.
-                return;
+                // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
+                // state listener can process the newer state instead of waiting indefinitely for this node to
+                // become ready as a non-master. The caller must not publish newType to feType in this case:
+                // none of the non-master initialization below, including MetricRepo.init(), has completed yet.
+                return false;
             }
 
             checkLowerCaseTableNames();
@@ -2154,11 +2178,13 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+            return true;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
+            return false;
         }
     }
 
@@ -2205,7 +2231,7 @@ public class Env {
     // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
     // restart or upgrade.
     private void checkLowerCaseTableNames() {
-        while (!isReady()) {
+        while (!isMetadataReady()) {
             // Waiting for lower_case_table_names to initialize value from image or editlog.
             try {
                 LOG.info("Waiting for \'lower_case_table_names\' initialization.");
@@ -3259,7 +3285,12 @@ public class Env {
     }
 
     public void startStateListener() {
-        listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
+        listener = createStateListener();
+        listener.start();
+    }
+
+    Daemon createStateListener() {
+        Daemon stateListener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
             @Override
             protected synchronized void runOneCycle() {
 
@@ -3278,6 +3309,8 @@ public class Env {
                         return;
                     }
 
+                    boolean transferCompleted = true;
+
                     /*
                      * INIT -> MASTER: transferToMaster
                      * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
@@ -3295,7 +3328,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 case UNKNOWN:
@@ -3313,7 +3346,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3328,7 +3361,7 @@ public class Env {
                                     break;
                                 }
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3339,7 +3372,7 @@ public class Env {
                         case OBSERVER: {
                             switch (newType) {
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3359,14 +3392,30 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
+                    if (!transferCompleted) {
+                        // feType represents the last fully initialized FE state, not merely the latest state
+                        // reported by BDB. A non-master transition can be interrupted when a newer BDB state is
+                        // queued while it waits for metadata to become ready. Committing newType after that early
+                        // return would make a repeated FOLLOWER/OBSERVER event look redundant and skip the
+                        // incomplete initialization permanently. Keep the previous committed state so the queued
+                        // event is evaluated against the state that was actually initialized and can retry the
+                        // transition or take a different path.
+                        LOG.info("skip committing incomplete FE type transfer from {} to {}", feType, newType);
+                        continue;
+                    }
                     feType = newType;
+                    // INIT -> UNKNOWN is a completed no-op, not a completed startup initialization.
+                    if (newType == FrontendNodeType.MASTER || newType == FrontendNodeType.FOLLOWER
+                            || newType == FrontendNodeType.OBSERVER) {
+                        startupInitialized = true;
+                    }
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
             } // end runOneCycle
         };
 
-        listener.setMetaContext(metaContext);
-        listener.start();
+        stateListener.setMetaContext(metaContext);
+        return stateListener;
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -4338,7 +4387,7 @@ public class Env {
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.isManagedTable()) {
                 sb.append("  ").append(
-                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true));
             } else {
                 sb.append("  ").append(column.toSql());
             }
@@ -5517,7 +5566,7 @@ public class Env {
     }
 
     public boolean canRead() {
-        return this.canRead.get();
+        return startupInitialized && canRead.get();
     }
 
     public boolean isElectable() {
@@ -6374,6 +6423,7 @@ public class Env {
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setBinlogConfig(newBinlogConfig);
+        getSqlCacheManager().invalidateAboutTable(table);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
@@ -6423,6 +6473,7 @@ public class Env {
                     BinlogConfig newBinlogConfig = new BinlogConfig();
                     newBinlogConfig.mergeFromProperties(properties, true);
                     olapTable.setBinlogConfig(newBinlogConfig);
+                    getSqlCacheManager().invalidateAboutTable(olapTable);
                     break;
                 default:
                     break;
@@ -7649,6 +7700,10 @@ public class Env {
         return sqlCacheManager;
     }
 
+    public MTMVCacheManager getMtmvCacheManager() {
+        return mtmvCacheManager;
+    }
+
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
         return sortedPartitionsCacheManager;
     }
@@ -7676,12 +7731,6 @@ public class Env {
         // Runs outside the tolerant processAlterMTMV catch so that failures (e.g. a
         // partial IVM excluded-trigger-tables stream transition) reach the client.
         this.alter.processAlterMTMVProperty(alter, false);
-    }
-
-    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
-        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
-        alter.setStatus(status);
-        this.alter.processAlterMTMV(alter, false);
     }
 
     public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,

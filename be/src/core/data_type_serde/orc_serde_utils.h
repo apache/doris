@@ -18,15 +18,19 @@
 #pragma once
 
 #include <cstring>
+#include <orc/Type.hh>
 #include <orc/Vector.hh>
 #include <vector>
 
 #include "core/arena.h"
 #include "core/column/column_array.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/value/vdatetime_value.h"
 
 namespace doris {
 namespace orc_serde_utils {
+
+bool has_nanosecond_timestamp(const ::orc::Type& type);
 
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows);
 size_t orc_source_row_at(size_t row, const std::vector<size_t>* selected_rows);
@@ -40,6 +44,10 @@ struct RoundedOrcTimestamp {
 
 Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
                                            RoundedOrcTimestamp* result);
+
+Status orc_timestamp_to_datetime(int64_t seconds, uint64_t microseconds,
+                                 const cctz::time_zone& timezone, bool carry_in_civil_time,
+                                 DateV2Value<DateTimeV2ValueType>* value);
 
 DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
                                         DecodedValueKind value_kind);
