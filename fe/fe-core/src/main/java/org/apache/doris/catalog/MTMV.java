@@ -160,10 +160,15 @@ public class MTMV extends OlapTable {
         this.ivmInfo.setEnableIvm(params.enableIvm);
         if (params.enableIvm) {
             this.ivmInfo.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(params.mvProperties));
-            if (params.ivmPlanSignature == null) {
-                throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+            // The unique-key model pins the layout its refresh reads down by a signature, so an MV of that
+            // model without one is a bug in the create path. An append-only detail MV publishes none: its
+            // refresh reads no layout, and it has no sequence column for a signature to order either.
+            if (params.keysType != KeysType.DUP_KEYS) {
+                if (params.ivmPlanSignature == null) {
+                    throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+                }
+                this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
             }
-            this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
         }
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;

@@ -51,6 +51,15 @@ public class IvmRewriteResult {
     // MV to read it from yet. See IvmNormalizeUniqKeysMTMV#judgeKeysType for what decides it.
     private KeysType keysType = KeysType.UNIQUE_KEYS;
 
+    /**
+     * Whether this statement builds and maintains an append-only detail MV, whose table model is a plain
+     * DUP table. The create paths ask this while the MV is still being built, which is why the model
+     * travels on the statement rather than on the MV.
+     */
+    public boolean isAppendOnlyDupTable() {
+        return keysType == KeysType.DUP_KEYS;
+    }
+
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
     }
