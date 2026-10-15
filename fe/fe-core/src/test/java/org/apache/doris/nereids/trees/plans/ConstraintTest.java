@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -39,6 +42,8 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 class ConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
@@ -133,6 +138,301 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
                         .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
+    }
+
+    @Test
+    void distributionMappingConstraintTest() throws Exception {
+        createTable("create table mapping_basic (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            Exception duplicateDeterminant = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_basic add constraint duplicate_determinant "
+                            + "colocate mapping mapping_id (k2, K2) "
+                            + "determines distribution key (k1) not enforced"));
+            Assertions.assertTrue(duplicateDeterminant.getMessage().contains(
+                    "Determinant columns in distribution mapping constraint must be unique"));
+
+            Exception invalidDistribution = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_basic add constraint invalid_distribution "
+                            + "colocate mapping mapping_id (k2) "
+                            + "determines distribution key (k2) not enforced"));
+            Assertions.assertTrue(invalidDistribution.getMessage().contains(
+                    "must be an ordered subset of table distribution columns"));
+
+            addConstraint("alter table mapping_basic add constraint mapping_constraint "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_basic");
+            TableNameInfo tableNameInfo = tableNameInfoOf(table);
+
+            Assertions.assertNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
+            Constraint constraint = getConstraintMgr().getConstraint(
+                    tableNameInfo, table, "mapping_constraint");
+            Assertions.assertInstanceOf(DistributionMappingConstraint.class, constraint);
+            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
+            Assertions.assertEquals("mapping_id", mapping.getMappingId());
+            Assertions.assertEquals(java.util.List.of("k2"), mapping.getDeterminantColumnNames());
+            Assertions.assertEquals(java.util.List.of("k1"), mapping.getDistributionColumnNames());
+            Assertions.assertEquals(table.getBaseSchemaVersion(), mapping.getBaseSchemaVersion());
+            Assertions.assertEquals(java.util.List.of(table.getColumn("k2").getUniqueId()),
+                    mapping.getDeterminantColumnUniqueIds());
+            Assertions.assertEquals(java.util.List.of(table.getColumn("k1").getUniqueId()),
+                    mapping.getDistributionColumnUniqueIds());
+
+            Exception dropColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic drop column k2"));
+            Assertions.assertTrue(dropColumn.getMessage().contains("mapping_constraint"));
+            Exception renameColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic rename column k2 k3"));
+            Assertions.assertTrue(renameColumn.getMessage().contains("mapping_constraint"));
+            Exception modifyColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic modify column k2 bigint"));
+            Assertions.assertTrue(modifyColumn.getMessage().contains("mapping_constraint"));
+
+            dropConstraint("alter table mapping_basic drop constraint mapping_constraint");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(table).isEmpty());
+        } finally {
+            executeSql("drop table if exists mapping_basic force");
+        }
+    }
+
+    @Test
+    void distributionMappingDropRejectedDuringAtomicRestore() throws Exception {
+        createTable("create table mapping_atomic_restore (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_atomic_restore");
+        try {
+            addConstraint("alter table mapping_atomic_restore add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            table.writeLock();
+            try {
+                table.setInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> dropConstraint("alter table mapping_atomic_restore drop constraint mapping"));
+            Assertions.assertTrue(exception.getMessage().contains("atomic restore state"));
+            Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(table).size());
+
+            table.writeLock();
+            try {
+                table.clearInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+            dropConstraint("alter table mapping_atomic_restore drop constraint mapping");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(table).isEmpty());
+        } finally {
+            table.writeLock();
+            try {
+                table.clearInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+            executeSql("drop table if exists mapping_atomic_restore force");
+        }
+    }
+
+    @Test
+    void distributionMappingFallsBackAfterOldFrontendSchemaReplay() throws Exception {
+        createTable("create table mapping_schema_binding (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\", \"light_schema_change\"=\"true\")");
+        try {
+            addConstraint("alter table mapping_schema_binding add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_schema_binding");
+
+            executeSql("alter table mapping_schema_binding add column k3 int");
+            Assertions.assertEquals(1,
+                    getConstraintMgr().getDistributionMappingConstraintsForPlanning(table).size());
+
+            Map<Long, Integer> schemaVersions = new HashMap<>();
+            table.getIndexIdToMeta().forEach((indexId, indexMeta) ->
+                    schemaVersions.put(indexId, indexMeta.getSchemaVersion() + 1));
+            Env.getCurrentEnv().replayRenameColumn(new TableRenameColumnInfo(
+                    table.getDatabase().getId(), table.getId(), "k2", "renamed_k2", schemaVersions));
+
+            Assertions.assertNotNull(table.getColumn("renamed_k2"));
+            Assertions.assertTrue(
+                    getConstraintMgr().getDistributionMappingConstraintsForPlanning(table).isEmpty());
+        } finally {
+            executeSql("drop table if exists mapping_schema_binding force");
+        }
+    }
+
+    @Test
+    void distributionMappingRejectsTemporaryTable() throws Exception {
+        createTable("create temporary table mapping_temporary (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            Exception exception = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_temporary add constraint mapping_constraint "
+                            + "colocate mapping mapping_id (k2) "
+                            + "determines distribution key (k1) not enforced"));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "Distribution mapping constraint does not support temporary tables"));
+        } finally {
+            executeSql("drop table if exists mapping_temporary force");
+        }
+    }
+
+    @Test
+    void distributionMappingFollowsTableObjectLifecycle() throws Exception {
+        createTable("create table mapping_lifecycle_a (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_lifecycle_b (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_replace_a (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_replace_b (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_lifecycle_a add constraint mapping_a "
+                    + "colocate mapping mapping_a (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_lifecycle_b add constraint mapping_b "
+                    + "colocate mapping mapping_b (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_replace_a add constraint replace_mapping_a "
+                    + "colocate mapping replace_mapping_a (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_replace_b add constraint replace_mapping_b "
+                    + "colocate mapping replace_mapping_b (k2) determines distribution key (k1) not enforced");
+
+            OlapTable originalA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a");
+            OlapTable originalB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            executeSql("alter table mapping_lifecycle_a rename mapping_lifecycle_a_renamed");
+            OlapTable renamedA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a_renamed");
+            Assertions.assertSame(originalA, renamedA);
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(renamedA).get(0).getName());
+
+            executeSql("alter table mapping_lifecycle_a_renamed replace with table mapping_lifecycle_b "
+                    + "properties(\"swap\"=\"true\")");
+            OlapTable currentA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a_renamed");
+            OlapTable currentB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertSame(originalB, currentA);
+            Assertions.assertSame(originalA, currentB);
+            Assertions.assertEquals("mapping_b",
+                    getConstraintMgr().getDistributionMappingConstraints(currentA).get(0).getName());
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(currentB).get(0).getName());
+
+            executeSql("truncate table mapping_lifecycle_b");
+            OlapTable truncatedB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertSame(originalA, truncatedB);
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(truncatedB).get(0).getName());
+
+            executeSql("drop table mapping_lifecycle_b");
+            createTable("create table mapping_lifecycle_b (k1 int, k2 int) "
+                    + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                    + "properties(\"replication_num\"=\"1\")");
+            OlapTable sameNameReplacement = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertNotSame(originalA, sameNameReplacement);
+            Assertions.assertTrue(
+                    getConstraintMgr().getDistributionMappingConstraints(sameNameReplacement).isEmpty());
+            executeSql("drop table mapping_lifecycle_b force");
+            executeSql("recover table mapping_lifecycle_b");
+            OlapTable recoveredB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertEquals(originalA.getId(), recoveredB.getId());
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(recoveredB).get(0).getName());
+
+            OlapTable replacementB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_replace_b");
+            executeSql("alter table mapping_replace_a replace with table mapping_replace_b "
+                    + "properties(\"swap\"=\"false\")");
+            OlapTable currentReplacement = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_replace_a");
+            Assertions.assertSame(replacementB, currentReplacement);
+            Assertions.assertEquals("replace_mapping_b",
+                    getConstraintMgr().getDistributionMappingConstraints(currentReplacement).get(0).getName());
+        } finally {
+            executeSql("drop table if exists mapping_lifecycle_a_renamed force");
+            executeSql("drop table if exists mapping_lifecycle_b force");
+            executeSql("drop table if exists mapping_replace_a force");
+            executeSql("drop table if exists mapping_replace_b force");
+        }
+    }
+
+    @Test
+    void distributionMappingFollowsDatabaseRename() throws Exception {
+        executeSql("drop database if exists mapping_lifecycle_db force");
+        executeSql("drop database if exists mapping_lifecycle_db_renamed force");
+        createDatabase("mapping_lifecycle_db");
+        createTable("create table mapping_lifecycle_db.mapping_table (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_lifecycle_db.mapping_table add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable originalTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db").getTableOrDdlException("mapping_table");
+
+            executeSql("alter database mapping_lifecycle_db rename mapping_lifecycle_db_renamed");
+
+            OlapTable renamedTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db_renamed")
+                    .getTableOrDdlException("mapping_table");
+            Assertions.assertSame(originalTable, renamedTable);
+            Assertions.assertEquals("mapping",
+                    getConstraintMgr().getDistributionMappingConstraints(renamedTable).get(0).getName());
+
+            executeSql("drop database mapping_lifecycle_db_renamed");
+            executeSql("recover database mapping_lifecycle_db_renamed");
+
+            OlapTable recoveredTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db_renamed")
+                    .getTableOrDdlException("mapping_table");
+            Assertions.assertSame(originalTable, recoveredTable);
+            Assertions.assertEquals("mapping",
+                    getConstraintMgr().getDistributionMappingConstraints(recoveredTable).get(0).getName());
+        } finally {
+            executeSql("drop database if exists mapping_lifecycle_db force");
+            executeSql("drop database if exists mapping_lifecycle_db_renamed force");
+        }
+    }
+
+    @Test
+    void distributionMappingIsNotCopiedByCreateTableLike() throws Exception {
+        createTable("create table mapping_like_source (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_like_source add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+
+            executeSql("create table mapping_like_target like mapping_like_source");
+
+            TableIf targetTable = Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_like_target");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(targetTable).isEmpty());
+        } finally {
+            executeSql("drop table if exists mapping_like_source force");
+            executeSql("drop table if exists mapping_like_target force");
+        }
     }
 
     @Test

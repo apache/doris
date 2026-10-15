@@ -600,6 +600,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         Preconditions.checkNotNull(backupMeta);
 
+        if (!validateDistributionMappingConstraintsForRestore()) {
+            return;
+        }
+
         // Check the olap table state.
         //
         // If isAtomicRestore is not set, set all restored tbls' state to RESTORE,
@@ -636,6 +640,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     // Instead, set table in atomic restore state, to forbid the alter table operation.
                     olapTbl.setInAtomicRestore();
                     continue;
+                }
+
+                if (!env.getConstraintManager().getDistributionMappingConstraints(olapTbl).isEmpty()) {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "Cannot restore into existing table " + olapTbl.getName()
+                                    + " because it has distribution mapping constraints. "
+                                    + "Drop those constraints before using non-atomic restore.");
+                    return;
                 }
 
                 olapTbl.setState(OlapTableState.RESTORE);
@@ -1061,6 +1073,35 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // No log here, PENDING state restore job will redo this method
         setState(RestoreJobState.CREATING);
+    }
+
+    private boolean validateDistributionMappingConstraintsForRestore() {
+        boolean featureCompatibilityValidated = false;
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            OlapTable restoredTable = (OlapTable) backupMeta.getTable(tableName);
+            if (env.getConstraintManager().getDistributionMappingConstraints(restoredTable).isEmpty()) {
+                continue;
+            }
+            if (isAtomicRestore) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Cannot atomically restore table " + tableName
+                                + " because its backup contains distribution mapping constraints. "
+                                + "Use a non-atomic restore or create a backup without those constraints.");
+                return false;
+            }
+            try {
+                if (!featureCompatibilityValidated) {
+                    env.getConstraintManager().validateDistributionMappingFeatureCompatibility();
+                    featureCompatibilityValidated = true;
+                }
+                env.getConstraintManager().validateDistributionMappingConstraints(restoredTable);
+            } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Cannot restore table " + tableName + ": " + e.getMessage());
+                return false;
+            }
+        }
+        return true;
     }
 
     protected void doCreateReplicas() {

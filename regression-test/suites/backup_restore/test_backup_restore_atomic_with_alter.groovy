@@ -25,9 +25,24 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     String dbName = "${suiteName}_db"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "snapshot_" + UUID.randomUUID().toString().replace("-", "")
+    String completionSnapshotName = "completion_snapshot_" + UUID.randomUUID().toString().replace("-", "")
+    String mappingSnapshotName = "mapping_snapshot_" + UUID.randomUUID().toString().replace("-", "")
     String tableNamePrefix = "${suiteName}_tables"
 
     def syncer = getSyncer()
+    def waitRestorePaused = { label ->
+        boolean restorePaused = false
+        for (int k = 0; k < 60; k++) {
+            def records = sql_return_maparray """ SHOW RESTORE FROM ${dbName} WHERE Label = "${label}" """
+            if (records.size() == 1 && records[0].State != 'PENDING' && records[0].State != 'CREATING') {
+                restorePaused = true
+                break
+            }
+            logger.info("SHOW RESTORE result: ${records}")
+            sleep(3000)
+        }
+        assertTrue(restorePaused)
+    }
     syncer.createS3Repository(repoName)
     sql "DROP DATABASE IF EXISTS ${dbName} FORCE"
     sql "CREATE DATABASE ${dbName}"
@@ -92,6 +107,15 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
+    // Add the mapping after backup so the backup remains eligible for atomic restore while
+    // the live table exercises the DDL fence during the restore.
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        ADD CONSTRAINT atomic_restore_mapping
+        COLOCATE MAPPING atomic_restore_mapping (`count`)
+        DETERMINES DISTRIBUTION KEY (`id`) NOT ENFORCED
+    """
+
     // drop table_0
     sql "DROP TABLE ${dbName}.${tableNamePrefix}_0 FORCE"
 
@@ -111,17 +135,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     """
     sql "SYNC"
 
-    boolean restore_paused = false
-    for (int k = 0; k < 60; k++) {
-        def records = sql_return_maparray """ SHOW RESTORE FROM ${dbName} WHERE Label = "${snapshotName}" """
-        if (records.size() == 1 && (records[0].State != 'PENDING' && records[0].State != 'CREATING')) {
-            restore_paused = true
-            break
-        }
-        logger.info("SHOW RESTORE result: ${records}")
-        sleep(3000)
-    }
-    assertTrue(restore_paused)
+    waitRestorePaused(snapshotName)
 
     sql "SYNC"
 
@@ -200,6 +214,12 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
             RENAME newTableName
         """
     }, "Do not allow doing ALTER ops")
+    expectExceptionLike({
+        sql """
+            ALTER TABLE ${dbName}.${tableNamePrefix}_1
+            DROP CONSTRAINT atomic_restore_mapping
+        """
+    }, "atomic restore state")
     // BTW, the tmp table also don't allow rename
     expectExceptionLike({
         sql """
@@ -234,6 +254,106 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
     logger.info("SHOW CREATE TABLE ${tableNamePrefix}_1: ${show_result}")
     assertFalse(show_result[0][1].contains("in_atomic_restore"))
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        DROP CONSTRAINT atomic_restore_mapping
+    """
+
+    // Also verify the DDL fence while a restore runs to completion, not only while it is cancelled.
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${completionSnapshotName}
+        TO `${repoName}`
+        ON (${tableNamePrefix}_1)
+    """
+    syncer.waitSnapshotFinish(dbName)
+    def completionSnapshot = syncer.getSnapshotTimestamp(repoName, completionSnapshotName)
+    assertTrue(completionSnapshot != null)
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        ADD CONSTRAINT atomic_restore_mapping
+        COLOCATE MAPPING atomic_restore_mapping (`count`)
+        DETERMINES DISTRIBUTION KEY (`id`) NOT ENFORCED
+    """
+    GetDebugPoint().enableDebugPointForAllFEs(
+            "FE.PAUSE_NON_PENDING_RESTORE_JOB", [value:completionSnapshotName])
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${completionSnapshotName}
+        FROM `${repoName}`
+        PROPERTIES
+        (
+            "backup_timestamp" = "${completionSnapshot}",
+            "reserve_replica" = "true",
+            "atomic_restore" = "true"
+        )
+    """
+    waitRestorePaused(completionSnapshotName)
+    expectExceptionLike({
+        sql """
+            ALTER TABLE ${dbName}.${tableNamePrefix}_1
+            DROP CONSTRAINT atomic_restore_mapping
+        """
+    }, "atomic restore state")
+    GetDebugPoint().disableDebugPointForAllFEs("FE.PAUSE_NON_PENDING_RESTORE_JOB")
+    syncer.waitAllRestoreFinish(dbName)
+    sql "SYNC"
+
+    def completionRestore = sql_return_maparray """
+        SHOW RESTORE FROM ${dbName} WHERE Label = "${completionSnapshotName}"
+    """
+    assertTrue(completionRestore.size() == 1)
+    assertTrue(completionRestore[0].State == "FINISHED")
+    show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    assertFalse(show_result[0][1].contains("in_atomic_restore"))
+    assertTrue((sql "SHOW CONSTRAINTS FROM ${dbName}.${tableNamePrefix}_1").isEmpty())
+
+    // An atomic restore with mappings is rejected before staging. This keeps a centralized
+    // constraint with the same name from colliding with a mapping published from the backup.
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        ADD CONSTRAINT atomic_restore_collision
+        COLOCATE MAPPING atomic_restore_collision (`count`)
+        DETERMINES DISTRIBUTION KEY (`id`) NOT ENFORCED
+    """
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${mappingSnapshotName}
+        TO `${repoName}`
+        ON (${tableNamePrefix}_1)
+    """
+    syncer.waitSnapshotFinish(dbName)
+    def mappingSnapshot = syncer.getSnapshotTimestamp(repoName, mappingSnapshotName)
+    assertTrue(mappingSnapshot != null)
+
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        DROP CONSTRAINT atomic_restore_collision
+    """
+    sql """
+        ALTER TABLE ${dbName}.${tableNamePrefix}_1
+        ADD CONSTRAINT atomic_restore_collision UNIQUE (`id`)
+    """
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${mappingSnapshotName}
+        FROM `${repoName}`
+        PROPERTIES
+        (
+            "backup_timestamp" = "${mappingSnapshot}",
+            "reserve_replica" = "true",
+            "atomic_restore" = "true"
+        )
+    """
+    syncer.waitRestoreError(dbName, "backup contains distribution mapping constraints")
+
+    def mappingRestore = sql_return_maparray """
+        SHOW RESTORE FROM ${dbName} WHERE Label = "${mappingSnapshotName}"
+    """
+    assertTrue(mappingRestore.size() == 1)
+    assertTrue(mappingRestore[0].State == "CANCELLED")
+    assertTrue(mappingRestore[0].Status.contains("backup contains distribution mapping constraints"))
+    def constraints = sql "SHOW CONSTRAINTS FROM ${dbName}.${tableNamePrefix}_1"
+    assertTrue(constraints.size() == 1)
+    assertTrue(constraints[0][0] == "atomic_restore_collision")
+    show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    assertFalse(show_result[0][1].contains("in_atomic_restore"))
 
     for (def tableName in tables) {
         sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
@@ -244,6 +364,3 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     GetDebugPoint().disableDebugPointForAllFEs("FE.PAUSE_NON_PENDING_RESTORE_JOB")
   }
 }
-
-
-

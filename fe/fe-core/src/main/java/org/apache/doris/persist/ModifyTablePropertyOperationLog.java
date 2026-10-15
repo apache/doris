@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -93,6 +94,10 @@ public class ModifyTablePropertyOperationLog implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean hasDistributionMappingConstraintMutation() {
+        return properties.containsKey(TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY);
     }
 
     @Override
