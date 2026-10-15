@@ -1039,7 +1039,8 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> projects = adjustProjectionAggNullable(boundProjectionsBuilder.build());
         project = project.withProjects(projects);
         if (project.isDistinct()) {
-            project.getProjects().forEach(value -> Expression.checkFileKey(value, "SELECT DISTINCT"));
+            project.getProjects().forEach(value -> ExpressionUtils.checkFileKey(
+                    value, "SELECT DISTINCT"));
         }
         return project;
     }

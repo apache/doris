@@ -122,26 +122,26 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     /** Validate operator keys and FILE execution versions after expression binding. */
     public static void checkFilePlan(Plan plan) {
         if (plan instanceof LogicalRelation && !(plan instanceof LogicalOneRowRelation)) {
-            plan.getOutput().forEach(Expression::checkFileExecutionVersion);
+            plan.getOutput().forEach(ExpressionUtils::checkFileExecutionVersion);
         } else {
             // Inspect bound expressions without materializing output slots and recomputing their types.
-            plan.getExpressions().forEach(Expression::checkFileExecutionVersion);
+            plan.getExpressions().forEach(ExpressionUtils::checkFileExecutionVersion);
         }
         if (plan instanceof LogicalSort) {
             ((LogicalSort<?>) plan).getOrderKeys()
-                    .forEach(key -> Expression.checkFileKey(key.getExpr(), "ORDER BY"));
+                    .forEach(key -> ExpressionUtils.checkFileKey(key.getExpr(), "ORDER BY"));
         }
         if (plan instanceof LogicalAggregate) {
             ((LogicalAggregate<?>) plan).getGroupByExpressions()
-                    .forEach(key -> Expression.checkFileKey(key, "GROUP BY"));
+                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUP BY"));
         }
         if (plan instanceof LogicalRepeat) {
             ((LogicalRepeat<?>) plan).getGroupByExpressions()
-                    .forEach(key -> Expression.checkFileKey(key, "GROUPING SETS"));
+                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUPING SETS"));
         }
         if (plan instanceof LogicalSetOperation
                 && (!(plan instanceof LogicalUnion) || ((LogicalSetOperation) plan).getQualifier() != Qualifier.ALL)) {
-            plan.getOutput().forEach(key -> Expression.checkFileKey(key, plan.getType().toString()));
+            plan.getOutput().forEach(key -> ExpressionUtils.checkFileKey(key, plan.getType().toString()));
         }
     }
 

@@ -346,7 +346,8 @@ suite("test_file_type") {
     ]) {
         test {
             sql fileQuery(query)
-            exception(query.contains("f = f") ? "complex type"
+            exception(query.contains("'unknown'") ? "the specified field name unknown was not found"
+                    : query.contains("f = f") ? "complex type"
                     : query.contains("COUNT(DISTINCT") ? "COUNT DISTINCT could not process type" : "FILE")
         }
     }

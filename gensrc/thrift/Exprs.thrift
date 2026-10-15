@@ -92,7 +92,6 @@ enum TExprNodeType {
   PREDICATE = 43,
   // Normal literal
   LITERAL = 44,
-  FILE_LITERAL = 46,
 }
 
 //enum TAggregationOp {
