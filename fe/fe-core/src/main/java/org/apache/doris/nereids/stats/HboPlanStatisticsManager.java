@@ -305,14 +305,41 @@ public class HboPlanStatisticsManager {
     public void removePinnedPlanStatistics(String fingerprint) {
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.invalidate(fingerprint);
-            if (persistenceEnabled()) {
-                // the DB removal runs under the lock so a lazy load can never SELECT the row in
-                // the window between the memory invalidation and its DB removal (M-1 R1)
-                if (!HboStatisticsStore.delete(fingerprint) && !hboPinnedLoaded) {
-                    // the row is still stored and a pending/retrying load would resurrect it
-                    // into memory: remember the deletion intent (M-1 R2)
-                    pendingLoadTombstones.add(fingerprint);
-                }
+            deletePersistedPinnedPlanStatistics(fingerprint);
+        }
+    }
+
+    /**
+     * Remove the entry only while it is still the one which was judged obsolete.
+     *
+     * <p>Two admin sessions can interleave: {@code HBO DELETE STALE STATISTICS} reads an entry and decides
+     * that its data state is gone, {@code HBO SET STATISTICS} replaces it with a fresh baseline, and a
+     * removal by fingerprint alone would then drop the *new* entry - the one the read side is about to
+     * apply. The identity check and the invalidation run under the same lock a SET takes, so a
+     * replacement cannot slip between them.
+     *
+     * @param judged the entry the caller decided about; only that very entry is removed
+     * @return whether the judged entry was still stored and has been removed
+     */
+    public boolean removePinnedPlanStatisticsIfUnchanged(String fingerprint, PinnedHboStatistics judged) {
+        synchronized (pinnedLoadLock) {
+            if (pinnedPlanStatistics.getIfPresent(fingerprint) != judged) {
+                return false;
+            }
+            pinnedPlanStatistics.invalidate(fingerprint);
+            deletePersistedPinnedPlanStatistics(fingerprint);
+            return true;
+        }
+    }
+
+    private void deletePersistedPinnedPlanStatistics(String fingerprint) {
+        if (persistenceEnabled()) {
+            // the DB removal runs under the lock so a lazy load can never SELECT the row in
+            // the window between the memory invalidation and its DB removal (M-1 R1)
+            if (!HboStatisticsStore.delete(fingerprint) && !hboPinnedLoaded) {
+                // the row is still stored and a pending/retrying load would resurrect it
+                // into memory: remember the deletion intent (M-1 R2)
+                pendingLoadTombstones.add(fingerprint);
             }
         }
     }
@@ -402,8 +429,11 @@ public class HboPlanStatisticsManager {
                     || (olderThanMillis >= 0 && freshness.isUnknown()
                             && now - pinned.getCreateTime() > olderThanMillis);
             if (obsolete) {
-                removePinnedPlanStatistics(pinned.getFingerprint());
-                removed++;
+                // the entry may have been replaced by a concurrent set between the read above and this
+                // removal: only the entry which was judged obsolete is removed, never a fresh baseline
+                if (removePinnedPlanStatisticsIfUnchanged(pinned.getFingerprint(), pinned)) {
+                    removed++;
+                }
             }
         }
         return removed;
