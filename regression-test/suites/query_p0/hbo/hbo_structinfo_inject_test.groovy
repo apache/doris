@@ -44,21 +44,12 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
 
     def query = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 1"
     def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
-    // "physical plan" node tree: each physical node line is printed by its toString
-    def nodePlanText = { q -> (sql """ explain physical plan $q """).flatten().join("\n") }
     // whether the (small) filter input is broadcast into the join fragment or shuffled is a
     // distribution decision, so the effect of an injection is asserted through the annotation
     // markers (which entry the read side used) instead of through the plan shape
     def usedFilterEntry = { String text ->
         (text =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/).find()
     }
-    def probeSideOf = { String text ->
-        def lines = text.split("\n")
-        def joinIdx = lines.findIndexOf { it.contains("PhysicalHashJoin[") }
-        assertTrue(joinIdx >= 0, "no join in:\n" + text)
-        lines[joinIdx + 1]
-    }
-
     def beforeText = explainText(query)
     assertTrue(beforeText.contains("HBO fingerprint annotations"))
     // normal estimation: |T|(100k) >> |filter(R)|(~200), so T is the probe side of the join; the
@@ -94,12 +85,10 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     // the injected estimate is used for this very constant
     assertTrue(usedFilterEntry(afterText), afterText)
 
-    // physical plan node tree: join's first child (probe side) flips from T to filter(R),
-    // and the filter node that used the injected hbo statistics is marked
-    def nodeAfter = explainText(query)
-    // the injected filter entry is reported as used by its annotation line
-    assertTrue((nodeAfter =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/).find(),
-            nodeAfter)
+    // the injected filter entry is reported as used by its annotation line (asserted above through
+    // usedFilterEntry; the same query is not explained a second time)
+    assertTrue((afterText =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/).find(),
+            afterText)
 
     // A filter root has two fingerprints: the exact form (literals kept, injected above) and the
     // constant agnostic shape form. The exact injection must not leak to another constant, while

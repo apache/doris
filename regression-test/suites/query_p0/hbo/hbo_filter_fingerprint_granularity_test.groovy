@@ -19,7 +19,8 @@ suite("hbo_filter_fingerprint_granularity_test", "nonConcurrent") {
     // A filter root has two hbo fingerprints: the exact form (literals kept) and the constant
     // agnostic form (every literal replaced by '*'). Injecting the exact form must only affect the
     // very same predicate, while injecting the agnostic form affects every constant of the same
-    // predicate shape. Join / aggregation roots only have the constant agnostic form.
+    // predicate shape. A join / aggregation root carries both forms as well: the read side looks the
+    // literal carrying one up first, while the publish path keys an entry with the constant agnostic one.
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
     sql "drop table if exists hbo_fg_t;"
@@ -113,7 +114,9 @@ suite("hbo_filter_fingerprint_granularity_test", "nonConcurrent") {
     def joinsOne = joinFingerprints(predicateOne)
     def joinsTwo = joinFingerprints(predicateTwo)
     assertEquals(joinsOne['no_literal'], joinsTwo['no_literal'])
-    if (joinsOne.containsKey('with_literal') && joinsTwo.containsKey('with_literal')) {
-        assertNotEquals(joinsOne['with_literal'], joinsTwo['with_literal'])
-    }
+    assertTrue(joinsOne.containsKey('with_literal'),
+            "no literal carrying join annotation for ${predicateOne}")
+    assertTrue(joinsTwo.containsKey('with_literal'),
+            "no literal carrying join annotation for ${predicateTwo}")
+    assertNotEquals(joinsOne['with_literal'], joinsTwo['with_literal'])
 }

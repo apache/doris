@@ -37,20 +37,11 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
 
     def query = "select * from hbo_li_t join hbo_li_r on hbo_li_t.a = hbo_li_r.a where hbo_li_r.b = 1"
     def explainText = { (sql """ explain ${query} """).flatten().join("\n") }
-    // the probe side of the join is its first child: whether the (small) filter input is broadcast
-    // into the same fragment or shuffled is a distribution decision, so the assertions look at the
-    // probe side of the join instead of at the fragment layout
     // whether the (small) filter input is broadcast into the join fragment or shuffled is a
     // distribution decision, so the effect of an injection is asserted through the annotation
     // markers (which entry the read side used) instead of through the plan shape
     def usedEntry = { String text ->
         (text =~ /\] filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find()
-    }
-    def probeSide = { String text ->
-        def lines = text.split("\n")
-        def joinIdx = lines.findIndexOf { it.contains("PhysicalHashJoin[") }
-        assertTrue(joinIdx >= 0, "no join in:\n" + text)
-        lines[joinIdx + 1]
     }
     def filterFingerprint = {
         def matcher = (explainText() =~

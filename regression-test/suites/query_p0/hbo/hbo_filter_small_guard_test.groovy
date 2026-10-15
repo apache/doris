@@ -44,9 +44,6 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         "select * from hbo_gs_t join hbo_gs_r on hbo_gs_t.a = hbo_gs_r.a where ${predicate}"
     }
     def explainText = { String predicate -> (sql """ explain ${query(predicate)} """).flatten().join("\n") }
-    def nodePlanText = { String predicate ->
-        (sql """ explain physical plan ${query(predicate)} """).flatten().join("\n")
-    }
     def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
     def probeTable = { String predicate -> firstFragment(explainText(predicate)) }
     // the filter root is annotated once per literal mode; the guard is injected on the constant
