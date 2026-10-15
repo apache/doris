@@ -50,6 +50,12 @@ public class DecimalMultiplyForSum extends BinaryArithmetic {
     }
 
     @Override
+    public boolean foldable() {
+        // FE's ordinary multiply evaluator derives a different decimal precision.
+        return false;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBinaryArithmetic(this, context);
     }

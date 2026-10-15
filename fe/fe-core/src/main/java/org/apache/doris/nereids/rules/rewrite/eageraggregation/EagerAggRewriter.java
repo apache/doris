@@ -1214,7 +1214,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (multiplier.isPresent()) {
             if (aggFunc instanceof Sum && currentValue.getDataType().isDecimalV3Type()) {
                 outputExpr = TypeCoercionUtils.processBinaryArithmetic(
-                        new DecimalMultiplyForSum(currentValue, multiplier.get()));
+                        new DecimalMultiplyForSum(
+                                TypeCoercionUtils.castIfNotSameType(currentValue, aggFunc.getDataType()),
+                                multiplier.get()));
             } else {
                 outputExpr = TypeCoercionUtils.processBinaryArithmetic(new Multiply(currentValue, multiplier.get()));
             }
