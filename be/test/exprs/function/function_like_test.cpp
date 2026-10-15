@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -582,6 +584,68 @@ TEST(FunctionLikeTest, regexp_extract_all) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                                                const_pattern_dataset));
     }
+}
+
+// Extended regex falls back to Boost for lookaround patterns. The iterator must
+// advance through zero-width matches without losing the original input context.
+TEST(FunctionLikeTest, regexp_extract_all_boost_zero_width_match) {
+    auto str_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+
+    auto run_case = [&](const std::string& str, const std::string& pattern,
+                        const std::string& expected) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data(str.data(), str.size());
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data(pattern.data(), pattern.size());
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func = SimpleFunctionFactory::instance().get_function("regexp_extract_all", arg_cols,
+                                                                   return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        TQueryOptions query_options = fn_ctx->state()->query_options();
+        query_options.__set_enable_extended_regex(true);
+        fn_ctx->state()->set_query_options(query_options);
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        auto result_col = block.get_by_position(2).column;
+        ASSERT_TRUE(result_col.get() != nullptr);
+        ASSERT_FALSE(result_col->is_null_at(0));
+        EXPECT_EQ(expected, return_type->to_string(*result_col, 0))
+                << "input: '" << str << "', pattern: '" << pattern << "'";
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    // The lookahead matches once, at the last position; it must not be extracted twice.
+    run_case("ba", "(?=(a))", "['a']");
+    // Zero-width matches at distinct positions are all still found, exactly once each.
+    run_case("aba", "(?=(a))", "['a','a']");
+    run_case("aaa", "(?=(a))", "['a','a','a']");
+    // Non-zero-width Boost matches keep advancing past the whole match.
+    run_case("foo123bar456baz", "(\\d{3})(?=bar|baz)", "['123','456']");
+    // The text before a zero-width match stays visible to lookbehind at the next position.
+    run_case("aa", "(?<=(a))", "['a','a']");
+    // After an empty match, a consuming match at the same position is still tried.
+    run_case("xa", "((?<=x)|a)", "['','a']");
+    // Resuming after a zero-width match must not let `^` anchor in the middle of the input
+    // (the string form renders "no match" as an empty string).
+    run_case("xxa?b", "(?<=a)|^(b)", "");
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
