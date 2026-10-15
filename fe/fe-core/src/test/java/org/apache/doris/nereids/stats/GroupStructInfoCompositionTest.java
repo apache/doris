@@ -347,4 +347,23 @@ public class GroupStructInfoCompositionTest {
         // a constant is not folded away: the two modes name it as well
         Assertions.assertEquals(twoInfo.getShape(WITH_LITERAL), twoInfo.getShape(NO_LITERAL));
     }
+
+    @Test
+    void testALeafOfAChainIsRenderedOnce() {
+        // a bounded ordering below a join is a leaf of the chain: its text is written once and its scans
+        // are collected once
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan t2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        LogicalJoin<LogicalLimit<LogicalOlapScan>, LogicalOlapScan> join = new LogicalJoin<>(
+                JoinType.INNER_JOIN, new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, t1), t2, null);
+        GroupStructInfo info = GroupStructInfo.describeGroup(new Memo(null, join).getRoot());
+        Assertions.assertTrue(info.isValid(), info.getSkipReason());
+        String shape = info.getShape(NO_LITERAL);
+        Assertions.assertEquals(shape.indexOf("L{5,0}"), shape.lastIndexOf("L{5,0}"),
+                "the leaf is rendered twice: " + shape);
+        // the join reads two tables, so it collects two scans; the leaf is one of them
+        Assertions.assertEquals(2, info.getScans().size(), shape);
+        Assertions.assertTrue(shape.contains("L{5,0}S{null.null.t1}"), shape);
+    }
+
 }
