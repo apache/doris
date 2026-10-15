@@ -22,13 +22,16 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_read_ahead.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -59,6 +62,16 @@ public:
     Status seek_to_ordinal(ordinal_t) override { return Status::OK(); }
     ordinal_t get_current_ordinal() const override { return 0; }
 
+    Status init_prefetcher(const SegmentPrefetchParams&) override {
+        ++prefetcher_init_calls;
+        return Status::OK();
+    }
+
+    void collect_prefetchers(std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>&,
+                             PrefetcherInitMethod) override {
+        ++prefetcher_collect_calls;
+    }
+
     Status prepare_read_ahead(const ColumnReadAheadRequest& request,
                               std::vector<ColumnReadAheadPlan>* plans) override {
         request.sanity_check();
@@ -83,6 +96,8 @@ public:
     ReadPhase phase() const { return _read_phase; }
 
     std::vector<RecordedReadAheadCall> calls;
+    size_t prefetcher_init_calls {0};
+    size_t prefetcher_collect_calls {0};
 
 private:
     Status _prepare_status;
@@ -141,14 +156,13 @@ protected:
 TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
     auto iterator = make_iterator();
     auto* predicate = set_column(iterator.get(), 0);
-    auto* split_common_expr = set_column(iterator.get(), 1);
+    auto* common_expr = set_column(iterator.get(), 1);
     auto* output = set_column(iterator.get(), 2);
     iterator->_is_need_short_eval = true;
     iterator->_is_need_expr_eval = true;
     iterator->_predicate_ordinals = {0};
     iterator->_common_expr_ordinals = {1};
     iterator->_output_ordinals = {2};
-    iterator->_lazy_pruned_ordinals = {1};
     iterator->_opts.read_orderby_key_reverse = true;
 
     const auto plans = iterator->_plan_scan_read_ahead();
@@ -160,17 +174,60 @@ TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
     EXPECT_EQ(predicate->calls[0].rowids, iterator->_row_bitmap);
     EXPECT_TRUE(predicate->calls[0].page_driven);
 
-    ASSERT_EQ(split_common_expr->calls.size(), 2);
-    EXPECT_EQ(split_common_expr->calls[0].role, ColumnReadAheadRole::LAZY);
-    EXPECT_EQ(split_common_expr->calls[0].phase, ColumnIterator::ReadPhase::PREDICATE);
-    EXPECT_EQ(split_common_expr->calls[1].role, ColumnReadAheadRole::LAZY);
-    EXPECT_EQ(split_common_expr->calls[1].phase, ColumnIterator::ReadPhase::LAZY);
-    EXPECT_EQ(split_common_expr->phase(), ColumnIterator::ReadPhase::NORMAL);
+    ASSERT_EQ(common_expr->calls.size(), 1);
+    EXPECT_EQ(common_expr->calls[0].role, ColumnReadAheadRole::LAZY);
+    EXPECT_EQ(common_expr->calls[0].phase, ColumnIterator::ReadPhase::NORMAL);
 
     ASSERT_EQ(output->calls.size(), 1);
     EXPECT_EQ(output->calls[0].role, ColumnReadAheadRole::LAZY);
     EXPECT_EQ(output->calls[0].phase, ColumnIterator::ReadPhase::NORMAL);
-    EXPECT_EQ(plans.size(), 4);
+    EXPECT_EQ(plans.size(), 3);
+}
+
+TEST_F(SegmentIteratorReadAheadTest, ComplexColumnsKeepOriginalPrefetchers) {
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    const auto old_enable_prefetch = config::enable_query_segment_file_cache_prefetch;
+    Defer restore_config {[&] {
+        config::cloud_unique_id = old_cloud_unique_id;
+        config::enable_query_segment_file_cache_prefetch = old_enable_prefetch;
+    }};
+    config::cloud_unique_id = "SegmentIteratorReadAheadTest";
+    config::enable_query_segment_file_cache_prefetch = true;
+
+    for (FieldType type : {FieldType::OLAP_FIELD_TYPE_ARRAY, FieldType::OLAP_FIELD_TYPE_MAP,
+                           FieldType::OLAP_FIELD_TYPE_STRUCT, FieldType::OLAP_FIELD_TYPE_VARIANT,
+                           FieldType::OLAP_FIELD_TYPE_AGG_STATE}) {
+        SCOPED_TRACE(static_cast<int>(type));
+        _tablet_schema->columns()[1]->set_type(type);
+        auto iterator = make_iterator();
+        auto* predicate = set_column(iterator.get(), 0);
+        auto* complex = set_column(iterator.get(), 1);
+        auto* output = set_column(iterator.get(), 2);
+        iterator->_is_need_short_eval = true;
+        iterator->_predicate_ordinals = {0};
+        iterator->_common_expr_ordinals = {1};
+        iterator->_output_ordinals = {2};
+        iterator->_lazy_pruned_ordinals = {1};
+        iterator->_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+        EXPECT_EQ(iterator->_plan_scan_read_ahead().size(), 2);
+        EXPECT_EQ(predicate->calls.size(), 1);
+        EXPECT_EQ(output->calls.size(), 1);
+        EXPECT_TRUE(complex->calls.empty());
+        iterator->_init_segment_prefetchers();
+        EXPECT_EQ(predicate->prefetcher_init_calls, 0);
+        EXPECT_EQ(output->prefetcher_init_calls, 0);
+        EXPECT_EQ(predicate->prefetcher_collect_calls, 0);
+        EXPECT_EQ(output->prefetcher_collect_calls, 0);
+        EXPECT_EQ(complex->prefetcher_init_calls, 1);
+        EXPECT_EQ(complex->prefetcher_collect_calls, 1);
+
+        iterator->_column_read_ahead_context.reset();
+        iterator->_init_segment_prefetchers();
+        EXPECT_EQ(predicate->prefetcher_init_calls, 1);
+        EXPECT_EQ(output->prefetcher_init_calls, 1);
+        EXPECT_EQ(complex->prefetcher_init_calls, 2);
+    }
 }
 
 TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowForFirstCommonExpressionStage) {

@@ -1099,7 +1099,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
     EXPECT_GT(stats.read_ahead_stats->fallback_time.value(), 0);
 }
 
-TEST_F(ColumnReaderTest, StructReadAheadRoutesPhysicalColumnsByReadPhase) {
+TEST_F(ColumnReaderTest, StructReadAheadKeepsChildrenOnOriginalPath) {
     auto null_iterator = std::make_unique<TrackingColumnIterator>();
     auto* null_tracker = null_iterator.get();
     auto eager_iterator = std::make_unique<TrackingColumnIterator>();
@@ -1133,11 +1133,9 @@ TEST_F(ColumnReaderTest, StructReadAheadRoutesPhysicalColumnsByReadPhase) {
                                                .role = ColumnReadAheadRole::EAGER},
                                               &prepared);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(eager_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(2, 5)));
+    EXPECT_TRUE(eager_tracker->read_ahead_batches.empty());
     EXPECT_TRUE(lazy_tracker->read_ahead_batches.empty());
-    EXPECT_THAT(null_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(2, 5)));
+    EXPECT_TRUE(null_tracker->read_ahead_batches.empty());
 
     iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
     status = iterator.prepare_read_ahead({.current_rowids = current_rowids,
@@ -1147,15 +1145,13 @@ TEST_F(ColumnReaderTest, StructReadAheadRoutesPhysicalColumnsByReadPhase) {
                                           .role = ColumnReadAheadRole::LAZY},
                                          &prepared);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(eager_tracker->read_ahead_roles,
-                ::testing::ElementsAre(ColumnReadAheadRole::EAGER));
-    EXPECT_THAT(lazy_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(2, 5)));
-    EXPECT_THAT(lazy_tracker->read_ahead_roles, ::testing::ElementsAre(ColumnReadAheadRole::LAZY));
-    EXPECT_EQ(null_tracker->read_ahead_batches.size(), 1);
+    EXPECT_TRUE(eager_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(lazy_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(null_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(prepared.empty());
 }
 
-TEST_F(ColumnReaderTest, MapReadAheadPlansOffsetsOnlyInTheirMaterializationPhase) {
+TEST_F(ColumnReaderTest, MapReadAheadKeepsOffsetsOnOriginalPath) {
     auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
     auto* offsets_tracker = offsets_file_iterator.get();
     auto offsets_iterator =
@@ -1195,13 +1191,11 @@ TEST_F(ColumnReaderTest, MapReadAheadPlansOffsetsOnlyInTheirMaterializationPhase
                                             &prepared)
                         .ok());
 
-    EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(1, 3)));
-    EXPECT_THAT(offsets_tracker->read_ahead_roles,
-                ::testing::ElementsAre(ColumnReadAheadRole::EAGER));
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(prepared.empty());
 }
 
-TEST_F(ColumnReaderTest, ArrayReadAheadPlansOffsetsOnlyInTheirMaterializationPhase) {
+TEST_F(ColumnReaderTest, ArrayReadAheadKeepsOffsetsOnOriginalPath) {
     auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
     auto* offsets_tracker = offsets_file_iterator.get();
     auto offsets_iterator =
@@ -1238,13 +1232,11 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansOffsetsOnlyInTheirMaterializationPha
                                             &prepared)
                         .ok());
 
-    EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(1, 3)));
-    EXPECT_THAT(offsets_tracker->read_ahead_roles,
-                ::testing::ElementsAre(ColumnReadAheadRole::EAGER));
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(prepared.empty());
 }
 
-TEST_F(ColumnReaderTest, MapReadAheadPlansDependentChildrenAfterOffsets) {
+TEST_F(ColumnReaderTest, MapRowidReadKeepsChildrenOnOriginalPath) {
     auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
     auto* offsets_tracker = offsets_file_iterator.get();
     auto offsets_iterator =
@@ -1272,28 +1264,22 @@ TEST_F(ColumnReaderTest, MapReadAheadPlansDependentChildrenAfterOffsets) {
                                                .page_driven = true},
                                               &prepared);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)));
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
     EXPECT_TRUE(key_tracker->read_ahead_batches.empty());
     EXPECT_TRUE(value_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(prepared.empty());
 
     MutableColumnPtr output = ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
                                                 ColumnMap::COffsets::create());
     status = iterator.read_by_rowids(current_rowids, std::size(current_rowids), output);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(key_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(1, 3)));
-    EXPECT_THAT(value_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(1, 3)));
-    EXPECT_THAT(key_tracker->read_ahead_roles, ::testing::ElementsAre(ColumnReadAheadRole::LAZY));
-    EXPECT_THAT(value_tracker->read_ahead_roles, ::testing::ElementsAre(ColumnReadAheadRole::LAZY));
-    EXPECT_THAT(key_tracker->read_ahead_reverse, ::testing::ElementsAre(true));
-    EXPECT_THAT(value_tracker->read_ahead_reverse, ::testing::ElementsAre(true));
+    EXPECT_TRUE(key_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(value_tracker->read_ahead_batches.empty());
     EXPECT_THAT(key_tracker->seek_ordinals, ::testing::ElementsAre(1, 3));
     EXPECT_THAT(value_tracker->seek_ordinals, ::testing::ElementsAre(1, 3));
 }
 
-TEST_F(ColumnReaderTest, ArrayReadAheadPlansDependentItemsAfterOffsets) {
+TEST_F(ColumnReaderTest, ArraySequentialReadKeepsItemsOnOriginalPath) {
     auto offsets_file_iterator = std::make_unique<SequentialOffsetFileColumnIterator>(
             std::vector<ordinal_t> {0, 2, 3, 6});
     auto* offsets_tracker = offsets_file_iterator.get();
@@ -1317,9 +1303,9 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansDependentItemsAfterOffsets) {
                                                .page_driven = true},
                                               &prepared);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(0, 1, 2)));
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
     EXPECT_TRUE(item_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(prepared.empty());
 
     status = iterator.seek_to_ordinal(0);
     ASSERT_TRUE(status.ok()) << status;
@@ -1328,10 +1314,58 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansDependentItemsAfterOffsets) {
     size_t rows = 2;
     status = iterator.next_batch(&rows, output);
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_THAT(item_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(0, 1, 2)));
-    EXPECT_THAT(item_tracker->read_ahead_roles, ::testing::ElementsAre(ColumnReadAheadRole::LAZY));
+    EXPECT_TRUE(item_tracker->read_ahead_batches.empty());
     EXPECT_THAT(item_tracker->next_batch_sizes, ::testing::ElementsAre(3));
+}
+
+TEST_F(ColumnReaderTest, StructLazyMapReadAllowsDifferentChildOrdinals) {
+    for (bool skip_keys : {false, true}) {
+        SCOPED_TRACE(skip_keys);
+        auto skipped = std::make_unique<FileColumnIterator>(create_test_reader());
+        auto* skipped_ptr = skipped.get();
+        skipped->set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+        auto active = std::make_unique<TrackingColumnIterator>();
+        auto* active_ptr = active.get();
+        active->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        ColumnIteratorUPtr keys = skip_keys ? ColumnIteratorUPtr(std::move(skipped))
+                                            : ColumnIteratorUPtr(std::move(active));
+        ColumnIteratorUPtr values = skip_keys ? ColumnIteratorUPtr(std::move(active))
+                                              : ColumnIteratorUPtr(std::move(skipped));
+        auto offsets = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<SequentialOffsetFileColumnIterator>(
+                        std::vector<ordinal_t> {0, 2, 3, 6}));
+        auto map = std::make_unique<MapFileColumnIterator>(
+                create_test_reader(false, 3, FieldType::OLAP_FIELD_TYPE_MAP), nullptr,
+                std::move(offsets), std::move(keys), std::move(values));
+        map->set_read_requirement_self(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        std::vector<ColumnIteratorUPtr> children;
+        children.push_back(std::move(map));
+        StructFileColumnIterator iterator(
+                create_test_reader(false, 3, FieldType::OLAP_FIELD_TYPE_STRUCT), nullptr,
+                std::move(children));
+        iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+
+        // Real skipped scalar iterators do not seek. The lazy sibling starts at item 2,
+        // while the skipped child stays at 0, including when read-ahead is disabled.
+        ASSERT_TRUE(iterator.seek_to_ordinal(1).ok());
+        EXPECT_EQ(skipped_ptr->get_current_ordinal(), 0);
+        EXPECT_EQ(active_ptr->get_current_ordinal(), 2);
+        MutableColumnPtr output = ColumnStruct::create(Columns {ColumnMap::create(
+                ColumnInt32::create(), ColumnInt32::create(), ColumnMap::COffsets::create())});
+        const rowid_t rowids[] = {1, 2};
+        auto status = iterator.read_by_rowids(rowids, std::size(rowids), output);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& result = assert_cast<const ColumnMap&>(
+                assert_cast<const ColumnStruct&>(*output).get_column(0));
+        EXPECT_EQ(output->size(), 2);
+        EXPECT_THAT(result.get_offsets(), ::testing::ElementsAre(1, 4));
+        EXPECT_EQ(result.get_keys().size(), 4);
+        EXPECT_EQ(result.get_values().size(), 4);
+        EXPECT_EQ(skipped_ptr->get_current_ordinal(), 0);
+        EXPECT_EQ(active_ptr->get_current_ordinal(), 6);
+        EXPECT_TRUE(active_ptr->read_ahead_batches.empty());
+    }
 }
 
 TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
