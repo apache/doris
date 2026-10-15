@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -1068,6 +1069,12 @@ public class GroupStructInfo {
     }
 
     private static void appendScan(OlapScan scan, Canonical out, Ctx ctx) {
+        if (scan instanceof LogicalOlapScan && ((LogicalOlapScan) scan).getTableSample().isPresent()) {
+            // a table sample reads a random subset of the table, and a different one on every execution:
+            // no row count recorded for such a scan can be reused, and a node above it inherits that
+            invalid(ctx, "tablesample of " + scan.getTable().getNameWithFullQualifiers());
+            return;
+        }
         try {
             // the scan token is the table plus the data state of the scan (baseline). Its shape form
             // is the table alone and is written by this very call, so the fingerprint input is never

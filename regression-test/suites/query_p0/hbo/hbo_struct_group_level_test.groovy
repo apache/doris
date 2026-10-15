@@ -147,6 +147,16 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         assertEquals(beforeLoad[0], afterLoad[0])
         assertNotEquals(beforeLoad[1], afterLoad[1])
         assertTrue(normalizeRows(afterLoad[1]).contains("S{internal.hbo_test.hbo_sg_t1,v3,r1010}"), afterLoad[1])
+        // (6) a table sample reads a random subset on every execution: no row count recorded for it can
+        // be reused, so the sampled scan and every node above it are reported as skipped - and a query
+        // without a sample keeps its fingerprints
+        def unsampled = "select count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a"
+        assertTrue(explainText(unsampled).contains("type=exact"), explainText(unsampled))
+        def sampled = explainText("select count(*) from hbo_sg_t1 x tablesample(50 percent)" +
+                " join hbo_sg_t2 y on x.a = y.a")
+        assertTrue(sampled.contains("tablesample of internal.hbo_test.hbo_sg_t1"), sampled)
+        assertFalse(sampled.contains("type=exact"), sampled)
+
     } finally {
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
