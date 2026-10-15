@@ -240,10 +240,13 @@ public final class SimpleStructInfo {
         if (lastDot < 0) {
             return qualifiedName;
         }
+        // the canonical encodes the identifier text like a literal value (see the slot rendering), so
+        // the parts are decoded again to display the name the user knows
         String qualifier = qualifiedName.substring(0, lastDot);
-        String column = qualifiedName.substring(lastDot + 1);
+        String column = GroupStructInfo.decodeLiteralValue(qualifiedName.substring(lastDot + 1));
         int qualifierDot = qualifier.lastIndexOf('.');
-        String owner = qualifierDot < 0 ? qualifier : qualifier.substring(qualifierDot + 1);
+        String owner = GroupStructInfo.decodeLiteralValue(
+                qualifierDot < 0 ? qualifier : qualifier.substring(qualifierDot + 1));
         if (tableNames.size() == 1 && tableNames.contains(owner)) {
             return column;
         }

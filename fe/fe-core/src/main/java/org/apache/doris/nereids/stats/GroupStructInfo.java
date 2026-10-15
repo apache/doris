@@ -1473,8 +1473,15 @@ public class GroupStructInfo {
             StringBuilder withLiteral, StringBuilder noLiteral) {
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
-            StringBuilder text = new StringBuilder("col(")
-                    .append(String.join(".", slot.getQualifier())).append('.').append(slot.getName());
+            // the identifier text is encoded like a literal value: a name which contains one of the
+            // delimiters of the canonical form (`a,S{b}`) would otherwise be read as the start of a scan
+            // token by the text based reader of HBO SET STATISTICS, which then truncates the struct info
+            // it hashes. The encoding is the identity for an ordinary name, so no key of one moves.
+            StringBuilder text = new StringBuilder("col(");
+            for (String qualifierPart : slot.getQualifier()) {
+                text.append(encodeLiteralValue(qualifierPart)).append('.');
+            }
+            text.append(encodeLiteralValue(slot.getName()));
             // the sub path of a variant column is part of the identity of the slot: after the variant sub
             // path pruning `v['age']` and `v['score']` are two slots which read different values, so a
             // predicate above them keeps a different number of rows, while the column name alone is the
