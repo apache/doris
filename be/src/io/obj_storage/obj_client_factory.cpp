@@ -72,10 +72,18 @@ ObjClientFactory& ObjClientFactory::instance() {
 
 Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::get_or_create(
         const ObjClientConfig& config) {
-    if (const auto* s3 = std::get_if<S3ClientConfig>(&config.backend)) {
-        return _s3.get_or_create(config, *s3);
-    }
-    return _azure.get_or_create(config, std::get<AzureClientConfig>(config.backend));
+    return std::visit([&](const auto& backend) { return _dispatch(config, backend); },
+                      config.backend);
+}
+
+Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::_dispatch(const ObjClientConfig& config,
+                                                                      const S3ClientConfig& s3) {
+    return _s3.get_or_create(config, s3);
+}
+
+Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::_dispatch(
+        const ObjClientConfig& config, const AzureClientConfig& azure) {
+    return _azure.get_or_create(config, azure);
 }
 
 std::shared_ptr<ObjStorageClient> apply_rate_limit_policy(std::shared_ptr<ObjStorageClient> client,

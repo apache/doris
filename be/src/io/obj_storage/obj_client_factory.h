@@ -37,6 +37,14 @@ public:
 private:
     ObjClientFactory();
 
+    // One overload per backend alternative. get_or_create() reaches them through
+    // std::visit, so adding an alternative to ObjClientConfig::backend without a matching
+    // overload fails to compile instead of throwing bad_variant_access at runtime.
+    Result<std::shared_ptr<ObjStorageClient>> _dispatch(const ObjClientConfig& config,
+                                                        const S3ClientConfig& s3);
+    Result<std::shared_ptr<ObjStorageClient>> _dispatch(const ObjClientConfig& config,
+                                                        const AzureClientConfig& azure);
+
     S3ClientProvider _s3;
     AzureClientProvider _azure;
 };
