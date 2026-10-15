@@ -53,7 +53,14 @@ suite("test_ai_profile", "p0") {
                                 [embedding: [0.25, 0.75]]
                             }], usage: [input_tokens: 4, output_tokens: 0, total_tokens: 4]]
             } else {
-                response = [choices: [[message: [content: path == "/aggregate" ? "summary" : '["ok"]']]]]
+                String content = "summary"
+                if (path != "/aggregate") {
+                    // String functions send a JSON array of inputs in the user message.
+                    // Return one result per input even when several rows share a request.
+                    def inputs = new JsonSlurper().parseText(request.messages.find { it.role == "user" }.content)
+                    content = JsonOutput.toJson(inputs.collect { "ok" })
+                }
+                response = [choices: [[message: [content: content]]]]
                 if (path != "/missing") {
                     response.usage = [prompt_tokens: 7, completion_tokens: 3, total_tokens: 10]
                 }
