@@ -214,7 +214,7 @@ public class IcebergConnectorCacheTest {
         Table table = tableWithOneManifest();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         IcebergManifestCache manifestCache = connector.manifestCacheForTest();
-        manifestCache.getManifestCacheValue(manifest, table);
+        manifestCache.getManifestCacheValue(manifest, table, table.specs());
         Assertions.assertEquals(1, manifestCache.size(), "the manifest is cached after a load");
 
         // REFRESH TABLE must NOT drop the manifest cache (path-keyed immutable content; legacy parity).

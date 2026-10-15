@@ -28,11 +28,30 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Byte-parity tests for {@link HudiScanPlanProvider#parsePartitionValues} against legacy
- * {@code HudiPartitionUtils.parsePartitionValues}. Each case pins WHY the behavior matters for BE-visible
- * partition columns on a snapshot read.
+ * Tests for {@link HudiScanPlanProvider#parsePartitionValues}, covering physical path encoding and the
+ * legacy positional/prefixed layouts used for BE-visible partition columns on a snapshot read.
  */
 public class HudiPartitionValuesTest {
+
+    @Test
+    public void rawAndEncodedValuesHaveTheSameLogicalIdentity() {
+        for (String value : Arrays.asList(":", "%3A", "%253A", "a/b", "a+b", "a%2Fb", "bad%2", "你好")) {
+            for (boolean encoded : Arrays.asList(false, true)) {
+                String path = encoded ? HudiScanPlanProvider.renderHiveStylePartitionName(
+                        Collections.singletonList("dt"), Collections.singletonMap("dt", value)).substring(3) : value;
+                for (String prefix : Arrays.asList("", "dt=")) {
+                    Assertions.assertEquals(value, HudiScanPlanProvider.parsePartitionValues(
+                            prefix + path, Collections.singletonList("dt"), encoded).get("dt"));
+                }
+                Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
+                        "dt=" + path, Collections.singletonList("dt"), encoded);
+                String name = HudiScanPlanProvider.renderHiveStylePartitionName(
+                        Collections.singletonList("dt"), values);
+                Assertions.assertEquals(values,
+                        HudiConnectorMetadata.parsePartitionName(name, Collections.singletonList("dt")));
+            }
+        }
+    }
 
     @Test
     public void nonHiveStylePositionalPathMapsByPosition() {
@@ -40,7 +59,7 @@ public class HudiPartitionValuesTest {
         // paths like "2024/01" with NO "col=" prefix. The old split-on-'=' logic dropped every prefix-less
         // fragment, so the value map was EMPTY -> BE returned NULL partition columns on a plain snapshot read.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "2024/01", Arrays.asList("year", "month"));
+                "2024/01", Arrays.asList("year", "month"), true);
 
         Assertions.assertEquals(2, values.size(), "both positional fragments must map to their columns");
         Assertions.assertEquals("2024", values.get("year"));
@@ -50,7 +69,7 @@ public class HudiPartitionValuesTest {
     @Test
     public void hiveStylePathStripsColumnPrefix() {
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "year=2024/month=01", Arrays.asList("year", "month"));
+                "year=2024/month=01", Arrays.asList("year", "month"), true);
 
         Assertions.assertEquals("2024", values.get("year"));
         Assertions.assertEquals("01", values.get("month"));
@@ -60,7 +79,7 @@ public class HudiPartitionValuesTest {
     public void mixedPrefixedAndPositionalFragments() {
         // Legacy decides per fragment (startsWith "col=" or not), so a mixed path must resolve each side.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "year=2024/01", Arrays.asList("year", "month"));
+                "year=2024/01", Arrays.asList("year", "month"), true);
 
         Assertions.assertEquals("2024", values.get("year"), "prefixed fragment strips the col= prefix");
         Assertions.assertEquals("01", values.get("month"), "prefix-less fragment maps positionally");
@@ -71,7 +90,7 @@ public class HudiPartitionValuesTest {
         // Legacy unescaped every value via Hive's FileUtils.unescapePathName; %20 -> space, %2F -> slash. A
         // partition value with an escaped char would otherwise reach BE literally (wrong value).
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "dt=2024-01-01%2012%3A00%3A00", Collections.singletonList("dt"));
+                "dt=2024-01-01%2012%3A00%3A00", Collections.singletonList("dt"), true);
 
         Assertions.assertEquals("2024-01-01 12:00:00", values.get("dt"), "escaped chars must be decoded");
     }
@@ -81,7 +100,7 @@ public class HudiPartitionValuesTest {
         // Single partition column, path has more '/' fragments than columns: legacy maps the WHOLE path to the
         // single column (after stripping an optional "col=" prefix), not throw.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "2024/01/01", Collections.singletonList("dt"));
+                "2024/01/01", Collections.singletonList("dt"), true);
 
         Assertions.assertEquals(1, values.size());
         Assertions.assertEquals("2024/01/01", values.get("dt"), "whole path maps to the single column");
@@ -90,7 +109,7 @@ public class HudiPartitionValuesTest {
     @Test
     public void singleColumnStripsPrefixInWholePathFallback() {
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "dt=2024/01/01", Collections.singletonList("dt"));
+                "dt=2024/01/01", Collections.singletonList("dt"), true);
 
         Assertions.assertEquals("2024/01/01", values.get("dt"),
                 "the leading col= prefix is stripped before the whole-path fallback");
@@ -102,7 +121,7 @@ public class HudiPartitionValuesTest {
         // producing a partial/wrong value map. Fail loud, matching legacy.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> HudiScanPlanProvider.parsePartitionValues(
-                        "2024/01/extra", Arrays.asList("year", "month")));
+                        "2024/01/extra", Arrays.asList("year", "month"), true));
         Assertions.assertTrue(ex.getMessage().contains("2024/01/extra"),
                 "the failure must name the offending partition path");
     }
@@ -147,8 +166,8 @@ public class HudiPartitionValuesTest {
         // Unpartitioned tables reach here with an empty key list and an empty path; the result must be empty
         // (no spurious partition column).
         Assertions.assertTrue(
-                HudiScanPlanProvider.parsePartitionValues("", Collections.emptyList()).isEmpty());
+                HudiScanPlanProvider.parsePartitionValues("", Collections.emptyList(), true).isEmpty());
         Assertions.assertTrue(
-                HudiScanPlanProvider.parsePartitionValues("", null).isEmpty());
+                HudiScanPlanProvider.parsePartitionValues("", null, true).isEmpty());
     }
 }

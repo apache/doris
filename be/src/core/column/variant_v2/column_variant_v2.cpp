@@ -45,6 +45,7 @@
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_payload_validator.h"
 #include "exec/sort/sort_block.h"
 
 namespace doris {
@@ -876,12 +877,13 @@ void ColumnVariantV2::sanity_check() const {
             const StringRef metadata = metadatas.get_data_at(id);
             validate_variant_metadata({metadata.data, metadata.size});
         }
+        VariantPayloadValidator payload_validator;
         for (size_t row = 0; row < values.size(); ++row) {
             const uint32_t id = metadata_ids[row];
             DORIS_CHECK_LT(id, metadatas.size()) << "ColumnVariantV2 metadata id is out of range";
             const StringRef metadata = metadatas.get_data_at(id);
-            validate_variant_payload({.metadata = {.data = metadata.data, .size = metadata.size},
-                                      .value = values.get_data_at(row)});
+            payload_validator.validate({.metadata = {.data = metadata.data, .size = metadata.size},
+                                        .value = values.get_data_at(row)});
         }
     }
 }
@@ -973,12 +975,13 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
 
     // Validate every row before changing a typed destination or appending to an encoded one.
     // This keeps input errors atomic without introducing a second temporary column.
+    VariantPayloadValidator payload_validator;
     if (data.meta_ids.empty()) {
         const VariantMetadataRef metadata = metadata_at(0);
         for (size_t row = 0; row < rows; ++row) {
             const uint32_t begin = data.value_offsets[row];
             const uint32_t end = data.value_offsets[row + 1];
-            validate_variant_payload(
+            payload_validator.validate(
                     {.metadata = metadata,
                      .value = {data.value_bytes.data + begin, static_cast<size_t>(end - begin)}});
         }
@@ -988,7 +991,7 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
             DORIS_CHECK_LT(source_id, metadata_count) << "encoded row metadata id is out of range";
             const uint32_t begin = data.value_offsets[row];
             const uint32_t end = data.value_offsets[row + 1];
-            validate_variant_payload(
+            payload_validator.validate(
                     {.metadata = metadata_at(source_id),
                      .value = {data.value_bytes.data + begin, static_cast<size_t>(end - begin)}});
         }
@@ -1007,6 +1010,8 @@ struct ColumnVariantV2::EncodedRowsAppender::Impl {
     ColumnVariantV2* column;
     MetadataHashHeads metadata_hash_heads;
     DorisVector<uint32_t> metadata_hash_next;
+    // Kept across append() calls so that every chunk a reader imports reuses one scratch.
+    VariantPayloadValidator payload_validator;
     size_t expected_rows = 0;
     bool initialized = false;
 #ifdef BE_TEST
@@ -1024,6 +1029,10 @@ ColumnVariantV2::EncodedRowsAppender::EncodedRowsAppender(EncodedRowsAppender&&)
 #ifdef BE_TEST
 size_t ColumnVariantV2::EncodedRowsAppender::metadata_comparisons_for_test() const noexcept {
     return _impl == nullptr ? 0 : _impl->metadata_comparisons;
+}
+
+size_t ColumnVariantV2::EncodedRowsAppender::validation_scratch_capacity_for_test() const noexcept {
+    return _impl == nullptr ? 0 : _impl->payload_validator.object_span_capacity_for_test();
 }
 #endif
 
@@ -1094,7 +1103,7 @@ void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-functio
         if (!source_metadata_ids.empty()) {
             source_metadata_ids[row] = source_metadata_id;
         }
-        validate_variant_payload(value);
+        _impl->payload_validator.validate(value);
         source_values[row] = value.value;
         if (value.value.size > std::numeric_limits<size_t>::max() - total_value_bytes) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
