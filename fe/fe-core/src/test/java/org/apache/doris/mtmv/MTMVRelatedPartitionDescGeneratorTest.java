@@ -220,7 +220,10 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 .getTableOrAnalysisException("t15");
         Map<MTMVRelatedTableIf, Set<String>> onePartition = partitionKeyDescMap.values().iterator().next();
         Assertions.assertEquals(Sets.newHashSet("t14_p12"), onePartition.get(t14));
-        Assertions.assertEquals(Sets.newHashSet("t15_p1"), onePartition.get(t15));
+        // The component keeps every partition it was recorded with, not only the one the query reads: the
+        // freshness check compares these names to the ones the refresh recorded, so a query reading part of
+        // the component has to see the whole of it.
+        Assertions.assertEquals(Sets.newHashSet("t15_p1", "t15_p23"), onePartition.get(t15));
     }
 
     @Test
@@ -320,7 +323,8 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Assertions.assertEquals(2, partitionKeyDescMap.keySet().iterator().next().getInValues().size());
         OlapTable t8 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("t8");
-        Assertions.assertEquals(Sets.newHashSet("p_single"), partitionKeyDescMap.values().iterator().next().get(t8));
+        Assertions.assertEquals(Sets.newHashSet("p_single", "p_double"),
+                partitionKeyDescMap.values().iterator().next().get(t8));
     }
 
     @Test
@@ -385,7 +389,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
 
         Set<String> collected = Sets.newHashSet();
         partitionKeyDescMap.values().forEach(m -> m.values().forEach(collected::addAll));
-        Assertions.assertEquals(Sets.newHashSet("p1_bj"), collected);
+        Assertions.assertEquals(Sets.newHashSet("p1_bj", "p1_sh"), collected);
     }
 
     @Test

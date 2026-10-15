@@ -57,11 +57,15 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
             for (Entry<MTMVRelatedTableIf, Set<String>> tableEntry : entry.getValue().entrySet()) {
                 Set<String> names = Sets.newHashSet(tableEntry.getValue());
                 Set<String> queryUsed = queryUsedPartitionMap.get(tableEntry.getKey().getFullQualifiers());
-                if (queryUsed != null) {
-                    names.retainAll(queryUsed);
-                    if (names.isEmpty()) {
-                        continue;
-                    }
+                // The query decides which components it reads -- one none of whose partitions it reads feeds
+                // nothing to it, and the MV partition is not offered -- but a component it does read keeps
+                // every partition that was recorded for it. Narrowing the names to the ones the query reads
+                // would leave a descriptor the MV holds and a name set short of it, and the freshness check
+                // compares those names to the recorded ones: a query reading part of a merged LIST component
+                // would find the MV partition freshly refreshed and still be told the two are not
+                // synchronized, so the MV would answer none of it.
+                if (queryUsed != null && names.stream().noneMatch(queryUsed::contains)) {
+                    continue;
                 }
                 onePartition.put(tableEntry.getKey(), names);
             }
