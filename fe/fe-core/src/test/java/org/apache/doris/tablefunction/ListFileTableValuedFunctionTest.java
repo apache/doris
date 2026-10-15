@@ -26,11 +26,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataGenFunctionName;
@@ -128,15 +126,14 @@ class ListFileTableValuedFunctionTest {
             fixture.properties.put("s3.secret_key", "prepare");
             ListFileTableValuedFunction function = new ListFileTableValuedFunction(fixture.params());
             fixture.properties.put("s3.secret_key", "first execute");
-            ThriftPlansBuilder.resolveS3Resource(fixture.context, "s3_resource");
+            fixture.context.getOrRegisterS3Resource("s3_resource");
             fixture.properties.put("s3.secret_key", "second execute");
             TTVFListFileScanRange first = range(function);
             Assertions.assertEquals("first execute", first.getResource().getProperties().get("AWS_SECRET_KEY"));
             first.getResource().getProperties().put("AWS_SECRET_KEY", "mutated wire copy");
             Assertions.assertEquals("first execute",
                     range(function).getResource().getProperties().get("AWS_SECRET_KEY"));
-            StatementContext next = fixture.statement.createNextExecuteContext();
-            Mockito.when(fixture.context.getStatementContext()).thenReturn(next);
+            fixture.context.setStartTime();
             Assertions.assertEquals("second execute",
                     range(function).getResource().getProperties().get("AWS_SECRET_KEY"));
             Mockito.when(fixture.access.checkResourcePriv(fixture.context, "s3_resource", PrivPredicate.USAGE))
@@ -186,11 +183,10 @@ class ListFileTableValuedFunctionTest {
         final Env env = Mockito.mock(Env.class);
         final ResourceMgr manager = Mockito.mock(ResourceMgr.class);
         final AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
-        final ConnectContext context = Mockito.mock(ConnectContext.class);
+        final ConnectContext context = Mockito.spy(new ConnectContext());
         final S3Resource resource = Mockito.mock(S3Resource.class);
         final SystemInfoService system = Mockito.mock(SystemInfoService.class);
         final Backend backend = Mockito.mock(Backend.class);
-        final StatementContext statement = new StatementContext(context, null);
         final Map<String, String> properties = new HashMap<>();
         final MockedStatic<Env> current = Mockito.mockStatic(Env.class);
         final MockedStatic<ConnectContext> connection = Mockito.mockStatic(ConnectContext.class);
@@ -211,7 +207,6 @@ class ListFileTableValuedFunctionTest {
             properties.put("s3.access_key", "fake-access-key");
             properties.put("s3.secret_key", "fake-secret-key");
             Mockito.when(resource.getCopiedProperties()).thenAnswer(invocation -> new HashMap<>(properties));
-            Mockito.when(context.getStatementContext()).thenReturn(statement);
             Mockito.when(backend.isAlive()).thenReturn(true);
             try {
                 Mockito.when(system.getBackendsByCurrentCluster()).thenReturn(ImmutableMap.of(1L, backend));

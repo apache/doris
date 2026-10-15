@@ -237,7 +237,7 @@ Status DataTypeFileSerDe::_read_json(StringRef str, IColumn& column) const {
     }
     rapidjson::Document document;
     rapidjson::MemoryStream stream(str.data, str.size);
-    document.ParseStream<rapidjson::kParseValidateEncodingFlag>(stream);
+    document.ParseStream(stream);
     if (document.HasParseError() || !document.IsObject() || stream.Tell() != str.size) {
         return Status::InvalidArgument("FILE requires a JSON object");
     }

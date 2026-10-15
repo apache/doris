@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataGenFunctionName;
@@ -108,7 +107,7 @@ public class ListFileTableValuedFunction extends DataGenTableValuedFunction {
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         ConnectContext context = ConnectContext.get();
         checkS3Resource(context);
-        TS3Resource resource = ThriftPlansBuilder.resolveS3Resource(context, resourceName);
+        TS3Resource resource = context.getOrRegisterS3Resource(resourceName);
         List<Backend> backends = new ArrayList<>();
         for (Backend backend : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (backend.isAlive()) {
