@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -622,13 +623,17 @@ public class GroupStructInfo {
                 appendScan((OlapScan) storageAggregate.getRelation(), out, ctx);
             }
         } else if (plan instanceof TopN) {
-            // a top-n keeps its sort keys out of the identity (they do not change the number of rows)
-            // but its bound does: the same text is written in both modes so that NO_LITERAL cannot fold
-            // the value away and let two different bounds share one entry
+            // a top-n keeps its bound and its ordering out of the folding: the bound is written with the
+            // same text in both modes so that NO_LITERAL cannot fold the value away and let two different
+            // bounds share one entry, and the ordering is part of the identity because it decides *which*
+            // rows survive - two top-ns with the same bound but a different ordering can match a
+            // different number of partners in the join above them
             if (ge.arity() == 1) {
                 TopN topN = (TopN) plan;
-                out.addText(bound("T", topN.getLimit(), topN.getOffset()),
-                        bound("T", topN.getLimit(), topN.getOffset()));
+                StringBuilder withLiteral = new StringBuilder();
+                StringBuilder noLiteral = new StringBuilder();
+                appendTopNHeader(topN, withLiteral, noLiteral);
+                out.addText(withLiteral.toString(), noLiteral.toString());
                 appendChild(ge, 0, out, ctx);
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
@@ -837,8 +842,11 @@ public class GroupStructInfo {
             }
             return ChainInfo.of(conditions, conditionsNoLiteral, members, leaves);
         }
+        // a top-n must not be flattened into the chain although it is a sort: it keeps a bounded number
+        // of rows, so it is a boundary of the chain like a limit, and the ordering it keeps them by is
+        // part of the identity of every node above it
         if ((plan instanceof Project || plan instanceof Sort || plan instanceof Window)
-                && ge.arity() == 1) {
+                && !(plan instanceof TopN) && ge.arity() == 1) {
             ChainInfo child = chainInfoOf(ge.child(0));
             if (!child.valid) {
                 return child;
@@ -928,6 +936,34 @@ public class GroupStructInfo {
         if (ctx.reason.isEmpty()) {
             ctx.reason = reason;
         }
+    }
+
+    /**
+     * The header of a top-n: its bound, and the ordering which decides the rows it keeps. The ordering is
+     * rendered in both literal modes like a predicate, with the direction and the null order of every key,
+     * because {@code a asc} and {@code a desc} are not interchangeable for the nodes above (a literal
+     * inside an ordering key changes nothing about the number of rows of the top-n itself, but it can
+     * change which rows reach the node above).
+     */
+    private static void appendTopNHeader(TopN topN, StringBuilder withLiteral, StringBuilder noLiteral) {
+        String head = "T{" + topN.getLimit() + "," + topN.getOffset() + ";ord:[";
+        withLiteral.append(head);
+        noLiteral.append(head);
+        boolean first = true;
+        for (OrderKey orderKey : topN.getOrderKeys()) {
+            if (!first) {
+                withLiteral.append(',');
+                noLiteral.append(',');
+            }
+            first = false;
+            appendNormalizedExpression(orderKey.getExpr(), withLiteral, noLiteral);
+            String direction = (orderKey.isAsc() ? ":asc" : ":desc")
+                    + (orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
+            withLiteral.append(direction);
+            noLiteral.append(direction);
+        }
+        withLiteral.append("]}");
+        noLiteral.append("]}");
     }
 
     /** The bound of a limit / top-n: the same text in both modes, a bound is never folded. */

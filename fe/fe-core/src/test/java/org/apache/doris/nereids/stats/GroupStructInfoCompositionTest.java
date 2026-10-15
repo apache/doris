@@ -19,6 +19,8 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -28,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -241,4 +244,41 @@ public class GroupStructInfoCompositionTest {
                 withChoice.getFingerprint(NO_LITERAL));
     }
 
+    @Test
+    void testTheOrderingOfATopNIsPartOfTheKeyAboveIt() {
+        // with t keys 1 and 2 and a partner table which only holds 1, `topn(1, a asc)` keeps the row which
+        // matches and `topn(1, a desc)` keeps the one which does not: the two joins see a different number
+        // of rows, so the key of the join has to differ even though both top-ns keep one row
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan t2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        Expression a = t1.getOutput().get(0);
+        LogicalJoin<LogicalTopN<LogicalOlapScan>, LogicalOlapScan> ascending = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                new LogicalTopN<>(ImmutableList.of(new OrderKey(a, true, true)), 1, 0, t1), t2, null);
+        LogicalJoin<LogicalTopN<LogicalOlapScan>, LogicalOlapScan> descending = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                new LogicalTopN<>(ImmutableList.of(new OrderKey(a, false, true)), 1, 0, t1), t2, null);
+        GroupStructInfo ascendingInfo = GroupStructInfo.describeGroup(new Memo(null, ascending).getRoot());
+        GroupStructInfo descendingInfo = GroupStructInfo.describeGroup(new Memo(null, descending).getRoot());
+        Assertions.assertTrue(ascendingInfo.isValid(), ascendingInfo.getSkipReason());
+        Assertions.assertTrue(ascendingInfo.getShape(NO_LITERAL).contains("T{1,0;ord:["),
+                ascendingInfo.getShape(NO_LITERAL));
+        Assertions.assertTrue(ascendingInfo.getShape(NO_LITERAL).contains(":asc:nulls_first]"),
+                ascendingInfo.getShape(NO_LITERAL));
+        Assertions.assertNotEquals(ascendingInfo.getFingerprint(NO_LITERAL),
+                descendingInfo.getFingerprint(NO_LITERAL), "asc and desc share one key");
+        // the null order is part of the ordering as well
+        LogicalJoin<LogicalTopN<LogicalOlapScan>, LogicalOlapScan> nullsLast = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                new LogicalTopN<>(ImmutableList.of(new OrderKey(a, true, false)), 1, 0, t1), t2, null);
+        Assertions.assertNotEquals(ascendingInfo.getFingerprint(NO_LITERAL),
+                GroupStructInfo.describeGroup(new Memo(null, nullsLast).getRoot()).getFingerprint(NO_LITERAL),
+                "nulls first and nulls last share one key");
+        // a top-n of the same bound and ordering keeps the key it had
+        LogicalJoin<LogicalTopN<LogicalOlapScan>, LogicalOlapScan> same = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                new LogicalTopN<>(ImmutableList.of(new OrderKey(a, true, true)), 1, 0, t1), t2, null);
+        Assertions.assertEquals(ascendingInfo.getFingerprint(NO_LITERAL),
+                GroupStructInfo.describeGroup(new Memo(null, same).getRoot()).getFingerprint(NO_LITERAL));
+    }
 }
