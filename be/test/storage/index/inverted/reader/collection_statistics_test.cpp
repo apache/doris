@@ -1914,7 +1914,9 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     index_pb.set_index_name("kw_idx");
     index_pb.set_index_type(IndexType::INVERTED);
     index_pb.add_col_unique_id(kColUid);
-    // No "parser" property -> should_analyzer returns false
+    // An explicit keyword parser inherits phrase support but is still not analyzed.
+    (*index_pb.mutable_properties())["parser"] = "none";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
     TabletIndex index;
     index.init_from_pb(index_pb);
     tablet_schema->append_index(std::move(index));
