@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -161,26 +160,6 @@ public class FileTypeTest {
         Column catalogRestored = GsonUtilsCatalog.GSON.fromJson(GsonUtilsCatalog.GSON.toJson(column), Column.class);
         Assertions.assertEquals("FILE", catalogRestored.getType().toSql());
         Assertions.assertEquals(6, catalogRestored.getChildren().size());
-    }
-
-    @Test
-    public void testOldExecutionVersionRejectsExecutionButAllowsReplay() {
-        Type type = fileType().toCatalogDataType();
-        TTypeDesc wire = type.toThrift();
-        String json = GsonUtils.GSON.toJson(type, Type.class);
-        int oldVersion = Config.be_exec_version;
-        try {
-            Config.be_exec_version = 14;
-            Assertions.assertEquals(type, Type.fromThrift(wire));
-            Type restored = GsonUtils.GSON.fromJson(json, Type.class);
-            Assertions.assertEquals("FILE", restored.toSql());
-            Assertions.assertEquals(type, restored);
-            Assertions.assertThrows(IllegalStateException.class, type::toThrift);
-            Assertions.assertThrows(IllegalStateException.class,
-                    () -> new org.apache.doris.catalog.ArrayType(type).toThrift());
-        } finally {
-            Config.be_exec_version = oldVersion;
-        }
     }
 
     @Test

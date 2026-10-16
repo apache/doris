@@ -27,7 +27,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -40,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
-import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -264,22 +262,6 @@ public class FileTypeDdlTest extends TestWithFeService {
             Column nestedString = new Column("f", DataType.convertFromString(sql).toCatalogDataType(), true);
             Assertions.assertThrows(Exception.class, () -> nestedFile.checkSchemaChangeAllowed(nestedString));
             Assertions.assertThrows(Exception.class, () -> nestedString.checkSchemaChangeAllowed(nestedFile));
-        }
-    }
-
-    @Test
-    public void testOldVersionRejectsSchemaAndFunctionCreation() {
-        DataType type = Assertions.assertDoesNotThrow(() -> DataType.convertFromString("ARRAY<FILE>"));
-        ColumnDefinition column = new ColumnDefinition("f", type, true);
-        int oldVersion = Config.be_exec_version;
-        try {
-            Config.be_exec_version = 14;
-            Assertions.assertThrows(Exception.class, () -> validate(column, true, KeysType.DUP_KEYS));
-            Assertions.assertThrows(Exception.class,
-                    () -> new FunctionArgTypesInfo(Collections.singletonList(type), false).analyze());
-            Assertions.assertEquals("ARRAY<FILE>", type.toSql());
-        } finally {
-            Config.be_exec_version = oldVersion;
         }
     }
 

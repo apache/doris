@@ -967,15 +967,8 @@ public abstract class DataType {
         return false;
     }
 
-    /** Validate a newly created or executed type, including the FILE execution version. */
     public void validateDataType() {
-        Type catalogType = toCatalogDataType();
-        try {
-            org.apache.doris.catalog.FileType.checkExecutionVersion(catalogType);
-        } catch (IllegalStateException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-        validateCatalogDataType(catalogType);
+        validateCatalogDataType(toCatalogDataType());
     }
 
     private static void validateCatalogDataType(Type catalogType) {

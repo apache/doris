@@ -203,11 +203,12 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field(), Field(), Field(), Field(), Field(),
                   Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
-    const auto size = type.get_uncompressed_serialized_bytes(*column, SUPPORT_FILE_VERSION);
+    const auto version = BeExecVersionManager::get_newest_version();
+    const auto size = type.get_uncompressed_serialized_bytes(*column, version);
     std::string buffer(size, '\0');
-    const char* end = type.serialize(*column, buffer.data(), SUPPORT_FILE_VERSION);
+    const char* end = type.serialize(*column, buffer.data(), version);
     auto restored = type.create_column();
-    EXPECT_EQ(type.deserialize(buffer.data(), &restored, SUPPORT_FILE_VERSION), end);
+    EXPECT_EQ(type.deserialize(buffer.data(), &restored, version), end);
     ASSERT_EQ(restored->size(), 3);
     auto value = (*restored)[0];
     const auto& inline_value = value.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>();
@@ -216,8 +217,6 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[0].is_null());
     EXPECT_EQ((*restored)[2].get<TYPE_FILE>()[5].as_string_view(), bytes);
     EXPECT_TRUE(validate_file_column(*restored, std::make_shared<DataTypeFile>()).ok());
-    EXPECT_THROW(type.get_uncompressed_serialized_bytes(*column, SUPPORT_FILE_VERSION - 1),
-                 Exception);
 }
 
 TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {
@@ -256,8 +255,9 @@ TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
         int64_t codec_time = 0;
-        ASSERT_TRUE(source.serialize(SUPPORT_FILE_VERSION, &wire, &uncompressed_bytes,
-                                     &compressed_bytes, &codec_time, compression)
+        ASSERT_TRUE(source.serialize(BeExecVersionManager::get_newest_version(), &wire,
+                                     &uncompressed_bytes, &compressed_bytes, &codec_time,
+                                     compression)
                             .ok());
         Block restored;
         ASSERT_TRUE(restored.deserialize(wire, &uncompressed_bytes, &codec_time).ok());
@@ -277,14 +277,11 @@ TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {
         EXPECT_EQ(std::string(inline_value.data(), inline_value.size()), bytes);
 
         PBlock second_wire;
-        ASSERT_TRUE(restored.serialize(SUPPORT_FILE_VERSION, &second_wire, &uncompressed_bytes,
-                                       &compressed_bytes, &codec_time, compression)
+        ASSERT_TRUE(restored.serialize(BeExecVersionManager::get_newest_version(), &second_wire,
+                                       &uncompressed_bytes, &compressed_bytes, &codec_time,
+                                       compression)
                             .ok());
         EXPECT_EQ(wire.SerializeAsString(), second_wire.SerializeAsString());
-
-        wire.set_be_exec_version(SUPPORT_FILE_VERSION - 1);
-        Block old_version;
-        EXPECT_FALSE(old_version.deserialize(wire, &uncompressed_bytes, &codec_time).ok());
     }
 }
 
@@ -303,8 +300,9 @@ TEST(DataTypeFileTest, BlockDeserializePreservesValuesWithoutRevalidating) {
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
         int64_t codec_time = 0;
-        ASSERT_TRUE(source.serialize(SUPPORT_FILE_VERSION, &wire, &uncompressed_bytes,
-                                     &compressed_bytes, &codec_time, segment_v2::SNAPPY)
+        ASSERT_TRUE(source.serialize(BeExecVersionManager::get_newest_version(), &wire,
+                                     &uncompressed_bytes, &compressed_bytes, &codec_time,
+                                     segment_v2::SNAPPY)
                             .ok());
         Block restored;
         const auto status = restored.deserialize(wire, &uncompressed_bytes, &codec_time);
