@@ -56,6 +56,7 @@ suite("test_uuid_orc_varbinary_mapping") {
                 String source = """local("file_path"="${outputDirectory.fileName}/orc_*",
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
+                // Ordinary BINARY stays VARBINARY even when the UUID binary override is off.
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
                 // UUID annotations preserve scalar and nested types independently of the binary option.
                 "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, u,

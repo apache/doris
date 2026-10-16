@@ -21,9 +21,9 @@ s	struct<k:text>	Yes	false	\N	NONE
 
 -- !external_schema --
 id	int	Yes	false	\N	NONE
-u	text	Yes	false	\N	NONE
-a	array<text>	Yes	false	\N	NONE
-s	struct<k:text>	Yes	false	\N	NONE
+u	uuid	Yes	false	\N	NONE
+a	array<uuid>	Yes	false	\N	NONE
+s	struct<k:uuid>	Yes	false	\N	NONE
 
 -- !external_values --
 0	\N	\N	\N	\N	\N
@@ -131,9 +131,9 @@ s	struct<k:text>	Yes	false	\N	NONE
 
 -- !external_schema --
 id	int	Yes	false	\N	NONE
-u	text	Yes	false	\N	NONE
-a	array<text>	Yes	false	\N	NONE
-s	struct<k:text>	Yes	false	\N	NONE
+u	uuid	Yes	false	\N	NONE
+a	array<uuid>	Yes	false	\N	NONE
+s	struct<k:uuid>	Yes	false	\N	NONE
 
 -- !external_values --
 0	\N	\N	\N	\N	\N
@@ -241,9 +241,9 @@ s	struct<k:text>	Yes	false	\N	NONE
 
 -- !external_schema --
 id	int	Yes	false	\N	NONE
-u	text	Yes	false	\N	NONE
-a	array<text>	Yes	false	\N	NONE
-s	struct<k:text>	Yes	false	\N	NONE
+u	uuid	Yes	false	\N	NONE
+a	array<uuid>	Yes	false	\N	NONE
+s	struct<k:uuid>	Yes	false	\N	NONE
 
 -- !external_values --
 0	\N	\N	\N	\N	\N
@@ -351,9 +351,9 @@ s	struct<k:text>	Yes	false	\N	NONE
 
 -- !external_schema --
 id	int	Yes	false	\N	NONE
-u	text	Yes	false	\N	NONE
-a	array<text>	Yes	false	\N	NONE
-s	struct<k:text>	Yes	false	\N	NONE
+u	uuid	Yes	false	\N	NONE
+a	array<uuid>	Yes	false	\N	NONE
+s	struct<k:uuid>	Yes	false	\N	NONE
 
 -- !external_values --
 0	\N	\N	\N	\N	\N

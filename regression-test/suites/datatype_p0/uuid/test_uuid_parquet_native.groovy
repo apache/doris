@@ -56,6 +56,7 @@ suite("test_uuid_parquet_native", "p0,external") {
             qt_binary_schema "DESC FUNCTION ${binarySource}"
             qt_binary_values """SELECT id,u,CAST(u AS UUID) FROM ${binarySource}
                                 WHERE id < 12 ORDER BY id"""
+            // Schema inference retains UUID annotations, including nested fields.
             qt_external_schema "DESC FUNCTION ${source}"
             qt_external_values "SELECT id,u,a,s,LENGTH(u),CAST(u AS UUID) FROM ${source} WHERE id < 12 ORDER BY id"
             qt_external_group "SELECT u,COUNT(*),SUM(id) FROM ${source} GROUP BY u ORDER BY u"
