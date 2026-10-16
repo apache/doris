@@ -33,14 +33,18 @@
 #include "common/object_pool.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -2247,11 +2251,31 @@ TEST(ExprZonemapFilterTest, SlotSlotGateRejectsVarbinaryButAllowsStrings) {
     EXPECT_TRUE(greater.can_evaluate_zonemap_filter({make_slot(0, type), make_slot(1, type)}));
 }
 
+TEST(ExprZonemapFilterTest, SlotSlotGateRejectsVariantAndUnorderedTypes) {
+    // A segment types a VARIANT path slot by its inferred leaf type, so admitting a VARIANT pair
+    // would fail fetch_compatible_slot_type's check. Complex, JSONB and aggregate-state Fields all
+    // compare equal, so their bounds prove nothing. Each is rejected, nullable or not.
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    const std::vector<DataTypePtr> excluded_types = {
+            std::make_shared<DataTypeVariant>(),
+            std::make_shared<DataTypeJsonb>(),
+            std::make_shared<DataTypeArray>(make_nullable(int_type())),
+            std::make_shared<DataTypeBitMap>(),
+    };
+    for (const auto& excluded : excluded_types) {
+        for (const auto& type : {excluded, make_nullable(excluded)}) {
+            EXPECT_FALSE(
+                    equals.can_evaluate_zonemap_filter({make_slot(0, type), make_slot(1, type)}))
+                    << type->get_name();
+        }
+    }
+}
+
 TEST(ExprZonemapFilterTest, SlotSlotStringPrunesUntruncatedBoundsOnly) {
-    // A native string zone-map max is truncated to 512 bytes and its last byte is then bumped, so a
-    // bound of exactly 512 bytes may not be a real upper bound. A shorter bound is the untruncated
-    // value. left in ["a","c"], right pinned above "c", so `left > right` cannot hold when the
-    // bounds are trusted.
+    // A native string zone-map max of exactly 512 bytes was bumped upward and may also have been
+    // truncated, so it may not be a real upper bound. A shorter bound is the exact value.
+    // left in ["a","c"], right pinned above "c", so `left > right` cannot hold when the bounds
+    // are trusted.
     auto string_type = std::make_shared<DataTypeString>();
     auto left = make_slot(0, string_type);
     auto right = make_slot(1, string_type);
@@ -2269,9 +2293,10 @@ TEST(ExprZonemapFilterTest, SlotSlotStringPrunesUntruncatedBoundsOnly) {
     // A 512-byte bound may be truncated/bumped, and a longer one is out of spec: fall back.
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(std::string(512, 'x')));
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(std::string(513, 'x')));
-    // The wrap case is a 512-byte bound ending in 0xff; still length 512, still unusable.
+    // Before the carry fix the writer bumped only the last byte, so a 0xff there wrapped to 0x00
+    // and left a 512-byte bound ending in '\0' below the data; still length 512, still unusable.
     std::string wrapped(511, 'x');
-    wrapped.push_back('\xff');
+    wrapped.push_back('\0');
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(wrapped));
 
     // An embedded NUL counts toward .size(); a short bound with one stays usable.

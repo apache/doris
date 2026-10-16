@@ -717,6 +717,25 @@ suite("test_expr_zonemap_pruning") {
     assertSameOnNanTable("lo < hi")
     qt_nan_lo_lt_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo < hi"""
 
+    // FE compares two VARIANT paths without a cast, so `v['a'] = v['b']` reaches the slot-slot gate
+    // as two VARIANT slots, while the segment types each path by its inferred leaf type (INT here).
+    // The gate must reject VARIANT; admitting it fails the slot type check and the query errors.
+    sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_variant """
+    sql """
+        CREATE TABLE test_expr_zonemap_pruning_variant (id INT, v VARIANT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_expr_zonemap_pruning_variant VALUES
+            (1, parse_to_variant('{"a":1,"b":1}')), (2, parse_to_variant('{"a":2,"b":3}')),
+            (3, parse_to_variant('{"a":5,"b":5}')), (4, parse_to_variant('{"a":7,"b":8}'))
+    """
+    sql """ sync """
+    sql """ set enable_expr_zonemap_filter = true """
+    order_qt_variant_path_eq """SELECT id FROM test_expr_zonemap_pruning_variant WHERE v['a'] = v['b']"""
+    order_qt_variant_path_ne """SELECT id FROM test_expr_zonemap_pruning_variant WHERE v['a'] != v['b']"""
+
     // __DORIS_VERSION_COL__ stores 0 on disk; a single-version segment reads it through a
     // ConstantColumnReader whose zone map is the rowset version. Expr zone-map pruning must use that
     // value, not the on-disk [0,0] placeholder.
