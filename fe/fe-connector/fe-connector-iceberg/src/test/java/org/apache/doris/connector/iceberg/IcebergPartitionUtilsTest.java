@@ -328,6 +328,39 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(Collections.singletonMap("ghost", "1"), unknown);
     }
 
+    @Test
+    public void staticPartitionKeysPreferTheIdentitySourceOverACaseFoldedFieldAlias() {
+        // A partition field may carry a name that collides with another column's name in a different case
+        // (`identity(other, "ID")` beside `identity(id, "id_identity")`), because the spec builder checks names
+        // case-SENSITIVELY. The engine's PARTITION name is the SOURCE column, so the key must follow the identity
+        // field over that source rather than the earlier alias.
+        // MUTATION: matching field names first -> the key becomes "ID" (source "other") -> BE stamps and the commit
+        // filters the WRONG partition -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
+    @Test
+    public void staticPartitionKeysFindTheIdentityFieldRegardlessOfFieldOrder() {
+        // bucket(8, id) may be declared before identity(id); the static target is still the identity field.
+        // MUTATION: taking the first source match -> the bucket field's name is returned -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+
+        Assertions.assertEquals(Collections.singletonMap("id", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
     // ---- getIdentityPartitionInfoMap ----
 
     @Test
