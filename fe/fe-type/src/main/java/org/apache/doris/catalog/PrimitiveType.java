@@ -299,9 +299,6 @@ public enum PrimitiveType {
                     + "execution version " + Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION
                     + " or newer; current be_exec_version is " + Config.be_exec_version);
         }
-        if (this == FILE) {
-            FileType.checkExecutionVersion();
-        }
         return thriftType;
     }
 

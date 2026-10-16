@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
@@ -152,14 +151,8 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         );
     }
 
-    /** Validate operator keys and FILE execution versions after expression binding. */
+    /** Validate operator keys after expression binding. */
     public static void checkFilePlan(Plan plan) {
-        if (plan instanceof LogicalRelation && !(plan instanceof LogicalOneRowRelation)) {
-            plan.getOutput().forEach(ExpressionUtils::checkFileExecutionVersion);
-        } else {
-            // Inspect bound expressions without materializing output slots and recomputing their types.
-            plan.getExpressions().forEach(ExpressionUtils::checkFileExecutionVersion);
-        }
         if (plan instanceof LogicalSort) {
             ((LogicalSort<?>) plan).getOrderKeys()
                     .forEach(key -> ExpressionUtils.checkFileKey(key.getExpr(), "ORDER BY"));
