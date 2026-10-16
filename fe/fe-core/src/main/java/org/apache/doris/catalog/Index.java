@@ -76,16 +76,22 @@ public class Index implements Writable {
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
-            boolean analyzed = !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
-                    getInvertedIndexParser())
-                    || !InvertedIndexUtil.getPreferredAnalyzer(this.properties).isEmpty();
-            this.properties.putIfAbsent(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY,
-                    Boolean.toString(analyzed));
-            if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                    || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
-                String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
-                if (!this.properties.containsKey(lowerCaseKey)) {
-                    this.properties.put(lowerCaseKey, "true");
+            if (this.properties != null && !this.properties.isEmpty()) {
+                if (!InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(getInvertedIndexParser())
+                        || StringUtils.isNotEmpty(this.properties.get(
+                                InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY))) {
+                    String supportPhraseKey = InvertedIndexUtil
+                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                    if (!this.properties.containsKey(supportPhraseKey)) {
+                        this.properties.put(supportPhraseKey, "true");
+                    }
+                }
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
+                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                    if (!this.properties.containsKey(lowerCaseKey)) {
+                        this.properties.put(lowerCaseKey, "true");
+                    }
                 }
             }
         }
