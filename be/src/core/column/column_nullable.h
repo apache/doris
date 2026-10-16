@@ -275,6 +275,11 @@ public:
     bool is_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
+    void inject_debug_nullable_payload(const uint8_t* null_map = nullptr) override {
+        DCHECK(null_map == nullptr);
+        get_nested_column().inject_debug_nullable_payload(get_null_map_data().data());
+    }
+
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && _nested_column->is_exclusive() &&
                get_null_map_column().is_exclusive();

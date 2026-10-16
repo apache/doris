@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -184,6 +185,37 @@ public:
         size_t old_size = data.size();
         data.resize(old_size + length);
         std::fill(data.data() + old_size, data.data() + old_size + length, default_value());
+    }
+
+    void inject_debug_nullable_payload(const uint8_t* null_map = nullptr) override {
+        if (null_map == nullptr) {
+            return;
+        }
+        for (size_t i = 0; i < data.size(); ++i) {
+            if (null_map[i] == 0) {
+                continue;
+            }
+            if constexpr (T == TYPE_BOOLEAN) {
+                data[i] = static_cast<value_type>(0xA5);
+            } else if constexpr (is_int(T)) {
+                data[i] = i % 2 == 0 ? std::numeric_limits<value_type>::lowest()
+                                     : std::numeric_limits<value_type>::max();
+            } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
+                switch (i % 3) {
+                case 0:
+                    data[i] = std::numeric_limits<value_type>::quiet_NaN();
+                    break;
+                case 1:
+                    data[i] = std::numeric_limits<value_type>::infinity();
+                    break;
+                default:
+                    data[i] = -std::numeric_limits<value_type>::infinity();
+                    break;
+                }
+            } else {
+                memset(&data[i], 0xFF, sizeof(value_type));
+            }
+        }
     }
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
