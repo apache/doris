@@ -47,13 +47,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db"+ ThreadLocalRandom.current().nextInt(100);
-        // Check if database exists
+        // Keep this run separate from namespaces left by earlier External runs.
+        def db_name = "${prefix}_db_${System.currentTimeMillis()}_${ThreadLocalRandom.current().nextInt(1000000)}"
         sql """
-            DROP DATABASE IF EXISTS ${db_name} FORCE;
-        """
-        sql """
-            CREATE DATABASE IF NOT EXISTS ${db_name};
+            CREATE DATABASE ${db_name};
         """
 
         def dbResult = sql """
@@ -213,13 +210,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db"+ ThreadLocalRandom.current().nextInt(100);
-        // Check if database exists
+        // Keep this run separate from namespaces left by earlier External runs.
+        def db_name = "${prefix}_db_${System.currentTimeMillis()}_${ThreadLocalRandom.current().nextInt(1000000)}"
         sql """
-            DROP DATABASE IF EXISTS ${db_name} FORCE;
-        """
-        sql """
-            CREATE DATABASE IF NOT EXISTS ${db_name};
+            CREATE DATABASE ${db_name};
         """
 
         def dbResult = sql """
