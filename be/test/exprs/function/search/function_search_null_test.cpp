@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// How SEARCH keeps the rows a NULL field leaves UNKNOWN, read through fake text indexes.
+// SEARCH treats NULL fields as nonmatches before Boolean composition.
 
 #include <gen_cpp/Exprs_types.h>
 #include <gtest/gtest.h>
@@ -43,6 +43,9 @@
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/engine/bit_set_query/bit_set_query.h"
+#include "storage/index/inverted/query/engine/boolean_query/boolean_query_builder.h"
+#include "storage/index/inverted/query/engine/null_masked_query.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
@@ -234,7 +237,7 @@ public:
                 nullptr, nullptr, context);
     }
 
-    // The TRUE and UNKNOWN rows of `root`.
+    // The match set and empty NULL bitmap of `root`.
     void expect(const TSearchClause& root, const EvaluateOptions& options,
                 const roaring::Roaring& true_rows, const roaring::Roaring& null_rows) {
         InvertedIndexResultBitmap result;
@@ -327,9 +330,8 @@ private:
 
 } // namespace
 
-// A term the dictionary lacks matches no row, and the rows where its field is NULL stay
-// UNKNOWN, alone or listed with other terms of the field.
-TEST(FunctionSearchNullTest, AbsentTermKeepsTheFieldNullRows) {
+// An absent term matches no row. Its negation includes every row, including NULL.
+TEST(FunctionSearchNullTest, AbsentTermNegationIncludesTheFieldNullRows) {
     for (const bool batches : {false, true}) {
         for (const bool scoring : {false, true}) {
             SCOPED_TRACE(::testing::Message() << "batches=" << batches << " scoring=" << scoring);
@@ -342,20 +344,19 @@ TEST(FunctionSearchNullTest, AbsentTermKeepsTheFieldNullRows) {
             const EvaluateOptions options = scored_if(scoring);
 
             fixture.expect(compound("NOT", {leaf("TERM", "body", "missing")}), options,
-                           rows({0, 1, 2}), rows({3}));
+                           rows({0, 1, 2, 3}), rows({}));
             fixture.expect(compound("NOT", {compound("AND", {leaf("TERM", "body", "missing"),
                                                              leaf("TERM", "body", "foo")})}),
-                           options, rows({0, 1, 2}), rows({3}));
+                           options, rows({0, 1, 2, 3}), rows({}));
             fixture.expect(compound("NOT", {compound("OR", {leaf("TERM", "body", "missing"),
                                                             leaf("TERM", "body", "absent")})}),
-                           options, rows({0, 1, 2}), rows({3}));
+                           options, rows({0, 1, 2, 3}), rows({}));
         }
     }
 }
 
-// A scored conjunction whose terms share no row still leaves the field's NULL rows UNKNOWN, as
-// the unscored one does.
-TEST(FunctionSearchNullTest, EmptyScoredConjunctionKeepsTheFieldNullRows) {
+// A disjoint conjunction has no matches; negation includes NULL with and without scoring.
+TEST(FunctionSearchNullTest, EmptyScoredConjunctionNegationIncludesNullRows) {
     for (const bool scoring : {false, true}) {
         SCOPED_TRACE(::testing::Message() << "scoring=" << scoring);
         NullSearchFixture fixture(3);
@@ -367,14 +368,13 @@ TEST(FunctionSearchNullTest, EmptyScoredConjunctionKeepsTheFieldNullRows) {
 
         EvaluateOptions options = scored_if(scoring);
         options.default_operator = "and";
-        fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({0, 1}),
-                       rows({2}));
+        fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({0, 1, 2}),
+                       rows({}));
     }
 }
 
-// A TERM that must hold some of its analyzed terms counts them two-valued; the rows where its
-// field is NULL still stay UNKNOWN.
-TEST(FunctionSearchNullTest, TermThresholdKeepsTheFieldNullRows) {
+// A term threshold excludes NULL payloads and its negation includes NULL rows.
+TEST(FunctionSearchNullTest, TermThresholdUsesTwoValuedMatching) {
     for (const bool scoring : {false, true}) {
         SCOPED_TRACE(::testing::Message() << "scoring=" << scoring);
         NullSearchFixture fixture(4);
@@ -386,15 +386,14 @@ TEST(FunctionSearchNullTest, TermThresholdKeepsTheFieldNullRows) {
         EvaluateOptions options = scored_if(scoring);
         options.minimum_should_match = 1;
 
-        fixture.expect(leaf("TERM", "body", "foo/bar"), options, rows({0, 1}), rows({3}));
-        fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({2}),
-                       rows({3}));
+        fixture.expect(leaf("TERM", "body", "foo/bar"), options, rows({0, 1}), rows({}));
+        fixture.expect(compound("NOT", {leaf("TERM", "body", "foo/bar")}), options, rows({2, 3}),
+                       rows({}));
     }
 }
 
-// A value the analyzer turns into no token matches no row, and the rows where the field is NULL
-// stay UNKNOWN.
-TEST(FunctionSearchNullTest, AnalyzerEmptyLeafKeepsTheFieldNullRows) {
+// An analyzer-empty value matches no rows; its negation includes NULL rows.
+TEST(FunctionSearchNullTest, AnalyzerEmptyLeafNegationIncludesNullRows) {
     for (const std::string clause_type : {"TERM", "PHRASE", "MATCH", "ANY", "ALL"}) {
         for (const bool scoring : {false, true}) {
             SCOPED_TRACE(::testing::Message() << clause_type << " scoring=" << scoring);
@@ -404,14 +403,14 @@ TEST(FunctionSearchNullTest, AnalyzerEmptyLeafKeepsTheFieldNullRows) {
             body.nulls = rows({2});
 
             fixture.expect(compound("NOT", {leaf(clause_type, "body", "!!!")}), scored_if(scoring),
-                           rows({0, 1}), rows({2}));
+                           rows({0, 1, 2}), rows({}));
         }
     }
 }
 
 // An array column can keep values in a row whose array is NULL, and its index lists that row
-// under them. The row is UNKNOWN in every Boolean, and FALSE in a two-valued one.
-TEST(FunctionSearchNullTest, ArrayNullRowWithValuesIsUnknown) {
+// under them. The row is FALSE before every Boolean operation.
+TEST(FunctionSearchNullTest, ArrayNullPayloadIsExcludedBeforeBooleanComposition) {
     for (const bool scoring : {false, true}) {
         SCOPED_TRACE(::testing::Message() << "scoring=" << scoring);
         NullSearchFixture fixture(4);
@@ -423,14 +422,14 @@ TEST(FunctionSearchNullTest, ArrayNullRowWithValuesIsUnknown) {
         other.source->add("x", {1});
         const EvaluateOptions options = scored_if(scoring);
 
-        fixture.expect(leaf("TERM", "arr", "alpha"), options, rows({0}), rows({1}));
+        fixture.expect(leaf("TERM", "arr", "alpha"), options, rows({0}), rows({}));
         fixture.expect(
                 compound("OR", {leaf("TERM", "arr", "alpha"), leaf("TERM", "other", "omega")}),
-                options, rows({0, 2}), rows({1}));
+                options, rows({0, 2}), rows({}));
         fixture.expect(compound("AND", {leaf("TERM", "arr", "alpha"), leaf("TERM", "other", "x")}),
-                       options, rows({}), rows({1}));
-        fixture.expect(compound("NOT", {leaf("TERM", "arr", "alpha")}), options, rows({2, 3}),
-                       rows({1}));
+                       options, rows({}), rows({}));
+        fixture.expect(compound("NOT", {leaf("TERM", "arr", "alpha")}), options, rows({1, 2, 3}),
+                       rows({}));
         fixture.expect(compound("OCCUR_BOOLEAN",
                                 {occur(leaf("TERM", "arr", "alpha"), TSearchOccur::SHOULD),
                                  occur(leaf("TERM", "other", "omega"), TSearchOccur::SHOULD)}),
@@ -438,7 +437,7 @@ TEST(FunctionSearchNullTest, ArrayNullRowWithValuesIsUnknown) {
         if (scoring) {
             fixture.expect(
                     compound("OR", {leaf("TERM", "arr", "alpha"), leaf("TERM", "other", "omega")}),
-                    scored_if(true, 2), rows({0, 2}), rows({1}));
+                    scored_if(true, 2), rows({0, 2}), rows({}));
         }
     }
 }
@@ -461,9 +460,8 @@ TEST(FunctionSearchNullTest, FailedNullBitmapReadFailsTheSearch) {
     }
 }
 
-// The cache keeps a result's TRUE and UNKNOWN rows as two entries; one found without the other
-// is computed again rather than taken as having no UNKNOWN rows.
-TEST(FunctionSearchNullTest, DslCacheEntryWithoutItsNullRowsIsAMiss) {
+// A legacy three-valued cache entry cannot supply a two-valued SEARCH result.
+TEST(FunctionSearchNullTest, OldThreeValuedDslCacheEntryIsAMiss) {
     ScopedQueryCache cache;
     NullSearchFixture fixture(4);
     auto& body = fixture.add_field("body");
@@ -480,12 +478,12 @@ TEST(FunctionSearchNullTest, DslCacheEntryWithoutItsNullRowsIsAMiss) {
     InvertedIndexQueryCacheHandle handle;
     cache.get()->insert(key, std::make_shared<roaring::Roaring>(rows({1, 2})), &handle);
 
-    fixture.expect(root, options, rows({1, 2}), rows({3}));
+    fixture.expect(root, options, rows({1, 2, 3}), rows({}));
     EXPECT_FALSE(body.source->opened.empty());
 
-    // The computed result is cached with its UNKNOWN rows.
+    // The computed two-valued match set is cached in the new namespace.
     body.source->opened.clear();
-    fixture.expect(root, options, rows({1, 2}), rows({3}));
+    fixture.expect(root, options, rows({1, 2, 3}), rows({}));
     EXPECT_TRUE(body.source->opened.empty());
 }
 
@@ -507,8 +505,7 @@ TEST(FunctionSearchNullTest, TopKOverATermThresholdKeepsWand) {
     EXPECT_GT(body.source->shallow_seeks, 0U);
 }
 
-// A TopK takes the UNKNOWN rows from the scorer it ranks with instead of building and reading the
-// query again.
+// A TopK reads each query source once while collecting two-valued matches.
 TEST(FunctionSearchNullTest, TopKReadsTheQueryOnce) {
     NullSearchFixture fixture(4);
     auto& body = fixture.add_field("body");
@@ -519,9 +516,39 @@ TEST(FunctionSearchNullTest, TopKReadsTheQueryOnce) {
     other.nulls = rows({0});
 
     fixture.expect(compound("OR", {leaf("TERM", "body", "foo"), leaf("TERM", "other", "bar")}),
-                   scored_if(true, 3), rows({0, 1, 2}), rows({3}));
+                   scored_if(true, 3), rows({0, 1, 2}), rows({}));
     EXPECT_EQ(std::vector<std::string> {"foo"}, body.source->opened);
     EXPECT_EQ(std::vector<std::string> {"bar"}, other.source->opened);
+}
+
+// The shared mask retains SQL UNKNOWN by default. Only SEARCH opts into FALSE,
+// which changes negation while leaving the positive match set and input cache intact.
+TEST(FunctionSearchNullTest, NullMaskKeepsGenericSqlThreeValuedDefault) {
+    namespace query = segment_v2::inverted_index::query_v2;
+    auto postings = std::make_shared<roaring::Roaring>(rows({0, 1}));
+    auto nulls = std::make_shared<roaring::Roaring>(rows({1, 2}));
+    query::QueryExecutionContext context;
+    context.segment_num_rows = 3;
+    for (bool search : {false, true}) {
+        auto leaf = std::make_shared<query::BitSetQuery>(postings);
+        query::QueryPtr masked =
+                search ? std::make_shared<query::NullMaskedQuery>(leaf, nulls, true)
+                       : std::make_shared<query::NullMaskedQuery>(leaf, nulls);
+        auto builder = query::create_operator_boolean_query_builder(query::OperatorType::OP_NOT);
+        builder->add(masked);
+        auto negated = builder->build();
+        for (bool scoring : {false, true}) {
+            auto scorer = negated->weight(scoring)->scorer(context);
+            roaring::Roaring matches;
+            for (auto doc = scorer->doc(); doc != query::TERMINATED; doc = scorer->advance()) {
+                matches.add(doc);
+            }
+            EXPECT_EQ((search ? rows({1, 2}) : rows({})).toString(), matches.toString());
+            EXPECT_EQ(!search, scorer->has_null_bitmap());
+        }
+        EXPECT_EQ(rows({0, 1}).toString(), postings->toString());
+        EXPECT_EQ(rows({1, 2}).toString(), nulls->toString());
+    }
 }
 
 } // namespace doris
