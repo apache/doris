@@ -108,8 +108,10 @@ public class CloudSchemaChangeHandlerTest {
                 .thenReturn(TInvertedIndexFileStorageFormat.V2);
 
         boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             Config.enable_partition_inverted_index_storage_format_rollout = false;
+            config.when(Config::isCloudMode).thenReturn(true);
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
 
             new CloudSchemaChangeHandler().updateTableProperties(database, "tbl", properties);
