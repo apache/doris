@@ -2458,8 +2458,16 @@ public class IcebergScanNode extends FileQueryScanNode {
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
+        // DATE bounds in historical manifests are days, not nanos. The SDK's equality-delete
+        // overlap check cannot compare those units; retain candidate deletes without metrics pruning.
+        boolean unsafeDeleteMetrics = deleteFiles.stream().anyMatch(file ->
+                file.content() == FileContent.EQUALITY_DELETES
+                        && file.equalityFieldIds().stream().anyMatch(unsafeNanosFields::contains));
+        List<DeleteFile> indexedDeleteFiles = unsafeDeleteMetrics
+                ? deleteFiles.stream().map(DeleteFile::copyWithoutStats).collect(Collectors.toList()) : deleteFiles;
+
         // Build delete file index for efficient lookup of deletes applicable to each data file
-        DeleteFileIndex.Builder deleteIndexBuilder = DeleteFileIndex.builderFor(deleteFiles)
+        DeleteFileIndex.Builder deleteIndexBuilder = DeleteFileIndex.builderFor(indexedDeleteFiles)
                 .specsById(specsById)
                 .caseSensitive(caseSensitive);
         // Equality deletes may reference fields dropped from the current schema, so resolve their
@@ -2506,7 +2514,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                     // Find all delete files that apply to this data file based on sequence number
                     List<DeleteFile> deletes = Arrays.asList(
-                            deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile));
+                            deleteIndex.forDataFile(dataFile.dataSequenceNumber(),
+                                    unsafeDeleteMetrics ? dataFile.copyWithoutStats() : dataFile));
 
                     // Create a FileScanTask containing the data file, associated deletes, and metadata
                     tasks.add(new BaseFileScanTask(

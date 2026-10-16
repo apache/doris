@@ -40,6 +40,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUuidWriteConverter;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
@@ -452,9 +453,11 @@ public class BindSink implements AnalysisRuleFactory {
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
-                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
-                        column.getName());
+                Expression input = columnToChildOutput.get(column);
+                DataType targetType = DataType.fromCatalogType(column.getType());
+                Alias output = new Alias(icebergWriteSchemaContext.isPresent()
+                        ? IcebergUuidWriteConverter.convert(input, targetType)
+                        : TypeCoercionUtils.castIfNotSameType(input, targetType), column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());

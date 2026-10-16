@@ -106,7 +106,8 @@ private:
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
     bool _enable_mapping_timestamp_tz = false;
-    bool _enable_mapping_varbinary = false; // Only overrides the UUID logical annotation.
+    bool _enable_mapping_varbinary =
+            false; // Legacy input; native binary and UUID mapping is unconditional.
     bool _preserve_binary_uuid = false;
 
 private:

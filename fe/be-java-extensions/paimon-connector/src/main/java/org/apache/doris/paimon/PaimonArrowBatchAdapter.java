@@ -168,6 +168,9 @@ final class PaimonArrowBatchAdapter {
                                 // fractional remainder so negative epochs and leading zero digits
                                 // obey the same narrowing rule, including nested values and keys.
                                 int nanos = (int) Math.floorMod(value, 1_000_000L);
+                                // Flooring precision 7/8 can move Long.MIN_VALUE below the signed
+                                // nanos range. Reject it before persisting a value JNI cannot read.
+                                Math.subtractExact(value, nanos % nanosPerUnit);
                                 return Timestamp.fromEpochMillis(Math.floorDiv(value, 1_000_000L),
                                         nanos / nanosPerUnit * nanosPerUnit);
                             default:

@@ -108,6 +108,30 @@ public class IcebergTimestampNsTest {
     }
 
     @Test
+    public void rawRewriteOffsetLiteralUsesSessionCivilTime() throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        org.apache.doris.qe.ConnectContext context = new org.apache.doris.qe.ConnectContext();
+        context.getSessionVariable().setTimeZone("Asia/Shanghai");
+        context.setThreadLocalInfo();
+        try {
+            org.apache.doris.nereids.trees.expressions.Expression predicate =
+                    new org.apache.doris.nereids.trees.expressions.EqualTo(
+                            new org.apache.doris.nereids.analyzer.UnboundSlot("ts"),
+                            new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                                    "2024-01-01 00:00:00.123456789+08:00"));
+            org.apache.iceberg.expressions.Expression converted =
+                    IcebergNereidsUtils.convertNereidsToIcebergExpression(predicate, schema);
+            BoundPredicate<?> bound = (BoundPredicate<?>) Binder.bind(schema.asStruct(), converted, true);
+            // Rewrite receives uncoerced SQL strings, unlike already-normalized metadata timestamps.
+            Assertions.assertEquals(IcebergTimestampUtils.parseNanos(
+                    "2024-01-01 00:00:00.123456789", ZoneOffset.UTC),
+                    bound.asLiteralPredicate().literal().value());
+        } finally {
+            org.apache.doris.qe.ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void historicalDateMetricsAndNegationCannotLoseRows() throws Exception {
         Schema date = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "ts", Types.DateType.get()));

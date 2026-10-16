@@ -3779,6 +3779,82 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testManifestCacheKeepsEqualityDeleteAfterDateToNanosPromotion() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "ts", Types.DateType.get()));
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("manifest_cache_date_to_nanos").toUri().toString();
+        Table table = new HadoopTables(new Configuration()).create(
+                schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"), tableLocation);
+        Map<Integer, java.nio.ByteBuffer> dateBounds = ImmutableMap.of(1,
+                org.apache.iceberg.types.Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/old.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
+                        ImmutableMap.of(1, 0L), null, dateBounds, dateBounds))
+                .build()).commit();
+        TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+        TableMetadata before = operations.current();
+        operations.commit(before, TableMetadata.buildFrom(before).setCurrentSchema(new Schema(
+                Types.NestedField.required(1, "ts", Types.TimestampNanoType.withoutZone())), 1).build());
+        table.refresh();
+        Map<Integer, java.nio.ByteBuffer> nanosBounds = ImmutableMap.of(1,
+                org.apache.iceberg.types.Conversions.toByteBuffer(
+                        Types.TimestampNanoType.withoutZone(), 1704153600000000000L));
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath(tableLocation + "/data/eq-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
+                        ImmutableMap.of(1, 0L), null, nanosBounds, nanosBounds))
+                .build()).commit();
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(ExternalCatalog.class));
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(ExternalTable.class));
+        setPrivateField(node, "source", source);
+        setPrivateField(node, "icebergTable", table);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<IcebergManifestCacheLoader> loader =
+                        Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DeleteFile> files = new ArrayList<>();
+                        try (CloseableIterable<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDeleteFiles(files);
+                    });
+            loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DataFile> files = new ArrayList<>();
+                        try (CloseableIterable<DataFile> reader = ManifestFiles.read(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDataFiles(files);
+                    });
+
+            List<FileScanTask> tasks = node.loadFileScanTasksWithManifestCache(
+                    table.newScan(), table.currentSnapshot());
+
+            // Historical DATE bounds are days, not nanos; they must not exclude the later delete.
+            Assert.assertEquals(1, tasks.size());
+            Assert.assertEquals(1, tasks.get(0).deletes().size());
+        }
+    }
+
+    @Test
     public void testPinnedBranchUsesFrozenSnapshotWithCurrentSchema() throws Exception {
         Schema snapshotSchema = new Schema(11, ImmutableList.of(
                 Types.NestedField.optional(1, "old_name", Types.StringType.get())));

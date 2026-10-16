@@ -780,11 +780,9 @@ public:
         return requires_stripe_reader() && has_timestamp(column_type, true);
     }
 
-    Status configure_stripe(const ::orc::StripeInformation& stripe, ::orc::WriterId writer,
+    Status configure_stripe(const std::string& writer_timezone, ::orc::WriterId writer,
                             ::orc::RowReaderOptions* options) {
         DORIS_CHECK(requires_stripe_reader());
-        const auto& name = stripe.getWriterTimezone();
-        const auto writer_timezone = name.empty() ? "GMT" : name;
         if (!TimezoneUtils::find_cctz_time_zone(writer_timezone, _context.reader_timezone)) {
             return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
                                            writer_timezone);
@@ -857,6 +855,7 @@ struct OrcReaderScanState {
         bool disable_sarg = false;
         uint64_t first_row = 0;
         uint64_t end_row = 0;
+        std::optional<std::string> writer_timezone;
     };
 
     std::unique_ptr<::orc::Reader> reader;
@@ -893,6 +892,8 @@ struct OrcReaderScanState {
     std::vector<uint64_t> decoded_date_column_ids;
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
+    size_t next_stripe_range = 0;
+    size_t timestamp_stripe_window = 1;
     bool stripe_ranges_applied = false;
     size_t next_row_id = 0;
 
@@ -908,7 +909,6 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
-          _enable_mapping_varbinary(enable_mapping_varbinary),
           _file_context(std::move(file_context)) {}
 
 OrcReader::~OrcReader() = default;
@@ -926,6 +926,8 @@ void OrcReader::_init_profile() {
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, orc_profile, file_scan_profile::FILE_READER, 1);
     _orc_profile.row_readers_created = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "OrcRowReadersCreated", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.timestamp_stripe_footers_read = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcTimestampStripeFootersRead", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1236,8 +1238,10 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         break;
     case ::orc::TypeKind::BINARY:
         // UUID annotations retain their native mapping; unannotated bytes never become text.
-        if (!_enable_mapping_varbinary && type.hasAttributeKey("doris.logical_type") &&
-            type.getAttributeValue("doris.logical_type") == "uuid") {
+        if ((type.hasAttributeKey("doris.logical_type") &&
+             type.getAttributeValue("doris.logical_type") == "uuid") ||
+            (type.hasAttributeKey("iceberg.binary-type") &&
+             type.getAttributeValue("iceberg.binary-type") == "UUID")) {
             data_type = std::make_shared<DataTypeUUID>();
         } else {
             data_type = std::make_shared<DataTypeVarbinary>();
@@ -1977,6 +1981,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
                     .offset = offset,
                     .length = end_offset - offset,
                     .disable_sarg = unsafe_date_stripes.contains(first_stripe),
+                    .writer_timezone = std::nullopt,
             });
         } catch (const std::exception& e) {
             return Status::InternalError("Failed to build ORC stripe read range: {}", e.what());
@@ -2028,36 +2033,22 @@ Status OrcReader::_prepare_timestamp_stripe_ranges() {
     try {
         uint64_t first_row = 0;
         size_t selected = 0;
-        std::string previous_timezone;
         for (uint64_t index = 0; index <= stripes.back(); ++index) {
             const auto stripe = _state->reader->getStripe(index);
             const auto end_row = first_row + stripe->getNumberOfRows();
             if (index == stripes[selected]) {
-                const auto& name = stripe->getWriterTimezone();
-                const std::string timezone = name.empty() ? "GMT" : name;
-                auto& ranges = _state->selected_stripe_ranges;
-                // Each SDK RowReader scans the entire stripe directory. Reuse it across
-                // adjacent stripes with the same timezone to avoid quadratic setup work.
-                if (!ranges.empty() && ranges.back().last_stripe == index &&
-                    previous_timezone == timezone &&
-                    ranges.back().disable_sarg == unsafe_date_stripes.contains(index)) {
-                    auto& range = ranges.back();
-                    range.last_stripe = index + 1;
-                    range.length = stripe->getOffset() + stripe->getLength() - range.offset;
-                    range.end_row = end_row;
-                } else {
-                    ranges.push_back({
-                            .first_stripe = index,
-                            .last_stripe = index + 1,
-                            .offset = stripe->getOffset(),
-                            .length = stripe->getLength(),
-                            // Timestamp regrouping must retain DATE validation without SDK pruning.
-                            .disable_sarg = unsafe_date_stripes.contains(index),
-                            .first_row = first_row,
-                            .end_row = end_row,
-                    });
-                }
-                previous_timezone = timezone;
+                // File-tail stripe descriptors are cheap. Defer footer I/O until a stripe
+                // participates in the current scan window (or an explicit row-id lookup).
+                _state->selected_stripe_ranges.push_back({
+                        .first_stripe = index,
+                        .last_stripe = index + 1,
+                        .offset = stripe->getOffset(),
+                        .length = stripe->getLength(),
+                        .disable_sarg = unsafe_date_stripes.contains(index),
+                        .first_row = first_row,
+                        .end_row = end_row,
+                        .writer_timezone = std::nullopt,
+                });
                 ++selected;
             }
             first_row = end_row;
@@ -2072,14 +2063,67 @@ Status OrcReader::_apply_current_stripe_range() {
     if (!_state->stripe_ranges_applied || _state->selected_stripe_ranges.empty()) {
         return Status::OK();
     }
-    DORIS_CHECK(_state->current_stripe_range < _state->selected_stripe_ranges.size());
-    const auto& stripe_range = _state->selected_stripe_ranges[_state->current_stripe_range];
-    _state->row_reader_options.range(stripe_range.offset, stripe_range.length);
+    auto& ranges = _state->selected_stripe_ranges;
+    auto& current = _state->current_stripe_range;
+    DORIS_CHECK(current < ranges.size());
+    if (_state->timestamp_plan.requires_stripe_reader() && _request->row_ids.has_value() &&
+        _state->next_row_id < _request->row_ids->size()) {
+        const auto row_id = (*_request->row_ids)[_state->next_row_id];
+        while (current + 1 < ranges.size() &&
+               std::cmp_greater_equal(row_id, ranges[current].end_row)) {
+            ++current;
+        }
+    }
+    auto range = ranges[current];
+    _state->next_stripe_range = current + 1;
     if (_state->timestamp_plan.requires_stripe_reader()) {
         try {
-            const auto stripe = _state->reader->getStripe(stripe_range.first_stripe);
+            const auto timezone_for = [&](size_t index) -> const std::string& {
+                auto& cached = ranges[index].writer_timezone;
+                if (!cached.has_value()) {
+                    const auto stripe = _state->reader->getStripe(ranges[index].first_stripe);
+                    const auto& name = stripe->getWriterTimezone();
+                    cached = name.empty() ? "GMT" : name;
+                    if (_profile != nullptr) {
+                        COUNTER_UPDATE(_orc_profile.timestamp_stripe_footers_read, 1);
+                    }
+                }
+                return *cached;
+            };
+            const auto& timezone = timezone_for(current);
+            // Start with one stripe for LIMIT/row-id latency. Exponentially growing windows
+            // amortize the SDK's whole-directory RowReader setup for long same-zone scans.
+            const size_t end =
+                    current + std::min(_state->timestamp_stripe_window, ranges.size() - current);
+            while (_state->next_stripe_range < end) {
+                const auto next = _state->next_stripe_range;
+                const auto& candidate = ranges[next];
+                if (candidate.first_stripe != range.last_stripe ||
+                    candidate.disable_sarg != range.disable_sarg) {
+                    break;
+                }
+                if (_request->row_ids.has_value()) {
+                    const auto& ids = *_request->row_ids;
+                    const auto requested =
+                            std::lower_bound(ids.begin(), ids.end(), candidate.first_row);
+                    if (requested == ids.end() ||
+                        std::cmp_greater_equal(*requested, candidate.end_row)) {
+                        break;
+                    }
+                }
+                if (timezone_for(next) != timezone) {
+                    break;
+                }
+                range.last_stripe = candidate.last_stripe;
+                range.length = candidate.offset + candidate.length - range.offset;
+                range.end_row = candidate.end_row;
+                ++_state->next_stripe_range;
+            }
+            _state->timestamp_stripe_window +=
+                    std::min(_state->timestamp_stripe_window,
+                             ranges.size() - _state->timestamp_stripe_window);
             RETURN_IF_ERROR(_state->timestamp_plan.configure_stripe(
-                    *stripe, _state->reader->getWriterId(), &_state->row_reader_options));
+                    timezone, _state->reader->getWriterId(), &_state->row_reader_options));
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 return Status::EndOfFile("stop");
@@ -2087,6 +2131,7 @@ Status OrcReader::_apply_current_stripe_range() {
             return Status::InternalError("Failed to read ORC stripe writer timezone: {}", e.what());
         }
     }
+    _state->row_reader_options.range(range.offset, range.length);
     return Status::OK();
 }
 
@@ -2094,10 +2139,10 @@ Status OrcReader::_advance_to_next_stripe_range(bool* advanced) {
     DORIS_CHECK(advanced != nullptr);
     *advanced = false;
     if (!_state->stripe_ranges_applied || _state->selected_stripe_ranges.empty() ||
-        _state->current_stripe_range + 1 >= _state->selected_stripe_ranges.size()) {
+        _state->next_stripe_range >= _state->selected_stripe_ranges.size()) {
         return Status::OK();
     }
-    ++_state->current_stripe_range;
+    _state->current_stripe_range = _state->next_stripe_range;
     RETURN_IF_ERROR(_apply_current_stripe_range());
     RETURN_IF_ERROR(_create_row_reader());
     *advanced = true;
@@ -2612,6 +2657,11 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
         const auto* count_type =
                 _state->root_type->getSubtype(static_cast<uint64_t>(count_projection.local_id()));
         DORIS_CHECK(count_type != nullptr);
+        // ORC timestamps can exceed signed nanos, including nested leaves. Millisecond
+        // statistics cannot replace the range validation performed during materialization.
+        if (orc_serde_utils::has_nanosecond_timestamp(*count_type)) {
+            return Status::NotSupported("ORC NANOS COUNT requires value validation");
+        }
 
         std::vector<uint32_t> date_column_ids;
         const auto collect_dates = [&](auto&& self, const ::orc::Type& type) -> void {
@@ -2720,6 +2770,9 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
                     // Preserve exact metadata aggregates for fixed-zone writers; otherwise scan rows.
                     const auto stripe = _state->reader->getStripe(stripe_index);
                     const auto& name = stripe->getWriterTimezone();
+                    if (_profile != nullptr) {
+                        COUNTER_UPDATE(_orc_profile.timestamp_stripe_footers_read, 1);
+                    }
                     cctz::time_zone writer_zone;
                     int32_t offset = 0;
                     if (!TimezoneUtils::find_cctz_time_zone(name.empty() ? "GMT" : name,

@@ -739,7 +739,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
 
             // The first field is FIXED_LEN_BYTE_ARRAY(16) with a UUID logical annotation.
             // V2 schema inference and decoding preserve the native UUID type and canonical text.
-            // test_107 covers the explicit VARBINARY mapping.
+            // test_107 verifies UUID stays native when the retired VARBINARY option is enabled.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
             order_qt_test_98 """ select * from HDFS(
                         "uri" = "${uri}",

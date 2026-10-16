@@ -252,6 +252,32 @@ public class PaimonArrowBatchAdapterTest {
     }
 
     @Test
+    public void testPrecisionNarrowingCannotLeaveSignedNanosRange() throws Exception {
+        for (int precision : new int[] {7, 8}) {
+            RowType inputType = DataTypes.ROW(DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(precision)),
+                    DataTypes.FIELD(1, "nested", DataTypes.ROW(
+                            DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(precision)))));
+            try (RootAllocator allocator = new RootAllocator()) {
+                PaimonArrowBatchAdapter adapter = new PaimonArrowBatchAdapter(inputType, ZoneId.of("UTC"), allocator);
+                try (ArrowStreamReader reader = schemaReader(adapter, allocator)) {
+                    VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                    root.allocateNew();
+                    StructVector nested = (StructVector) root.getVector("nested");
+                    ((TimeStampVector) root.getVector("ts")).setSafe(0, Long.MIN_VALUE);
+                    ((TimeStampVector) nested.getChild("ts")).setSafe(0, Long.MIN_VALUE);
+                    nested.setIndexDefined(0);
+                    root.setRowCount(1);
+                    InternalRow row = adapter.rows(root).row(0);
+                    // The input fits, but flooring its fractional precision must not create an unreadable value.
+                    Assertions.assertThrows(ArithmeticException.class, () -> row.getTimestamp(0, precision));
+                    Assertions.assertThrows(ArithmeticException.class,
+                            () -> row.getRow(1, 1).getTimestamp(0, precision));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testPrecisionSevenAndEightKeysRoundTrip(@TempDir Path dir)
             throws Exception {
         for (String format : new String[] {"parquet", "orc"}) {
