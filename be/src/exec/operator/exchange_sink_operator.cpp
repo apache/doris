@@ -501,21 +501,38 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
         } else {
             auto block_holder = BroadcastPBlockHolder::create_shared();
             {
-                bool serialized = false;
-                RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
-                        block, block_holder->get_block(), local_state._rpc_channels_num,
-                        &serialized, eos));
-                if (serialized) {
-                    auto cur_block = local_state._serializer.get_block()->to_block();
-                    if (!cur_block.empty()) {
-                        DCHECK(eos || local_state._serializer.is_local()) << debug_string(state, 0);
-                        RETURN_IF_ERROR(local_state._serializer.serialize_block(
-                                &cur_block, block_holder->get_block(),
-                                local_state._rpc_channels_num));
-                    } else {
-                        block_holder->reset_block();
+                // A full remote-only batch needs no accumulation copy. Keep pending rows on the
+                // merge path: e.g. a half batch followed by a full batch must be sent together.
+                const auto* buffered_block = local_state._serializer.get_block();
+                const bool serialize_directly =
+                        local_state.local_channel_ids.empty() &&
+                        block->rows() >= state->batch_size() &&
+                        (buffered_block == nullptr || buffered_block->rows() == 0);
+                bool serialized = serialize_directly;
+                Block cur_block;
+                if (serialize_directly) {
+                    // Serialization completes before the input can be reused; only the holder's
+                    // owned PBlock is published to the asynchronous send queues.
+                    RETURN_IF_ERROR(local_state._serializer.serialize_block(
+                            block, block_holder->get_block(), local_state._rpc_channels_num));
+                } else {
+                    RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
+                            block, block_holder->get_block(), local_state._rpc_channels_num,
+                            &serialized, eos));
+                    if (serialized) {
+                        cur_block = local_state._serializer.get_block()->to_block();
+                        if (!cur_block.empty()) {
+                            DCHECK(eos || local_state._serializer.is_local())
+                                    << debug_string(state, 0);
+                            RETURN_IF_ERROR(local_state._serializer.serialize_block(
+                                    &cur_block, block_holder->get_block(),
+                                    local_state._rpc_channels_num));
+                        } else {
+                            block_holder->reset_block();
+                        }
                     }
-
+                }
+                if (serialized) {
                     RETURN_IF_ERROR(block_holder->prepare_serialized_block(
                             local_state._sink_buffer->send_multi_blocks(),
                             local_state._rpc_channels_num));
@@ -543,7 +560,7 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
                     }
                     if (moved || state->low_memory_mode()) {
                         local_state._serializer.reset_block();
-                    } else {
+                    } else if (!serialize_directly) {
                         cur_block.clear_column_data();
                         local_state._serializer.get_block()->set_mutable_columns(
                                 std::move(cur_block).mutate_columns());
