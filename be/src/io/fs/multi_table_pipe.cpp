@@ -186,6 +186,11 @@ Status MultiTablePipe::request_and_exec_plans() {
         request.__isset.table_names = true;
         request.txnId = _ctx->txn_id;
         request.formatType = _ctx->format;
+        if (_ctx->format == TFileFormatType::FORMAT_CSV_PLAIN) {
+            request.__set_enclose(_ctx->enclose);
+            request.__set_escape(_ctx->escape);
+            request.__set_empty_field_as_null(_ctx->empty_field_as_null);
+        }
         request.__set_compress_type(_ctx->compress_type);
         request.__set_header_type(_ctx->header_type);
         request.__set_loadId((pair.second->id).to_thrift());
