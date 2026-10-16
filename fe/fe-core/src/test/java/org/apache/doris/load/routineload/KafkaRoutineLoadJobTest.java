@@ -30,8 +30,10 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -39,14 +41,25 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -58,6 +71,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -66,6 +80,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
@@ -270,6 +285,112 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assertions.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testAlterCsvParserPropertiesUpdateNewTasksAndReplay() throws Exception {
+        Map<String, String> alteredProperties = Maps.newHashMap();
+        alteredProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "^");
+        alteredProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "?");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(alteredProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            for (RoutineLoadJob routineLoadJob : newCsvRoutineLoadJobs()) {
+                initializeCsvParserProperties(routineLoadJob);
+                NereidsRoutineLoadTaskInfo oldTask = routineLoadJob.toNereidsRoutineLoadTaskInfo();
+                routineLoadJob.modifyProperties(command);
+                Assertions.assertEquals((byte) '^', routineLoadJob.getEnclose());
+                Assertions.assertEquals((byte) '?', routineLoadJob.getEscape());
+                NereidsRoutineLoadTaskInfo taskInfo = routineLoadJob.toNereidsRoutineLoadTaskInfo();
+                Assertions.assertEquals((byte) '^', taskInfo.getEnclose());
+                Assertions.assertEquals((byte) '?', taskInfo.getEscape());
+                Assertions.assertEquals((byte) '~', oldTask.getEnclose());
+                Assertions.assertEquals((byte) '!', oldTask.getEscape());
+            }
+        }
+
+        for (RoutineLoadJob replayJob : newCsvRoutineLoadJobs()) {
+            initializeCsvParserProperties(replayJob);
+            replayJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                    replayJob.getId(), alteredProperties, null));
+            Assertions.assertEquals((byte) '^', replayJob.toNereidsRoutineLoadTaskInfo().getEnclose());
+            Assertions.assertEquals((byte) '?', replayJob.toNereidsRoutineLoadTaskInfo().getEscape());
+        }
+    }
+
+    @Test
+    public void testAlterCsvParserPropertiesPartialUpdateAndReset() throws Exception {
+        for (RoutineLoadJob job : newCsvRoutineLoadJobs()) {
+            Assertions.assertEquals(0, job.getEnclose());
+            Assertions.assertEquals(0, job.getEscape());
+            initializeCsvParserProperties(job);
+            job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(),
+                    Map.of(CsvFileFormatProperties.PROP_ENCLOSE, "^"), null));
+            Assertions.assertEquals((byte) '^', job.getEnclose());
+            Assertions.assertEquals((byte) '!', job.getEscape());
+            job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(),
+                    Map.of(CsvFileFormatProperties.PROP_ESCAPE, ""), null));
+            Assertions.assertEquals((byte) '^', job.toNereidsRoutineLoadTaskInfo().getEnclose());
+            Assertions.assertEquals(0, job.toNereidsRoutineLoadTaskInfo().getEscape());
+            job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(),
+                    Map.of(CsvFileFormatProperties.PROP_ENCLOSE, ""), null));
+            Assertions.assertEquals(0, job.toNereidsRoutineLoadTaskInfo().getEnclose());
+        }
+    }
+
+    @Test
+    public void testCsvParserPropertiesRestoredFromCheckpoint() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(new Database(1L, "test")));
+        CreateRoutineLoadCommand createCommand = Mockito.mock(CreateRoutineLoadCommand.class);
+        Mockito.when(createCommand.getCreateRoutineLoadInfo()).thenReturn(Mockito.mock(CreateRoutineLoadInfo.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class,
+                        (parser, context) -> Mockito.when(parser.parseSingle(Mockito.anyString()))
+                                .thenReturn(createCommand))) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            for (RoutineLoadJob job : newCsvRoutineLoadJobs()) {
+                initializeCsvParserProperties(job);
+                job.setOrigStmt(new OriginStatement("CREATE ROUTINE LOAD", 0));
+                job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(),
+                        Map.of(CsvFileFormatProperties.PROP_ENCLOSE, "^",
+                                CsvFileFormatProperties.PROP_ESCAPE, "?"), null));
+                RoutineLoadJob restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+                Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+                Assertions.assertEquals((byte) '^', restored.toNereidsRoutineLoadTaskInfo().getEnclose());
+                Assertions.assertEquals((byte) '?', restored.toNereidsRoutineLoadTaskInfo().getEscape());
+            }
+        }
+    }
+
+    private List<RoutineLoadJob> newCsvRoutineLoadJobs() {
+        return Arrays.asList(
+                new KafkaRoutineLoadJob(1L, "kafka_job", 1L, 1L,
+                        "127.0.0.1:9020", "topic1", UserIdentity.ADMIN),
+                new KinesisRoutineLoadJob(2L, "kinesis_job", 1L, 1L,
+                        "ap-southeast-1", "stream-1", UserIdentity.ADMIN));
+    }
+
+    private void initializeCsvParserProperties(RoutineLoadJob job) throws UserException {
+        CsvFileFormatProperties csvProperties = new CsvFileFormatProperties("csv");
+        csvProperties.analyzeFileFormatProperties(Map.of(
+                CsvFileFormatProperties.PROP_ENCLOSE, "~", CsvFileFormatProperties.PROP_ESCAPE, "!"), false);
+        CreateRoutineLoadInfo createInfo = Mockito.mock(CreateRoutineLoadInfo.class);
+        Mockito.when(createInfo.getFileFormatProperties()).thenReturn(csvProperties);
+        Mockito.when(createInfo.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
+        Mockito.when(createInfo.getDataSourceProperties()).thenReturn(job instanceof KafkaRoutineLoadJob
+                ? Mockito.mock(KafkaDataSourceProperties.class) : Mockito.mock(KinesisDataSourceProperties.class));
+        job.setOptional(createInfo);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
     }
 
     @Test
