@@ -1282,9 +1282,20 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     EXPECT_EQ(base.norm(), 1);
 }
 
+// A leaf cursor exposes block bounds; the general mock deliberately inherits the
+// unsupported multi-reader bound methods and cannot exercise keyword WAND defaults.
+class KeywordTermDocs final : public MockTermDocs {
+public:
+    using MockTermDocs::MockTermDocs;
+    int32_t getLastDocInBlock() override { return static_cast<int32_t>(_docs.back()); }
+    int32_t getMaxBlockFreq() override { return -1; }
+    int32_t getMaxBlockNorm() override { return -1; }
+};
+
 TEST_F(SegmentPostingsTest, KeywordPostingsUseUnitNorm) {
     ClucenePostingsCursor::Partition part {
-            .iter = TermDocsPtr(new MockTermDocs({1, 3}, {1, 1}, {0, 0}, 2)), .has_norms = false};
+            .iter = TermDocsPtr(new KeywordTermDocs({1, 3}, {1, 1}, {0, 0}, 2)),
+            .has_norms = false};
     auto cursor = std::make_unique<ClucenePostingsCursor>(std::move(part));
     auto similarity = std::make_shared<BM25Similarity>(2.0F, 1.0F);
     SegmentPostings postings(std::move(cursor), true, similarity);
@@ -1299,7 +1310,7 @@ TEST_F(SegmentPostingsTest, KeywordPostingsUseUnitNorm) {
 TEST_F(SegmentPostingsTest, KeywordNormSurvivesPartitionSwitch) {
     std::vector<ClucenePostingsCursor::Partition> parts;
     for (uint32_t base : {0, 10}) {
-        parts.push_back({.iter = TermDocsPtr(new MockTermDocs({1}, {1}, {0}, 1)),
+        parts.push_back({.iter = TermDocsPtr(new KeywordTermDocs({1}, {1}, {0}, 1)),
                          .begin = base,
                          .end = base + 10,
                          .has_norms = false});
