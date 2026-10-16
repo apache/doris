@@ -125,8 +125,7 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
             int column_index = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[column_index++]),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+                                                    slot_desc->type(), slot_desc->col_name()));
             }
         } else {
             block->set_columns(std::move(columns));
