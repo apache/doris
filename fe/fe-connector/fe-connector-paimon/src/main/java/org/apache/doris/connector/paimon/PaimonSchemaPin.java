@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.hash.Hashing;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -126,27 +127,66 @@ final class PaimonSchemaPin {
         }
     }
 
-    static FileStoreTable bindRestSchema(FileStoreTable table) {
+    static Map<String, String> captureRestSchemas(FileStoreTable table) {
+        Map<String, String> schemas = new HashMap<>();
+        captureRestSchemas(table, "", schemas);
+        schemas.put("shape", shape(table));
+        return schemas;
+    }
+
+    private static void captureRestSchemas(FileStoreTable table, String path, Map<String, String> schemas) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            captureRestSchemas(pair.wrapped(), path, schemas);
+            captureRestSchemas(pair.other(), path + "fallback.", schemas);
+        } else if (table instanceof DelegatedFileStoreTable) {
+            captureRestSchemas(((DelegatedFileStoreTable) table).wrapped(), path, schemas);
+        } else {
+            SchemaManager manager = table.schemaManager();
+            schemas.put(path, restSchemaIdentity(manager, manager.schema(table.schema().id())));
+        }
+    }
+
+    static FileStoreTable bindRestSchema(Table refreshed, Map<String, String> schemas) {
+        if (!(refreshed instanceof FileStoreTable) || !shape(refreshed).equals(schemas.get("shape"))) {
+            throw changed();
+        }
+        return bindRestSchema((FileStoreTable) refreshed, "", schemas);
+    }
+
+    private static FileStoreTable bindRestSchema(FileStoreTable table, String path, Map<String, String> schemas) {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             return PaimonTableDecorators.rebuildFallbackPair(pair,
-                    bindRestSchema(pair.wrapped()), bindRestSchema(pair.other()));
+                    bindRestSchema(pair.wrapped(), path, schemas),
+                    bindRestSchema(pair.other(), path + "fallback.", schemas));
         }
         if (table instanceof DelegatedFileStoreTable) {
             return PaimonTableDecorators.replaceWrapped(table,
-                    bindRestSchema(((DelegatedFileStoreTable) table).wrapped()));
+                    bindRestSchema(((DelegatedFileStoreTable) table).wrapped(), path, schemas));
         }
         TableSchema retained = table.schema();
-        TableSchema persisted = table.schemaManager().schema(retained.id());
-        // REST reconstructs TableSchema from Schema, synthesizing timeMillis, version and highestFieldId.
-        // Bind physical identity only on catalog load: rebinding a cached handle could adopt a replacement.
+        SchemaManager manager = table.schemaManager();
+        TableSchema persisted = manager.schema(retained.id());
+        // Bracket the fresh REST lookup with physical reads. The first REST handle only locates files;
+        // reusing its options could combine an old bucket key with a replacement's schema identity.
+        if (!restSchemaIdentity(manager, persisted).equals(schemas.get(path))) {
+            throw changed();
+        }
+        // REST synthesizes timeMillis, version and highestFieldId, so compare its logical schema only
+        // after confirming that the physical generation stayed unchanged across the REST lookup.
         if (!retained.copy(Collections.emptyMap()).toSchema()
                 .equals(persisted.copy(Collections.emptyMap()).toSchema())) {
             throw new DorisConnectorException("Paimon REST schema does not match stored schema "
                     + retained.id() + "; retry the statement");
         }
-        // Copy the schema on the existing table to preserve REST FileIO and catalog callbacks/options.
+        // Preserve the freshly loaded REST FileIO, catalog callbacks and options. Cache hits never rebind.
         return table.copy(persisted.copy(retained.options()));
+    }
+
+    private static String restSchemaIdentity(SchemaManager manager, TableSchema schema) {
+        // Include the branch/path and all persisted options, even if a replacement reuses a timestamp.
+        return manager.toSchemaPath(schema.id()) + "\n" + schemaDigest(schema);
     }
 
     static void validateRetainedSchema(TableSchema retained, TableSchema persisted) {

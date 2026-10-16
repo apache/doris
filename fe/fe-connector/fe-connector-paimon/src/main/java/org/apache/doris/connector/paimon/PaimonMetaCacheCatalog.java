@@ -45,6 +45,7 @@ import org.apache.paimon.utils.SegmentsCache;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
@@ -214,7 +215,9 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
                             Table loaded = super.getTable(identifier);
                             if (loaded instanceof FileStoreTable
                                     && PaimonCatalogOps.CatalogBackedPaimonCatalogOps.restCatalog(wrapped) != null) {
-                                loaded = PaimonSchemaPin.bindRestSchema((FileStoreTable) loaded);
+                                Map<String, String> schemas =
+                                        PaimonSchemaPin.captureRestSchemas((FileStoreTable) loaded);
+                                loaded = PaimonSchemaPin.bindRestSchema(super.getTable(identifier), schemas);
                             }
                             return new ExpiringValue<>(attachPerTableCaches(loaded), nanoTime.getAsLong());
                         } catch (TableNotExistException e) {
