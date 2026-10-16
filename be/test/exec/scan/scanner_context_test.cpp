@@ -287,19 +287,16 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     stats1->snii_stats.prx_raw_frames = 1;
     stats1->snii_stats.prx_plaintext_bytes = 10;
     stats1->snii_stats.prx_decode_ns = 100;
-    stats1->snii_stats.phrase_candidate_docs = 3;
     auto* stats2 = scanner2->_tablet_reader->mutable_stats();
     stats2->snii_stats.prx_raw_frames = 2;
     stats2->snii_stats.prx_plaintext_bytes = 20;
     stats2->snii_stats.prx_decode_ns = 200;
-    stats2->snii_stats.phrase_candidate_docs = 4;
 
     RuntimeProfile* index_filter = local_state->_index_filter_profile.get();
     ASSERT_NE(index_filter, nullptr);
     auto* raw_frames = index_filter->get_counter("SniiPrxRawFrames");
     auto* plaintext_bytes = index_filter->get_counter("SniiPrxPlaintextBytes");
     auto* decode_time = index_filter->get_counter("SniiPrxInclusiveDecodeTime");
-    auto* phrase_candidate_docs = index_filter->get_counter("SniiPhraseCandidateDocs");
 
     std::vector<TRuntimeProfileNode> zero_nodes;
     index_filter->to_thrift(&zero_nodes);
@@ -307,25 +304,21 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     ASSERT_NE(raw_frames, nullptr);
     ASSERT_NE(plaintext_bytes, nullptr);
     ASSERT_NE(decode_time, nullptr);
-    ASSERT_NE(phrase_candidate_docs, nullptr);
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
-    EXPECT_EQ(phrase_candidate_docs->value(), 3);
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
-    EXPECT_EQ(phrase_candidate_docs->value(), 3);
 
     scanner2->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 3);
     EXPECT_EQ(plaintext_bytes->value(), 30);
     EXPECT_EQ(decode_time->value(), 300);
-    EXPECT_EQ(phrase_candidate_docs->value(), 7);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {

@@ -49,7 +49,7 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 

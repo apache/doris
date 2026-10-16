@@ -24,7 +24,7 @@
 #include <string_view>
 #include <vector>
 
-#include "storage/index/inverted/gram/gram_extractor.h"
+#include "storage/index/inverted/analysis/gram/gram_extractor.h"
 
 namespace doris::segment_v2::gram::benchmark_detail {
 

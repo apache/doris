@@ -69,7 +69,7 @@
 #include "exprs/vstruct_literal.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
