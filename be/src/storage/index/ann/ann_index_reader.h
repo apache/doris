@@ -20,9 +20,9 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 namespace doris::segment_v2 {

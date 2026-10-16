@@ -28,6 +28,10 @@
 #include "core/arena.h"
 #include "runtime/runtime_profile.h"
 
+namespace cctz {
+class time_zone;
+}
+
 namespace doris {
 
 struct ColumnPtrWrapper;
@@ -76,6 +80,9 @@ public:
     void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
 
     RuntimeState* state() { return _state; }
+
+    const cctz::time_zone* time_zone() const;
+    const std::string& time_zone_name() const;
 
     void set_dict_function(const TDictFunction& dict_function) { _dict_function = dict_function; }
 

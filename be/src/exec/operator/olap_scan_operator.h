@@ -26,7 +26,7 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -134,7 +134,6 @@ private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
-    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;

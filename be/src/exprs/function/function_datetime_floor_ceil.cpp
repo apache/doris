@@ -57,6 +57,7 @@
 #include "exprs/function/datetime_errors.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

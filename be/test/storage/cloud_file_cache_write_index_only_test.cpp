@@ -38,7 +38,7 @@
 #include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer.h"

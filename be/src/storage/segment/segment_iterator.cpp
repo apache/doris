@@ -84,13 +84,13 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
@@ -1997,6 +1997,9 @@ Status SegmentIterator::_init_index_iterators() {
     _index_query_context->io_ctx = &_opts.io_ctx;
     _index_query_context->stats = _opts.stats;
     _index_query_context->runtime_state = _opts.runtime_state;
+    if (auto it = _opts.delete_bitmap.find(segment_id()); it != _opts.delete_bitmap.end()) {
+        _index_query_context->delete_bitmap = it->second;
+    }
 
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
@@ -3641,7 +3644,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     };
     auto inverted_index_context = std::make_shared<IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
+            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts, _schema);
     inverted_index_context->set_index_query_context(_index_query_context);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         VExprContextSPtr context;

@@ -26,7 +26,7 @@
 #include "core/column/column_string.h"
 #include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
+#include "storage/index/inverted/common/inverted_index_cache.h" // IWYU pragma: keep
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 

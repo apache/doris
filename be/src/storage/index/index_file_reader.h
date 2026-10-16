@@ -17,6 +17,14 @@
 
 #pragma once
 
+// CLucene is third-party code and is not clean under -Wconversion (which
+// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
+// someone else's suppressed region depends on include order, so suppress it
+// deliberately here (same pattern as index_common_impl.h).
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/IndexInput.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -34,11 +42,11 @@
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/snii/reader/logical_index_reader.h"
-#include "storage/index/snii/reader/snii_segment_reader.h"
-#include "storage/index/snii/snii_bkd_searcher.h"
-#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/snii/reader/logical_index_reader.h"
+#include "storage/index/inverted/snii/reader/snii_segment_reader.h"
+#include "storage/index/inverted/snii/snii_bkd_searcher.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
 
 namespace doris {
 class TabletIndex;
