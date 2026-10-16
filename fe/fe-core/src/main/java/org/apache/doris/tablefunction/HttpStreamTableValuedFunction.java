@@ -40,6 +40,10 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
         // 1. analyze common properties
         super.parseCommonProperties(properties);
 
+        if (!getPathPartitionKeys().isEmpty()) {
+            throw new AnalysisException("http_stream does not support path_partition_keys");
+        }
+
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET
                 || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_AVRO
                 || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
