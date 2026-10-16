@@ -49,12 +49,12 @@ public class SecondsDiff extends ScalarFunction implements BinaryExpression, Exp
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD));
 
     /**
      * constructor with 2 arguments.

@@ -48,12 +48,12 @@ public class DateDiff extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD));
 
     /**
      * constructor with 2 arguments.
