@@ -677,7 +677,8 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::shared_ptr<const FileContext> file_context,
                              int64_t format_split_id, int64_t format_split_id_end,
-                             std::optional<std::string> hive_parquet_time_zone)
+                             std::optional<std::string> hive_parquet_time_zone,
+                             bool preserve_binary_uuid)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
@@ -685,6 +686,7 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
           _file_context(std::move(file_context)),
           _format_split_id(format_split_id),
           _format_split_id_end(format_split_id_end),
+          _preserve_binary_uuid(preserve_binary_uuid),
           _hive_parquet_time_zone(std::move(hive_parquet_time_zone)) {}
 
 ParquetReader::~ParquetReader() = default;
@@ -739,7 +741,8 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
         file_context_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context);
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context,
+                _preserve_binary_uuid);
     }
     // Publish physical-footer outcomes even when opening the file fails so a failing footer path
     // remains visible in the profile that must diagnose it.

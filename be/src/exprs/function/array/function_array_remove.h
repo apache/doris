@@ -408,6 +408,11 @@ private:
             res = _execute_number_expanded<ColumnTimeStampNs>(
                     offsets, *nested_column, *right_column, nested_null_map, right_nested_null_map,
                     array_null_map);
+        } else if (right_type->get_primitive_type() == TYPE_UUID &&
+                   left_element_type->get_primitive_type() == TYPE_UUID) {
+            res = _execute_number_expanded<ColumnUUID>(offsets, *nested_column, *right_column,
+                                                       nested_null_map, right_nested_null_map,
+                                                       array_null_map);
         } else if (is_ip(right_type->get_primitive_type()) &&
                    is_ip(left_element_type->get_primitive_type())) {
             if (left_element_type->get_primitive_type() == TYPE_IPV4) {

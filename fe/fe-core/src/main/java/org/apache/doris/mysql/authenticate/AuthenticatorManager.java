@@ -26,6 +26,8 @@ import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -48,6 +50,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
@@ -251,6 +254,7 @@ public class AuthenticatorManager {
         context.setIsTempUser(response.isTemp());
         context.setAuthenticatedPrincipal(response.getPrincipal());
         context.setAuthenticatedRoles(response.getAuthenticatedRoles());
+        context.setSessionContext(SessionContext.of(response.getDelegatedCredential()));
     }
 
     private Optional<AuthenticateRequest> resolveAuthenticateRequest(Authenticator authenticator,
@@ -266,7 +270,38 @@ public class AuthenticatorManager {
 
     private AuthenticateResponse authenticateWith(Authenticator authenticator,
             AuthenticateRequest request) throws IOException {
-        return authenticator.authenticate(request);
+        AuthenticateResponse response = authenticator.authenticate(request);
+        attachDelegatedCredential(response, request);
+        return response;
+    }
+
+    private void attachDelegatedCredential(AuthenticateResponse response, AuthenticateRequest request) {
+        if (!response.isSuccess() || request.getCredential() == null || response.getDelegatedCredential() != null) {
+            return;
+        }
+        DelegatedCredential.Type type = delegatedCredentialType(request.getCredentialType());
+        if (type == null) {
+            return;
+        }
+        OptionalLong expiresAtMillis = response.getCredentialExpiresAtMillis();
+        response.setDelegatedCredential(new DelegatedCredential(type,
+                new String(request.getCredential(), StandardCharsets.UTF_8), expiresAtMillis));
+    }
+
+    private DelegatedCredential.Type delegatedCredentialType(String credentialType) {
+        if (CredentialType.OAUTH_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ACCESS_TOKEN;
+        }
+        if (CredentialType.OIDC_ID_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ID_TOKEN;
+        }
+        if (CredentialType.JWT_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.JWT;
+        }
+        if (CredentialType.SAML_ASSERTION.equals(credentialType)) {
+            return DelegatedCredential.Type.SAML;
+        }
+        return null;
     }
 
     private boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,

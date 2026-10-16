@@ -113,6 +113,32 @@ public class CloudInstanceStatusCheckerTest {
     }
 
     @Test
+    public void testSyncComputeGroupPropertiesRemovesKeysMissingFromMetaService() {
+        CloudComputeGroupMeta computeGroup = new CloudComputeGroupMeta(
+                "compute_cg_id", "compute_cg", CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        Map<String, String> initialProperties = new HashMap<>();
+        initialProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        initialProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "900");
+        computeGroup.setProperties(initialProperties);
+        cloudSystemInfoService.addComputeGroup("compute_cg_id", computeGroup);
+
+        Cloud.ClusterPB propertiesInMetaService = Cloud.ClusterPB.newBuilder()
+                .setClusterId("compute_cg_id")
+                .setClusterName("compute_cg")
+                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .putProperties(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue())
+                .build();
+        Mockito.doReturn(instanceResponse(propertiesInMetaService))
+                .when(cloudSystemInfoService).getCloudInstance();
+
+        new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+
+        Assertions.assertEquals(propertiesInMetaService.getPropertiesMap(), computeGroup.getProperties());
+        Assertions.assertEquals(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT,
+                computeGroup.getBalanceWarmUpTaskTimeout());
+    }
+
+    @Test
     public void testSyncInstanceCreatesVirtualComputeGroupAndCancelsTableLevelLoadEvent() throws Exception {
         databases.add(mockDb("ods", mockTable(1001, "orders")));
         addComputeGroup("active_cg_id", "active_cg");
@@ -305,6 +331,19 @@ public class CloudInstanceStatusCheckerTest {
                         .setStatus(Cloud.InstanceInfoPB.Status.NORMAL)
                         .addClusters(activeComputeGroup)
                         .addClusters(standbyComputeGroup)
+                        .build())
+                .build();
+    }
+
+    private Cloud.GetInstanceResponse instanceResponse(Cloud.ClusterPB computeGroup) {
+        return Cloud.GetInstanceResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setMsg("OK")
+                        .build())
+                .setInstance(Cloud.InstanceInfoPB.newBuilder()
+                        .setStatus(Cloud.InstanceInfoPB.Status.NORMAL)
+                        .addClusters(computeGroup)
                         .build())
                 .build();
     }

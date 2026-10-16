@@ -17,15 +17,21 @@
 
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
+#include <arrow/util/key_value_metadata.h>
+
+#include <array>
 #include <cstring>
 #include <limits>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/function/string_hex_util.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -203,6 +209,26 @@ Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
     }
     // Fixed-width bindings describe bytes, including the declared width of nested fields.
     const auto& fixed = assert_cast<const arrow::FixedSizeBinaryType&>(*field->type());
+    const auto& metadata = field->metadata();
+    if (metadata != nullptr && metadata->Contains("originalType") &&
+        metadata->Get("originalType").ValueOrDie() == "uuid") {
+        if (fixed.byte_width() != 16) {
+            return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}",
+                                           fixed.byte_width());
+        }
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const auto& values = assert_cast<const ColumnVarbinary&>(column);
+        for (int64_t row = start; row < end; ++row) {
+            if (null_map != nullptr && (*null_map)[row]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            std::array<uint8_t, 16> bytes;
+            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(values.get_data_at(row), &bytes));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+        }
+        return Status::OK();
+    }
     const auto& varbinary = assert_cast<const DataTypeVarbinary&>(*type);
     if (varbinary.len() != fixed.byte_width()) {
         return Status::InvalidArgument(
@@ -305,6 +331,42 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
     }
 
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
+    const auto* batch = dynamic_cast<const orc::StringVectorBatch*>(view.batch);
+    DORIS_CHECK(batch != nullptr);
+    const auto* encoded_batch = dynamic_cast<const orc::EncodedStringVectorBatch*>(batch);
+    const bool is_encoded = encoded_batch != nullptr && encoded_batch->isEncoded;
+    if (is_encoded) {
+        DORIS_CHECK(encoded_batch->dictionary != nullptr);
+    }
+    auto& binary_column = assert_cast<ColumnVarbinary&>(column);
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    binary_column.reserve(binary_column.size() + rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*batch, source_row)) {
+            binary_column.insert_default();
+            continue;
+        }
+        char* data = nullptr;
+        int64_t length = 0;
+        if (is_encoded) {
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+        } else {
+            data = batch->data[source_row];
+            length = batch->length[source_row];
+        }
+        if (length < 0) {
+            return Status::Corruption("Invalid negative ORC binary length {}", length);
+        }
+        binary_column.insert_data(length == 0 ? "" : data, cast_set<size_t>(length));
+    }
     return Status::OK();
 }
 

@@ -445,10 +445,12 @@ Status ArrowBlockConvertor::write_plain_arrow_column(const std::shared_ptr<const
     std::shared_ptr<arrow::DataType> plain_arrow_type;
     RETURN_IF_ERROR(
             DorisArrowSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &plain_arrow_type));
+    // SerDe writes extension storage, including UUID children of nested types.
+    const auto plain_storage_type = extension_storage_type(plain_arrow_type);
     const auto storage_type = extension_storage_type(field->type());
     // This is an exact binding check selected by the target converter, not a recovery path. A
     // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
-    if (!is_declared_plain_arrow_binding(type, plain_arrow_type, storage_type)) {
+    if (!is_declared_plain_arrow_binding(type, plain_storage_type, storage_type)) {
         return Status::InvalidArgument(
                 "Plain Arrow writer is not bound for Doris type {} and Arrow field {}",
                 type->get_name(), field->ToString());

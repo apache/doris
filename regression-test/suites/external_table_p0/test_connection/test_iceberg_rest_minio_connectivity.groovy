@@ -72,7 +72,7 @@ suite("test_iceberg_rest_minio_connectivity", "p0,external,iceberg,external_dock
                 'test_connection' = 'true'
             );
         """
-        exception "connectivity test failed"
+        exception "Minio connectivity test failed"
     }
 
     // ========== Test Successful Connectivity ==========
