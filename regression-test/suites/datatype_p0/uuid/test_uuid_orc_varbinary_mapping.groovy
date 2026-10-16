@@ -56,6 +56,7 @@ suite("test_uuid_orc_varbinary_mapping") {
                 String source = """local("file_path"="${outputDirectory.fileName}/orc_*",
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
+                // Ordinary BINARY stays VARBINARY even when the UUID binary override is off.
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
                 String uuidValue = binaryMapping ? "CAST(HEX(u) AS UUID)" : "u"
                 String nestedValue = binaryMapping ? "CAST(HEX(value) AS UUID)" : "value"

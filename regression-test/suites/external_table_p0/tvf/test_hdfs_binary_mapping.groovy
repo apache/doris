@@ -27,15 +27,17 @@ suite("test_hdfs_binary_mapping", "p0,external,hive,tvf,external_docker") {
         sql "SET enable_file_scanner_v2=true"
         for (def file : [["orc", "test_hdfs_orc/group6/orc_test_binary_column.orc"],
                 ["parquet", "test_hdfs_parquet/group6/fixed_len_byte_array.parquet"]]) {
+            // UUID annotations retain a separate explicit override; compare the ordinary binary leaf.
+            String projection = file[0] == "parquet" ? "decimal_flba, `interval`" : "*"
             def expectedSchema = null
             def expectedRows = null
             for (String option : ["", ', "enable_mapping_varbinary"="false"',
                     ', "enable_mapping_varbinary"="true"']) {
                 String tvf = """HDFS("uri"="hdfs://${host}:${port}/user/doris/tvf_data/${file[1]}",
                     "hadoop.username"="doris", "format"="${file[0]}" ${option})"""
-                def schema = sql("DESC FUNCTION ${tvf}")
+                def schema = sql("DESC FUNCTION ${tvf}").findAll { it[0] != "uuid" }
                 assertTrue(schema.any { it[1].toString().toLowerCase().startsWith("varbinary") })
-                def rows = sql("SELECT * FROM ${tvf} LIMIT 5")
+                def rows = sql("SELECT ${projection} FROM ${tvf} LIMIT 5")
                 // The legacy option must change neither the inferred type nor the bytes returned.
                 if (expectedSchema == null) {
                     expectedSchema = schema
@@ -49,7 +51,7 @@ suite("test_hdfs_binary_mapping", "p0,external,hive,tvf,external_docker") {
                 test {
                     sql """CREATE TABLE ${target} DUPLICATE KEY(mapping_key)
                         DISTRIBUTED BY HASH(mapping_key) BUCKETS 1
-                        PROPERTIES("replication_num"="1") AS SELECT 1 AS mapping_key, * FROM ${tvf} LIMIT 5"""
+                        PROPERTIES("replication_num"="1") AS SELECT 1 AS mapping_key, ${projection} FROM ${tvf} LIMIT 5"""
                     exception "doris do not support varbinary create table"
                 }
             }
