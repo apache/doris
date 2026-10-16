@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_recycler_expired_stage_objects") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId
     def cloudUniqueId = context.config.cloudUniqueId
