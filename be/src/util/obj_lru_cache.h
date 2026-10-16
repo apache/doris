@@ -86,17 +86,22 @@ public:
         DISALLOW_COPY_AND_ASSIGN(CacheHandle);
     };
 
-    ObjLRUCache(int64_t capacity, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS);
+    ObjLRUCache(int64_t capacity, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS,
+                LRUCacheType type = LRUCacheType::NUMBER,
+                CachePolicy::CacheType cache_type = CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE);
 
     bool lookup(const ObjKey& key, CacheHandle* handle);
 
     template <typename T>
-    void insert(const ObjKey& key, const T* value, CacheHandle* cache_handle) {
+    void insert(const ObjKey& key, const T* value, CacheHandle* cache_handle,
+                size_t memory_size = sizeof(T)) {
         if (_enabled) {
             const std::string& encoded_key = key.key;
             auto* obj_value = new ObjValue<T>(value);
-            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, sizeof(T),
-                                                  CachePriority::NORMAL);
+            auto* handle = LRUCachePolicy::insert(
+                    encoded_key, obj_value,
+                    _lru_cache_type == LRUCacheType::SIZE ? memory_size + sizeof(ObjValue<T>) : 1,
+                    memory_size + sizeof(ObjValue<T>), CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,

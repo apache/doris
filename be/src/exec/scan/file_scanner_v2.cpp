@@ -855,8 +855,8 @@ bool FileScannerV2::_should_skip_empty(const Status& status, bool stopped) {
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
-    return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
-           _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
+    return ExecEnv::GetInstance()->file_meta_cache()->should_cache_file_count(
+            _split_source->num_scan_ranges());
 }
 
 std::optional<format::GlobalRowIdContext> FileScannerV2::_create_global_rowid_context(

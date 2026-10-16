@@ -84,6 +84,7 @@
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/fs/file_meta_cache.h"
 #include "load/group_commit/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
@@ -1356,6 +1357,11 @@ Status FileScanner::_get_next_reader() {
         break;
     }
     return Status::OK();
+}
+
+bool FileScanner::_should_enable_file_meta_cache() {
+    return ExecEnv::GetInstance()->file_meta_cache()->should_cache_file_count(
+            _split_source->num_scan_ranges());
 }
 
 Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
