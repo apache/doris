@@ -111,8 +111,8 @@ class IvmNormalizeUniqKeysMTMVUnionTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private boolean isUnionRowIdDeterministic(Plan unionPlan) {

@@ -39,6 +39,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -131,8 +132,6 @@ class IvmNormalizeUniqKeysMTMVTest {
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        Assertions.assertTrue(rewriteResult.isNormalizeRewritten());
-        Assertions.assertSame(result, rewriteResult.getNormalizedPlan());
         Assertions.assertNotNull(rewriteResult.getPlanSignature());
     }
 
@@ -558,19 +557,26 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testNormalizedPlanStoredInIvmRewriteResult() {
+    void testNormalizeRulePublishesTheNormalizedPlan() {
+        // The normalizer only builds the plan; the normalize rule records it on the statement's rewrite
+        // result, and does so for both table models. The fixture is a duplicate-key table, which the rule
+        // judges as the detail model, whose normalized plan is the query itself.
         JobContext jobContext = newJobContext(true);
-        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
-        Assertions.assertNotNull(rewriteResult.getNormalizedPlan());
+        Assertions.assertTrue(rewriteResult.isNormalizeRewritten());
         Assertions.assertSame(result, rewriteResult.getNormalizedPlan());
+        Assertions.assertSame(scan, result);
     }
 
     @Test
     void testIdempotencyGuardSkipsSecondRewrite() {
         JobContext jobContext = newJobContext(true);
         Plan firstResult = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
+        // The caller publishes the result, and that is also what marks the statement rewritten: the
+        // re-entry the guard is about can only happen after it.
+        jobContext.getCascadesContext().getOrCreateIvmRewriteResult().setNormalizeRewritten(true);
         // Second rewrite on the same CascadesContext should return root unchanged
         Plan secondResult = new IvmNormalizeUniqKeysMTMV().normalize(firstResult, jobContext);
         Assertions.assertSame(firstResult, secondResult);

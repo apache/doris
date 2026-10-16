@@ -287,8 +287,20 @@ abstract class IvmDeltaTestBase {
     protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg, ConnectContext connectContext) {
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
         Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
-        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        IvmRewriteResult rewriteResult = publishNormalizeResult(jobContext, normalizedPlan);
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
+    }
+
+    /**
+     * Publishes a normalized plan the way {@code IvmNormalizeMTMV} does, which is what a statement's
+     * normalize rule does around the normalizer: the normalizer builds the plan, its caller records it
+     * on the statement's rewrite result. Tests that read the recorded plan publish it the same way.
+     */
+    protected static IvmRewriteResult publishNormalizeResult(JobContext jobContext, Plan normalizedPlan) {
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getOrCreateIvmRewriteResult();
+        rewriteResult.setNormalizeRewritten(true);
+        rewriteResult.setNormalizedPlan(normalizedPlan);
+        return rewriteResult;
     }
 
     protected MTMV buildMtmvFromPlan(List<Slot> output) {

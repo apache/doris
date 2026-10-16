@@ -209,8 +209,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      * Rewrites {@code plan} into the hidden layout a unique-key IVM MV is maintained through.
      *
      * <p>The table model has already been settled and recorded by {@link IvmNormalizeMTMV}, which is
-     * the only caller: what is left here is the layout itself, which is why this rewriter knows
-     * nothing about any other model.
+     * the only production caller: what is left here is the layout itself, which is why this rewriter
+     * knows nothing about any other model. The caller publishes the returned plan as the statement's
+     * normalized plan, as it does for the detail model too; this rewriter publishes the signature that
+     * pins the layout down, which is what its model adds to the plan and no other model has.
      */
     public Plan normalize(Plan plan, JobContext jobContext) {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
@@ -219,18 +221,20 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             // Not an IVM rewrite: nothing to normalize.
             return plan;
         }
-        // Idempotency: if already normalized (e.g. rewritten plan re-entering), skip.
+        // Idempotency: whoever publishes the result sets this on the statement's IvmRewriteResult, so a
+        // re-entry -- the rewritten plan reaching the rule again, say -- normalizes nothing twice.
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getOrCreateIvmRewriteResult();
         if (rewriteResult.isNormalizeRewritten()) {
             return plan;
         }
-        rewriteResult.setNormalizeRewritten(true);
         this.rewriteResult = rewriteResult;
         excludedTriggerTables = statementContext.getExcludedTriggerTables();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         validateAggStateColumnsPersisted(result);
-        rewriteResult.setNormalizedPlan(result);
+        // The plan is not published here: the caller publishes it, and does so for both table models.
+        // What this model adds to a normalized plan is the layout its refresh reads, which is published
+        // as the signature that pins the layout down.
         IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
         rewriteResult.setPlanSignature(planSignature);
         IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
@@ -239,26 +243,21 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             // plan (row-id generation path) would produce an unmatchable delta. Check the
             // signature as soon as normalization completes so every incremental path fails
             // fast instead of attempting a delta rewrite against a stale layout baseline.
-            validatePlanSignature(ivmRewriteContext.getMtmv(), rewriteResult);
+            validatePlanSignature(ivmRewriteContext.getMtmv(), planSignature, result);
         }
         return result;
     }
 
-    private void validatePlanSignature(MTMV mtmv, IvmRewriteResult rewriteResult) {
-        IvmPlanSignature currentSignature = rewriteResult.getPlanSignature();
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        String storedSignature = ivmInfo.getPlanSignature();
-        boolean signatureMatched = currentSignature != null
-                && Objects.equals(storedSignature, currentSignature.getSha256());
-        if (signatureMatched) {
+    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature, Plan currentPlan) {
+        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
+        if (Objects.equals(storedSignature, currentSignature.getSha256())) {
             return;
         }
         String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
                 + ", storedSignature=" + storedSignature
-                + ", currentSignature=" + (currentSignature == null ? "null" : currentSignature.getSha256())
-                + ", currentCanonical=" + (currentSignature == null ? "null" : currentSignature.getCanonicalString())
-                + ", currentPlan=" + (rewriteResult.getNormalizedPlan() == null
-                        ? "null" : rewriteResult.getNormalizedPlan().treeString())
+                + ", currentSignature=" + currentSignature.getSha256()
+                + ", currentCanonical=" + currentSignature.getCanonicalString()
+                + ", currentPlan=" + currentPlan.treeString()
                 + ". Run a full refresh to rebuild IVM layout baseline.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }

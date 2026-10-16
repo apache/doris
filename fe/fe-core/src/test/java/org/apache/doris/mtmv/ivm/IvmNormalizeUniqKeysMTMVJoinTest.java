@@ -22,6 +22,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -115,8 +116,8 @@ class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan, ImmutableSet<TableNameInfo> excludedTriggerTables) {
@@ -126,8 +127,8 @@ class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
         ConnectContext ctx = newConnectContext();
         ctx.getStatementContext().setExcludedTriggerTables(excludedTriggerTables);
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private LogicalUnion buildUnionAll(Plan... children) {
@@ -1046,7 +1047,7 @@ class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<Plan> sink = new LogicalResultSink<>(ImmutableList.of(leftId), project);
 
         MTMV mtmv = buildMtmvFromPlan(ImmutableList.of(leftId));
-        mtmv.getIvmInfo().setUseFullKeys(true);
+        mtmv.getMvProperties().put(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS, "true");
         ConnectContext ctx = newConnectContext();
         ctx.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize(mtmv)));
         JobContext jobContext = newJobContextForRoot(sink, ctx);

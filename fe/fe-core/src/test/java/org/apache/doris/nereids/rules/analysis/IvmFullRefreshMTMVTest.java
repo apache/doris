@@ -181,6 +181,10 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
 
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        // The normalize rule publishes what the normalizer built, and that is also what marks the
+        // statement normalized; this test drives the normalizer directly and publishes it the same way.
+        rewriteResult.setNormalizeRewritten(true);
+        rewriteResult.setNormalizedPlan(result);
         Plan secondResult = new IvmNormalizeUniqKeysMTMV().normalize(result, jobContext);
         Plan fullRefreshResult = rewrite(result, rewriteContext);
 
