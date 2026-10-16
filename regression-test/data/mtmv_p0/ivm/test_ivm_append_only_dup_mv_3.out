@@ -4,6 +4,10 @@
 2	20
 3	30
 
+-- !dup_chained_schema --
+dup_mv_chained	DUP_KEYS	id	bigint	bigint	No	true	\N		true		
+		v1	int	int	No	true	\N		true		
+
 -- !dup_chained_after_complete --
 2	20
 3	30
@@ -12,6 +16,11 @@
 2	20
 3	30
 5	50
+
+-- !dup_chained_mow_schema --
+dup_mv_chained_mow	UNIQUE_KEYS	id	bigint	bigint	No	true	\N		true		
+		cnt	bigint	bigint	No	false	\N	NONE	true		
+		sum_v1	bigint	bigint	No	false	\N	NONE	true		
 
 -- !dup_chained_mow_after_complete --
 1	1	10
@@ -25,6 +34,11 @@
 3	1	30
 5	1	50
 6	1	60
+
+-- !dup_forced_mow_schema --
+dup_mv_forced_mow	UNIQUE_KEYS	id	bigint	bigint	No	true	\N		true		
+		category	varchar(20)	varchar(20)	No	false	\N	NONE	true		
+		amount	decimal(12,2)	decimalv3(12,2)	No	false	\N	NONE	true		
 
 -- !dup_forced_mow_after_complete --
 1	book	10.00

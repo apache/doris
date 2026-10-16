@@ -1442,6 +1442,32 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 columnNames(info).subList(0, 4));
     }
 
+    // A detail MV is a plain DUP table, so its partition column may be one of its value columns. The rule
+    // that a partition column has to be a key column is the merge-on-write unique-key model's, which is
+    // what the partition validation used to apply to every IVM MV.
+    @Test
+    public void testAppendOnlyDetailMvPartitionColumnMayBeAValueColumn() throws Exception {
+        createTable("create table test.dup_partition_value_col_base (id int, dt date, v1 int)\n"
+                + "duplicate key(id)\n"
+                + "partition by range(dt) (partition p202601 values [('2026-01-01'), ('2026-02-01')))\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW dup_partition_value_col_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " KEY(id)\n"
+                + " PARTITION BY(dt)\n"
+                + " DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT id, dt, v1 FROM dup_partition_value_col_base;");
+
+        Assertions.assertEquals(Arrays.asList("id"), keyNames(info));
+        Assertions.assertEquals(Arrays.asList("id", "dt", "v1"), columnNames(info));
+        Assertions.assertTrue(info.getDistribution().isHash());
+    }
+
     @Test
     public void testIvmRejectsGeneratedPartitionKeyNotSelectPrefix() throws Exception {
         createTable("create table test.ivm_partition_not_prefix_base (id int, dt date, v1 int)\n"
@@ -1530,7 +1556,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " KEY(id)\n"
                 + " PARTITION BY(dt)\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
+                + " PROPERTIES ('replication_num' = '1', 'ivm_force_mow' = 'true')\n"
                 + " AS\n"
                 + " SELECT id, dt, v1 FROM ivm_partition_explicit_key_base;"));
 
@@ -1909,7 +1935,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_mow_validate_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PARTITION BY(`dt`)\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
+                + " PROPERTIES ('replication_num' = '1', 'ivm_force_mow' = 'true')\n"
                 + " AS SELECT dt, k1, v1 FROM ivm_partition_mow_validate_base;");
 
         ColumnDefinition partitionColumn = info.getColumnDefinitions().stream()

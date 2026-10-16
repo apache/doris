@@ -71,10 +71,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         )
         AS SELECT id, v1 FROM dup_mv_chain_upstream WHERE v1 >= 20;
     """
-    def dupChainedDesc = sql """desc dup_mv_chained all"""
-    logger.info("desc dup_mv_chained: " + dupChainedDesc.toString())
-    assertTrue(dupChainedDesc.toString().contains("DUP_KEYS"))
-    assertFalse(dupChainedDesc.toString().contains("IVM"))
+    qt_dup_chained_schema """desc dup_mv_chained all"""
 
     sql """REFRESH MATERIALIZED VIEW dup_mv_chained COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_chained")
@@ -101,10 +98,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         )
         AS SELECT id, COUNT(*) AS cnt, SUM(v1) AS sum_v1 FROM dup_mv_chain_upstream GROUP BY id;
     """
-    def dupChainedMowDesc = sql """desc dup_mv_chained_mow all"""
-    logger.info("desc dup_mv_chained_mow: " + dupChainedMowDesc.toString())
-    assertTrue(dupChainedMowDesc.toString().contains("UNIQUE_KEYS"))
-    assertFalse(dupChainedMowDesc.toString().contains("DUP_KEYS"))
+    qt_dup_chained_mow_schema """desc dup_mv_chained_mow all"""
 
     sql """REFRESH MATERIALIZED VIEW dup_mv_chained_mow COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_chained_mow")
@@ -157,10 +151,7 @@ suite("test_ivm_append_only_dup_mv_3") {
         )
         AS SELECT id, category, amount FROM dup_base_forced_mow WHERE amount >= 10;
     """
-    def forcedMowDesc = sql """desc dup_mv_forced_mow all"""
-    logger.info("desc dup_mv_forced_mow: " + forcedMowDesc.toString())
-    assertTrue(forcedMowDesc.toString().contains("UNIQUE_KEYS"))
-    assertFalse(forcedMowDesc.toString().contains("DUP_KEYS"))
+    qt_dup_forced_mow_schema """desc dup_mv_forced_mow all"""
 
     // SHOW CREATE is what a user rebuilds the MV from, so it has to name the model it really is: the
     // unique-key one prints KEY rather than the DUPLICATE KEY of the model the query would have settled on.

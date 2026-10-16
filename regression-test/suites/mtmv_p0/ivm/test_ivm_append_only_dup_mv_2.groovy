@@ -65,10 +65,7 @@ suite("test_ivm_append_only_dup_mv_2") {
         SELECT l.id AS id, l.v1 AS v1, r.v2 AS v2
         FROM dup_base_join_l l JOIN dup_base_join_r r ON l.id = r.id;
     """
-    def dupJoinDesc = sql """desc dup_mv_join all"""
-    logger.info("desc dup_mv_join: " + dupJoinDesc.toString())
-    assertTrue(dupJoinDesc.toString().contains("DUP_KEYS"))
-    assertFalse(dupJoinDesc.toString().contains("IVM"))
+    qt_dup_join_schema """desc dup_mv_join all"""
 
     sql """INSERT INTO dup_base_join_l VALUES (1, 10), (2, 20);"""
     sql """INSERT INTO dup_base_join_r VALUES (1, 100), (2, 200), (3, 300);"""

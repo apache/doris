@@ -61,11 +61,9 @@ suite("test_ivm_append_only_dup_mv_1") {
         FROM (SELECT id, category, amount FROM dup_base_single WHERE amount >= 10) t;
     """
 
-    // The table model, which decides everything else: a plain DUP table, with no IVM hidden column on it.
-    def dupSingleDesc = sql """desc dup_mv_single all"""
-    logger.info("desc dup_mv_single: " + dupSingleDesc.toString())
-    assertTrue(dupSingleDesc.toString().contains("DUP_KEYS"))
-    assertFalse(dupSingleDesc.toString().contains("IVM"))
+    // The table model, which decides everything else: `desc` reports the query's own columns and the key
+    // type of a plain DUP table.
+    qt_dup_single_schema """desc dup_mv_single all"""
 
     // SHOW CREATE is what a user rebuilds the MV from, so it has to name the model it really is.
     def dupSingleDdl = sql """SHOW CREATE MATERIALIZED VIEW dup_mv_single"""
@@ -100,6 +98,49 @@ suite("test_ivm_append_only_dup_mv_1") {
     sql """REFRESH MATERIALIZED VIEW dup_mv_single COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_single")
     order_qt_dup_single_after_complete_again """SELECT id, category, amount FROM dup_mv_single"""
+
+    // A partitioned detail MV: the MV is a plain DUP table, so its partition column may be one of its value
+    // columns -- the rule that a partition column has to be a key column is the merge-on-write model's, and
+    // the partition validation used to apply it to every IVM MV.
+    sql """drop materialized view if exists dup_mv_partition;"""
+    sql """drop table if exists dup_base_partition;"""
+    sql """
+        CREATE TABLE dup_base_partition (
+            id BIGINT NOT NULL,
+            dt DATE NOT NULL,
+            v1 INT NOT NULL
+        )
+        DUPLICATE KEY(id)
+        PARTITION BY RANGE(dt) (PARTITION p1 VALUES [('2026-01-01'), ('2026-02-01')))
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW"
+        );
+    """
+    sql """
+        CREATE MATERIALIZED VIEW dup_mv_partition
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        KEY(id)
+        PARTITION BY(dt)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+        AS SELECT id, dt, v1 FROM dup_base_partition;
+    """
+    qt_dup_partition_schema """desc dup_mv_partition all"""
+
+    sql """INSERT INTO dup_base_partition VALUES (1, '2026-01-05', 10);"""
+    sql """REFRESH MATERIALIZED VIEW dup_mv_partition COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_partition")
+    order_qt_dup_partition_after_complete """SELECT id, dt, v1 FROM dup_mv_partition"""
+
+    sql """INSERT INTO dup_base_partition VALUES (2, '2026-01-06', 20);"""
+    sql """REFRESH MATERIALIZED VIEW dup_mv_partition INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_partition")
+    order_qt_dup_partition_after_incremental """SELECT id, dt, v1 FROM dup_mv_partition"""
 
     // =====================================================================================
     // Part 2: repeated rows -- the MV holds the query's own rows, duplicates included

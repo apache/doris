@@ -497,10 +497,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
-        // CreateMTMVInfo does not run CreateTableInfo.validate(), but an IVM MV
-        // is physically a MOW UNIQUE table. Reuse the ordinary MOW partition
-        // rule so partition columns must be key columns after IVM key rewrite.
-        boolean validateAsMow = isEnableIvm() || isEnableMergeOnWrite();
+        // CreateMTMVInfo does not run CreateTableInfo.validate(), and the partition rule an MV is checked
+        // against is the one its own table model has. The unique-key model is physically a MOW UNIQUE
+        // table, so its partition columns must be key columns after the IVM key rewrite; an append-only
+        // detail MV is a plain DUP table, whose partition column may be one of its value columns.
+        boolean validateAsMow = isEnableIvm() ? !ivmAppendOnlyDupModel : isEnableMergeOnWrite();
         getPartitionTableInfo().validatePartitionInfo(
                 columnMap,
                 properties,
