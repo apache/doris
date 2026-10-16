@@ -129,7 +129,7 @@ suite("test_partition_cloud_inverted_index_storage_format_rollout", "p0, docker"
 
         test {
             sql """
-                CREATE TABLE test_cloud_partition_inverted_index_storage_format_forbid_default (
+                CREATE TABLE test_cloud_partition_inv_idx_format_forbid_default (
                     k DATE NOT NULL,
                     v VARCHAR(100) NULL,
                     INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english")
