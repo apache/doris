@@ -47,6 +47,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
@@ -504,6 +505,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        if (getTFileType() == TFileType.FILE_S3) {
+            // BE reads the first file for the schema before any scan runs, so this request needs
+            // the same typed Azure access as the scan (see FileQueryScanNode); otherwise a SAS or
+            // OAuth2 TVF that FE could list would fail here on the S3-style keys.
+            AzureThriftAdapter.fromBackendProperties(beProperties)
+                    .ifPresent(fileScanRangeParams::setAzureClientConfig);
+        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
