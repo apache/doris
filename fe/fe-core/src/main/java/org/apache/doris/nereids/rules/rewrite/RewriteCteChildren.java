@@ -150,8 +150,9 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
      * rule which rewrites the producer body may rename them, so compare the outputs before and after the rewrite to
      * know which exprIds changed. A column which is not renamed keeps its exprId, so it needs no mapping, and the
      * columns which are renamed are the ones whose exprId disappeared: match them by name, a rule which renames an
-     * output keeps its name. Columns which are pruned, e.g. by ColumnPruning, are not needed by any consumer, so
-     * they have no mapping either.
+     * output keeps its name. A column which was pruned by the rewrite of the body, e.g. by ColumnPruning, has no
+     * counterpart in the new outputs any more, so there is nothing to map for it, see the two CTE tests of
+     * CteLimitPushdownPlanTest and DataTraitTest which prune the columns their consumers do not read.
      */
     private static Map<ExprId, ExprId> computeProducerExprIdRemap(List<Slot> oldOutputs, List<Slot> newOutputs) {
         Set<ExprId> newExprIds = newOutputs.stream().map(Slot::getExprId).collect(Collectors.toSet());
