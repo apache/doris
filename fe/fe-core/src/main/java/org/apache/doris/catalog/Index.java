@@ -76,23 +76,12 @@ public class Index implements Writable {
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
-            if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
-                    String supportPhraseKey = InvertedIndexUtil
-                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
-                    if (!this.properties.containsKey(supportPhraseKey)) {
-                        this.properties.put(supportPhraseKey, "true");
-                    }
-                }
-                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
-                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
-                    if (!this.properties.containsKey(lowerCaseKey)) {
-                        this.properties.put(lowerCaseKey, "true");
-                    }
+            this.properties.putIfAbsent(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY, "true");
+            if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                    || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
+                String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                if (!this.properties.containsKey(lowerCaseKey)) {
+                    this.properties.put(lowerCaseKey, "true");
                 }
             }
         }

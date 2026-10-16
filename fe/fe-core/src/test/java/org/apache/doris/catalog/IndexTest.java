@@ -23,9 +23,25 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class IndexTest {
+
+    @Test
+    public void testInvertedIndexPersistsDefaultPhraseSupport() {
+        Index exact = new Index(1, "exact", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.emptyMap(), "");
+        Assert.assertEquals("true", exact.getProperties().get("support_phrase"));
+
+        Index disabled = new Index(2, "disabled", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("support_phrase", "false"), "");
+        Assert.assertEquals("false", disabled.getProperties().get("support_phrase"));
+
+        Index bitmap = new Index(3, "bitmap", Collections.singletonList("col"),
+                IndexDef.IndexType.BITMAP, Collections.emptyMap(), "");
+        Assert.assertFalse(bitmap.getProperties().containsKey("support_phrase"));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {

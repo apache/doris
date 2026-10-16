@@ -128,7 +128,7 @@ TEST_F(InvertedIndexParserTest, TestGetParserPhraseSupportStringFromProperties) 
 
     // Test with empty properties
     EXPECT_EQ(get_parser_phrase_support_string_from_properties(properties),
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
 
     // Test with phrase support key present
     properties[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] = INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;

@@ -108,7 +108,7 @@ std::string get_parser_phrase_support_string_from_properties(
         it != properties.end()) {
         return it->second;
     }
-    return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 }
 
 bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties) {
