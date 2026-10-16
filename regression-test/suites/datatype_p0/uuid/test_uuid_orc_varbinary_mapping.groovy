@@ -57,16 +57,14 @@ suite("test_uuid_orc_varbinary_mapping") {
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
-                String uuidValue = binaryMapping ? "CAST(HEX(u) AS UUID)" : "u"
-                String nestedValue = binaryMapping ? "CAST(HEX(value) AS UUID)" : "value"
-                String structValue = binaryMapping ? "CAST(HEX(s.k) AS UUID)" : "s.k"
-                "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, ${uuidValue},
-                        ARRAY_MAP(value -> ${nestedValue}, a),
-                        ARRAY_MAP(value -> ${nestedValue}, MAP_KEYS(m)),
-                        ARRAY_MAP(value -> ${nestedValue}, MAP_VALUES(m)),
-                        ${structValue}, HEX(b), LENGTH(HEX(b))
+                // UUID annotations preserve scalar and nested types independently of the binary option.
+                "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, u,
+                        ARRAY_MAP(value -> value, a),
+                        ARRAY_MAP(value -> value, MAP_KEYS(m)),
+                        ARRAY_MAP(value -> value, MAP_VALUES(m)),
+                        s.k, HEX(b), LENGTH(HEX(b))
                     FROM ${source} ORDER BY id"""
-                "qt_filtered_${scannerV2}_${binaryMapping}" """SELECT id, ${uuidValue}, HEX(b), LENGTH(HEX(b))
+                "qt_filtered_${scannerV2}_${binaryMapping}" """SELECT id, u, HEX(b), LENGTH(HEX(b))
                     FROM ${source} WHERE u IS NOT NULL AND id > 1 ORDER BY id"""
             }
         }

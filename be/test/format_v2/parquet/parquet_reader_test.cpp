@@ -2288,9 +2288,6 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                             ASSERT_TRUE(reader->get_schema(&schema).ok());
                             ASSERT_EQ(schema.size(), 1);
                             auto expected_type = preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
-                            if (mapping) {
-                                expected_type = TYPE_VARBINARY;
-                            }
                             EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
                                       expected_type);
                             auto request = std::make_shared<format::FileScanRequest>();
@@ -2313,7 +2310,7 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                                     if (expected_null) {
                                         continue;
                                     }
-                                    if (mapping || preserve_binary_uuid) {
+                                    if (preserve_binary_uuid) {
                                         const auto value =
                                                 column.get_nested_column().get_data_at(row);
                                         EXPECT_EQ(value.size, bytes.size());

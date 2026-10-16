@@ -253,12 +253,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Lance format is supported only by local() and s3() TVFs");
         }
 
-        // The catalog property was removed, but this TVF-only option must remain explicit because
-        // changing an ad-hoc TVF result schema also breaks CTAS type inference.
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
-
+        // Binary file fields must preserve bytes even when a legacy opt-out is supplied.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        fileFormatProperties.enableMappingVarbinary = true;
         // Consume the legacy option, but let file logical types determine timezone semantics.
         copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
         fileFormatProperties.enableMappingTimestampTz = true;

@@ -101,24 +101,21 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testTvfVarbinaryMappingRemainsExplicit() throws AnalysisException {
-        ExternalFileTableValuedFunction defaultTvf = Mockito.mock(
-                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
-        Map<String, String> defaultProperties = Maps.newHashMap();
-        defaultProperties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
-
-        defaultTvf.parseCommonProperties(defaultProperties);
-
-        Assert.assertFalse(defaultTvf.fileFormatProperties.enableMappingVarbinary);
-
-        ExternalFileTableValuedFunction enabledTvf = Mockito.mock(
-                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
-        Map<String, String> enabledProperties = Maps.newHashMap(defaultProperties);
-        enabledProperties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
-
-        enabledTvf.parseCommonProperties(enabledProperties);
-
-        Assert.assertTrue(enabledTvf.fileFormatProperties.enableMappingVarbinary);
+    public void testTvfVarbinaryMappingCannotBeDisabled() throws AnalysisException {
+        for (String format : new String[] {FileFormatConstants.FORMAT_PARQUET, FileFormatConstants.FORMAT_ORC}) {
+            for (String legacyValue : new String[] {null, "false", "true"}) {
+                ExternalFileTableValuedFunction tvf = Mockito.mock(
+                        ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(FileFormatConstants.PROP_FORMAT, format);
+                if (legacyValue != null) {
+                    properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, legacyValue);
+                }
+                Map<String, String> remaining = tvf.parseCommonProperties(properties);
+                Assert.assertTrue(tvf.fileFormatProperties.enableMappingVarbinary);
+                Assert.assertFalse(remaining.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY));
+            }
+        }
     }
 
     @Test
