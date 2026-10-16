@@ -25,9 +25,13 @@ import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.core.support.LdapContextSource;
+import org.springframework.ldap.pool2.factory.PooledContextSource;
+import org.springframework.ldap.pool2.factory.PoolConfig;
+import org.springframework.ldap.pool2.validation.DefaultDirContextValidator;
 import org.springframework.ldap.query.LdapQuery;
 import org.springframework.ldap.support.LdapEncoder;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,12 +44,40 @@ import java.util.Map;
  * <ul>
  *   <li>Configuration from Map instead of global LdapConfig</li>
  *   <li>Per-integration instance instead of singleton</li>
- *   <li>Simplified - no connection pooling (can be added later)</li>
+ *   <li>added a client-side connection pool</li>
  * </ul>
  */
 public class LdapClient {
 
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
+    // pool param
+    private static final String POOL_MAX_SIZE = "pool_max_size";
+    private static final String POOL_MAX_SIZE_DEFAULT = "4";
+
+    private static final String POOL_MAX_WAIT_MILLIS = "pool_max_wait_millis";
+    private static final String POOL_MAX_WAIT_MILLIS_DEFAULT = "5000";
+
+    private static final String POOL_MAX_IDLE_PER_KEY = "pool_max_idle_per_key";
+    private static final String POOL_MAX_IDLE_PER_KEY_DEFAULT = "2";
+
+    private static final String POOL_MIN_IDLE_PER_KEY = "pool_min_idle_per_key";
+    private static final String POOL_MIN_IDLE_PER_KEY_DEFAULT = "0";
+
+    private static final String POOL_TEST_ON_BORROW = "pool_test_on_borrow";
+    private static final String POOL_TEST_ON_BORROW_DEFAULT = "false";
+
+    private static final String POOL_TEST_WHILE_IDLE = "pool_test_while_idle";
+    private static final String POOL_TEST_WHILE_IDLE_DEFAULT = "false";
+
+    private static final String POOL_TIME_BETWEEN_EVICTION_RUNS = "pool_time_between_eviction_runs_millis";
+    private static final String POOL_TIME_BETWEEN_EVICTION_RUNS_DEFAULT = "30000";
+
+    private static final String POOL_VALIDATOR_BASE = "pool_validator_base";
+    private static final String POOL_VALIDATOR_BASE_DEFAULT = "";
+
+    private static final String POOL_VALIDATOR_FILTER = "pool_validator_filter";
+    private static final String POOL_VALIDATOR_FILTER_DEFAULT = "(objectClass=*)";
+
 
     // LDAP configuration
     private final String server;
@@ -58,7 +90,10 @@ public class LdapClient {
     private final String bindPassword;
 
     // LDAP template for operations
-    private final LdapTemplate ldapTemplate;
+    private final LdapTemplate searchLdapTemplate; // pooled for searching
+    private final LdapTemplate authLdapTemplate;   // without pool
+    private final PooledContextSource pooledContextSource; // pooled context
+
 
     /**
      * Creates an LDAP client from integration configuration.
@@ -80,8 +115,13 @@ public class LdapClient {
         this.bindDn = config.get("bind_dn");
         this.bindPassword = config.get("bind_password");
 
+
         // Initialize LDAP template
-        this.ldapTemplate = createLdapTemplate();
+        LdapContextSource baseContextSource = createBaseContextSource(config);
+        this.pooledContextSource = createPooledContextSource(baseContextSource, config);
+        this.searchLdapTemplate = new LdapTemplate(pooledContextSource);
+        this.searchLdapTemplate.setIgnorePartialResultException(true);
+        this.authLdapTemplate = new LdapTemplate(baseContextSource);
 
         LOG.info("LDAP client created: server={}, baseDn={}", server, baseDn);
     }
@@ -139,7 +179,7 @@ public class LdapClient {
             // Use Spring LDAP's authenticate method
             // This creates a new connection with user credentials
             String filter = getUserFilter(userFilter, username);
-            ldapTemplate.authenticate(
+            authLdapTemplate.authenticate(
                     org.springframework.ldap.query.LdapQueryBuilder.query()
                             .base(userBaseDn)
                             .filter(filter),
@@ -217,38 +257,82 @@ public class LdapClient {
     public void close() {
         // Spring LdapTemplate doesn't require explicit cleanup
         // Connection pooling resources are managed by context source
-        LOG.debug("LDAP client closed");
+        if (pooledContextSource != null) {
+            try {
+                pooledContextSource.destroy();
+                LOG.info("LDAP connection pool closed successfully");
+            } catch (Exception e) {
+                LOG.error("failed to close pooledContextSource:", e);
+                LOG.debug("LDAP client closed failed, failed to destroy pooledContextSource");
+            }
+        }
+
     }
 
     // ==================== Private Helper Methods ====================
+    private PooledContextSource createPooledContextSource(LdapContextSource baseSource, Map<String, String> param) {
+        PoolConfig config = new PoolConfig();
+        // pool param
+        config.setMaxTotal(Integer.parseInt(param.getOrDefault(POOL_MAX_SIZE, POOL_MAX_SIZE_DEFAULT)));
+        config.setMaxIdlePerKey(Integer.parseInt(
+                param.getOrDefault(POOL_MAX_IDLE_PER_KEY, POOL_MAX_IDLE_PER_KEY_DEFAULT)));
+        config.setMaxIdlePerKey(Integer.parseInt(
+            param.getOrDefault(POOL_MIN_IDLE_PER_KEY, POOL_MIN_IDLE_PER_KEY_DEFAULT)));
+        config.setMaxWaitMillis(Long.parseLong(
+            param.getOrDefault(POOL_MAX_WAIT_MILLIS, POOL_MAX_WAIT_MILLIS_DEFAULT)));
+        // setup test for connections
+        config.setTestOnBorrow(Boolean.parseBoolean(
+            param.getOrDefault(POOL_TEST_ON_BORROW, POOL_TEST_ON_BORROW_DEFAULT)));
+        config.setTestWhileIdle(Boolean.parseBoolean(
+            param.getOrDefault(POOL_TEST_WHILE_IDLE, POOL_TEST_WHILE_IDLE_DEFAULT)));
+        config.setTimeBetweenEvictionRunsMillis(Long.parseLong(
+            param.getOrDefault(POOL_TIME_BETWEEN_EVICTION_RUNS, POOL_TIME_BETWEEN_EVICTION_RUNS_DEFAULT)));
+        PooledContextSource pooledSource = new PooledContextSource(config);
+        // validate connections
+        if (config.isTestOnBorrow() || config.isTestWhileIdle()) {
+            DefaultDirContextValidator validator = new DefaultDirContextValidator();
+            validator.setBase(param.getOrDefault(POOL_VALIDATOR_BASE, POOL_VALIDATOR_BASE_DEFAULT));
+            validator.setFilter(param.getOrDefault(POOL_VALIDATOR_FILTER, POOL_VALIDATOR_FILTER_DEFAULT));
+            pooledSource.setDirContextValidator(validator);
+        }
+        pooledSource.setContextSource(baseSource);
+        return pooledSource;
+    }
 
-    private LdapTemplate createLdapTemplate() {
+    private LdapContextSource createBaseContextSource(Map<String, String> config) {
         LdapContextSource contextSource = new LdapContextSource();
         contextSource.setUrl(server);
         contextSource.setBase(baseDn);
-
-        // Set bind credentials if provided (for group lookup)
         if (!Strings.isNullOrEmpty(bindDn)) {
             contextSource.setUserDn(bindDn);
             if (!Strings.isNullOrEmpty(bindPassword)) {
                 contextSource.setPassword(bindPassword);
             }
         }
-
+        Map<String, Object> envProps = new HashMap<>();
+        //  envProps.put("com.sun.jndi.ldap.connect.timeout",
+        //      config.getOrDefault("com.sun.jndi.ldap.connect.timeout","5000"));
+        //  envProps.put("com.sun.jndi.ldap.read.timeout",
+        //      config.getOrDefault("com.sun.jndi.ldap.read.timeout","5000"));
+        // load ldap setting if exists
+        for (String key: config.keySet()) {
+            if (null!=key && key.startsWith("com.sun.jndi.ldap")) {
+                envProps.put(key, config.get(key));
+                LOG.info("set {} = {}", key, config.get(key));
+            }
+        }
+        contextSource.setBaseEnvironmentProperties(envProps);
         contextSource.afterPropertiesSet();
-
-        LdapTemplate template = new LdapTemplate(contextSource);
-        template.setIgnorePartialResultException(true);
-        return template;
+        return contextSource;
     }
 
     private List<String> getDn(LdapQuery query) {
         try {
-            return ldapTemplate.search(query, new AbstractContextMapper<String>() {
-                @Override
-                protected String doMapFromContext(DirContextOperations ctx) {
-                    return ctx.getNameInNamespace();
-                }
+            return searchLdapTemplate.search(query, new AbstractContextMapper<>() {
+              @Override
+              protected String doMapFromContext(DirContextOperations ctx) {
+                return ctx.getNameInNamespace();
+              }
             });
         } catch (Exception e) {
             LOG.error("LDAP search failed", e);
