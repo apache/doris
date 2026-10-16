@@ -479,6 +479,7 @@ under the License.
             <id>benchmark</id>
             <modules>
                 <module>fe-benchmark</module>
+                <module>fe-sql-parser-benchmark</module>
             </modules>
         </profile>
     </profiles>
