@@ -3327,6 +3327,12 @@ public class Config extends ConfigBase {
             })
     public static String inverted_index_storage_format = "V3";
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PartitionInvertedIndexStorageFormatRolloutConfHandler.class, description = "Whether to "
+            + "enable partition inverted-index storage format rollout, the "
+            + "default value is false.")
+    public static boolean enable_partition_inverted_index_storage_format_rollout = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否在 unique 表 mow 上开启 delete 语句写 delete predicate。若开启，会提升 delete 语句的性能，"
                     + "但 delete 后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低 delete 语句的性能来保证正确性。",
