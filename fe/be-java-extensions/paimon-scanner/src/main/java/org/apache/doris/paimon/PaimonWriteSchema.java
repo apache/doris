@@ -435,10 +435,11 @@ final class PaimonWriteSchema {
     /**
      * Pads the keys of one map, failing when padding makes two of its distinct keys one: a map holds one entry per
      * key, and Paimon's Avro reader, for one, keeps only one of them. Keys equal before padding are kept as they are.
-     * Keys are equal as Paimon compares them: a map nested in a key is compared regardless of the order of its
-     * entries, and a NaN regardless of its bits. Keys are compared and printed through {@code keyFormat}, never by
-     * their own hashCode, equals or toString: a key of a nested type holds the columnar rows and arrays of the Arrow
-     * batch, which support none of them (ColumnarArray keeps identity equality), so hashing the key of a
+     * Keys are equal as Paimon compares them once its Avro reader has read them: a map nested in a key is compared
+     * regardless of the order of its entries and as holding only the last of the entries with equal keys, and a NaN
+     * regardless of its bits. Keys are compared and printed through {@code keyFormat}, never by their own hashCode,
+     * equals or toString: a key of a nested type holds the columnar rows and arrays of the Arrow batch, which support
+     * none of them (ColumnarArray keeps identity equality), so hashing the key of a
      * MAP<ROW<c CHAR(2), r ROW<i INT>>, INT> itself would fail even a map of one entry.
      */
     private static InternalArray padMapKeys(InternalArray keys, InternalArray.ElementGetter keyGetter,
@@ -468,10 +469,13 @@ final class PaimonWriteSchema {
     /**
      * Returns the normalizer of a value of {@code type}, or null when the type holds no MAP, FLOAT or DOUBLE. The
      * normalizer copies the value with each NaN in it, at any depth, made the canonical NaN, and the entries of each
-     * MAP in it sorted by the bytes of their keys: two values that Paimon takes as equal, though their NaNs differ in
-     * their bits or their maps hold the same entries in another order, then have the same bytes. A NaN in a ROW is
-     * serialized with its bits, while Paimon compares a FLOAT or DOUBLE as {@code Double.equals} does, taking every
-     * NaN as one value; -0.0 and 0.0 stay apart, as they are for Paimon.
+     * MAP in it sorted by the bytes of their keys, keeping only the last of the entries whose keys are then equal:
+     * two values that Paimon takes as equal, though their NaNs differ in their bits or their maps hold the same
+     * entries in another order, then have the same bytes. A NaN in a ROW is serialized with its bits, while Paimon
+     * compares a FLOAT or DOUBLE as {@code Double.equals} does, taking every NaN as one value; -0.0 and 0.0 stay
+     * apart, as they are for Paimon. Paimon's Avro reader puts the entries of a map in a hash map, which keeps the
+     * value of the last of the entries with equal keys: the map {NaN: 1, -NaN: 2}, which Doris's map() keeps whole,
+     * since its keys differ in their bits, is read back as {NaN: 2}.
      */
     private static Normalizer normalizer(DataType type) {
         switch (type.getTypeRoot()) {
@@ -510,14 +514,21 @@ final class PaimonWriteSchema {
                         keyBytes[i] = keySerializer.toBinaryRow(GenericRow.of(keys[i])).copy().toBytes();
                         order[i] = i;
                     }
+                    // The sort is stable, so the entries of equal keys keep their order.
                     Arrays.sort(order, (left, right) -> compareBytes(keyBytes[left], keyBytes[right]));
-                    Object[] sortedKeys = new Object[keys.length];
-                    Object[] sortedValues = new Object[keys.length];
+                    List<Object> sortedKeys = new ArrayList<>(keys.length);
+                    List<Object> sortedValues = new ArrayList<>(keys.length);
                     for (int i = 0; i < keys.length; i++) {
-                        sortedKeys[i] = keys[order[i]];
-                        sortedValues[i] = values[order[i]];
+                        // Of the entries whose keys are equal, only the last one is kept, as Paimon's Avro reader
+                        // keeps its value.
+                        if (i + 1 < keys.length && Arrays.equals(keyBytes[order[i]], keyBytes[order[i + 1]])) {
+                            continue;
+                        }
+                        sortedKeys.add(keys[order[i]]);
+                        sortedValues.add(values[order[i]]);
                     }
-                    return new PaddedMap(new GenericArray(sortedKeys), new GenericArray(sortedValues));
+                    return new PaddedMap(new GenericArray(sortedKeys.toArray()),
+                            new GenericArray(sortedValues.toArray()));
                 };
             }
             case ROW: {
@@ -577,8 +588,9 @@ final class PaimonWriteSchema {
     /**
      * Compares the keys of a map by their bytes and prints them as Paimon casts them to STRING, for any key type.
      * Paimon compares maps regardless of the order of their entries ({@code GenericMap.equals}) and a FLOAT or DOUBLE
-     * regardless of the bits of a NaN ({@code GenericRow.equals}), and its Avro reader keeps one of two keys that
-     * differ only so, so a key is normalized before it is compared; see {@link #normalizer}.
+     * regardless of the bits of a NaN ({@code GenericRow.equals}), and its Avro reader puts the entries of a map in a
+     * hash map, keeping one entry per key, the last one, at any depth. So a key is normalized before it is compared;
+     * see {@link #normalizer}.
      */
     private static final class MapKeyFormat {
         private final InternalRowSerializer serializer;
@@ -615,7 +627,7 @@ final class PaimonWriteSchema {
 
     /**
      * Copies one non-null value of a type that holds a MAP, FLOAT or DOUBLE, with each NaN in it made the canonical
-     * NaN and the entries of each MAP in it sorted.
+     * NaN and the entries of each MAP in it sorted, one per key.
      */
     private interface Normalizer {
         Object normalize(Object value);
@@ -623,7 +635,7 @@ final class PaimonWriteSchema {
 
     /**
      * A map over the given key and value arrays, in their order: the padded entries of an input map, which keep the
-     * order of its entries, or the sorted entries of a map nested in a key that is compared.
+     * order of its entries, or the sorted entries, one per key, of a map nested in a key that is compared.
      */
     private static final class PaddedMap implements InternalMap {
         private final InternalArray keys;

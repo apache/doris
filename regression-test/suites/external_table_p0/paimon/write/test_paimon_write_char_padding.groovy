@@ -176,6 +176,16 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'bucket' = '1',
             'file.format' = 'avro'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_map_nested_nan_key;
+        CREATE TABLE paimon.${dbName}.t_char_map_nested_nan_key (
+            id INT, m MAP<STRUCT<c: CHAR(2), m: MAP<DOUBLE, INT>>, INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'file.format' = 'avro'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -297,6 +307,31 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'),
                 struct_element(map_keys(m)[1], 'd'), map_values(m)[1]
             FROM t_char_map_nan_key
+        """
+
+        // Paimon's Avro reader keeps the last of the entries of a map whose keys are equal, so a nested map holding
+        // NaN -> 1 and -NaN -> 2 reads back as {NaN: 2}, and the keys (k, {NaN: 1, -NaN: 2}) and (k , {NaN: 2}),
+        // which padding then makes equal, fail the row too. Keys whose nested maps keep other last values are padded.
+        test {
+            sql """
+                INSERT INTO t_char_map_nested_nan_key
+                SELECT 1, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
+                    named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 2)), 20)
+                FROM internal.${dbName}.char_nan_source
+            """
+            exception "into the same key"
+        }
+        sql """
+            INSERT INTO t_char_map_nested_nan_key
+            SELECT 2, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
+                named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 1)), 20)
+            FROM internal.${dbName}.char_nan_source
+        """
+        order_qt_map_nested_nan_key_padded """
+            SELECT id, map_size(m),
+                array_join(array_sort(array_map(k -> concat('[', struct_element(k, 'c'), ']'), map_keys(m))), '|'),
+                array_join(array_sort(map_values(m)), '|')
+            FROM t_char_map_nested_nan_key
         """
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a

@@ -21,6 +21,9 @@
 -- !map_nan_key_padded --
 2	1	[k ]	NaN	10
 
+-- !map_nested_nan_key_padded --
+2	2	[k ]|[k ]	10|20
+
 -- !partition_padded --
 1	[x  ]
 2	[y  ]

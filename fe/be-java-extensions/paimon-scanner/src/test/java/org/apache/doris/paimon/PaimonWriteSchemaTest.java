@@ -616,6 +616,53 @@ public class PaimonWriteSchemaTest {
         });
     }
 
+    @Test
+    public void testMapsNestedInMapKeysAreComparedByTheLastEntryOfEachKey() throws Exception {
+        // Paimon's Avro reader puts the entries of a map in a hash map, which keeps the value of the last of the
+        // entries with equal keys, so the nested map {NaN: 1, -NaN: 2}, which Doris's map() keeps whole, is read back
+        // as {NaN: 2}. Padding then makes the keys (k, {NaN: 1, -NaN: 2}) and (k , {NaN: 2}) one key, though one of
+        // the nested maps has two entries and the other one. Keys that were one key before padding are kept as they
+        // are, keys whose nested maps keep other last values stay distinct, and the nested maps are written whole.
+        // MUTATION: comparing the keys without reducing the entries of their nested maps to one per key, or keeping
+        // the first of the entries with equal keys -> no error for the first map; comparing the nested maps by their
+        // keys alone -> an error for the third map.
+        double negativeNaN = Double.longBitsToDouble(0xfff8000000000000L);
+        DataType keyType = DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "m", DataTypes.MAP(DataTypes.DOUBLE(), DataTypes.INT())));
+        // Hash maps would keep one of the two NaNs, so the nested maps are built over their entries.
+        Map<InternalRow, Integer> collapsing = new LinkedHashMap<>();
+        collapsing.put(GenericRow.of(string("k"), map(new Object[] {Double.NaN, negativeNaN}, new Object[] {1, 2})),
+                10);
+        collapsing.put(GenericRow.of(string("k "), map(new Object[] {Double.NaN}, new Object[] {2})), 20);
+        assertCollidingKeysFailTheRow(keyType, collapsing,
+                "'{k, {NaN -> 1, NaN -> 2}}' and '{k , {NaN -> 2}}' into the same key '{k , {NaN -> 2}}'");
+
+        PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(keyType, DataTypes.INT())))),
+                new String[] {"labels"}, false, true);
+        Map<InternalRow, Integer> equalBeforePadding = new LinkedHashMap<>();
+        equalBeforePadding.put(GenericRow.of(string("k "),
+                map(new Object[] {Double.NaN, negativeNaN}, new Object[] {1, 2})), 10);
+        equalBeforePadding.put(GenericRow.of(string("k "), map(new Object[] {Double.NaN}, new Object[] {2})), 20);
+        checkArrowTableRow(schema, GenericRow.of(new GenericMap(equalBeforePadding)), row -> {
+            InternalMap kept = row.getMap(0);
+            Assertions.assertEquals(2, kept.size());
+            Assertions.assertEquals(20, kept.valueArray().getInt(1));
+        });
+        Map<InternalRow, Integer> otherLastValues = new LinkedHashMap<>();
+        otherLastValues.put(GenericRow.of(string("k"),
+                map(new Object[] {Double.NaN, negativeNaN}, new Object[] {1, 2})), 10);
+        otherLastValues.put(GenericRow.of(string("k "), map(new Object[] {Double.NaN}, new Object[] {1})), 20);
+        checkArrowTableRow(schema, GenericRow.of(new GenericMap(otherLastValues)), row -> {
+            InternalMap padded = row.getMap(0);
+            Assertions.assertEquals(2, padded.size());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(0, 2).getString(0).toString());
+            Assertions.assertEquals(2, padded.keyArray().getRow(0, 2).getMap(1).size());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(1, 2).getString(0).toString());
+            Assertions.assertEquals(20, padded.valueArray().getInt(1));
+        });
+    }
+
     private static void assertCollidingKeysFailTheRow(DataType keyType, Map<?, Integer> keys, String collision)
             throws Exception {
         PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(
