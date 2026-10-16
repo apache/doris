@@ -209,6 +209,43 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
     }
 }
 
+TEST(DataTypeSerDePbTest, NestedArrayNullablePbRoundTrip) {
+    auto values = ColumnInt32::create();
+    auto null_map = ColumnUInt8::create();
+    values->get_data() = {1, 2, 3, 0, 5};
+    null_map->get_data() = {0, 0, 0, 1, 0};
+
+    auto inner_array_offsets = ColumnArray::ColumnOffsets::create();
+    inner_array_offsets->get_data() = {2, 2, 5};
+    auto inner_array =
+            ColumnArray::create(ColumnNullable::create(std::move(values), std::move(null_map)),
+                                std::move(inner_array_offsets));
+
+    auto outer_array_offsets = ColumnArray::ColumnOffsets::create();
+    outer_array_offsets->get_data().push_back(3);
+    auto outer_array = ColumnArray::create(make_nullable(std::move(inner_array)),
+                                           std::move(outer_array_offsets));
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto inner_array_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto outer_array_type = std::make_shared<DataTypeArray>(make_nullable(inner_array_type));
+
+    PValues values_pb;
+    column_to_pb(outer_array_type, *outer_array, &values_pb);
+
+    ASSERT_EQ(values_pb.child_element_size(), 1);
+    EXPECT_EQ(values_pb.child_element(0).child_offset_size(), 3);
+    EXPECT_EQ(values_pb.child_element(0).child_element(0).null_map_size(), 5);
+
+    auto restored = outer_array_type->create_column();
+    ASSERT_TRUE(pb_to_column(outer_array_type, values_pb, *restored));
+    Block input_block;
+    input_block.insert({outer_array->get_ptr(), outer_array_type, ""});
+    Block restored_block;
+    restored_block.insert({std::move(restored), outer_array_type, ""});
+    EXPECT_EQ(input_block.dump_data(), restored_block.dump_data());
+}
+
 TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
