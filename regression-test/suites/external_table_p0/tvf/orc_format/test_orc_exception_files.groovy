@@ -35,13 +35,14 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
             exception "Footer is corrupt: STRUCT type 0 has 3 subTypes, but has 2 fieldNames"
         }
 
+        // Schema discovery uses V2; assert the corrupt-footer cause, not the reader wrapper.
         test {
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_BOTH_AllStripes.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer"
+            exception "Failed to parse the footer"
         }
 
         test {
@@ -50,7 +51,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
         test {
@@ -59,7 +60,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
 
@@ -69,7 +70,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
 
@@ -79,7 +80,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
         test {
@@ -88,7 +89,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
         test {
@@ -97,7 +98,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+            exception "Failed to parse the footer from"
         }
 
 

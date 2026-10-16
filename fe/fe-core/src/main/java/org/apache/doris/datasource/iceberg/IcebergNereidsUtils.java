@@ -524,8 +524,13 @@ public class IcebergNereidsUtils {
                     }
                     // accept string value for date
                     return literal.getStringValue();
-                case TIMESTAMP:
-                case TIMESTAMP_NANO: {
+                case TIMESTAMP_NANO:
+                    if (((org.apache.iceberg.types.Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
+                        return null;
+                    }
+                    return Expressions.nanos(IcebergTimestampUtils.parseNanos(
+                            literal.getStringValue(), java.time.ZoneOffset.UTC));
+                case TIMESTAMP: {
                     // Iceberg expects microseconds since epoch. Honor with/without zone semantics.
                     if (literal instanceof DateTimeLiteral
                             || literal instanceof DateLiteral) {

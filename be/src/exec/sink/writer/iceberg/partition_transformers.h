@@ -19,6 +19,7 @@
 
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/value/timestamp_ns_value.h"
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -73,6 +74,12 @@ public:
     static DateV2Value<DateTimeV2ValueType> timestamp_value(const TimestampTzValue& value) {
         // TIMESTAMPTZ's calendar fields are already UTC. Never project through the session zone.
         return value.utc_dt();
+    }
+
+    static DateV2Value<DateTimeV2ValueType> timestamp_value(const TimeStampNsValue& value) {
+        // Iceberg bucket hashing uses epoch microseconds even for timestamp_ns; calendar
+        // transforms also ignore sub-microsecond digits. to_datetime floors negative fractions.
+        return value.to_datetime();
     }
 
     static std::string human_year(int year_ordinal) {

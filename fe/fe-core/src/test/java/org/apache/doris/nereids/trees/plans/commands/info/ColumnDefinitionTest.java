@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.UuidType;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -39,4 +42,21 @@ public class ColumnDefinitionTest {
                 Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
         Assertions.assertFalse(literal.hasUuidDefaultValue());
     }
+
+    @Test
+    public void testTimestampNsDefaultsAreNormalizedForExternalDdl() {
+        String[][] values = {
+                {"20240102", "2024-01-02 00:00:00.000000000"},
+                {"20240102030405", "2024-01-02 03:04:05.000000000"},
+                {"2024-01-02 03:04:05.123456789", "2024-01-02 03:04:05.123456789"}
+        };
+        for (String[] value : values) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampNsType.INSTANCE,
+                    false, null, true, Optional.of(new DefaultValue(value[0])), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
 }

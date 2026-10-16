@@ -50,6 +50,7 @@ class RuntimeProfile;
 
 namespace doris {
 
+// The legacy Paimon scanner shares Java's signed nanosecond layout with JniDataBridge.
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
     M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)             \
@@ -67,6 +68,7 @@ namespace doris {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMP_NS, ColumnTimeStampNs, Int64)  \
     M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)                  \
@@ -501,6 +503,8 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << type->get_scale() << ")";
         return buffer.str();
@@ -598,6 +602,8 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
         buffer << "datetimev2(" << data_type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();

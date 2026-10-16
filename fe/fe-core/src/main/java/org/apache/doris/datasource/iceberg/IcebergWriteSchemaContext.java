@@ -614,6 +614,11 @@ public final class IcebergWriteSchemaContext {
             case DATE:
                 LocalDate date = LocalDate.ofEpochDay(((Integer) value).longValue());
                 return new DateV2Literal(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
+            case TIMESTAMP_NANO:
+                // Identity formatting retains all nine fractional digits, including negative epochs.
+                return new org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral(
+                        org.apache.iceberg.transforms.Transforms.identity(icebergType)
+                                .toHumanString(icebergType, value).replace('T', ' '));
             case TIMESTAMP:
                 long micros = (Long) value;
                 Types.TimestampType timestampType = (Types.TimestampType) icebergType;
