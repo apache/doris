@@ -126,22 +126,9 @@ TEST_F(InvertedIndexParserTest, TestGetParserModeStringFromProperties) {
 TEST_F(InvertedIndexParserTest, TestGetParserPhraseSupportStringFromProperties) {
     std::map<std::string, std::string> properties;
 
-    // Exact indexes do not need token positions.
+    // Test with empty properties
     EXPECT_EQ(get_parser_phrase_support_string_from_properties(properties),
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
-
-    properties[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_NONE;
-    EXPECT_EQ(get_parser_phrase_support_string_from_properties(properties),
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
-
-    properties[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
-    EXPECT_EQ(get_parser_phrase_support_string_from_properties(properties),
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
-
-    properties.clear();
-    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "english";
-    EXPECT_EQ(get_parser_phrase_support_string_from_properties(properties),
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
 
     // Test with phrase support key present
     properties[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] = INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;

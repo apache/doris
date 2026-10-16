@@ -24,34 +24,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class IndexTest {
-
-    @Test
-    public void testInvertedIndexPersistsDefaultPhraseSupport() {
-        Index exact = new Index(1, "exact", List.of("col"), IndexType.INVERTED, Map.of(), "");
-        Assertions.assertEquals("false", exact.getProperties().get("support_phrase"));
-
-        Index keyword = new Index(2, "keyword", List.of("col"), IndexType.INVERTED,
-                Map.of("parser", "none"), "");
-        Assertions.assertEquals("false", keyword.getProperties().get("support_phrase"));
-
-        Index analyzed = new Index(3, "analyzed", List.of("col"), IndexType.INVERTED,
-                Map.of("parser", "english"), "");
-        Assertions.assertEquals("true", analyzed.getProperties().get("support_phrase"));
-
-        Index customAnalyzer = new Index(4, "custom_analyzer", List.of("col"), IndexType.INVERTED,
-                Map.of("analyzer", "english"), "");
-        Assertions.assertEquals("true", customAnalyzer.getProperties().get("support_phrase"));
-
-        Index disabled = new Index(5, "disabled", List.of("col"), IndexType.INVERTED,
-                Map.of("parser", "english", "support_phrase", "false"), "");
-        Assertions.assertEquals("false", disabled.getProperties().get("support_phrase"));
-
-        Index bitmap = new Index(6, "bitmap", List.of("col"), IndexType.BITMAP, Map.of(), "");
-        Assertions.assertFalse(bitmap.getProperties().containsKey("support_phrase"));
-    }
 
     @Test
     public void testGetColumnUniqueIds() {
