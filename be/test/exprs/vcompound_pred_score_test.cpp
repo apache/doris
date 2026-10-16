@@ -28,9 +28,9 @@
 #include "exprs/score_runtime.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr_context.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/schema.h"
 
 namespace doris {

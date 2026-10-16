@@ -23,6 +23,10 @@ suite("test_iceberg_write_evolution_refs",
         return
     }
 
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

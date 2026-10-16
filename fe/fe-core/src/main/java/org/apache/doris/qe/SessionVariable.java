@@ -590,6 +590,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
+    public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+
+    public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -2597,6 +2601,22 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public int numFilesInBatchMode = 1024;
 
+    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
+            description = "Maximum number of splits in a producer batch.")
+    public int splitBatchSize = 128;
+
+    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
+            description = "Maximum number of queued split batches per backend.")
+    public int splitQueueCapacity = 32;
+
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
+
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
             description = "The max wait time of getting splits in batch mode.",
@@ -3672,6 +3692,21 @@ public class SessionVariable implements Serializable, Writable {
             description = "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                     + "DELETE by row_id).")
     public boolean enableIcebergMergePartitioning = true;
+
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VarAttrDef.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
+            checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
+            description = "Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
+                    + "'static' (default, identical to Spark's default partitionOverwriteMode=static): the "
+                    + "whole table is overwritten, including data written under an older partition spec. "
+                    + "'dynamic' (Hive-compatible and identical to Spark's "
+                    + "spark.sql.sources.partitionOverwriteMode=dynamic): only the partitions the new data "
+                    + "lands in are replaced, so data written under an older partition spec is left untouched.",
+            options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
+    public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
@@ -4916,6 +4951,14 @@ public class SessionVariable implements Serializable, Writable {
         return numFilesInBatchMode;
     }
 
+    public int getSplitBatchSize() {
+        return splitBatchSize;
+    }
+
+    public int getSplitQueueCapacity() {
+        return splitQueueCapacity;
+    }
+
     public long getFetchSplitsMaxWaitTime() {
         return fetchSplitsMaxWaitTime;
     }
@@ -5414,6 +5457,29 @@ public class SessionVariable implements Serializable, Writable {
     public void checkInsertVisibleTimeoutReturnMode(String mode) {
         // Reuse the parser so validation stays consistent with assignment and enum access.
         parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    public void checkIcebergPartitionOverwriteMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment.
+        parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    public void setIcebergPartitionOverwriteMode(String mode) {
+        this.icebergPartitionOverwriteMode = parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    // Parse the stored string case-insensitively; an unsupported value must fail SET/SET_VAR instead of being
+    // silently treated as 'dynamic' by the connector.
+    private static String parseIcebergPartitionOverwriteMode(String mode) {
+        if (mode != null) {
+            String normalized = mode.trim().toLowerCase(Locale.ROOT);
+            if (ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC.equals(normalized)
+                    || ICEBERG_PARTITION_OVERWRITE_MODE_STATIC.equals(normalized)) {
+                return normalized;
+            }
+        }
+        throw new UnsupportedOperationException(
+                "iceberg_partition_overwrite_mode must be 'dynamic' or 'static', but was: " + mode);
     }
 
     // Parse the stored string case-insensitively and expose the enum only to business logic.

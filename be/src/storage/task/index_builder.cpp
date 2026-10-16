@@ -24,9 +24,9 @@
 #include "common/status.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter, complete type for member calls
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_writer_context.h"

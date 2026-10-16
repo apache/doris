@@ -896,7 +896,7 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
         *field = Field::create_field<TYPE_NULL>(Null());
         return Status::OK();
     }
-    const auto data_type = remove_nullable(slot_desc->get_data_type_ptr());
+    const auto data_type = remove_nullable(slot_desc->type());
     auto column = data_type->create_column();
     auto serde = data_type->get_serde();
     DataTypeSerDe::FormatOptions options;
@@ -1009,7 +1009,7 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     // TODO(gabriel): why always BY_NAME here?
     column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
-    column.type = slot_desc->get_data_type_ptr();
+    column.type = slot_desc->type();
     return column;
 }
 

@@ -980,7 +980,7 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testInPredicateStructCastKeepsNullableCastResult() {
+    public void testInPredicateStructIsRejected() {
         StructLiteral stringStruct = new StructLiteral(ImmutableList.of(
                 new IntegerLiteral(1), new StringLiteral("2")));
         StructLiteral integerStruct = new StructLiteral(ImmutableList.of(
@@ -988,11 +988,10 @@ public class TypeCoercionUtilsTest {
         InPredicate predicate = new InPredicate(stringStruct,
                 ImmutableList.of(integerStruct, NullLiteral.INSTANCE));
 
-        InPredicate coerced = (InPredicate) TypeCoercionUtils.processInPredicate(predicate);
-
-        StructType commonType = (StructType) coerced.getCompareExpr().getDataType();
-        Assertions.assertTrue(commonType.getFields().get(1).isNullable(),
-                "String-to-decimal coercion can produce NULL inside the struct field");
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processInPredicate(predicate));
+        Assertions.assertTrue(error.getMessage().contains("in predicate could not contains complex type"),
+                error.getMessage());
     }
 
     @Test

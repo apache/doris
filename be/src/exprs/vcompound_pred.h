@@ -30,7 +30,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "storage/index/collection_similarity.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"

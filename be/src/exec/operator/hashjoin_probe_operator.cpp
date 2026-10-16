@@ -614,7 +614,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     if (_is_mark_join) {
         const auto* last_one = slots_to_check.back();
         slots_to_check.pop_back();
-        auto data_type = last_one->get_data_type_ptr();
+        auto data_type = last_one->type();
         if (!data_type->is_nullable()) {
             return Status::InternalError(
                     "The last column for mark join should be Nullable(UInt8), not {}",
@@ -636,7 +636,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
 
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
-        auto data_type = slot->get_data_type_ptr();
+        auto data_type = slot->type();
         const auto slot_on_left = idx < _right_col_idx;
 
         if (slot_on_left) {

@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
@@ -45,11 +46,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -85,6 +88,226 @@ public class HiveScanBatchModeTest {
     private static final String LZO_TEXT_INPUT_FORMAT = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
     private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+
+    @Test
+    public void millionFilesOnlyCreateTheConsumedSplitPrefix() throws Exception {
+        AtomicInteger normalizedFiles = new AtomicInteger();
+        AtomicInteger listings = new AtomicInteger();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), (location, fs) -> {
+            listings.incrementAndGet();
+            return Collections.nCopies(1000000, new HiveFileStatus(location + "/data.parquet", 10, 1));
+        });
+        FakeConnectorContext context = new FakeConnectorContext() {
+            @Override
+            public String normalizeStorageUri(String uri) {
+                normalizedFiles.incrementAndGet();
+                return uri;
+            }
+        };
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(), context,
+                new HiveReadTransactionManager(), cache);
+        HiveTableHandle handle = parquetHandle(Collections.emptyList());
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
+            Assertions.assertEquals(0, listings.get());
+            for (int i = 0; i < 128; i++) {
+                Assertions.assertTrue(source.hasNext());
+                Assertions.assertEquals(10, source.next().getLength());
+            }
+            Assertions.assertEquals(128, normalizedFiles.get());
+            Assertions.assertEquals(1, listings.get());
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertEquals(128, normalizedFiles.get());
+        }
+    }
+
+    @Test
+    public void hugeSingleFileDoesNotMaterializeItsSplitList() throws Exception {
+        HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/large.parquet", Long.MAX_VALUE, 1)));
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "1"));
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(parquetHandle(Collections.emptyList()), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
+            for (int i = 0; i < 3; i++) {
+                Assertions.assertTrue(source.hasNext());
+                HiveScanRange range = (HiveScanRange) source.next();
+                Assertions.assertEquals(i, range.getStart());
+                Assertions.assertEquals(1, range.getLength());
+            }
+        }
+    }
+
+    @Test
+    public void streamingAndSynchronousSplitsMatchAcrossPartitionsAndFileBoundaries() throws Exception {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> Arrays.asList(
+                new HiveFileStatus(location + "/empty.parquet", 0, 1),
+                new HiveFileStatus(location + "/small.parquet", 3, 2),
+                new HiveFileStatus(location + "/large.parquet", 35, 3)));
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
+                new HmsPartitionInfo(Arrays.asList("2024", "01"), "year=2024/month=01",
+                        null, null, null, Collections.emptyMap()),
+                new HmsPartitionInfo(Arrays.asList("2024", "02"), "year=2024/month=02",
+                        null, null, null, Collections.emptyMap()))).build();
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "8"));
+        List<ConnectorScanRange> synchronous = provider.planScan(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        long[] starts = {0, 0, 8, 16, 24, 32};
+        long[] lengths = {3, 8, 8, 8, 8, 3};
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+            Assertions.assertEquals(12, ranges.size());
+            for (int partition = 0; partition < 2; partition++) {
+                String month = partition == 0 ? "01" : "02";
+                Map<String, String> partitionValues = new HashMap<>();
+                partitionValues.put("year", "2024");
+                partitionValues.put("month", month);
+                for (int i = 0; i < starts.length; i++) {
+                    HiveScanRange range = (HiveScanRange) ranges.get(partition * starts.length + i);
+                    String fileName = i == 0 ? "small.parquet" : "large.parquet";
+                    Assertions.assertEquals("year=2024/month=" + month + "/" + fileName, range.getPath().get());
+                    Assertions.assertEquals(starts[i], range.getStart());
+                    Assertions.assertEquals(lengths[i], range.getLength());
+                    Assertions.assertEquals(partitionValues, range.getPartitionValues());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void closingFirstPartitionDoesNotListRemainingPartitions() throws Exception {
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
+                part("year=2024/month=01"), part("year=2024/month=02"))).build();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1).build())) {
+            Assertions.assertEquals(0, lister.totalCalls);
+            Assertions.assertTrue(source.hasNext());
+            source.next();
+            Assertions.assertEquals(1, lister.totalCalls);
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertNull(lister.callsPerLocation.get("year=2024/month=02"));
+        }
+    }
+
+    @Test
+    public void streamingUsesEnginePartitionSelectionWithoutListingOtherPartitions() throws Exception {
+        CountingLister lister = new CountingLister();
+        // listPartitionNames fails if called: the engine already supplies the selected names.
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = parquetHandle(PART_KEYS);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .requiredPartitions(Collections.singletonList("year=2024/month=02")).build();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), request)) {
+            Assertions.assertTrue(source.hasNext());
+            HiveScanRange range = (HiveScanRange) source.next();
+            Assertions.assertEquals("year=2024/month=02/000000_0", range.getPath().get());
+            Assertions.assertFalse(source.hasNext());
+        }
+        Assertions.assertEquals(1, lister.totalCalls);
+        Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void partitionBatchAndStreamingMatchAcrossFormatsAndListingFailures() throws Exception {
+        List<String> batch = Arrays.asList("year=2024/month=01", "year=2024/month=02", "year=2024/month=03");
+        for (boolean lzo : Arrays.asList(false, true)) {
+            Map<String, Integer> listings = new HashMap<>();
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> {
+                listings.merge(location, 1, Integer::sum);
+                if (location.equals(batch.get(0))) {
+                    return Collections.emptyList();
+                }
+                if (location.equals(batch.get(1))) {
+                    throw new HiveDirectoryListingException("unreadable partition", new IOException("retry"));
+                }
+                String extension = lzo ? ".lzo" : ".parquet";
+                List<HiveFileStatus> files = new ArrayList<>(Arrays.asList(
+                        new HiveFileStatus(location + "/empty" + extension, 0, 1),
+                        new HiveFileStatus(location + "/small" + extension, 3, 2),
+                        new HiveFileStatus(location + "/large" + extension, 35, 3)));
+                if (lzo) {
+                    files.add(new HiveFileStatus(location + "/large.lzo.index", 20, 4));
+                    files.add(new HiveFileStatus(location + "/other.txt", 20, 4));
+                }
+                return files;
+            });
+            HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                    .inputFormat(lzo ? LZO_TEXT_INPUT_FORMAT : PARQUET_INPUT_FORMAT)
+                    .serializationLib(lzo ? LAZY_SIMPLE_SERDE : PARQUET_SERDE)
+                    .prunedPartitions(Collections.singletonList(part("year=2023/month=12"))).build();
+            Map<String, String> settings = new HashMap<>();
+            settings.put("file_split_size", "8");
+            settings.put("num_partitions_in_batch_mode", "1");
+            FakeSession session = new FakeSession(settings);
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(Collections.singletonList("year=2023/month=12")).build();
+
+            Assertions.assertTrue(provider.planScanForPartitionBatch(session, request,
+                    Collections.emptyList()).isEmpty());
+            Assertions.assertTrue(listings.isEmpty(), "An empty batch must not enumerate the handle's partitions");
+            List<ConnectorScanRange> synchronous = provider.planScanForPartitionBatch(session, request, batch);
+            List<ConnectorScanRange> streaming = new ArrayList<>();
+            try (ConnectorSplitSource source = provider.streamSplits(session, request.withRequiredPartitions(batch))) {
+                while (source.hasNext()) {
+                    streaming.add(source.next());
+                }
+            }
+            long[] starts = lzo ? new long[] {0, 0} : new long[] {0, 0, 8, 16, 24, 32};
+            long[] lengths = lzo ? new long[] {3, 35} : new long[] {3, 8, 8, 8, 8, 3};
+            for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+                Assertions.assertEquals(starts.length, ranges.size());
+                for (int i = 0; i < starts.length; i++) {
+                    ConnectorScanRange range = ranges.get(i);
+                    String file = i == 0 ? "/small" : "/large";
+                    Assertions.assertEquals(batch.get(2) + file + (lzo ? ".lzo" : ".parquet"),
+                            range.getPath().get());
+                    Assertions.assertEquals(starts[i], range.getStart());
+                    Assertions.assertEquals(lengths[i], range.getLength());
+                }
+            }
+            Assertions.assertEquals(new HashSet<>(batch), listings.keySet());
+            Assertions.assertEquals(2, (int) listings.get(batch.get(1)),
+                    "A tolerated directory failure must not be cached by either enumeration path");
+        }
+    }
+
+    @Test
+    public void streamingDecisionUsesCachedCountWithoutListing() {
+        AtomicInteger listings = new AtomicInteger();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), (location, fs) -> {
+            listings.incrementAndGet();
+            return Collections.nCopies(3, new HiveFileStatus(location + "/data.parquet", 10, 1));
+        });
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
+                new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
+        HiveTableHandle handle = parquetHandle(Collections.emptyList());
+        FakeSession session = new FakeSession(Collections.singletonMap("num_files_in_batch_mode", "2"));
+        Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
+        Assertions.assertEquals(0, listings.get());
+        cache.listDataFiles("db", "t", handle.getLocation(), null);
+        Assertions.assertEquals(3, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
+        Assertions.assertEquals(-1, provider.streamingSplitEstimate(new FakeSession(), handle, Optional.empty(), false));
+        Assertions.assertEquals(1, listings.get());
+    }
+
+    private static HiveTableHandle parquetHandle(List<String> partitionKeys) {
+        return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT).serializationLib(PARQUET_SERDE)
+                .location("s3://bucket/table").partitionKeyNames(partitionKeys).build();
+    }
 
     @Test
     public void scanReuseNamespaceUsesConnectorType() {
@@ -970,6 +1193,16 @@ public class HiveScanBatchModeTest {
 
     /** Minimal {@link ConnectorSession} (no split-size override, empty session properties). */
     private static final class FakeSession implements ConnectorSession {
+        private final Map<String, String> properties;
+
+        FakeSession() {
+            this(Collections.emptyMap());
+        }
+
+        FakeSession(Map<String, String> properties) {
+            this.properties = properties;
+        }
+
         private final Map<String, Object> statementMemos = new HashMap<>();
         private final ConnectorStatementScope statementScope = new ConnectorStatementScope() {
             @Override
@@ -1011,7 +1244,17 @@ public class HiveScanBatchModeTest {
 
         @Override
         public <T> T getProperty(String name, Class<T> type) {
-            return null;
+            String value = properties.get(name);
+            if (value == null) {
+                return null;
+            }
+            if (type == Integer.class) {
+                return type.cast(Integer.valueOf(value));
+            }
+            if (type == Boolean.class) {
+                return type.cast(Boolean.valueOf(value));
+            }
+            return type.cast(value);
         }
 
         @Override

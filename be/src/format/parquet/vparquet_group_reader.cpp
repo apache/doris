@@ -894,7 +894,7 @@ Status RowGroupReader::_fill_partition_columns(
         // obtained from block*, it is a mutable object.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        auto _text_serde = slot_desc->type()->get_serde();
         Slice slice(value.data(), value.size());
         uint64_t num_deserialized = 0;
         // Be careful when reading empty rows from parquet row groups.
@@ -1144,7 +1144,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
             if (slot_desc->id() == slot_id) {
-                auto data_type = slot_desc->get_data_type_ptr();
+                auto data_type = slot_desc->type();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
                             {ColumnNullable::create(
@@ -1161,8 +1161,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
 
             } else {
                 temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                        slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
+                                                        slot_desc->type(), slot_desc->col_name()));
             }
             ++index;
         }

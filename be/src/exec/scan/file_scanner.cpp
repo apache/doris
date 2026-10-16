@@ -368,9 +368,8 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
 void FileScanner::_init_runtime_filter_partition_prune_block() {
     // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
-        _runtime_filter_partition_prune_block.insert(
-                ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                      slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+        _runtime_filter_partition_prune_block.insert(ColumnWithTypeAndName(
+                slot_desc->get_empty_mutable_column(), slot_desc->type(), slot_desc->col_name()));
     }
 }
 
@@ -385,7 +384,7 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     std::unordered_map<SlotId, MutableColumnPtr> partition_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
-        auto data_type = partition_slot_desc->get_data_type_ptr();
+        auto data_type = partition_slot_desc->type();
         auto partition_value_column = data_type->create_column();
         auto null_it = _partition_value_is_null.find(partition_slot_desc->col_name());
         DORIS_CHECK(null_it != _partition_value_is_null.end());
@@ -714,9 +713,9 @@ Status FileScanner::_cast_to_input_block(Block* block) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_position(_src_block_name_to_idx[slot_desc->col_name()]);
-        auto return_type = slot_desc->get_data_type_ptr();
+        auto return_type = slot_desc->type();
         // remove nullable here, let the get_function decide whether nullable
-        auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
+        auto data_type = remove_nullable(return_type);
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
