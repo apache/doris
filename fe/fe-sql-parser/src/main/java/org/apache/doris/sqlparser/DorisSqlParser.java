@@ -30,7 +30,12 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
+import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -39,6 +44,8 @@ import java.util.function.Function;
  */
 public final class DorisSqlParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
+    private static final Set<String> NON_RESERVED_KEYWORDS = collectNonReservedKeywords();
+    private static final Set<String> LITERAL_TOKENS = collectLiteralTokens();
 
     private final boolean noBackslashEscapes;
     private final boolean ansiSqlSyntax;
@@ -86,6 +93,50 @@ public final class DorisSqlParser {
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return configure(new DorisParser(tokenStream));
+    }
+
+    /** Return whether the text can be emitted as an unquoted Doris identifier. */
+    public static boolean isValidUnquotedIdentifier(String expression) {
+        if (expression == null || expression.isEmpty()) {
+            return false;
+        }
+        boolean hasLetter = false;
+        for (int i = 0; i < expression.length(); i++) {
+            char c = expression.charAt(i);
+            if ((('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_' || c == '$')) {
+                hasLetter = true;
+            } else if (!('0' <= c && c <= '9')) {
+                return false;
+            }
+        }
+        if (!hasLetter) {
+            return false;
+        }
+        String upperCase = expression.toUpperCase(Locale.ROOT);
+        return NON_RESERVED_KEYWORDS.contains(upperCase) || !LITERAL_TOKENS.contains(upperCase);
+    }
+
+    private static Set<String> collectNonReservedKeywords() {
+        Set<String> result = new HashSet<>();
+        for (Method method : DorisParser.NonReservedContext.class.getDeclaredMethods()) {
+            if (TerminalNode.class.equals(method.getReturnType())
+                    && method.getName().equals(method.getName().toUpperCase(Locale.ROOT))
+                    && method.getParameterCount() == 0) {
+                result.add(method.getName());
+            }
+        }
+        return result;
+    }
+
+    private static Set<String> collectLiteralTokens() {
+        Set<String> result = new HashSet<>();
+        for (int tokenType = 0; tokenType <= DorisLexer.VOCABULARY.getMaxTokenType(); tokenType++) {
+            String literalName = DorisLexer.VOCABULARY.getLiteralName(tokenType);
+            if (literalName != null) {
+                result.add(literalName.substring(1, literalName.length() - 1));
+            }
+        }
+        return result;
     }
 
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.sqlparser.DorisSqlParser;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
@@ -547,7 +548,10 @@ public abstract class Type {
             StructType structType = (StructType) this;
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
-                StringBuilder desc = new StringBuilder(field.getOriginalName()).append(":")
+                String fieldName = field.getOriginalName();
+                String sqlFieldName = DorisSqlParser.isValidUnquotedIdentifier(fieldName)
+                        ? fieldName : SqlUtils.getIdentSql(fieldName);
+                StringBuilder desc = new StringBuilder(sqlFieldName).append(":")
                         .append(field.getType().hideVersionForVersionColumn(
                                 isToSql, showNestedComment, noBackslashEscapes));
                 // Requiredness is schema semantics and must survive independently of whether
