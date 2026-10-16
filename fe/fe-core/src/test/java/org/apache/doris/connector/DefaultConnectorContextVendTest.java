@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.filesystem.properties.FsCacheKeys;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +60,33 @@ public class DefaultConnectorContextVendTest {
         Assertions.assertEquals("STS.testAccessKey123", be.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testSecretKey456", be.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("testSessionToken789", be.get("AWS_TOKEN"));
+    }
+
+    @Test
+    public void vendedTokenCarriesItsOwnFsCacheKey() {
+        Map<String, String> be = context().vendStorageCredentials(ossToken("STS.testAccessKey123"));
+        Map<String, String> rotated = context().vendStorageCredentials(ossToken("STS.rotatedAccessKey"));
+
+        // WHY: a vended token is overlaid on the catalog's static storage properties, and the patched
+        // Hadoop FileSystem caches by doris.fs.cache.key.<scheme>. The overlay must therefore carry the
+        // token's own fingerprint, or a FileSystem opened with one token would be reused for another.
+        // MUTATION: dropping the key from the vended map, or deriving it from anything but the token
+        // -> missing or equal values -> red.
+        for (String scheme : new String[] {"oss", "s3a"}) {
+            String key = FsCacheKeys.fsCacheKeyProperty(scheme);
+            Assertions.assertNotNull(be.get(key), key);
+            Assertions.assertNotEquals(be.get(key), rotated.get(key), key);
+        }
+        Assertions.assertNull(be.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+    }
+
+    private static Map<String, String> ossToken(String accessKeyId) {
+        Map<String, String> token = new HashMap<>();
+        token.put("fs.oss.accessKeyId", accessKeyId);
+        token.put("fs.oss.accessKeySecret", "testSecretKey456");
+        token.put("fs.oss.securityToken", "testSessionToken789");
+        token.put("fs.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        return token;
     }
 
     @Test

@@ -37,7 +37,6 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -70,7 +69,7 @@
 #include "exprs/vstruct_literal.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
@@ -192,6 +191,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     }
     case TYPE_IPV6: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
+        break;
+    }
+    case TYPE_UUID: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_UUID>(data, &node));
         break;
     }
     case TYPE_TIMEV2: {
@@ -343,6 +346,11 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(&storage, &node));
         break;
     }
+    case TYPE_UUID: {
+        const auto& storage = field.get<TYPE_UUID>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_UUID>(&storage, &node));
+        break;
+    }
     case TYPE_TIMEV2: {
         const auto& storage = field.get<TYPE_TIMEV2>();
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
@@ -381,15 +389,13 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
-    _data_type = get_data_type_with_default_argument(
-            DataTypeFactory::instance().create_data_type(node.type, is_nullable));
+    _data_type = DataTypeFactory::instance().create_data_type(node.type, is_nullable);
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(DataTypePtr type, bool is_slotref)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _data_type(get_data_type_with_default_argument(type)) {
+        : _opcode(TExprOpcode::INVALID_OPCODE), _data_type(std::move(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -493,6 +499,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::LARGE_INT_LITERAL:
         case TExprNodeType::IPV4_LITERAL:
         case TExprNodeType::IPV6_LITERAL:
+        case TExprNodeType::UUID_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
@@ -735,7 +742,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
-        auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
+        auto real_expr_type = ctxs[i]->root()->data_type();
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
@@ -919,6 +926,21 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    if (function->index_result_is_approximate()) {
+        if (context->approx_index_result_consumer() != this || get_num_children() != 2) {
+            return Status::OK();
+        }
+        // Keep operand roles intact before the child loop separates iterators from literals.
+        const auto& value = get_child(0);
+        const bool indexed_value =
+                value->is_slot_ref() ||
+                (value->node_type() == TExprNodeType::CAST_EXPR && value->get_num_children() == 1 &&
+                 value->get_child(0)->is_slot_ref());
+        if (!indexed_value || !get_child(1)->is_literal()) {
+            return Status::OK();
+        }
+    }
+
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<IndexFieldNameAndTypePair> data_type_with_names;
@@ -1036,9 +1058,19 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_index_status(this, column_id);
+        if (result_bitmap.approximate()) {
+            // Approximate (superset) result: it goes only into the approximate map -- not into
+            // the exact result map (fast_execute would otherwise pass the candidate bitmap off
+            // as the function result), and it does not set the column's index status to true
+            // (the column would otherwise be judged not to need its data read, leaving nothing
+            // for the expression to re-verify against). The expression stays in the push-down
+            // list and is re-verified by the row-level path.
+            index_context->set_approx_index_result_for_expr(this, result_bitmap);
+        } else {
+            index_context->set_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_index_status(this, column_id);
+            }
         }
     }
     return Status::OK();

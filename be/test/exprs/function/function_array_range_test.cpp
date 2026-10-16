@@ -193,5 +193,17 @@ TEST(FunctionArrayRangeTest, ArraySizeLimit) {
     }
 }
 
+TEST(FunctionArrayRangeTest, NullStartSkipsTheRange) {
+    // The value under a NULL start is 0. A range from 0 to this end is larger than the limit, so
+    // the row must give NULL without building the range, even next to rows that are not NULL.
+    const auto large_end = static_cast<Int32>(max_array_size_as_field) * 4;
+    for (const auto* name : {"array_range", "sequence"}) {
+        check_range(name, {{1, 3, 1}, {std::nullopt, large_end, 1}, {2, 6, 2}},
+                    {std::vector<Int32> {1, 2}, std::nullopt, std::vector<Int32> {2, 4}});
+        check_range(name, {{1, 3, 0}, {std::nullopt, large_end, 0}},
+                    {std::vector<Int32> {1, 2}, std::nullopt}, 0, 2);
+    }
+}
+
 } // namespace
 } // namespace doris

@@ -27,6 +27,8 @@ import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.UuidType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +49,22 @@ public class ColumnDefinitionTest {
     @AfterEach
     public void tearDown() {
         Config.enable_non_aggregate_table_state_types = false;
+    }
+
+    @Test
+    public void testTimestampNsDefaultsAreNormalizedForExternalDdl() {
+        String[][] values = {
+                {"20240102", "2024-01-02 00:00:00.000000000"},
+                {"20240102030405", "2024-01-02 03:04:05.000000000"},
+                {"2024-01-02 03:04:05.123456789", "2024-01-02 03:04:05.123456789"}
+        };
+        for (String[] value : values) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampNsType.INSTANCE,
+                    false, null, true, Optional.of(new DefaultValue(value[0])), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
     }
 
     @Test
@@ -135,5 +153,20 @@ public class ColumnDefinitionTest {
 
     private static void validateSystemGeneratedColumn(ColumnDefinition column, KeysType keysType) {
         column.validate(true, ImmutableSet.of("k"), ImmutableSet.of(), true, keysType, true);
+    }
+
+    @Test
+    public void testAddColumnRejectsUuidDynamicDefaults() {
+        for (String function : new String[] {"uuid_v4", "uuid_v7", "generateUUIDv4", "generate_uuid_v7"}) {
+            ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
+                    Optional.of(DefaultValue.uuidDefaultValue(function)), "");
+            org.apache.doris.common.AnalysisException error = Assertions.assertThrows(
+                    org.apache.doris.common.AnalysisException.class,
+                    () -> AddColumnOp.validateColumnDef(null, column, null, null));
+            Assertions.assertEquals("ADD COLUMN does not support UUID dynamic default values", error.getDetailMessage());
+        }
+        ColumnDefinition literal = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
+                Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
+        Assertions.assertFalse(literal.hasUuidDefaultValue());
     }
 }

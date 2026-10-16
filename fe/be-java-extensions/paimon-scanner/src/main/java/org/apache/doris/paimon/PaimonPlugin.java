@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.jni.spi.DorisPlugin;
 import org.apache.doris.jni.spi.JniScannerFactory;
+import org.apache.doris.jni.spi.JniWriterFactory;
 
 import java.util.Collections;
 
@@ -26,12 +27,17 @@ import java.util.Collections;
  * Entry point of the {@code paimon} plugin, found through
  * {@code META-INF/services/org.apache.doris.jni.spi.DorisPlugin}.
  *
- * <p>Reading only: Paimon writes go through Doris's own native writer, not through JNI.
+ * <p>Publishes the isolated JNI implementations used by both Paimon reads and writes.
  */
 public class PaimonPlugin implements DorisPlugin {
 
     @Override
     public Iterable<JniScannerFactory> getScannerFactories() {
         return Collections.singletonList(new PaimonScannerFactory());
+    }
+
+    @Override
+    public Iterable<JniWriterFactory> getWriterFactories() {
+        return Collections.singletonList(new PaimonWriterFactory());
     }
 }

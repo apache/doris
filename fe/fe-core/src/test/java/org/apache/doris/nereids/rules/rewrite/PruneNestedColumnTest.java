@@ -189,6 +189,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  s struct<f: int, g: int>\n"
                 + ") properties ('replication_num'='1')");
 
+        // The column name is not all lower case: access paths are collected lower-cased, while the
+        // whole-column path keeps the catalog name.
+        createTable("create table upper_case_tbl(\n"
+                + "  id int,\n"
+                + "  S struct<City: string, Zip: int>\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -315,6 +322,22 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         path("map_arr_col", "VALUES"),
                         metaPath("map_arr_col", "VALUES", "OFFSET")),
                 ImmutableList.of());
+    }
+
+    @Test
+    public void testWholeUpperCaseColumnOutputKeepsSubFieldPredicatePath() throws Exception {
+        // [S] (catalog name) must cover the lower-cased predicate path [s, city]; otherwise
+        // [s, city] is appended to the all access paths next to the whole column.
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select S from upper_case_tbl where struct_element(S, 'City') = 'x'");
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertEquals(ImmutableList.of(path("S")), ImmutableList.copyOf(allAccessPaths));
+        Assertions.assertEquals(ImmutableList.of(path("s", "city")), ImmutableList.copyOf(predicateAccessPaths));
     }
 
     @Test

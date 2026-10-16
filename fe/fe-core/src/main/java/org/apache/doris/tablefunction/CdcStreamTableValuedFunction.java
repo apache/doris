@@ -60,7 +60,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private final boolean includeDeleteSign;
 
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        validate(properties);
+        validateProperties(properties);
         includeDeleteSign = Boolean.parseBoolean(properties.getOrDefault(INCLUDE_DELETE_SIGN, "false"));
         processProps(properties);
     }
@@ -117,7 +117,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
     }
 
-    private void validate(Map<String, String> properties) throws AnalysisException {
+    public static void validateProperties(Map<String, String> properties) throws AnalysisException {
         if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }
@@ -230,6 +230,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 throw new AnalysisException("Table does not exist: " + table);
             }
             List<Column> columns = new ArrayList<>(jdbcClient.getColumnsFromJdbc(database, table));
+            // Match the CDC JSON carrier for both binary and timestamp columns, including array elements.
+            columns.forEach(column -> column.setType(StreamingJobUtils.getCdcTransportType(column.getType())));
             if (includeDeleteSign) {
                 columns.add(new Column(Column.DELETE_SIGN, PrimitiveType.TINYINT, false));
             }

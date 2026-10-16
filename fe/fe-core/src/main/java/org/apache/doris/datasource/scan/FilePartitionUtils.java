@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 
@@ -153,6 +154,30 @@ public final class FilePartitionUtils {
                     + expectedColumns + ", filePath: " + filePath);
         }
         return new ParsedColumnsFromPath(Lists.newArrayList(columns), Lists.newArrayList(columnValueIsNull));
+    }
+
+    /**
+     * Parses partition column values from a load source path. Unlike the query path, a load also
+     * treats a literal {@code \N} directory value as NULL, the semantics loads had before the
+     * null flag existed.
+     */
+    public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfoForLoad(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive,
+            boolean isACID)
+            throws UserException {
+        ParsedColumnsFromPath parsed = parseColumnsFromPathWithNullInfo(
+                filePath, columnsFromPath, caseSensitive, isACID);
+        List<String> values = new ArrayList<>(parsed.getValues());
+        List<Boolean> isNull = new ArrayList<>(parsed.getIsNull());
+        for (int i = 0; i < values.size(); i++) {
+            if (FeConstants.null_string.equals(values.get(i))) {
+                values.set(i, "");
+                isNull.set(i, true);
+            }
+        }
+        return new ParsedColumnsFromPath(values, isNull);
     }
 
     public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {

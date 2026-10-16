@@ -72,6 +72,17 @@ private:
 
 class ParquetBuildHelper {
 public:
+    // Maps the Doris file-level compression codec onto the Parquet codec to write with, so the
+    // Iceberg/Hive writers share one definition instead of repeating the switch:
+    //   PLAIN -> UNCOMPRESSED, SNAPPYBLOCK -> SNAPPY, ZSTD -> ZSTD,
+    //   GZ -> GZIP, LZ4BLOCK -> LZ4_HADOOP.
+    // GZ is what Iceberg's `write.parquet.compression-codec=gzip` (the table default before
+    // Iceberg 1.4) and Hive's `parquet.compression=GZIP` resolve to, and GZIP is the codec
+    // Spark/Trino write for those properties. LZ4_HADOOP is the Hadoop-framed LZ4 codec, which
+    // keeps the file readable by engines that do not support LZ4_RAW.
+    static Result<TParquetCompressionType::type> to_parquet_compression_type(
+            TFileCompressType::type compression_type);
+
     static void build_compression_type(::parquet::WriterProperties::Builder& builder,
                                        const TParquetCompressionType::type& compression_type);
 

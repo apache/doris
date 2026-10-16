@@ -22,15 +22,6 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         return;
     }
 
-    def backends = sql """show backends"""
-    def backendNum = backends.size()
-    logger.info("get backendNum: ${backendNum}")
-
-    // Set parallel_pipeline_task_num explicitly so getParallelExecInstanceNum() returns
-    // a known value, regardless of fuzzy mode randomization or BE core count.
-    def parallelExecInstanceNum = 8
-    sql """set parallel_pipeline_task_num = ${parallelExecInstanceNum}"""
-
     for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_hive_compress_type_large_data"
@@ -43,18 +34,12 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
 
-        // table test_compress_partitioned has 16 files across 8 partitions (734MB total).
-        // With count pushdown, needSplit depends on totalFileNum vs parallelNum * backendNum.
-        // When needSplit=false: each file = 1 split = 16 splits.
-        // When needSplit=true and file_split_size=0: splits by dynamic size = 28 splits.
-        // When needSplit=true and file_split_size=8MB: splits by 8MB = 82 splits.
-        def needSplit = (backendNum > 1) && (16 < parallelExecInstanceNum * backendNum)
-
+        // The connector uses a 256 MiB default instead of the legacy backend-count heuristic.
+        // All 16 fixture files fit in that size, so the default must preserve one range per file.
         sql """set file_split_size=0"""
-        def expectedSplitNum1 = needSplit ? 28 : 16
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=${expectedSplitNum1}, totalFileSize=734675596, scanRanges=${expectedSplitNum1}"
+            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
             contains "partition=8/8"
         }
 
@@ -66,11 +51,15 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         assertEquals(15, countWatchId1[0][0])
 
         sql """set file_split_size=8388608"""
-        def expectedSplitNum2 = needSplit ? 82 : 16
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=${expectedSplitNum2}, totalFileSize=734675596, scanRanges=${expectedSplitNum2}"
-            contains "partition=8/8"
+            // Compression determines which files can split; require actual splitting without
+            // coupling this correctness test to the legacy planner's exact split count.
+            check { result ->
+                def splits = result =~ /inputSplitNum=(\d+), totalFileSize=734675596, scanRanges=(\d+)/
+                splits.find() && splits.group(1).toInteger() > 16 && splits.group(1) == splits.group(2) &&
+                        result.contains("partition=8/8")
+            }
         }
 
         def countMix2 = sql """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""

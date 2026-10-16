@@ -120,6 +120,13 @@ add_thirdparty(lance_c LIB64 NOTADD)
 if (NOT GLIBC_COMPATIBILITY)
     list(APPEND COMMON_THIRDPARTY m lance_c)
 endif()
+# libpaimon_c.a (built from paimon-rust) brings in Rust compiler_builtins that
+# would otherwise steal libm symbols. Place libm before it so the final linker
+# resolves C math symbols from the system library first.
+add_thirdparty(paimon_c LIB64 NOTADD)
+if (NOT GLIBC_COMPATIBILITY)
+    list(APPEND COMMON_THIRDPARTY m paimon_c)
+endif()
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb)
 add_thirdparty(cyrus-sasl LIBNAME "lib/libsasl2.a")
@@ -183,10 +190,7 @@ if (OS_MACOSX)
     add_thirdparty(intl)
 endif()
 
-# Only used on x86 or x86_64
-if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    add_thirdparty(deflate)
-endif()
+add_thirdparty(deflate)
 
 add_thirdparty(icuuc LIB64)
 add_thirdparty(icui18n LIB64)

@@ -118,13 +118,15 @@ struct FieldInfo {
     int precision = 0;
 };
 
+struct OrcTimestampDecodeContext;
+
 struct OrcDecodedColumnView {
     const orc::Type* file_type = nullptr;
     const orc::Type* selected_type = nullptr;
     const orc::ColumnVectorBatch* batch = nullptr;
     size_t rows = 0;
     const std::vector<size_t>* selected_rows = nullptr;
-    const cctz::time_zone* timezone = nullptr;
+    const OrcTimestampDecodeContext* timestamp_context = nullptr;
     bool enable_mapping_timestamp_tz = false;
 };
 
@@ -356,7 +358,7 @@ public:
 
     /// Parse a human-readable string from FE (delete conditions, default values,
     /// schema change defaults) into a Field. Uses standard decimal parsing with full
-    /// scale. Callers: delete_handler.cpp, column_reader.cpp (DefaultValueColumnIterator),
+    /// scale. Callers: delete_handler.cpp, segment.cpp (Segment::get_default_value_field),
     /// schema_change.cpp.
     virtual Status from_fe_string(const std::string& str, Field& field) const {
         FormatOptions options;
@@ -441,12 +443,15 @@ public:
     }
 
     virtual Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                             JsonbWriter& writer) const {
+                                             JsonbWriter& writer,
+                                             const FormatOptions& options) const {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
 
-    virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                    ColumnString& to_column) const;
+    // Skip rows in source_null_map and insert a default value for each skipped row.
+    virtual Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+            const NullMap::value_type* source_null_map = nullptr) const;
 
     virtual Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                                  CastParameters& castParms) const {
@@ -459,9 +464,10 @@ public:
     // else return jsonb_value
     static const JsonbValue* handle_jsonb_value(const StringRef& val);
 
-    virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                        const ColumnString& from_column,
-                                                        CastParameters& castParms) const;
+    // Skip rows in source_null_map and insert NULL for each skipped row.
+    virtual Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const;
 
     Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
                                           CastParameters& castParms) const;

@@ -20,9 +20,12 @@
 #include <cstring>
 #include <limits>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/function/string_hex_util.h"
 #include "util/url_coding.h"
@@ -192,6 +195,16 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     return Status::OK();
 }
 
+Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // VARBINARY expression lengths are metadata, not fixed byte widths; casts can leave them unbounded.
+    // The Arrow writer checks every non-null value against the remote fixed/UUID width instead.
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
                                                       const arrow::Array* arrow_array,
                                                       int64_t start, int64_t end,
@@ -285,6 +298,42 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
     }
 
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
+    const auto* batch = dynamic_cast<const orc::StringVectorBatch*>(view.batch);
+    DORIS_CHECK(batch != nullptr);
+    const auto* encoded_batch = dynamic_cast<const orc::EncodedStringVectorBatch*>(batch);
+    const bool is_encoded = encoded_batch != nullptr && encoded_batch->isEncoded;
+    if (is_encoded) {
+        DORIS_CHECK(encoded_batch->dictionary != nullptr);
+    }
+    auto& binary_column = assert_cast<ColumnVarbinary&>(column);
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    binary_column.reserve(binary_column.size() + rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*batch, source_row)) {
+            binary_column.insert_default();
+            continue;
+        }
+        char* data = nullptr;
+        int64_t length = 0;
+        if (is_encoded) {
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+        } else {
+            data = batch->data[source_row];
+            length = batch->length[source_row];
+        }
+        if (length < 0) {
+            return Status::Corruption("Invalid negative ORC binary length {}", length);
+        }
+        binary_column.insert_data(length == 0 ? "" : data, cast_set<size_t>(length));
+    }
     return Status::OK();
 }
 

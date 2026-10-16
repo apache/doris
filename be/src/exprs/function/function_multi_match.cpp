@@ -29,7 +29,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/file_reader.h"
-#include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/segment/segment_iterator.h"
 
 namespace doris {

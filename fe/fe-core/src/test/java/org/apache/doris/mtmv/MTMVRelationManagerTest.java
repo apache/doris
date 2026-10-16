@@ -20,15 +20,18 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.persist.EditLog.EditLogItem;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRelationManagerTest {
@@ -158,7 +161,7 @@ public class MTMVRelationManagerTest {
             manager.markIvmBaselineRebuild(t3, "test");
         }
 
-        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
     }
 
     @Test
@@ -175,6 +178,63 @@ public class MTMVRelationManagerTest {
             manager.markIvmBaselineRebuild(t3, "test");
         }
 
-        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    /**
+     * The generic base-table change is an invalidation, and it is recorded the way the invalidation above
+     * is: applied and enqueued in one MV-lock critical section, awaited where no MV lock is held. A record
+     * enqueued while the state is still being applied would be replayed on a follower on the other side of
+     * a concurrent task result, leaving the follower in SCHEMA_CHANGE where this FE ended NORMAL.
+     *
+     * <p>A rename is the shortest way into this path: it skips the query check, so what the hook does is
+     * exactly the record under test. The rename is passed with the check asked for, which it cannot be
+     * judged by -- the MV query keeps spelling the old name -- and the flag does not reach it.
+     */
+    @Test
+    public void testABaseTableRenameIsRecordedThroughTheInvalidation() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+            // A rename of the table names no column, so the alter does not hand the judgement to a query.
+            manager.alterTable(t3, Optional.of(t4), false, null);
+        }
+
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mtmv).invalidateWholeMv(detail.capture());
+        Assertions.assertTrue(detail.getValue().startsWith("The base table has been updated:"),
+                detail.getValue());
+        Mockito.verify(editLogItem).await();
+    }
+
+    /**
+     * A change the alter does not hand to the queries is invalidated as a base table change was before the
+     * queries were asked at all. The alter says so by naming no column: it does that where every clause of
+     * it is not one a query decides, and where the schema change has not reached the table yet -- asking
+     * then would answer for the table from before the change.
+     */
+    @Test
+    public void testAChangeTheQueryCannotBeAskedAboutInvalidates() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+            // The same table on both sides: this is not a rename, so what the alter names alone decides.
+            manager.alterTable(t3, Optional.of(t3), false, null);
+        }
+
+        Mockito.verify(mtmv).invalidateWholeMv(Mockito.anyString());
+        Mockito.verify(editLogItem).await();
     }
 }
