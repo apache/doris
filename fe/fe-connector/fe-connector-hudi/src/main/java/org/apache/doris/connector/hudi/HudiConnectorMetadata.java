@@ -224,6 +224,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 .inputFormat(tableInfo.getInputFormat())
                 .serdeLib(tableInfo.getSerializationLib())
                 .partitionKeyNames(partKeyNames)
+                .timestampPartitionKeys(tableInfo.getPartitionKeys().stream()
+                        .filter(column -> "DATETIMEV2".equals(column.getType().getTypeName())
+                                || "TIMESTAMPTZ".equals(column.getType().getTypeName()))
+                        .map(ConnectorColumn::getName).collect(Collectors.toSet()))
                 .tableParameters(tableInfo.getParameters())
                 .build());
     }
@@ -297,7 +301,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             }
             allPartPaths = hmsPartitionPaths(hudiHandle, allPartPaths);
             matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates,
-                    urlEncodePartitioning(hudiHandle, allPartPaths));
+                    urlEncodePartitioning(hudiHandle, allPartPaths), hudiHandle.getTimestampPartitionKeys());
         } else {
             // non-hive-sync (Hudi default), or any pinned read: list the RELATIVE storage paths from Hudi
             // metadata -- the SAME source the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses --
@@ -315,7 +319,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 return Optional.empty();
             }
             matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates,
-                    listing.urlEncoded);
+                    listing.urlEncoded, hudiHandle.getTimestampPartitionKeys());
         }
         if (matchedPartPaths.size() == allPartPaths.size()) {
             // No pruning effect
@@ -807,7 +811,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 // non-numeric pin, the day it became reachable.
                 List<String> paths = hmsPartitionPaths(handle, hmsNames);
                 PartitionState state = latestPartitionState(handle);
-                return buildPartitionInfos(paths, partKeyNames, state.lastModifiedMillis, state.urlEncoded);
+                return buildPartitionInfos(paths, partKeyNames, state.lastModifiedMillis, state.urlEncoded,
+                        handle.getTimestampPartitionKeys());
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -837,7 +842,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     HudiScanPlanProvider.urlEncodePartitioning(metaClient));
         });
         List<ConnectorPartitionInfo> partitions =
-                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis, listing.urlEncoded);
+                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis, listing.urlEncoded,
+                        handle.getTimestampPartitionKeys());
         return listing.pinned == null
                 ? partitions
                 : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant, listing.urlEncoded);
@@ -921,7 +927,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant, boolean urlEncoded) {
         Set<Map<String, String>> pinnedValues = new HashSet<>();
         for (String rawPath : pinned.rawPaths) {
-            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded));
+            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded,
+                    handle.getTimestampPartitionKeys()));
         }
         List<ConnectorPartitionInfo> atPin = new ArrayList<>(pinnedValues.size());
         for (ConnectorPartitionInfo partition : partitions) {
@@ -1002,11 +1009,17 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      */
     static List<ConnectorPartitionInfo> buildPartitionInfos(
             List<String> rawPaths, List<String> partKeyNames, long lastModifiedMillis, boolean urlEncoded) {
+        return buildPartitionInfos(rawPaths, partKeyNames, lastModifiedMillis, urlEncoded, Collections.emptySet());
+    }
+
+    static List<ConnectorPartitionInfo> buildPartitionInfos(List<String> rawPaths, List<String> partKeyNames,
+            long lastModifiedMillis, boolean urlEncoded, Set<String> timestampPartitionKeys) {
         List<ConnectorPartitionInfo> result = new ArrayList<>(rawPaths.size());
         for (String rawPath : rawPaths) {
             // Parse the unescaped values ONCE; render the hive-style name from the SAME values so the name and
             // the values map agree by construction (the name re-parses back to these values in fe-core).
-            Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded);
+            Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded,
+                    timestampPartitionKeys);
             String name = HudiScanPlanProvider.renderHiveStylePartitionName(partKeyNames, values);
             // Ordered values in partKeyNames (render) order; render/parse are exact inverses, so this equals
             // fe-core's legacy parse of `name`. Supplied so fe-core skips the parse.
@@ -1477,10 +1490,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      */
     static List<String> prunePartitionPaths(List<String> allPartPaths,
             List<String> partKeyNames, Map<String, List<String>> predicates, boolean urlEncoded) {
+        return prunePartitionPaths(allPartPaths, partKeyNames, predicates, urlEncoded, Collections.emptySet());
+    }
+
+    static List<String> prunePartitionPaths(List<String> allPartPaths, List<String> partKeyNames,
+            Map<String, List<String>> predicates, boolean urlEncoded, Set<String> timestampPartitionKeys) {
         List<String> matched = new ArrayList<>();
         for (String partPath : allPartPaths) {
             Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
-                    partPath, partKeyNames, urlEncoded);
+                    partPath, partKeyNames, urlEncoded, timestampPartitionKeys);
             if (matchesPredicates(partValues, predicates)) {
                 matched.add(partPath);
             }

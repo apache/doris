@@ -286,8 +286,7 @@ private:
 };
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
-                               std::optional<int8_t> specification_version,
-                               bool allow_paimon_shredded_layout) {
+                               std::optional<int8_t> specification_version) {
     if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
                                     *specification_version);
@@ -329,11 +328,11 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
                                   group_field.name);
     }
     const auto metadata_repetition = metadata->parquet_schema.repetition_type;
-    // Paimon makes every field in its shredded carrier optional. Restrict that compatibility to
-    // unannotated overrides; row materialization still rejects null metadata for a non-null value.
+    // Shredded writers may declare metadata optional regardless of the VARIANT annotation.
+    // Row materialization still rejects null metadata for a non-null Variant.
     const bool valid_metadata_repetition =
             metadata_repetition == tparquet::FieldRepetitionType::REQUIRED ||
-            (allow_paimon_shredded_layout && typed_value != nullptr &&
+            (typed_value != nullptr &&
              metadata_repetition == tparquet::FieldRepetitionType::OPTIONAL);
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
         !valid_metadata_repetition) {
@@ -365,15 +364,13 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
                 wrapper.parquet_schema.__isset.repetition_type &&
                 (wrapper.parquet_schema.repetition_type ==
                          tparquet::FieldRepetitionType::REQUIRED ||
-                 (allow_paimon_shredded_layout && wrapper.parquet_schema.repetition_type ==
-                                                          tparquet::FieldRepetitionType::OPTIONAL));
-        // The Parquet Variant specification requires wrapper groups. Paimon's unannotated
-        // physical carrier makes them optional, so accept that representation only through the
-        // table-format override. Materialization still rejects an actually null array element;
-        // an absent object wrapper represents a missing key.
+                 wrapper.parquet_schema.repetition_type == tparquet::FieldRepetitionType::OPTIONAL);
+        // An optional wrapper is a writer layout choice, not a table-format identifier. A null
+        // object wrapper means an absent key; materialization still rejects null array elements.
         if (!valid_wrapper_repetition) {
-            return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
-                                      wrapper.name);
+            return Status::Corruption(
+                    "Parquet Variant shredded wrapper {} must be required or optional",
+                    wrapper.name);
         }
         const NativeFieldSchema* fallback = nullptr;
         const NativeFieldSchema* typed = nullptr;
@@ -409,11 +406,11 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
                     "Parquet Variant object wrapper {} requires an optional value child",
                     wrapper.name);
         }
-        // Paimon makes this leaf required because a fallback-only array element has no typed
-        // carrier; keep the exception scoped to that exact unannotated layout.
-        const bool allow_required_fallback = allow_paimon_shredded_layout &&
-                                             context == WrapperContext::ARRAY_ELEMENT &&
-                                             typed == nullptr;
+        // Both annotated and unannotated writers use a required fallback-only array carrier.
+        // Even a null element has Variant null bytes; object fields must still represent absence,
+        // and a sibling typed_value needs a nullable fallback to avoid conflicting carriers.
+        const bool allow_required_fallback =
+                context == WrapperContext::ARRAY_ELEMENT && typed == nullptr;
         const bool valid_fallback_repetition =
                 fallback != nullptr && fallback->parquet_schema.__isset.repetition_type &&
                 (fallback->parquet_schema.repetition_type ==
