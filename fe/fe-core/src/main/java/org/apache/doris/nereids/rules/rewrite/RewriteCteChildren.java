@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -154,7 +155,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
      * counterpart in the new outputs any more, so there is nothing to map for it, see the two CTE tests of
      * CteLimitPushdownPlanTest and DataTraitTest which prune the columns their consumers do not read.
      */
-    private static Map<ExprId, ExprId> computeProducerExprIdRemap(List<Slot> oldOutputs, List<Slot> newOutputs) {
+    @VisibleForTesting
+    static Map<ExprId, ExprId> computeProducerExprIdRemap(List<Slot> oldOutputs, List<Slot> newOutputs) {
         Set<ExprId> newExprIds = newOutputs.stream().map(Slot::getExprId).collect(Collectors.toSet());
         Set<ExprId> matchedNewExprIds = Sets.newHashSetWithExpectedSize(newExprIds.size());
         List<Slot> renamedOldOutputs = new ArrayList<>();
@@ -167,16 +169,36 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         }
         Map<ExprId, ExprId> remap = new HashMap<>();
         for (Slot renamedOldOutput : renamedOldOutputs) {
-            for (Slot newOutput : newOutputs) {
-                if (!matchedNewExprIds.contains(newOutput.getExprId())
-                        && newOutput.getName().equals(renamedOldOutput.getName())) {
-                    remap.put(renamedOldOutput.getExprId(), newOutput.getExprId());
-                    matchedNewExprIds.add(newOutput.getExprId());
-                    break;
-                }
+            List<Slot> candidates = newOutputs.stream()
+                    .filter(newOutput -> !matchedNewExprIds.contains(newOutput.getExprId()))
+                    .filter(newOutput -> newOutput.getName().equals(renamedOldOutput.getName()))
+                    .collect(Collectors.toList());
+            if (candidates.size() > 1) {
+                // the name is not a key: several outputs of the producer may share it. The lineage of a slot
+                // survives a rename (Alias#toSlot copies it), so use it to find the right candidate.
+                candidates = candidates.stream()
+                        .filter(candidate -> sameLineage(renamedOldOutput, candidate))
+                        .collect(Collectors.toList());
+            }
+            // a unique candidate is the renamed column; no candidate means the column was pruned, and several
+            // same named candidates which cannot be told apart are not mapped at all instead of guessing
+            if (candidates.size() == 1) {
+                remap.put(renamedOldOutput.getExprId(), candidates.get(0).getExprId());
+                matchedNewExprIds.add(candidates.get(0).getExprId());
             }
         }
         return remap;
+    }
+
+    private static boolean sameLineage(Slot left, Slot right) {
+        if (!(left instanceof SlotReference) || !(right instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference leftReference = (SlotReference) left;
+        SlotReference rightReference = (SlotReference) right;
+        return leftReference.getOriginalTable().isPresent() && rightReference.getOriginalTable().isPresent()
+                && leftReference.getOriginalTable().equals(rightReference.getOriginalTable())
+                && leftReference.getOriginalColumn().equals(rightReference.getOriginalColumn());
     }
 
     /** Refresh the producer slots of the two output maps of the consumers of a CTE, see computeProducerExprIdRemap. */
