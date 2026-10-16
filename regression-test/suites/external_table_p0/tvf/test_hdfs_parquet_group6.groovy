@@ -574,6 +574,26 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // ENUM is text even though its physical representation is BYTE_ARRAY.
+            for (boolean mapping : [false, true]) {
+                String enumSource = """HDFS("uri"="${uri}", "hadoop.username"="${hdfsUserName}",
+                        "format"="parquet", "enable_mapping_varbinary"="${mapping}")"""
+                def enumSchema = sql "DESC FUNCTION ${enumSource}"
+                def enumColumn = enumSchema.find { it[0].toString().toLowerCase().contains("enum") }
+                assertNotNull(enumColumn)
+                assertEquals("text", enumColumn[1].toString().toLowerCase())
+                String enumTable = "parquet_enum_ctas"
+                sql "DROP TABLE IF EXISTS ${enumTable}"
+                try {
+                    sql """CREATE TABLE ${enumTable} PROPERTIES("replication_num"="1") AS
+                           SELECT `${enumColumn[0]}` AS enum_value FROM ${enumSource}"""
+                    assertEquals(sql("SELECT `${enumColumn[0]}` FROM ${enumSource} ORDER BY 1"),
+                            sql("SELECT enum_value FROM ${enumTable} ORDER BY 1"))
+                } finally {
+                    sql "DROP TABLE IF EXISTS ${enumTable}"
+                }
+            }
+
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/07eeba07-b04d-42b5-9e31-35b1a22ea31d-0_0-89-83_20230208203804485.parquet"
             order_qt_test_75 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -736,7 +756,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
 
 
             // The first field is FIXED_LEN_BYTE_ARRAY(16) with a UUID logical annotation.
-            // TVFs preserve its bytes as VARBINARY even when the legacy mapping option is absent.
+            // The UUID annotation preserves canonical text independently of the raw-binary default.
             // test_107 verifies that explicitly enabling the option produces the same result.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
             order_qt_test_98 """ select * from HDFS(
