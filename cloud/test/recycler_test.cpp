@@ -9201,7 +9201,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_rowset_idx_v3) {
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
+    auto* obj_info = instance.add_obj_info();
     obj_info->set_id("delete_tmp_rowset_data_with_rowset_idx_v3");
     obj_info->set_ak(config::test_s3_ak);
     obj_info->set_sk(config::test_s3_sk);
