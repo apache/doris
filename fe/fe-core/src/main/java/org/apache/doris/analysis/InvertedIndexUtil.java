@@ -131,7 +131,9 @@ public class InvertedIndexUtil {
 
     public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
         String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
-        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
+        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase)
+                : !INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(getInvertedIndexParser(properties))
+                        || !getPreferredAnalyzer(properties).isEmpty();
     }
 
     public static String getPreferredAnalyzer(Map<String, String> properties) {

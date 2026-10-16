@@ -18,13 +18,16 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
 
@@ -32,13 +35,31 @@ public class IndexTest {
     public void testInvertedIndexPersistsDefaultPhraseSupport() {
         Index exact = new Index(1, "exact", Collections.singletonList("col"),
                 IndexDef.IndexType.INVERTED, Collections.emptyMap(), "");
-        Assert.assertEquals("true", exact.getProperties().get("support_phrase"));
+        Assert.assertEquals("false", exact.getProperties().get("support_phrase"));
+        Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(Collections.emptyMap()));
 
-        Index disabled = new Index(2, "disabled", Collections.singletonList("col"),
-                IndexDef.IndexType.INVERTED, Collections.singletonMap("support_phrase", "false"), "");
+        Index keyword = new Index(2, "keyword", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "none"), "");
+        Assert.assertEquals("false", keyword.getProperties().get("support_phrase"));
+
+        Index analyzed = new Index(3, "analyzed", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "english"), "");
+        Assert.assertEquals("true", analyzed.getProperties().get("support_phrase"));
+        Assert.assertTrue(InvertedIndexUtil.getInvertedIndexSupportPhrase(
+                Collections.singletonMap("parser", "english")));
+
+        Index customAnalyzer = new Index(4, "custom_analyzer", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("analyzer", "english"), "");
+        Assert.assertEquals("true", customAnalyzer.getProperties().get("support_phrase"));
+
+        Map<String, String> disabledProperties = new HashMap<>();
+        disabledProperties.put("parser", "english");
+        disabledProperties.put("support_phrase", "false");
+        Index disabled = new Index(5, "disabled", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, disabledProperties, "");
         Assert.assertEquals("false", disabled.getProperties().get("support_phrase"));
 
-        Index bitmap = new Index(3, "bitmap", Collections.singletonList("col"),
+        Index bitmap = new Index(6, "bitmap", Collections.singletonList("col"),
                 IndexDef.IndexType.BITMAP, Collections.emptyMap(), "");
         Assert.assertFalse(bitmap.getProperties().containsKey("support_phrase"));
     }
