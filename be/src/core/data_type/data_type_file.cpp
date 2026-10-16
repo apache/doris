@@ -24,7 +24,6 @@
 #include <array>
 #include <limits>
 
-#include "agent/be_exec_version_manager.h"
 #include "core/column/column_const.h"
 #include "core/column/column_file.h"
 #include "core/column/column_nullable.h"
@@ -40,15 +39,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-namespace {
-void check_file_exec_version(int version) {
-    if (version < SUPPORT_FILE_VERSION) {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "FILE requires be_exec_version >= {}",
-                        SUPPORT_FILE_VERSION);
-    }
-}
-} // namespace
-
 bool contains_file_type(const DataTypePtr& original) {
     const auto type = remove_nullable(original);
     switch (type->get_primitive_type()) {
@@ -192,16 +182,7 @@ std::optional<size_t> DataTypeFile::try_get_position_by_name(const String& name)
     return std::nullopt;
 }
 
-size_t DataTypeFile::get_position_by_name(const String& name) const {
-    auto position = try_get_position_by_name(name);
-    if (!position) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown FILE child");
-    }
-    return *position;
-}
-
 int64_t DataTypeFile::get_uncompressed_serialized_bytes(const IColumn& column, int version) const {
-    check_file_exec_version(version);
     const auto* data = &column;
     if (is_column_const(column)) {
         data = &assert_cast<const ColumnConst&>(column).get_data_column();
@@ -215,7 +196,6 @@ int64_t DataTypeFile::get_uncompressed_serialized_bytes(const IColumn& column, i
 }
 
 char* DataTypeFile::serialize(const IColumn& column, char* buf, int version) const {
-    check_file_exec_version(version);
     const auto* data = &column;
     size_t rows = 0;
     buf = serialize_const_flag_and_row_num(&data, buf, &rows);
@@ -228,7 +208,6 @@ char* DataTypeFile::serialize(const IColumn& column, char* buf, int version) con
 
 const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
                                       int version) const {
-    check_file_exec_version(version);
     auto* original = column->get();
     size_t rows = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &rows);

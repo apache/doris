@@ -95,8 +95,7 @@ Status VListFileTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
 
     if (!block->mem_reuse()) {
         for (const auto* slot : _tuple_desc->slots()) {
-            block->insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                           slot->col_name()});
+            block->insert({slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
         }
     }
     // Restore borrowed column owners on success, cancellation and remote errors.

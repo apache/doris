@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
@@ -140,8 +139,6 @@ public class FileTypeExpressionTest {
             Assertions.assertThrows(NotSupportedException.class, divide::getDataType);
             Assertions.assertDoesNotThrow(divide::checkInputDataTypes);
             Assertions.assertDoesNotThrow(alias::checkInputDataTypes);
-            Assertions.assertDoesNotThrow(() -> ExpressionUtils.checkFileExecutionVersion(divide));
-            Assertions.assertDoesNotThrow(() -> ExpressionUtils.checkFileExecutionVersion(alias));
             Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
             Assertions.assertFalse(context.getSessionVariable().isEnableDecimal256());
         } finally {
@@ -670,23 +667,6 @@ public class FileTypeExpressionTest {
             assertAnalysisError(expectedMessage,
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
         }
-    }
-
-    @Test
-    public void testQueryVersionGate() {
-        LogicalOneRowRelation relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Collections.singletonList(new Alias(new NullLiteral(FileType.INSTANCE), "f")));
-        int version = Config.be_exec_version;
-        try {
-            Config.be_exec_version = Config.FILE_MIN_BE_EXEC_VERSION - 1;
-            assertAnalysisError("FILE requires execution version", () -> CheckAnalysis.checkFilePlan(relation));
-            Expression getter = ExpressionAnalyzer.analyzeFunction(null, null,
-                    new ElementAt(new SlotReference("f", FileType.INSTANCE), new StringLiteral("uri")));
-            assertAnalysisError("FILE requires execution version", getter::checkInputDataTypes);
-        } finally {
-            Config.be_exec_version = version;
-        }
-        Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
     }
 
     @Test
