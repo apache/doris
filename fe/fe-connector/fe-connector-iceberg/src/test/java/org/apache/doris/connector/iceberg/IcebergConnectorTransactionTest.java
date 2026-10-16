@@ -128,7 +128,17 @@ public class IcebergConnectorTransactionTest {
         return new IcebergConnectorTransaction(42L, ops, ctx);
     }
 
-    private static final ConnectorSession SESSION = new FakeWriteSession("UTC");
+    // The overwrite tests below predate the static default (iceberg_partition_overwrite_mode defaults to
+    // 'static'), so the shared session carries an explicit 'dynamic' and keeps exercising the dynamic path;
+    // overwriteDefaultsToWholeTable pins the deployed default instead.
+    private static final ConnectorSession SESSION = sessionWithOverwriteMode("dynamic");
+    private static final ConnectorSession DEFAULT_SESSION = new FakeWriteSession("UTC");
+    private static final ConnectorSession STATIC_SESSION = sessionWithOverwriteMode("static");
+
+    private static ConnectorSession sessionWithOverwriteMode(String mode) {
+        return new FakeWriteSession("UTC",
+                Collections.singletonMap("iceberg_partition_overwrite_mode", mode));
+    }
 
     private static IcebergWriteContext insertCtx() {
         return new IcebergWriteContext(WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty());
@@ -667,6 +677,68 @@ public class IcebergConnectorTransactionTest {
         // ReplacePartitions produces an overwrite snapshot with the new data file.
         Assertions.assertEquals("overwrite", snap.operation());
         Assertions.assertEquals("1", snap.summary().get("added-data-files"));
+    }
+
+    @Test
+    public void overwriteDefaultsToWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // No session property at all: the deployed default (static) is a whole-table overwrite, so the
+        // untouched 'us' partition is cleared together with everything else.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(DEFAULT_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(1, files.size(), files.toString());
+        Assertions.assertTrue(files.get(0).path().toString().contains("region=eu"),
+                files.get(0).path().toString());
+    }
+
+    @Test
+    public void overwriteStaticClearsTheWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // An explicit 'static' is the same whole-table overwrite as the default (Spark's static mode).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(STATIC_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(1, currentDataFiles(catalog.loadTable(id)).size());
+    }
+
+    @Test
+    public void overwriteDynamicKeepsOtherPartitions() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // iceberg_partition_overwrite_mode=dynamic: only the written partition is replaced, so the 'us' seed
+        // survives (Hive-compatible, Spark's partitionOverwriteMode=dynamic).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(2, currentDataFiles(catalog.loadTable(id)).size());
     }
 
     @Test
@@ -2264,9 +2336,15 @@ public class IcebergConnectorTransactionTest {
     /** Minimal {@link ConnectorSession} exposing a time zone (for partition-timestamp parsing); no Mockito. */
     private static final class FakeWriteSession implements ConnectorSession {
         private final String timeZone;
+        private final Map<String, String> properties;
 
         FakeWriteSession(String timeZone) {
+            this(timeZone, Collections.emptyMap());
+        }
+
+        FakeWriteSession(String timeZone, Map<String, String> properties) {
             this.timeZone = timeZone;
+            this.properties = properties == null ? Collections.emptyMap() : properties;
         }
 
         @Override
@@ -2291,7 +2369,8 @@ public class IcebergConnectorTransactionTest {
 
         @Override
         public <T> T getProperty(String name, Class<T> type) {
-            return null;
+            String value = properties.get(name);
+            return value == null ? null : type.cast(value);
         }
 
         @Override

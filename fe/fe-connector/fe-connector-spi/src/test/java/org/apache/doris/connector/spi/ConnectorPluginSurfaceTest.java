@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 16 adds spatial ConnectorType metadata after major 15 extended ConnectorScanRequest.
-        Assertions.assertEquals("16.0", version.getProperty("api.version"));
+        // Major 18 adds spatial ConnectorType metadata after major 17 scoped streaming requests.
+        Assertions.assertEquals("18.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

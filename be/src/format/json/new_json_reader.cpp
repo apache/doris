@@ -190,7 +190,7 @@ Status NewJsonReader::init_reader(
 
     //use serde insert data to column.
     for (auto* slot_desc : _file_slot_descs) {
-        _serdes.emplace_back(slot_desc->get_data_type_ptr()->get_serde());
+        _serdes.emplace_back(slot_desc->type()->get_serde());
     }
 
     // create decompressor.
@@ -215,7 +215,7 @@ Status NewJsonReader::_do_init_reader(ReaderInitContext* base_ctx) {
 
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, *ctx->col_default_value_ctx));
     for (auto* slot_desc : _file_slot_descs) {
-        _serdes.emplace_back(slot_desc->get_data_type_ptr()->get_serde());
+        _serdes.emplace_back(slot_desc->type()->get_serde());
     }
 
     // Create decompressor (needed by line reader below)

@@ -110,9 +110,8 @@ ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr
     }
 
     if (!_cached_src_column) {
-        _cached_src_type = dst_type->is_nullable()
-                                   ? get_data_type_with_default_argument(make_nullable(src_type))
-                                   : get_data_type_with_default_argument(remove_nullable(src_type));
+        _cached_src_type =
+                dst_type->is_nullable() ? make_nullable(src_type) : remove_nullable(src_type);
         _cached_src_column = _cached_src_type->create_column();
     }
     // remove the old cached data

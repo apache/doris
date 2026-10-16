@@ -265,9 +265,19 @@ TEST_F(FunctionCastToDecimalTest, test_from_bool) {
 TEST_F(FunctionCastToDecimalTest, test_from_bool_overflow) {
     from_bool_overflow_test_func<Decimal32>();
     from_bool_overflow_test_func<Decimal64>();
-    from_bool_overflow_test_func<DecimalV2Value>();
     from_bool_overflow_test_func<Decimal128V3>();
     from_bool_overflow_test_func<Decimal256>();
+}
+
+TEST_F(FunctionCastToDecimalTest, bool_to_decimalv2_uses_execution_precision) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
+    DataSet data_set = {
+            {{UInt8 {0}}, DECIMALV2VALUE(0, 0, 9)},
+            {{UInt8 {1}}, DECIMALV2VALUE(1, 0, 9)},
+    };
+    // The original DECIMALV2(9, 9) has no integer digits, but executes as (27, 9).
+    check_function_for_cast<DataTypeDecimalV2, false>(input_types, data_set, 9, 9);
+    check_function_for_cast<DataTypeDecimalV2, true>(input_types, data_set, 9, 9);
 }
 
 // A row that the input null map marks as NULL may still carry an arbitrary hidden payload in the

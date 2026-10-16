@@ -571,8 +571,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * method must independently preserve an explicitly empty pinned snapshot.
      */
     @Override
-    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        ConnectorTableHandle handle = request.getTableHandle();
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        Optional<ConnectorExpression> filter = request.getFilter();
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot()) {

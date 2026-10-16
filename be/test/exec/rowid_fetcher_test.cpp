@@ -279,7 +279,7 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
                 EXPECT_EQ(FileScannerV2::TEST_is_partition_slot(slot_info, name), is_partition);
                 format::ColumnDefinition column;
                 column.name = name;
-                column.type = slots[i].get_data_type_ptr();
+                column.type = slots[i].type();
                 const auto status = reader.annotate_projected_column(slot_info, &context, &column);
                 ASSERT_TRUE(status.ok()) << status;
                 if (!is_partition) {

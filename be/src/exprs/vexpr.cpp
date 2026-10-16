@@ -37,7 +37,6 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -70,7 +69,7 @@
 #include "exprs/vstruct_literal.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
@@ -390,15 +389,13 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
-    _data_type = get_data_type_with_default_argument(
-            DataTypeFactory::instance().create_data_type(node.type, is_nullable));
+    _data_type = DataTypeFactory::instance().create_data_type(node.type, is_nullable);
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(DataTypePtr type, bool is_slotref)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _data_type(get_data_type_with_default_argument(type)) {
+        : _opcode(TExprOpcode::INVALID_OPCODE), _data_type(std::move(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -745,7 +742,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
-        auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
+        auto real_expr_type = ctxs[i]->root()->data_type();
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(

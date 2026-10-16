@@ -63,6 +63,14 @@ class ObjectStorageUriTest {
     }
 
     @Test
+    void parsePreservesDottedBucketsOutsideOssProvider() {
+        // OSS's legacy bucket.endpoint rewrite must not change legal dotted S3 bucket names.
+        ObjectStorageUri uri = ObjectStorageUri.parse("s3://logs.prod/dir/a%2Fb+file", false);
+        Assertions.assertEquals("logs.prod", uri.bucket());
+        Assertions.assertEquals("dir/a%2Fb+file", uri.key());
+    }
+
+    @Test
     void parseS3aScheme() {
         ObjectStorageUri uri = ObjectStorageUri.parse("s3a://my-bucket/key", false);
         Assertions.assertEquals("my-bucket", uri.bucket());
