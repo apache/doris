@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -122,6 +123,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * bind an unbound logicalTableSink represent the target table of an insert command
@@ -954,6 +956,11 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException("Connector changelog sink must produce an operation column and "
                         + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
             }
+            // The operation column precedes one column per table column.
+            List<Integer> tableColumnOrdinals = IntStream.rangeClosed(1, targetWriteSchema.size()).boxed()
+                    .collect(ImmutableList.toImmutableList());
+            VariantWritePlanValidator.validateNoLossyCoercion(
+                    targetWriteSchema, child, tableColumnOrdinals, ctx.cascadesContext.getCteContext());
             return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
                     targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
                     targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
@@ -991,6 +998,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        VariantWritePlanValidator.validateNoLossyCoercion(bindColumns, child, ctx.cascadesContext.getCteContext());
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any

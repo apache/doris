@@ -11,3 +11,9 @@
 28	false	\N	select-string
 29	false	\N	false
 30	false	\N	[3,4]
+
+-- !variant_dml_after_errors --
+1	{"kind":"updated"}
+2	["array",2]
+3	{"kind":"object-source"}
+
