@@ -163,6 +163,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -770,6 +771,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CutIpv6.class, "cut_ipv6"),
             scalar(CutToFirstSignificantSubdomain.class, "cut_to_first_significant_subdomain"),
             scalar(DamerauLevenshteinDistance.class, "damerau_levenshtein_distance"),
+            scalar(DataSketchesHllDownsample.class, "datasketches_hll_downsample"),
             scalar(Database.class, "database", "schema", "current_database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),

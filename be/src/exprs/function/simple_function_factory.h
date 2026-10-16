@@ -35,6 +35,7 @@ void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll(SimpleFunctionFactory& factory);
+void register_function_datasketches_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
 void register_function_encode_varchar(SimpleFunctionFactory& factory);
@@ -284,6 +285,7 @@ public:
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
             register_function_hll(instance);
+            register_function_datasketches_hll(instance);
             register_function_comparison(instance);
             register_function_encode_varchar(instance);
             register_function_decode_as_varchar(instance);
