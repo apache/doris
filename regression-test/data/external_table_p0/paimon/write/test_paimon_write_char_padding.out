@@ -18,6 +18,9 @@
 -- !map_nested_map_key_padded --
 2	1	[k ]	10
 
+-- !map_nan_key_padded --
+2	1	[k ]	NaN	10
+
 -- !partition_padded --
 1	[x  ]
 2	[y  ]

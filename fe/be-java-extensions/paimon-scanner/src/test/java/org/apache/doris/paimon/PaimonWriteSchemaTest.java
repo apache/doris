@@ -563,6 +563,59 @@ public class PaimonWriteSchemaTest {
         });
     }
 
+    @Test
+    public void testNaNsInMapKeysAreComparedRegardlessOfTheirBits() throws Exception {
+        // Paimon compares a FLOAT or DOUBLE as Double.equals does, taking NaNs of any bits as one value, and its Avro
+        // reader puts the keys of a map in a hash map, while the bytes of a ROW keep the bits of a NaN, as the Arrow
+        // batch keeps the sign of a NaN a query casts at run time. So padding makes the keys (k, NaN) and (k , -NaN)
+        // one key, though their bytes differ. Keys that were one key before padding are kept as they are, and -0.0
+        // stays apart from 0.0, as it does for Paimon. MUTATION: comparing the keys without making their NaNs the
+        // canonical NaN -> no error for the first three maps; making -0.0 into 0.0 -> an error for the last one.
+        double negativeNaN = Double.longBitsToDouble(0xfff8000000000000L);
+        Assertions.assertNotEquals(Double.doubleToRawLongBits(Double.NaN), Double.doubleToRawLongBits(negativeNaN));
+        DataType keyType = DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "d", DataTypes.DOUBLE()));
+        Map<InternalRow, Integer> doubles = new LinkedHashMap<>();
+        doubles.put(GenericRow.of(string("k"), Double.NaN), 10);
+        doubles.put(GenericRow.of(string("k "), negativeNaN), 20);
+        assertCollidingKeysFailTheRow(keyType, doubles, "'{k, NaN}' and '{k , NaN}' into the same key '{k , NaN}'");
+
+        Map<InternalRow, Integer> floats = new LinkedHashMap<>();
+        floats.put(GenericRow.of(string("k"), Float.NaN), 10);
+        floats.put(GenericRow.of(string("k "), Float.intBitsToFloat(0xffc00000)), 20);
+        assertCollidingKeysFailTheRow(DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "f", DataTypes.FLOAT())), floats, "into the same key '{k , NaN}'");
+
+        Map<InternalRow, Integer> nestedRows = new LinkedHashMap<>();
+        nestedRows.put(GenericRow.of(string("k"), GenericRow.of(Double.NaN)), 10);
+        nestedRows.put(GenericRow.of(string("k "), GenericRow.of(negativeNaN)), 20);
+        assertCollidingKeysFailTheRow(DataTypes.ROW(DataTypes.FIELD(1, "c", DataTypes.CHAR(2)),
+                DataTypes.FIELD(2, "r", DataTypes.ROW(DataTypes.FIELD(3, "d", DataTypes.DOUBLE())))), nestedRows,
+                "into the same key '{k , {NaN}}'");
+
+        PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(
+                new DataField(0, "labels", DataTypes.MAP(keyType, DataTypes.INT())))),
+                new String[] {"labels"}, false, true);
+        // A hash map would keep one of these keys, so the map is built over the two of them.
+        InternalMap equalBeforePadding = map(new Object[] {GenericRow.of(string("k "), Double.NaN),
+                GenericRow.of(string("k "), negativeNaN)}, new Object[] {10, 20});
+        checkArrowTableRow(schema, GenericRow.of(equalBeforePadding), row -> {
+            InternalMap kept = row.getMap(0);
+            Assertions.assertEquals(2, kept.size());
+            Assertions.assertEquals(20, kept.valueArray().getInt(1));
+        });
+        Map<InternalRow, Integer> zeros = new LinkedHashMap<>();
+        zeros.put(GenericRow.of(string("k"), 0.0), 10);
+        zeros.put(GenericRow.of(string("k "), -0.0), 20);
+        checkArrowTableRow(schema, GenericRow.of(new GenericMap(zeros)), row -> {
+            InternalMap padded = row.getMap(0);
+            Assertions.assertEquals(2, padded.size());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(0, 2).getString(0).toString());
+            Assertions.assertEquals("k ", padded.keyArray().getRow(1, 2).getString(0).toString());
+            Assertions.assertEquals(-0.0, padded.keyArray().getRow(1, 2).getDouble(1));
+        });
+    }
+
     private static void assertCollidingKeysFailTheRow(DataType keyType, Map<?, Integer> keys, String collision)
             throws Exception {
         PaimonWriteSchema schema = PaimonWriteSchema.create(new RowType(Collections.singletonList(

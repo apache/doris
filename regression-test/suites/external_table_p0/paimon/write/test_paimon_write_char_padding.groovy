@@ -166,6 +166,16 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'bucket' = '1',
             'file.format' = 'avro'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_map_nan_key;
+        CREATE TABLE paimon.${dbName}.t_char_map_nan_key (
+            id INT, m MAP<STRUCT<c: CHAR(2), d: DOUBLE>, INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'file.format' = 'avro'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -189,6 +199,13 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         create table internal.${dbName}.char_merge_source (
             c char(3), v int
         ) duplicate key(c) distributed by hash(c) buckets 1
+        properties ('replication_num' = '1')
+    """
+    sql """drop table if exists internal.${dbName}.char_nan_source"""
+    sql """
+        create table internal.${dbName}.char_nan_source (
+            pos varchar(8), neg varchar(8)
+        ) duplicate key(pos) distributed by hash(pos) buckets 1
         properties ('replication_num' = '1')
     """
 
@@ -257,6 +274,29 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_map_nested_map_key_padded """
             SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
             FROM t_char_map_nested_map_key
+        """
+
+        // Paimon compares a DOUBLE regardless of the bits of a NaN, and its Avro reader keeps one of two keys that
+        // differ only so, while a NaN cast at run time keeps its sign. So the keys (k, NaN) and (k , -NaN), which
+        // padding makes equal, fail the row too. A key holding a NaN is padded.
+        sql """INSERT INTO internal.${dbName}.char_nan_source VALUES ('NaN', '-NaN')"""
+        test {
+            sql """
+                INSERT INTO t_char_map_nan_key
+                SELECT 1, map(named_struct('c', 'k', 'd', cast(pos AS DOUBLE)), 10,
+                    named_struct('c', 'k ', 'd', cast(neg AS DOUBLE)), 20)
+                FROM internal.${dbName}.char_nan_source
+            """
+            exception "into the same key"
+        }
+        sql """
+            INSERT INTO t_char_map_nan_key
+            SELECT 2, map(named_struct('c', 'k', 'd', cast(neg AS DOUBLE)), 10) FROM internal.${dbName}.char_nan_source
+        """
+        order_qt_map_nan_key_padded """
+            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'),
+                struct_element(map_keys(m)[1], 'd'), map_values(m)[1]
+            FROM t_char_map_nan_key
         """
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a

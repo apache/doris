@@ -436,10 +436,10 @@ final class PaimonWriteSchema {
      * Pads the keys of one map, failing when padding makes two of its distinct keys one: a map holds one entry per
      * key, and Paimon's Avro reader, for one, keeps only one of them. Keys equal before padding are kept as they are.
      * Keys are equal as Paimon compares them: a map nested in a key is compared regardless of the order of its
-     * entries. Keys are compared and printed through {@code keyFormat}, never by their own hashCode, equals or
-     * toString: a key of a nested type holds the columnar rows and arrays of the Arrow batch, which support none of
-     * them (ColumnarArray keeps identity equality), so hashing the key of a MAP<ROW<c CHAR(2), r ROW<i INT>>, INT>
-     * itself would fail even a map of one entry.
+     * entries, and a NaN regardless of its bits. Keys are compared and printed through {@code keyFormat}, never by
+     * their own hashCode, equals or toString: a key of a nested type holds the columnar rows and arrays of the Arrow
+     * batch, which support none of them (ColumnarArray keeps identity equality), so hashing the key of a
+     * MAP<ROW<c CHAR(2), r ROW<i INT>>, INT> itself would fail even a map of one entry.
      */
     private static InternalArray padMapKeys(InternalArray keys, InternalArray.ElementGetter keyGetter,
             CharPadder keyPadder, MapKeyFormat keyFormat, String column) {
@@ -466,25 +466,33 @@ final class PaimonWriteSchema {
     }
 
     /**
-     * Returns the sorter of a value of {@code type}, or null when the type holds no MAP. The sorter copies the value
-     * with the entries of each MAP in it, at any depth, sorted by the bytes of their keys: two values whose maps hold
-     * the same entries in another order, which Paimon takes as equal, then have the same bytes.
+     * Returns the normalizer of a value of {@code type}, or null when the type holds no MAP, FLOAT or DOUBLE. The
+     * normalizer copies the value with each NaN in it, at any depth, made the canonical NaN, and the entries of each
+     * MAP in it sorted by the bytes of their keys: two values that Paimon takes as equal, though their NaNs differ in
+     * their bits or their maps hold the same entries in another order, then have the same bytes. A NaN in a ROW is
+     * serialized with its bits, while Paimon compares a FLOAT or DOUBLE as {@code Double.equals} does, taking every
+     * NaN as one value; -0.0 and 0.0 stay apart, as they are for Paimon.
      */
-    private static EntrySorter entrySorter(DataType type) {
+    private static Normalizer normalizer(DataType type) {
         switch (type.getTypeRoot()) {
+            case FLOAT:
+                return value -> Float.isNaN((Float) value) ? Float.NaN : value;
+            case DOUBLE:
+                return value -> Double.isNaN((Double) value) ? Double.NaN : value;
             case ARRAY: {
                 DataType elementType = ((ArrayType) type).getElementType();
-                EntrySorter elementSorter = entrySorter(elementType);
-                if (elementSorter == null) {
+                Normalizer elementNormalizer = normalizer(elementType);
+                if (elementNormalizer == null) {
                     return null;
                 }
                 InternalArray.ElementGetter elementGetter = InternalArray.createElementGetter(elementType.nullable());
-                return value -> new GenericArray(sortElements((InternalArray) value, elementGetter, elementSorter));
+                return value -> new GenericArray(
+                        normalizeElements((InternalArray) value, elementGetter, elementNormalizer));
             }
             case MAP: {
                 MapType mapType = (MapType) type;
-                EntrySorter keySorter = entrySorter(mapType.getKeyType());
-                EntrySorter valueSorter = entrySorter(mapType.getValueType());
+                Normalizer keyNormalizer = normalizer(mapType.getKeyType());
+                Normalizer valueNormalizer = normalizer(mapType.getValueType());
                 InternalArray.ElementGetter keyGetter =
                         InternalArray.createElementGetter(mapType.getKeyType().nullable());
                 InternalArray.ElementGetter valueGetter =
@@ -492,8 +500,8 @@ final class PaimonWriteSchema {
                 InternalRowSerializer keySerializer = new InternalRowSerializer(mapType.getKeyType());
                 return value -> {
                     InternalMap map = (InternalMap) value;
-                    Object[] keys = sortElements(map.keyArray(), keyGetter, keySorter);
-                    Object[] values = sortElements(map.valueArray(), valueGetter, valueSorter);
+                    Object[] keys = normalizeElements(map.keyArray(), keyGetter, keyNormalizer);
+                    Object[] values = normalizeElements(map.valueArray(), valueGetter, valueNormalizer);
                     byte[][] keyBytes = new byte[keys.length][];
                     Integer[] order = new Integer[keys.length];
                     for (int i = 0; i < keys.length; i++) {
@@ -514,26 +522,26 @@ final class PaimonWriteSchema {
             }
             case ROW: {
                 List<DataField> fields = ((RowType) type).getFields();
-                EntrySorter[] fieldSorters = new EntrySorter[fields.size()];
+                Normalizer[] fieldNormalizers = new Normalizer[fields.size()];
                 InternalRow.FieldGetter[] fieldGetters = new InternalRow.FieldGetter[fields.size()];
-                boolean holdsMap = false;
+                boolean normalized = false;
                 for (int i = 0; i < fields.size(); i++) {
-                    fieldSorters[i] = entrySorter(fields.get(i).type());
+                    fieldNormalizers[i] = normalizer(fields.get(i).type());
                     fieldGetters[i] = InternalRow.createFieldGetter(fields.get(i).type().nullable(), i);
-                    holdsMap |= fieldSorters[i] != null;
+                    normalized |= fieldNormalizers[i] != null;
                 }
-                if (!holdsMap) {
+                if (!normalized) {
                     return null;
                 }
                 return value -> {
                     InternalRow nested = (InternalRow) value;
-                    GenericRow sorted = new GenericRow(fieldGetters.length);
+                    GenericRow copy = new GenericRow(fieldGetters.length);
                     for (int i = 0; i < fieldGetters.length; i++) {
                         Object field = fieldGetters[i].getFieldOrNull(nested);
-                        sorted.setField(i, field == null || fieldSorters[i] == null
-                                ? field : fieldSorters[i].sort(field));
+                        copy.setField(i, field == null || fieldNormalizers[i] == null
+                                ? field : fieldNormalizers[i].normalize(field));
                     }
-                    return sorted;
+                    return copy;
                 };
             }
             default:
@@ -541,13 +549,16 @@ final class PaimonWriteSchema {
         }
     }
 
-    /** The elements of {@code array}, each non-null one sorted by {@code sorter} unless the sorter is null. */
-    private static Object[] sortElements(InternalArray array, InternalArray.ElementGetter elementGetter,
-            EntrySorter sorter) {
+    /**
+     * The elements of {@code array}, each non-null one normalized by {@code normalizer} unless the normalizer is
+     * null.
+     */
+    private static Object[] normalizeElements(InternalArray array, InternalArray.ElementGetter elementGetter,
+            Normalizer normalizer) {
         Object[] elements = new Object[array.size()];
         for (int i = 0; i < elements.length; i++) {
             Object element = elementGetter.getElementOrNull(array, i);
-            elements[i] = element == null || sorter == null ? element : sorter.sort(element);
+            elements[i] = element == null || normalizer == null ? element : normalizer.normalize(element);
         }
         return elements;
     }
@@ -565,30 +576,30 @@ final class PaimonWriteSchema {
 
     /**
      * Compares the keys of a map by their bytes and prints them as Paimon casts them to STRING, for any key type.
-     * Paimon compares maps regardless of the order of their entries ({@code GenericMap.equals}), and its Avro reader
-     * keeps one of two keys whose nested maps differ only in that order, so the entries of the maps nested in a key
-     * are sorted before the key is compared.
+     * Paimon compares maps regardless of the order of their entries ({@code GenericMap.equals}) and a FLOAT or DOUBLE
+     * regardless of the bits of a NaN ({@code GenericRow.equals}), and its Avro reader keeps one of two keys that
+     * differ only so, so a key is normalized before it is compared; see {@link #normalizer}.
      */
     private static final class MapKeyFormat {
         private final InternalRowSerializer serializer;
-        // Null when the key type holds no MAP.
-        private final EntrySorter entrySorter;
+        // Null when the key type holds no MAP, FLOAT or DOUBLE.
+        private final Normalizer normalizer;
         private final CastExecutor<Object, Object> toText;
 
         @SuppressWarnings("unchecked")
         private MapKeyFormat(DataType keyType) {
             this.serializer = new InternalRowSerializer(keyType);
-            this.entrySorter = entrySorter(keyType);
+            this.normalizer = normalizer(keyType);
             this.toText = (CastExecutor<Object, Object>) CastExecutors.resolveToString(keyType);
         }
 
         /**
-         * The bytes of {@code key}, with the entries of its nested maps sorted, as the only field of a row, copied
-         * since the serializer reuses its buffer.
+         * The bytes of {@code key}, normalized, as the only field of a row, copied since the serializer reuses its
+         * buffer.
          */
         private BinaryRow bytes(Object key) {
-            Object sorted = key == null || entrySorter == null ? key : entrySorter.sort(key);
-            return serializer.toBinaryRow(GenericRow.of(sorted)).copy();
+            Object normalized = key == null || normalizer == null ? key : normalizer.normalize(key);
+            return serializer.toBinaryRow(GenericRow.of(normalized)).copy();
         }
 
         /** {@code key} as Paimon casts it to STRING: a ROW key (k, 1) prints as {k, 1}. */
@@ -602,9 +613,12 @@ final class PaimonWriteSchema {
         Object pad(Object value);
     }
 
-    /** Copies one non-null value of a type that holds a MAP, with the entries of each MAP in it sorted. */
-    private interface EntrySorter {
-        Object sort(Object value);
+    /**
+     * Copies one non-null value of a type that holds a MAP, FLOAT or DOUBLE, with each NaN in it made the canonical
+     * NaN and the entries of each MAP in it sorted.
+     */
+    private interface Normalizer {
+        Object normalize(Object value);
     }
 
     /**
