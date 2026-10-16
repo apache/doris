@@ -60,7 +60,9 @@ Also make these boundaries clear:
   locally, but the scripts do not upload those binaries.
 - The scripts never send public emails. The RM must review and send the vote,
   result, and announce emails manually.
-- Step 04 writes to the Apache release SVN and requires PMC permission.
+- Step 04 writes to the Apache release SVN and requires PMC permission. It
+  confirms before every step and is safe to re-run: it reads the current SVN
+  state first and skips whatever is already done.
 
 ## Quick start for a new RC
 
@@ -166,6 +168,14 @@ Set these fields first:
 - `ANNOUNCE_RELEASE_NOTES_URL`: Link used in the announce email. If empty, step
   04 reuses `RELEASE_NOTES_URL` or prompts.
 - `BIN_FILES`: Optional absolute paths to prebuilt convenience binary tarballs.
+- `RELEASE_TAG`: RC-free tag step 04 pushes and publishes, `${VERSION}` by
+  default.
+- `GITHUB_REPO`: `owner/repo` for the GitHub release. Empty means parse it out
+  of the `GIT_REMOTE` URL.
+- `GITHUB_RELEASE_TITLE`: Release title, `Apache Doris <version> Release` by
+  default.
+- `RELEASE_BIN_DOWNLOAD_BASE`: Base URL the GitHub release body links the
+  binaries to. This is the public mirror, not `BIN_DOWNLOAD_BASE`.
 
 The default `REPO_DIR` is the enclosing Doris checkout because these scripts
 live under `tools/release-tools`. Override it only when you deliberately run the
@@ -221,7 +231,10 @@ tags point to the same commit. It then creates the source tarball with
 the three source files to the Apache dev SVN.
 
 If `BIN_FILES` is non-empty, this script also signs and checksums those binary
-tarballs in place. It does not upload binaries.
+tarballs in place. It does not upload binaries. When the run ends it reminds the
+RM to upload each binary together with its `.asc` and `.sha512` to
+`BIN_DOWNLOAD_BASE`, because step 03 advertises them under that base in the vote
+email. Do that before sending the vote email, or the links will be dead.
 
 This script pauses twice before touching the public dev SVN. Check the printed
 target URL before confirming.
@@ -230,8 +243,12 @@ target URL before confirming.
 
 Use this script to generate the `[VOTE]` email draft. It writes:
 
-- `vote-email.txt`
-- `vote-email.eml`
+- `vote-email.txt`, starting with a `Subject:` line so the subject and the body
+  can be copied from one file
+- `vote-email.eml`, carrying the same subject as a real mail header
+
+The subject is `[VOTE] Release for Apache Doris <version>-<rc>`, and the body
+ends with the RM's own `+1(binding)` above the signature.
 
 Review the draft and send it manually from the RM's `@apache.org` address to
 `dev@doris.apache.org`.
@@ -241,17 +258,55 @@ Review the draft and send it manually from the RM's `@apache.org` address to
 Use this script only after the vote has passed and the `[RESULT]` email has
 been sent manually.
 
-It checks the passed RC source artifacts in the dev SVN, verifies the source
-tarball against the RC checksum and detached signature that voters approved,
-regenerates and verifies the final checksum sidecar with the RC-free source
-tarball name, then uses `svnmucc` to create the final release SVN directory,
-move the source tarball and detached signature there, upload the final checksum,
-and remove the dev RC folder in one SVN revision.
+Every step announces what it is about to do and waits for a `y` before running.
+Answering anything else stops the run without changing further state, and the
+run can be continued later by starting the script again.
 
-It then writes:
+The steps are:
 
-- `announce-email.txt`
-- `announce-email.eml`
+1. Inspect the dev and release SVN state. Read-only, and it decides what the
+   later steps do.
+2. Verify the RC artifacts and build the final checksum. It downloads the RC
+   tarball, signature and checksum, checks the sha512 and the detached
+   signature that voters approved, and regenerates the checksum sidecar under
+   the RC-free tarball name. Local only.
+3. Publish to the release SVN. One `svnmucc` revision creates the release
+   directory, moves the source tarball and detached signature there, uploads
+   the final checksum, and removes the dev RC folder.
+4. Tag the release. When `TAG` carries an `rc` suffix, the RC-free
+   `RELEASE_TAG` is created at the same commit and pushed to `GIT_REMOTE`.
+   Skipped when `TAG` has no `rc` suffix.
+5. Publish the GitHub release for that tag, with a body in the shape every
+   previous Doris release uses: the change log link, the download page, and
+   the source and binary artifacts. It prints which release GitHub currently
+   marks Latest and asks whether this one should take that place, so a 4.0.x
+   maintenance release does not displace a newer 4.1.x. Skipped with
+   `--skip-github-release`, and skipped with a warning when `gh` is missing or
+   not authenticated.
+6. Write the announce email draft.
+
+The script is idempotent, so it is safe to re-run after a successful publish or
+after stopping at any prompt:
+
+- All three release artifacts already published: the publish steps are skipped.
+  A dev RC folder left behind is removed, and the announce email is drafted.
+- Nothing published yet: the full flow runs. A release directory that exists
+  but is empty is reused instead of being created again.
+- Some but not all release artifacts present: the script refuses to guess and
+  reports exactly which files are missing. `svnmucc` commits all of its
+  operations in one revision, so this state only comes from manual changes.
+- Release tag already pushed at the RC commit: the tagging step reports it and
+  moves on. A tag of the same name on a different commit stops the run.
+- GitHub release already published: the step reports its URL and moves on. It
+  never rewrites a published release.
+
+It writes:
+
+- `announce-email.txt`, starting with a `Subject:` line so the subject and the
+  body can be copied from one file
+- `announce-email.eml`, carrying the same subject as a real mail header
+
+The subject is `[ANNOUNCE] Apache Doris <version> release`.
 
 Before sending the announce email, check that the release is visible on
 `downloads.apache.org`, update and verify the Doris download page, and wait for

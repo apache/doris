@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <cstdlib>
 #include <memory>
 
 #include "common/status.h"
@@ -27,9 +28,9 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "service/http/http_client.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -118,9 +119,13 @@ public:
         THROW_IF_ERROR(
                 _ai_adapter->build_request_payload(inputs, system_prompt.c_str(), request_body));
         THROW_IF_ERROR(send_request_to_ai(request_body, response));
-        THROW_IF_ERROR(_ai_adapter->parse_response(response, results));
+        THROW_IF_ERROR(_ai_adapter->parse_response(response, results, false /* expand_batch */));
 
-        return results[0];
+        if (results.size() != 1) [[unlikely]] {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "AI aggregate expected one result but got {}", results.size());
+        }
+        return results.front();
     }
 
     // init task and ai related parameters
@@ -147,7 +152,10 @@ public:
         }
     }
 
-    void set_query_context(QueryContext* context) { _ctx = context; }
+    void set_query_context(QueryContext* context, std::shared_ptr<AIRequestExecutor> executor) {
+        _ctx = context;
+        _request_executor = std::move(executor);
+    }
 
     const std::string& get_task() const { return _task; }
 
@@ -157,35 +165,16 @@ public:
 
 private:
     Status send_request_to_ai(const std::string& request_body, std::string& response) const {
-        // Mock path for testing
+        // Real providers still use HTTP in BE_TEST; only explicit mocks bypass it.
 #ifdef BE_TEST
-        response = "this is a mock response";
-        return Status::OK();
+        const char* test_result = std::getenv("AI_TEST_RESULT");
+        if (test_result != nullptr || _ai_config.provider_type == "MOCK") {
+            response = test_result != nullptr ? test_result : "this is a mock response";
+            return Status::OK();
+        }
 #endif
 
-        return HttpClient::execute_with_retry(
-                _ai_config.max_retries, _ai_config.retry_delay_second,
-                [this, &request_body, &response](HttpClient* client) -> Status {
-                    return this->do_send_request(client, request_body, response);
-                });
-    }
-
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response) const {
-        RETURN_IF_ERROR(client->init(_ai_config.endpoint));
-        if (_ctx == nullptr) {
-            return Status::InternalError("Query context is null");
-        }
-
-        int64_t remaining_query_time = _ctx->get_remaining_query_time_seconds();
-        if (remaining_query_time <= 0) {
-            return Status::TimedOut("Query timeout exceeded before AI request");
-        }
-        client->set_timeout_ms(remaining_query_time * 1000);
-
-        RETURN_IF_ERROR(_ai_adapter->set_authentication(client));
-
-        return client->execute_post_request(request_body, &response);
+        return _request_executor->execute(request_body, response, _ai_config, *_ai_adapter, _ctx);
     }
 
     // Treat the context window as a soft batching trigger instead of a hard reject.
@@ -249,6 +238,8 @@ private:
     }
 
     QueryContext* _ctx = nullptr;
+    // Local reference only; excluded from serialization and merge().
+    std::shared_ptr<AIRequestExecutor> _request_executor;
     AIResource _ai_config;
     std::shared_ptr<AIAdapter> _ai_adapter;
     std::string _task;
@@ -277,7 +268,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) AggregateFunctionAIAggData;
-        data(place).set_query_context(_ctx);
+        // Share one cache across groups instead of retaining a client per group.
+        data(place).set_query_context(_ctx, _request_executor);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -317,7 +309,7 @@ public:
 
     void reset(AggregateDataPtr place) const override {
         data(place).reset();
-        data(place).set_query_context(_ctx);
+        data(place).set_query_context(_ctx, _request_executor);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -332,7 +324,8 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         data(place).read(buf);
-        data(place).set_query_context(_ctx);
+        // A state received from another node uses this evaluator's local cache.
+        data(place).set_query_context(_ctx, _request_executor);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -349,6 +342,8 @@ public:
 
 private:
     QueryContext* _ctx = nullptr;
+    // Shared by local group states across input Blocks and result extraction.
+    std::shared_ptr<AIRequestExecutor> _request_executor = std::make_shared<AIRequestExecutor>();
 };
 
 } // namespace doris

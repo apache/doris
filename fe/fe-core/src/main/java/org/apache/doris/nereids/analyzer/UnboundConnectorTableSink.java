@@ -19,15 +19,20 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.ConnectorChangelogRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -36,15 +41,24 @@ import java.util.Optional;
  */
 public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
 
+    // Static partition spec from INSERT ... PARTITION(col=val); null when none. Mirrors
+    // UnboundMaxComputeTableSink so plugin-driven MaxCompute keeps static-partition / overwrite
+    // semantics after the cutover. Consumed via the PluginDrivenInsertCommandContext.
+    private final Map<String, Expression> staticPartitionKeyValues;
+
+    // Rewrite (compaction) marker, carried through bind so the
+    // neutral connector sink chain (Logical/Physical) can force single-node GATHER output for a
+    // rewrite_data_files INSERT-SELECT (controls output file count). Defaults false; set true only by the
+    // distributed rewrite coordinator. Always false for ordinary INSERT, so this is dormant pre-cutover.
+    private final boolean rewrite;
+    private final Optional<ConnectorChangelogRowChangeSpec> rowChangeSpec;
+
     public UnboundConnectorTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                      List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child, null);
     }
 
-    /**
-     * constructor
-     */
     public UnboundConnectorTableSink(List<String> nameParts,
                                      List<String> colNames,
                                      List<String> hints,
@@ -53,8 +67,101 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
                                      Optional<GroupExpression> groupExpression,
                                      Optional<LogicalProperties> logicalProperties,
                                      CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType,
+                groupExpression, logicalProperties, child, null);
+    }
+
+    /**
+     * constructor with static partition
+     */
+    public UnboundConnectorTableSink(List<String> nameParts,
+                                     List<String> colNames,
+                                     List<String> hints,
+                                     List<String> partitions,
+                                     DMLCommandType dmlCommandType,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child,
+                                     Map<String, Expression> staticPartitionKeyValues) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType,
+                groupExpression, logicalProperties, child, staticPartitionKeyValues, false, Optional.empty());
+    }
+
+    /**
+     * constructor with static partition and rewrite flag
+     */
+    public UnboundConnectorTableSink(List<String> nameParts,
+                                     List<String> colNames,
+                                     List<String> hints,
+                                     List<String> partitions,
+                                     DMLCommandType dmlCommandType,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child,
+                                     Map<String, Expression> staticPartitionKeyValues,
+                                     boolean rewrite) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType, groupExpression,
+                logicalProperties, child, staticPartitionKeyValues, rewrite, Optional.empty());
+    }
+
+    /** Creates an unbound connector changelog sink for row-level DML. */
+    public UnboundConnectorTableSink(List<String> nameParts, CHILD_TYPE child,
+            ConnectorChangelogRowChangeSpec rowChangeSpec) {
+        this(nameParts, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                rowChangeSpec.getDmlCommandType(), Optional.empty(), Optional.empty(), child,
+                null, false, Optional.of(rowChangeSpec));
+    }
+
+    private UnboundConnectorTableSink(List<String> nameParts, List<String> colNames,
+                                     List<String> hints, List<String> partitions,
+                                     DMLCommandType dmlCommandType,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child,
+                                     Map<String, Expression> staticPartitionKeyValues,
+                                     boolean rewrite,
+                                     Optional<ConnectorChangelogRowChangeSpec> rowChangeSpec) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_CONNECTOR_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
+        this.staticPartitionKeyValues = staticPartitionKeyValues != null
+                ? ImmutableMap.copyOf(staticPartitionKeyValues)
+                : null;
+        this.rewrite = rewrite;
+        this.rowChangeSpec = rowChangeSpec;
+    }
+
+    public Map<String, Expression> getStaticPartitionKeyValues() {
+        return staticPartitionKeyValues;
+    }
+
+    public boolean isRewrite() {
+        return rewrite;
+    }
+
+    public boolean hasStaticPartition() {
+        return staticPartitionKeyValues != null && !staticPartitionKeyValues.isEmpty();
+    }
+
+    public Optional<ConnectorChangelogRowChangeSpec> getRowChangeSpec() {
+        return rowChangeSpec;
+    }
+
+    @Override
+    public List<? extends Expression> getExpressions() {
+        return rowChangeSpec.isPresent() ? rowChangeSpec.get().getExpressions() : super.getExpressions();
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof UnboundConnectorTableSink
+                && super.equals(other)
+                && Objects.equals(rowChangeSpec,
+                        ((UnboundConnectorTableSink<?>) other).rowChangeSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), rowChangeSpec);
     }
 
     @Override
@@ -67,19 +174,22 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundConnectorTableSink only accepts one child");
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+            dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues,
+            rewrite, rowChangeSpec);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+            dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
+            staticPartitionKeyValues, rewrite, rowChangeSpec);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, logicalProperties, children.get(0));
+            dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues,
+            rewrite, rowChangeSpec);
     }
 }

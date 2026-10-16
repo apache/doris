@@ -19,8 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.mysql.privilege.PasswordPolicy.FailedLoginPolicy;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class PasswordPolicyTest {
 
@@ -31,11 +31,11 @@ public class PasswordPolicyTest {
         policy.passwordLockSeconds = 60;
 
         // First 2 failures should not lock
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.onFailedLogin());
         // 3rd failure should lock
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
     }
 
     @Test
@@ -45,25 +45,25 @@ public class PasswordPolicyTest {
         policy.passwordLockSeconds = 5;
 
         // Trigger first lock
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
 
         // Simulate lock expiry by setting lockTime to the past
         policy.lockTime.set(System.currentTimeMillis() - 6000);
-        Assert.assertFalse(policy.isLocked());
+        Assertions.assertFalse(policy.isLocked());
 
         // Now trigger re-lock: counter should reset and start counting again
         // 1st failed login after expiry — counter resets from 3 to 0, then increments to 1
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertFalse(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.isLocked());
         // 2nd
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertFalse(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.isLocked());
         // 3rd should lock again
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
     }
 
     @Test
@@ -73,13 +73,13 @@ public class PasswordPolicyTest {
         policy.passwordLockSeconds = 60;
 
         // Lock the account
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
 
         // While still locked, onFailedLogin should still return true
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
     }
 
     @Test
@@ -89,35 +89,35 @@ public class PasswordPolicyTest {
         policy.passwordLockSeconds = 60;
 
         // Lock the account
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
 
         // Manual unlock
         policy.unlock();
-        Assert.assertFalse(policy.isLocked());
+        Assertions.assertFalse(policy.isLocked());
 
         // Should be able to re-lock
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertTrue(policy.onFailedLogin());
-        Assert.assertTrue(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertTrue(policy.onFailedLogin());
+        Assertions.assertTrue(policy.isLocked());
     }
 
     @Test
     public void testFailedLoginPolicyDisabled() {
         FailedLoginPolicy policy = new FailedLoginPolicy();
         // Both disabled by default (0)
-        Assert.assertFalse(policy.onFailedLogin());
-        Assert.assertFalse(policy.isLocked());
+        Assertions.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.isLocked());
 
         // Only numFailedLogin set
         policy.numFailedLogin = 3;
         policy.passwordLockSeconds = 0;
-        Assert.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.onFailedLogin());
 
         // Only passwordLockSeconds set
         policy.numFailedLogin = 0;
         policy.passwordLockSeconds = 60;
-        Assert.assertFalse(policy.onFailedLogin());
+        Assertions.assertFalse(policy.onFailedLogin());
     }
 }

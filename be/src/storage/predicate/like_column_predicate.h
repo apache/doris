@@ -24,6 +24,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "common/status.h"
@@ -55,6 +56,7 @@ public:
         pattern = other.pattern;
         _state = other._state;
         _opposite = other._opposite;
+        THROW_IF_ERROR(_state->search_state.clone(_like_state));
     }
     LikeColumnPredicate(const LikeColumnPredicate& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
@@ -67,7 +69,7 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    PredicateType type() const override { return PredicateType::EQ; }
+    PredicateType type() const override { return PredicateType::LIKE; }
     void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
     void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override;
@@ -88,7 +90,17 @@ public:
         }
         return true;
     }
-    bool can_do_bloom_filter(bool ngram) const override { return ngram; }
+    bool can_do_bloom_filter(bool ngram) const override {
+        if (!ngram) {
+            return false;
+        }
+        // A pattern that can carry an escape is not supported by the ngram index.
+        if (_state->has_custom_escape) {
+            return false;
+        }
+        return std::string_view(reinterpret_cast<const char*>(pattern.data), pattern.size)
+                       .find('\\') == std::string_view::npos;
+    }
 
 private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;

@@ -26,6 +26,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
@@ -33,9 +34,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-
-const std::string TABLET_ID = "tablet_id";
-const std::string SCHEMA_HASH = "schema_hash";
 
 SnapshotAction::SnapshotAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                                TPrivilegeType::type type)

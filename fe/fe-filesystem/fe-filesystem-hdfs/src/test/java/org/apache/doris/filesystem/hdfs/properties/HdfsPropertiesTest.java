@@ -64,6 +64,27 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void emptyNameserviceListRemainsCompatibleAtRuntime() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", ",");
+
+        Assertions.assertDoesNotThrow(() -> resolve(raw));
+    }
+
+    @Test
+    void nameserviceListWithTrailingEmptyEntryRemainsCompatible() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", "ns1,");
+        raw.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        raw.put("dfs.namenode.rpc-address.ns1.nn1", "host1:8020");
+        raw.put("dfs.namenode.rpc-address.ns1.nn2", "host2:8020");
+        raw.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+
+        Assertions.assertDoesNotThrow(() -> resolve(raw));
+    }
+
+    @Test
     void userOverriddenHadoopKeysArePreserved() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
@@ -102,13 +123,70 @@ class HdfsPropertiesTest {
 
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
-        // No _HADOOP_CONFIG_DIR_ injected: the resource is given as a full absolute path
-        // and must load as-is (configDir falls back to "").
+        // An absolute resource must remain absolute even when the configured Hadoop directory is set.
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.resolve("configured").toString() + "/");
         raw.put("hadoop.config.resources", site.toString());
 
         Map<String, String> resolved = resolve(raw);
 
         Assertions.assertEquals("v2", resolved.get("dfs.custom.abs.key"));
+    }
+
+    @Test
+    void xmlResourcesRejectParentDirectoryTraversal(@TempDir Path tmp) {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        raw.put("hadoop.config.resources", "../outside.xml");
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.toString() + "/");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> resolve(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("parent-directory references"),
+                exception.getMessage());
+    }
+
+    @Test
+    void fsCacheFingerprintTracksXmlResourceContent(@TempDir Path tmp) throws Exception {
+        // Only the file *path* is a bound alias, so a fingerprint taken over matchedProperties()
+        // alone would survive an edit of the file — and the patched FileSystem would keep handing
+        // out the client built from the old contents.
+        Path site = tmp.resolve("hdfs-site.xml");
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        raw.put("hadoop.config.resources", site.toString());
+
+        Files.write(site, config("dfs.client.failover.proxy.provider.ns", "provider.A"));
+        String before = fingerprint(raw);
+        Assertions.assertEquals(before, fingerprint(raw), "fingerprint must be a pure function");
+
+        Files.write(site, config("dfs.client.failover.proxy.provider.ns", "provider.B"));
+        Assertions.assertNotEquals(before, fingerprint(raw));
+    }
+
+    @Test
+    void fsCacheFingerprintTracksRawHadoopOverrides() {
+        // extractUserOverriddenHdfsConfig() copies these into the derived map, and every connector
+        // overlays them onto its Configuration again; neither is a bound alias.
+        Map<String, String> hostA = new HashMap<>();
+        hostA.put("fs.defaultFS", "hdfs://ns");
+        hostA.put("dfs.namenode.rpc-address.ns.nn1", "hostA:8020");
+
+        Map<String, String> hostB = new HashMap<>(hostA);
+        hostB.put("dfs.namenode.rpc-address.ns.nn1", "hostB:8020");
+
+        Assertions.assertNotEquals(fingerprint(hostA), fingerprint(hostB));
+    }
+
+    private static byte[] config(String name, String value) {
+        return ("<?xml version=\"1.0\"?><configuration><property><name>" + name
+                + "</name><value>" + value + "</value></property></configuration>").getBytes();
+    }
+
+    private String fingerprint(Map<String, String> raw) {
+        HdfsProperties props = new HdfsProperties(new HashMap<>(raw));
+        props.initNormalizeAndCheckProps();
+        return props.fsCacheFingerprint();
     }
 
     @Test

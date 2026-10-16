@@ -287,6 +287,22 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return joinReorderContext;
     }
 
+    /**
+     * Output slots of the null-extended side(s) of an outer join, i.e. the slots that
+     * this join may turn into NULL. Rejecting NULL on them lets an outer join be eliminated
+     * or weakened. Returns empty for non-outer joins.
+     */
+    public Set<Slot> getNullableSideOutput() {
+        ImmutableSet.Builder<Slot> nullableSide = ImmutableSet.builder();
+        if (joinType.isLeftSideNullable()) {
+            nullableSide.addAll(left().getOutputSet());
+        }
+        if (joinType.isRightSideNullable()) {
+            nullableSide.addAll(right().getOutputSet());
+        }
+        return nullableSide.build();
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
@@ -704,11 +720,50 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public void computeFd(Builder builder) {
-        if (!joinType.isLeftSemiOrAntiJoin()) {
-            builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
-        }
-        if (!joinType.isRightSemiOrAntiJoin()) {
-            builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+        switch (joinType) {
+            case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
+            case CROSS_JOIN:
+                builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+                builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                // Semi/anti joins only output the left side; right-side FDs are irrelevant.
+                builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+                break;
+            case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
+                // Left side preserved; right side nullable — keep only FDs whose
+                // determinant is NOT NULL in the right child's current output.
+                builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        right().getLogicalProperties().getTrait(), right().getOutput());
+                break;
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                // Semi/anti joins only output the right side; left-side FDs are irrelevant.
+                builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
+                // Right side preserved; left side nullable — keep only FDs whose
+                // determinant is NOT NULL in the left child's current output.
+                builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        left().getLogicalProperties().getTrait(), left().getOutput());
+                break;
+            case FULL_OUTER_JOIN:
+                // Both sides are nullable; keep only FDs whose determinant is NOT NULL.
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        left().getLogicalProperties().getTrait(), left().getOutput());
+                builder.addFuncDepsDGForOuterJoinNullableSide(
+                        right().getLogicalProperties().getTrait(), right().getOutput());
+                break;
+            default:
+                break;
         }
     }
 

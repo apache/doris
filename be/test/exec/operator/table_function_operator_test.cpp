@@ -60,7 +60,10 @@ public:
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -68,7 +71,10 @@ private:
 
 struct MockTableFunctionOperatorX : public TableFunctionOperatorX {
     MockTableFunctionOperatorX() = default;
-    RowDescriptor& row_descriptor() override { return *_mock_row_descriptor; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_descriptor = std::move(row_desc);
+        _row_descriptor = *_mock_row_descriptor;
+    }
     std::unique_ptr<MockRowDescriptor> _mock_row_descriptor;
 };
 
@@ -217,9 +223,10 @@ struct TableFunctionOperatorTest : public ::testing::Test {
         op->_fns.push_back(fn.get());
         op->_output_slot_ids = std::move(output_slot_ids);
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{int_type, child_array_type}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{int_type, child_array_type, output_type}, &pool});
+        child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {int_type, child_array_type}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {int_type, child_array_type, output_type}, &pool));
 
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
@@ -278,9 +285,10 @@ TEST_F(TableFunctionOperatorTest, single_fn_test) {
         fns.push_back(fn);
         op->_fns.push_back(fn.get());
         op->_output_slot_ids.push_back(true);
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &pool));
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -322,10 +330,12 @@ TEST_F(TableFunctionOperatorTest, single_fn_test2) {
         fns.push_back(fn);
         op->_fns.push_back(fn.get());
         op->_output_slot_ids.push_back(true);
-        child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -853,9 +863,12 @@ TEST_F(TableFunctionOperatorTest, single_two_test) {
             op->_output_slot_ids.push_back(true);
         }
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -911,9 +924,12 @@ TEST_F(TableFunctionOperatorTest, single_two_eos_test) {
             op->_output_slot_ids.push_back(true);
         }
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 

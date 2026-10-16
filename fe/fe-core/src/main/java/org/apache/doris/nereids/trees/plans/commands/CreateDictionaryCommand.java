@@ -18,7 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
@@ -60,12 +65,20 @@ public class CreateDictionaryCommand extends Command implements ForwardWithSync 
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         try {
             // 1. Validate the dictionary info. names and existence.
             createDictionaryInfo.validateAndSet(ctx);
+        } catch (Exception e) {
+            LOG.warn("Failed to create dictionary: {}", e.getMessage());
+            throw new AnalysisException("Failed to create dictionary: " + e.getMessage());
+        }
 
-            // 2. Create dictionary and save it in manager. it will schedule data load.
+        // 2. Check auth. Must run after validateAndSet(), which fills in the default catalog/db names.
+        checkAuth(ctx);
+
+        try {
+            // 3. Create dictionary and save it in manager. it will schedule data load.
             ctx.getEnv().getDictionaryManager().createDictionary(ctx, createDictionaryInfo);
 
             LOG.info("Created dictionary {} in {} from {}", createDictionaryInfo.getDictName(),
@@ -73,6 +86,27 @@ public class CreateDictionaryCommand extends Command implements ForwardWithSync 
         } catch (Exception e) {
             LOG.warn("Failed to create dictionary: {}", e.getMessage());
             throw new AnalysisException("Failed to create dictionary: " + e.getMessage());
+        }
+    }
+
+    /**
+     * A dictionary is created in the internal catalog and its data is loaded by an internal task,
+     * so require CREATE on the dictionary itself and SELECT on the source table. Without the latter
+     * the dictionary would expose data the creator can not read.
+     */
+    private void checkAuth(ConnectContext ctx) throws org.apache.doris.common.AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                createDictionaryInfo.getDbName(), createDictionaryInfo.getDictName(), PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
+        }
+
+        String srcCtl = createDictionaryInfo.getSourceCtlName();
+        String srcDb = createDictionaryInfo.getSourceDbName();
+        String srcTbl = createDictionaryInfo.getSourceTableName();
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, srcCtl, srcDb, srcTbl,
+                PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(), srcDb + ": " + srcTbl);
         }
     }
 }

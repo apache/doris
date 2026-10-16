@@ -1018,6 +1018,98 @@ TEST(RpcKvBvarTest, GetVersion) {
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get({mock_instance}));
 }
 
+static void verify_table_stream_offset_bvar_labels(int64_t stream_id,
+                                                   const std::vector<int64_t>& partition_ids) {
+    const std::string counter_description =
+            bvar::MVariable::describe_exposed("rpc_kv_get_table_stream_offset_get_counter");
+    EXPECT_NE(counter_description.find("\"labels\" : [\"instance_id\"]"), std::string::npos);
+    EXPECT_EQ(counter_description.find("stream_id"), std::string::npos);
+    EXPECT_EQ(counter_description.find("partition_id"), std::string::npos);
+
+    const std::string latency_bvar_prefix = "ms_get_table_stream_offset_" + mock_instance;
+    std::vector<std::string> exposed_bvars;
+    bvar::Variable::list_exposed(&exposed_bvars);
+    bool found_latency_bvar = false;
+    for (const std::string& name : exposed_bvars) {
+        if (!name.starts_with(latency_bvar_prefix)) {
+            continue;
+        }
+        found_latency_bvar = true;
+        EXPECT_EQ(name.find(std::to_string(stream_id)), std::string::npos);
+        for (int64_t partition_id : partition_ids) {
+            EXPECT_EQ(name.find(std::to_string(partition_id)), std::string::npos);
+        }
+    }
+    EXPECT_TRUE(found_latency_bvar);
+}
+
+// get_table_stream_offset
+TEST(RpcKvBvarTest, GetTableStreamOffset) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    constexpr int64_t base_db_id = 70001;
+    constexpr int64_t base_table_id = 70002;
+    constexpr int64_t stream_db_id = 70003;
+    constexpr int64_t stream_id = 70004;
+    const std::vector<int64_t> partition_ids = {71001, 71002, 71003};
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(mem_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    instance.set_multi_version_status(MULTI_VERSION_DISABLED);
+    txn->put(instance_key({mock_instance}), instance.SerializeAsString());
+    for (int64_t partition_id : partition_ids) {
+        VersionPB version;
+        version.set_version(partition_id - partition_ids.front() + 1);
+        version.set_commit_tso(80000 + partition_id);
+        txn->put(partition_version_key({mock_instance, base_db_id, base_table_id, partition_id}),
+                 version.SerializeAsString());
+
+        TableStreamOffsetPB offset;
+        offset.set_partition_id(partition_id);
+        offset.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+        offset.set_offset_tso(70000 + partition_id);
+        txn->put(table_stream_offset_key({mock_instance, base_db_id, base_table_id, stream_db_id,
+                                          stream_id, partition_id}),
+                 offset.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    GetTableStreamOffsetRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* binding = req.add_bindings();
+    auto* identity = binding->mutable_identity();
+    identity->set_base_db_id(base_db_id);
+    identity->set_base_table_id(base_table_id);
+    identity->set_stream_db_id(stream_db_id);
+    identity->set_stream_id(stream_id);
+    for (int64_t partition_id : partition_ids) {
+        binding->add_partition_ids(partition_id);
+    }
+
+    auto latency = g_bvar_ms_get_table_stream_offset.get(mock_instance);
+    const int64_t latency_count_before = latency->count();
+    clear_memkv_count_bytes(mem_kv.get());
+
+    brpc::Controller cntl;
+    GetTableStreamOffsetResponse resp;
+    meta_service->get_table_stream_offset(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+    ASSERT_EQ(resp.bindings_size(), 1);
+    ASSERT_EQ(resp.bindings(0).partition_states_size(), partition_ids.size());
+
+    ASSERT_GT(mem_kv->get_count_, 0);
+    ASSERT_GT(mem_kv->get_bytes_, 0);
+    ASSERT_EQ(mem_kv->get_bytes_,
+              g_bvar_rpc_kv_get_table_stream_offset_get_bytes.get({mock_instance}));
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_get_table_stream_offset_get_counter.get({mock_instance}));
+    ASSERT_EQ(latency->count(), latency_count_before + 1);
+
+    verify_table_stream_offset_bvar_labels(stream_id, partition_ids);
+}
+
 // get_schema_dict
 TEST(RpcKvBvarTest, GetSchemaDict) {
     auto syncpoint_guard = setup_notify_refresh_syncpoint();

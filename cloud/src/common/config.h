@@ -114,10 +114,6 @@ CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
-// Max expired recycle_rowset entries to process for one tablet in one recycle_rowsets scan.
-// Remaining entries are left for later scans so deletion can spread across tablet prefixes.
-CONF_mInt32(recycle_rowsets_per_tablet_batch_size, "1000");
-CONF_mInt32(recycle_rowsets_delete_batch_size, "300000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -136,6 +132,7 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 // enable recycler metrics statistics
 CONF_Bool(enable_recycler_stats_metrics, "false");
+CONF_mBool(retain_deleted_instance_tombstone, "true");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
@@ -207,7 +204,9 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_mBool(enable_ms_rate_limit, "false");
+CONF_mBool(enable_ms_rate_limit, "true");
+// Collect rate-limit trigger metrics independently of rate-limit enforcement.
+CONF_mBool(enable_ms_rate_limit_dry_run, "true");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
@@ -314,8 +313,8 @@ CONF_mBool(enable_load_txn_status_check, "true");
 CONF_mBool(enable_tablet_job_check, "true");
 
 CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
-CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
-CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "false");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -327,8 +326,8 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
-// http scheme in S3Client to use. E.g. http or https
-CONF_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+CONF_String(s3_client_http_scheme, "https");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
@@ -350,7 +349,12 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 // more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
 
+// true: scan txn_running_key entries and fetch transaction info via the corresponding txn_info_key.
+// false: scan txn_info_key entries directly; these usually far outnumber txn_running_key entries.
+CONF_mBool(enable_get_prepare_txn_by_coordinator_by_running_key, "true");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_mBool(enable_check_commit_tso_fence, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_mBool(enable_cloud_parallel_txn_lazy_commit, "true");

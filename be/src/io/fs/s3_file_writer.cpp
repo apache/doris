@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -39,7 +40,6 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/s3_util.h"
@@ -85,7 +85,8 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
-    // We won't do S3 abort operation in BE, we let s3 service do it own.
+    // Deferred uploads are reported to FE for cleanup. Uploads that never reach FE are left to
+    // the provider lifecycle policy, so destroying a writer must not mutate provider state here.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
@@ -100,7 +101,7 @@ Status S3FileWriter::_create_multi_upload_request() {
     }
     auto resp = client->create_multipart_upload(_obj_storage_path_opts);
     if (resp.resp.status.code == ErrorCode::OK) {
-        _obj_storage_path_opts.upload_id = resp.upload_id;
+        _upload_id = resp.upload_id.value_or("");
     }
     return {resp.resp.status.code, std::move(resp.resp.status.msg)};
 }
@@ -110,8 +111,7 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
     auto msg = fmt::format(
             "{} multipart upload already takes {} seconds, bucket={}, key={}, upload_id={}",
             task_name, timeout_duration, _obj_storage_path_opts.bucket,
-            _obj_storage_path_opts.path.native(),
-            _obj_storage_path_opts.upload_id.has_value() ? *_obj_storage_path_opts.upload_id : "");
+            _obj_storage_path_opts.path.native(), _upload_id);
     timespec current_time;
     // We don't need high accuracy here, so we use time(nullptr)
     // since it's the fastest way to get current time(second)
@@ -388,7 +388,8 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
-    auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
+    auto resp = client->upload_part(_obj_storage_path_opts, _upload_id, buf.get_string_view_data(),
+                                    part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
         LOG_WARNING("failed to upload part, key={}, part_num={}, status={}",
                     _obj_storage_path_opts.key, part_num, resp.resp.status.msg);
@@ -397,7 +398,7 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     }
     s3_bytes_written_total << buf.get_size();
 
-    ObjectCompleteMultiPart completed_part {
+    ObjStorageCompletedPart completed_part {
             part_num, resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
 
     std::unique_lock<std::mutex> lck {_completed_lock};
@@ -407,8 +408,8 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
 // if enabled check
 // 1. issue a head object request for existence check
 // 2. check the file size
-Status check_after_upload(ObjStorageClient* client, const ObjectStorageResponse& upload_res,
-                          const ObjectStoragePathOptions& path_opt, int64_t bytes_appended,
+Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& upload_res,
+                          const ObjStoragePath& path_opt, int64_t bytes_appended,
                           const std::string& put_or_comp) {
     if (!config::enable_s3_object_check_after_upload) return Status::OK();
 
@@ -502,7 +503,8 @@ Status S3FileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
+    auto resp =
+            client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
         LOG_WARNING("failed to complete multipart upload, err={}, file_path={}", resp.status.msg,
                     _obj_storage_path_opts.path.native());

@@ -32,6 +32,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -42,10 +43,7 @@
 
 namespace doris {
 
-constexpr static std::string_view HEADER_JSON = "application/json";
-constexpr static std::string_view OP = "op";
 constexpr static std::string_view SYNC = "sync";
-constexpr static std::string_view PATH = "path";
 constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
 constexpr static std::string_view HASH = "hash";

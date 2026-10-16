@@ -21,9 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
@@ -31,6 +28,8 @@ import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
+import org.apache.doris.transaction.Transaction;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -115,7 +114,10 @@ public class LoadProcessor extends AbstractJobProcessor {
             for (MultiFragmentsPipelineTask fragmentsTask : executionTask.get().getChildrenTasks().values()) {
                 fragmentsTask.cancelExecute(cancelReason);
             }
-            latch.get().countDownToZero(new Status());
+            // setPipelineExecutionTask publishes this task before afterSetPipelineExecutionTask builds the
+            // latch. A cancel that crosses that publication must not throw from an empty latch, which would
+            // escape the coordinator's cleanup scope and skip the queue/scan teardown.
+            latch.ifPresent(l -> l.countDownToZero(new Status()));
         }
     }
 
@@ -187,12 +189,36 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
 
-        if (!fragmentTask.processReportExecStatus(params)) {
+        if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
+            if (CommitDataSerializer.hasCommitData(params) && !fragmentTask.isDone()) {
+                throw new IllegalStateException("External-file report was not a completed fragment report");
+            }
             LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
         }
 
+        if (fragmentTask.isDone()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query {} fragment {} is marked done",
+                        DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
+            }
+            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
+            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
+
+            int topFragmentId = coordinatorContext.topDistributedPlan
+                    .getFragmentJob().getFragment().getFragmentId().asInt();
+            if (topFragmentId == params.getFragmentId()) {
+                MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
+                topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
+                if (topFragmentLatch.getCount() == 0) {
+                    tryFinishSchedule();
+                }
+            }
+        }
+    }
+
+    private void acceptFinalReport(TReportExecStatusParams params) {
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
@@ -222,36 +248,9 @@ public class LoadProcessor extends AbstractJobProcessor {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
         long txnId = loadContext.getTransactionId();
-        if (params.isSetHivePartitionUpdates()) {
-            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateHivePartitionUpdates(params.getHivePartitionUpdates());
-        }
-        if (params.isSetIcebergCommitDatas()) {
-            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateIcebergCommitData(params.getIcebergCommitDatas());
-        }
-        if (params.isSetMcCommitDatas()) {
-            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateMCCommitData(params.getMcCommitDatas());
-        }
-
-        if (fragmentTask.isDone()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Query {} fragment {} is marked done",
-                        DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
-            }
-            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
-            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
-
-            int topFragmentId = coordinatorContext.topDistributedPlan
-                    .getFragmentJob().getFragment().getFragmentId().asInt();
-            if (topFragmentId == params.getFragmentId()) {
-                MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
-                topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-                if (topFragmentLatch.getCount() == 0) {
-                    tryFinishSchedule();
-                }
-            }
+        if (CommitDataSerializer.hasCommitData(params)) {
+            Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+            CommitDataSerializer.feed(txn, params);
         }
     }
 

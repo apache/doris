@@ -150,6 +150,7 @@ Status SegmentIndexFileCacheLoader::load_segment_index_to_file_cache(
             .is_index_data = true,
             .is_dryrun = true,
             .is_warmup = false,
+            .cache_write_mode_override = io::CacheWriteMode::SYNC_WRITE,
     };
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "SegmentIndexFileCacheLoader::load_segment_index_to_file_cache", Status::OK(), &ctx,

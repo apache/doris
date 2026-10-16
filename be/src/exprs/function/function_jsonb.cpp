@@ -1386,8 +1386,10 @@ struct JsonbLengthUtil {
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
-                (jsonb_data_column->get_data_at(i).size == 0)) {
+            const auto jsonb_index = index_check_const(i, jsonb_data_const);
+            if (jsonb_data_column->is_null_at(jsonb_index) ||
+                path_column->is_null_at(index_check_const(i, is_const)) ||
+                (jsonb_data_column->get_data_at(jsonb_index).size == 0)) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
@@ -1401,7 +1403,7 @@ struct JsonbLengthUtil {
                             std::string_view(path_value.data, path_value.size));
                 }
             }
-            auto jsonb_value = jsonb_data_column->get_data_at(i);
+            auto jsonb_value = jsonb_data_column->get_data_at(jsonb_index);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             const JsonbDocument* doc = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value.data,
@@ -1500,7 +1502,7 @@ struct JsonbContainsUtil {
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
-                path_column->is_null_at(i)) {
+                path_column->is_null_at(index_check_const(i, is_const))) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
@@ -2155,8 +2157,9 @@ public:
         if (root->isArray()) {
             writer.writeStartArray();
             const auto* array_val = root->unpack<ArrayVal>();
-            for (int i = 0; i != array_val->numElem(); ++i) {
-                auto* it = array_val->get(i);
+            int i = 0;
+            for (auto iter = array_val->begin(); iter < array_val->end(); ++iter, ++i) {
+                const auto* it = &*iter;
 
                 if (is_last_parent && last_leg->array_index == i) {
                     value_written = true;
@@ -2381,12 +2384,12 @@ private:
         } else if (element->isArray()) {
             const auto* array = element->unpack<ArrayVal>();
             bool find = false;
-            for (int i = 0; i < array->numElem(); ++i) {
-                auto leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
-                cur_path->add_leg_to_leg_vector(std::move(leg));
-                const auto* child_element = array->get(i);
+            int index = 0;
+            for (auto it = array->begin(); it < array->end(); ++it, ++index) {
                 // construct an array cell path leg.
-                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                auto leg = std::make_unique<leg_info>(nullptr, 0, index, ARRAY_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+                find |= find_matches(&*it, one_match, state, cur_path, matches);
                 cur_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;

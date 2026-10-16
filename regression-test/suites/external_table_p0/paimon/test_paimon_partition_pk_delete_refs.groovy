@@ -321,14 +321,12 @@ suite("test_paimon_partition_pk_delete_refs",
                 where part in ('p1', 'p2')
                 order by part, id
             """
-            sql """set enable_paimon_cpp_reader=false"""
             sql """set force_jni_scanner=true"""
             assertJniPath(currentReaderQuery, "${tableName} current DV")
             assertJniPath(historicalReaderQuery, "${tableName} historical")
             "qt_${actionSuffix}_jni_current_dv"(currentReaderQuery)
             "qt_${actionSuffix}_jni_historical"(historicalReaderQuery)
             sql """set force_jni_scanner=false"""
-            sql """set enable_paimon_cpp_reader=true"""
             assertNativePath(currentReaderQuery, "${tableName} current DV")
             assertNativePath(historicalReaderQuery, "${tableName} historical")
             "qt_${actionSuffix}_native_current_dv"(currentReaderQuery)
@@ -336,7 +334,6 @@ suite("test_paimon_partition_pk_delete_refs",
             assertEquals(finalSnapshot, latestSnapshotId(tableName))
         }
     } finally {
-        sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
         sql """set enable_runtime_filter_prune=true"""
         sql """set enable_runtime_filter_partition_prune=true"""

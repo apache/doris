@@ -61,7 +61,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
     private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
-    private boolean enableInt96Timestamps = true;
+    private boolean enableInt96Timestamps = false;
 
     public ParquetFileFormatProperties() {
         super(TFileFormatType.FORMAT_PARQUET, FileFormatProperties.FORMAT_PARQUET);
@@ -86,7 +86,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
         //save the enable int96 timestamp property
         if (formatProperties.containsKey(ENABLE_INT96_TIMESTAMPS)) {
-            this.enableInt96Timestamps = Boolean.valueOf(formatProperties.get(ENABLE_INT96_TIMESTAMPS)).booleanValue();
+            this.enableInt96Timestamps = parseEnableInt96Timestamps(formatProperties.get(ENABLE_INT96_TIMESTAMPS));
         }
 
         // save all parquet prefix property
@@ -110,6 +110,16 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
         }
     }
 
+    public static boolean parseEnableInt96Timestamps(String value) {
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        throw new AnalysisException(ENABLE_INT96_TIMESTAMPS
+                + " should be true or false, but is " + value);
+    }
 
     @Override
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {

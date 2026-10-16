@@ -31,6 +31,10 @@ copy_to_hdfs_if_selected "paimon1"
 copy_to_hdfs_if_selected "tvf_data"
 copy_to_hdfs_if_selected "preinstalled_data"
 
-if [[ ${enablePaimonHms:-false} == "true" ]]; then
-    run_hive_hql /mnt/scripts/create_external_paimon_scripts/create_paimon_tables.hql "create_paimon_table.hql"
+# Go through the module framework rather than calling the HQL directly: this
+# script only runs on the full-init path, while a baseline restore reaches the
+# Paimon tables through refresh-hive-modules.sh. Recording the module state
+# here also keeps the follow-up refresh pass from running the same HQL twice.
+if paimon_hms_enabled; then
+    refresh_module paimon_hms
 fi

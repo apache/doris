@@ -64,17 +64,15 @@ TEST_F(IndexStorageVariantIoContextTest,
     auto reader_schema = build_schema_with_variant_path_column(*tablet_schema(), kVariantUid, "hot",
                                                                FieldType::OLAP_FIELD_TYPE_INT);
     const ColumnId path_column_id = static_cast<ColumnId>(reader_schema->num_columns() - 1);
-    auto scan_schema = std::make_shared<Schema>(reader_schema->columns(),
-                                                std::vector<ColumnId> {path_column_id});
+    auto scan_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+            reader_schema->columns(), std::vector<ColumnId> {path_column_id}));
 
     TUniqueId query_id;
     query_id.hi = 101;
     query_id.lo = 202;
     io::RemoteScanCacheWriteLimiter limiter(query_id, 0);
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
-    read_options.tablet_schema = reader_schema;
+    StorageReadOptions read_options(stats);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.query_id = &query_id;
     read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;

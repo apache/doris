@@ -61,6 +61,14 @@ struct MsStressDecision {
 };
 
 MsStressDecision get_ms_stress_decision();
+
+// Record each triggered reason independently:
+// 1. FDB cluster pressure
+// 2. FDB client-thread pressure,
+// 3. MetaService resource pressure
+// 4. test injection.
+void record_ms_rate_limit_triggers(const MsStressDecision& decision);
+
 MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStressMetrics& metrics,
                                                     bool reset = false,
                                                     int32_t rate_limit_injected_random_value = -1);

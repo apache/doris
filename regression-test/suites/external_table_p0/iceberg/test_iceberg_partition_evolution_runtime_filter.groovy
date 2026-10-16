@@ -70,16 +70,28 @@ suite("test_iceberg_partition_evolution_runtime_filter",
             ${queryBody}
             order by f.id
         """)
-        // Scanner counters can arrive after the profile list first reports COMPLETE.
-        String profile = profileAction.getProfileBySql(
-                token,
-                ["RuntimeFilterPartitionPrunedRangeNum"],
-                30000L,
-                500L)
-        long fileRangesPruned = profileCounterValues(
-                profile, "RuntimeFilterPartitionPrunedRangeNum").sum(0L)
-        long partitionsPruned = profileCounterValues(
-                profile, "PartitionsPrunedByRuntimeFilter").sum(0L)
+        // Partial profiles already contain zero-valued counters, so wait for actual pruning.
+        String profile = ""
+        long fileRangesPruned = 0L
+        long partitionsPruned = 0L
+        long profileDeadline = System.currentTimeMillis() + 30000L
+        while (System.currentTimeMillis() <= profileDeadline) {
+            profile = profileAction.getProfileBySql(
+                    token,
+                    ["RuntimeFilterPartitionPrunedRangeNum"],
+                    30000L,
+                    500L)
+            fileRangesPruned = profileCounterValues(
+                    profile, "RuntimeFilterPartitionPrunedRangeNum").sum(0L)
+            partitionsPruned = profileCounterValues(
+                    profile, "PartitionsPrunedByRuntimeFilter").sum(0L)
+            if (fileRangesPruned + partitionsPruned > 0L) {
+                break
+            }
+            if (System.currentTimeMillis() < profileDeadline) {
+                sleep(500L)
+            }
+        }
         assertTrue(fileRangesPruned + partitionsPruned > 0L,
                 "Runtime filter did not prune any evolved Iceberg partition/file range; "
                         + profile.take(2000).replaceAll("\\s+", " "))

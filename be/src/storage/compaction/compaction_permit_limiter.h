@@ -40,18 +40,15 @@ public:
 
     void request(int64_t permits);
 
-    bool try_request(int64_t permits, CompactionType compaction_type);
+    bool try_request(int64_t permits);
 
-    void release(int64_t permits,
-                 CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION);
+    void release(int64_t permits);
 
     int64_t usage() const { return _used_permits.load(std::memory_order_relaxed); }
-    int64_t binlog_usage() const { return _binlog_used_permits.load(std::memory_order_relaxed); }
 
 private:
     // sum of "permits" held by executing compaction tasks currently
     std::atomic<int64_t> _used_permits;
-    std::atomic<int64_t> _binlog_used_permits;
     std::mutex _permits_mutex;
     std::condition_variable _permits_cv;
 };

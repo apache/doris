@@ -19,13 +19,18 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ManagedChannel;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,7 +45,7 @@ public class BackendServiceClientTest {
     private int originalGrpcMaxMessageSize;
     private long originalRemoteFragmentExecTimeout;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // Create executor for tests
         executor = Executors.newCachedThreadPool();
@@ -56,7 +61,7 @@ public class BackendServiceClientTest {
         Config.remote_fragment_exec_timeout_ms = 5000;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         // Restore original config
         Config.grpc_keep_alive_second = originalGrpcKeepAliveSeconds;
@@ -84,15 +89,15 @@ public class BackendServiceClientTest {
         BackendServiceClient client = new BackendServiceClient(address, resolvedIp, executor);
 
         // Verify client was created
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify the address is stored
         TNetworkAddress storedAddress = Deencapsulation.getField(client, "address");
-        Assert.assertEquals(address, storedAddress);
+        Assertions.assertEquals(address, storedAddress);
 
         // Verify the channel was created (non-null)
         ManagedChannel channel = Deencapsulation.getField(client, "channel");
-        Assert.assertNotNull(channel);
+        Assertions.assertNotNull(channel);
 
         // Note: We cannot easily verify that the channel uses the IP instead of hostname
         // without inspecting the channel's internal state, which is implementation-dependent.
@@ -117,11 +122,11 @@ public class BackendServiceClientTest {
         BackendServiceClient client = new BackendServiceClient(address, emptyIp, executor);
 
         // Verify client was created
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify channel was created
         ManagedChannel channel = Deencapsulation.getField(client, "channel");
-        Assert.assertNotNull(channel);
+        Assertions.assertNotNull(channel);
 
         // Cleanup
         client.shutdown();
@@ -142,11 +147,11 @@ public class BackendServiceClientTest {
         BackendServiceClient client = new BackendServiceClient(address, nullIp, executor);
 
         // Verify client was created
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify channel was created
         ManagedChannel channel = Deencapsulation.getField(client, "channel");
-        Assert.assertNotNull(channel);
+        Assertions.assertNotNull(channel);
 
         // Cleanup
         client.shutdown();
@@ -169,8 +174,7 @@ public class BackendServiceClientTest {
 
         // Verify client is in normal state initially
         // (IDLE or CONNECTING state is considered normal)
-        Assert.assertTrue("Client should be in normal state after creation",
-                client.isNormalState());
+        Assertions.assertTrue(client.isNormalState(), "Client should be in normal state after creation");
 
         // Cleanup
         client.shutdown();
@@ -195,7 +199,7 @@ public class BackendServiceClientTest {
 
         // Verify channel is not shutdown initially
         ManagedChannel channel = Deencapsulation.getField(client, "channel");
-        Assert.assertFalse("Channel should not be shutdown initially", channel.isShutdown());
+        Assertions.assertFalse(channel.isShutdown(), "Channel should not be shutdown initially");
 
         // Shutdown client
         client.shutdown();
@@ -204,8 +208,7 @@ public class BackendServiceClientTest {
         Thread.sleep(100);
 
         // Verify channel is shutdown or terminated
-        Assert.assertTrue("Channel should be shutdown or terminated",
-                channel.isShutdown() || channel.isTerminated());
+        Assertions.assertTrue(channel.isShutdown() || channel.isTerminated(), "Channel should be shutdown or terminated");
     }
 
     /**
@@ -219,13 +222,38 @@ public class BackendServiceClientTest {
         BackendServiceClient client1 = new BackendServiceClient(address1, "127.0.0.1", executor);
         BackendServiceClient client2 = new BackendServiceClient(address2, "127.0.0.1", executor);
 
-        Assert.assertNotNull(client1);
-        Assert.assertNotNull(client2);
-        Assert.assertTrue(client1.isNormalState());
-        Assert.assertTrue(client2.isNormalState());
+        Assertions.assertNotNull(client1);
+        Assertions.assertNotNull(client2);
+        Assertions.assertTrue(client1.isNormalState());
+        Assertions.assertTrue(client2.isNormalState());
 
         // Cleanup
         client1.shutdown();
         client2.shutdown();
+    }
+
+    @Test
+    public void testSyncTabletMeta() {
+        TNetworkAddress address = new TNetworkAddress("localhost", 9060);
+        BackendServiceClient client = new BackendServiceClient(address, "127.0.0.1", executor);
+
+        PBackendServiceGrpc.PBackendServiceFutureStub stub =
+                Mockito.mock(PBackendServiceGrpc.PBackendServiceFutureStub.class);
+        Deencapsulation.setField(client, "stub", stub);
+
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addTabletIds(10001L)
+                .build();
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> expectedFuture = Futures.immediateFuture(
+                InternalService.PSyncTabletMetaResponse.newBuilder()
+                        .setSyncedTablets(1)
+                        .build());
+        Mockito.when(stub.syncTabletMeta(request)).thenReturn(expectedFuture);
+
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> actualFuture = client.syncTabletMeta(request);
+
+        Assertions.assertSame(expectedFuture, actualFuture);
+        Mockito.verify(stub).syncTabletMeta(request);
+        client.shutdown();
     }
 }

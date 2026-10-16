@@ -54,6 +54,11 @@ public:
     Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
                                        const DataTypePtr& data_type, int column_id,
                                        uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
     bool can_evaluate_dictionary_filter() const override;
 

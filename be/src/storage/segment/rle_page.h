@@ -18,9 +18,11 @@
 #pragma once
 
 #include "common/cast_set.h"
+#include "storage/field_type.h"           // for FieldType
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
 #include "storage/segment/page_decoder.h" // for PageDecoder
+#include "storage/types.h"                // for TypeTraits
 #include "util/coding.h"                  // for encode_fixed32_le/decode_fixed32_le
 #include "util/rle_encoding.h"            // for RleEncoder/RleDecoder
 #include "util/slice.h"                   // for OwnedSlice

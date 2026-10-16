@@ -1,0 +1,315 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.qe;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.mockito.InOrder;
+import org.mockito.Mockito;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * One pool for every protocol: MySQL connections and Arrow Flight SQL sessions share the pool's
+ * limit and the user's limit, Flight sessions additionally their sub-quota, and every teardown
+ * path meets in unregisterConnection.
+ */
+public class ConnectPoolMgrTest {
+
+    private static final UserIdentity ALICE = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+    private static final UserIdentity BOB = UserIdentity.createAnalyzedUserIdentWithIp("bob", "%");
+    private static final UserIdentity CAROL = UserIdentity.createAnalyzedUserIdentWithIp("carol", "%");
+
+    private static ConnectContext registered(ConnectPoolMgr pool, ConnectContext ctx, int connectionId) {
+        ctx.setConnectionId(connectionId);
+        Assertions.assertEquals(-1, pool.registerConnection(ctx));
+        return ctx;
+    }
+
+    @Test
+    public void testBothProtocolsShareThePoolsLimit() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        // The sub-quota is the whole pool here: only the pool's limit is in play.
+        ConnectPoolMgr pool = new ConnectPoolMgr(2, 2);
+
+        ConnectContext mysql = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
+        ConnectContext flight = registered(pool, ConnectPoolTestSupport.flightSession(env, BOB, "token-2"), 2);
+        Assertions.assertEquals(2, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+
+        // The third connection is refused whichever protocol it speaks, with the count it was refused at,
+        // and a refused registration changes no count: not the pool's, not the Flight share, not the user's.
+        Assertions.assertEquals(2, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, ALICE)));
+        Assertions.assertEquals(2,
+                pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
+        Assertions.assertEquals(2, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(BOB.getQualifiedUser()).get());
+
+        Assertions.assertSame(flight, pool.getContextWithPeerIdentity("token-2"));
+        Assertions.assertNull(pool.getContextWithPeerIdentity("token-3"));
+        Assertions.assertSame(mysql, pool.getContext(1));
+
+        // Unregistering the MySQL connection frees its slot and touches nothing of the Flight share.
+        pool.unregisterConnection(mysql);
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+        Assertions.assertEquals(-1,
+                pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
+        Assertions.assertEquals(2, pool.getFlightConnectionNum());
+    }
+
+    @Test
+    public void testAUsersLimitCountsBothProtocols() {
+        Env env = ConnectPoolTestSupport.envAllowing(1);
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
+        // Alice's one connection is taken by MySQL: her Flight session is refused...
+        Assertions.assertEquals(1, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "a")));
+        // ...and nothing of the refused registration lingers: not in the pool, not counted anywhere.
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        Assertions.assertNull(pool.getContextWithPeerIdentity("a"));
+        // Bob is not affected.
+        registered(pool, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 2);
+    }
+
+    @Test
+    public void testTheFlightSubQuotaIsEnforcedWithinThePoolsLimit() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(10, 1);
+        Assertions.assertEquals(1, pool.getFlightMaxConnections());
+
+        registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 1);
+        Assertions.assertEquals(1, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, BOB, "b")));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+        // MySQL connections are not held to the Flight sub-quota.
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
+        Assertions.assertEquals(2, pool.getConnectionNum());
+    }
+
+    // Unset, the sub-quota is half of the pool's limit: Flight sessions, which their clients mostly
+    // never close, cannot take the half MySQL clients connect through. Set, it never exceeds the limit.
+    @Test
+    public void testTheFlightSubQuotaIsHalfThePoolsLimitUnlessSetAndNeverExceedsIt() {
+        Assertions.assertEquals(5, ConnectPoolMgr.effectiveFlightMaxConnections(10, -1));
+        Assertions.assertEquals(5, new ConnectPoolMgr(10).getFlightMaxConnections());
+        Assertions.assertEquals(512, ConnectPoolMgr.effectiveFlightMaxConnections(1024, -1));
+        Assertions.assertEquals(0, ConnectPoolMgr.effectiveFlightMaxConnections(1, -1));
+        Assertions.assertEquals(3, ConnectPoolMgr.effectiveFlightMaxConnections(10, 3));
+        Assertions.assertEquals(10, ConnectPoolMgr.effectiveFlightMaxConnections(10, 10));
+        Assertions.assertEquals(10, ConnectPoolMgr.effectiveFlightMaxConnections(10, 4096));
+
+        // The default half is enforced like any sub-quota: the sixth Flight session of a pool of ten is
+        // refused while MySQL connections still get in.
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        for (int i = 1; i <= 5; i++) {
+            registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-" + i), i);
+        }
+        Assertions.assertEquals(5, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, BOB, "b")));
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 6);
+        Assertions.assertEquals(6, pool.getConnectionNum());
+        Assertions.assertEquals(5, pool.getFlightConnectionNum());
+    }
+
+    @Test
+    public void testTheRefusalReadsTheSameForEveryProtocol() {
+        Env env = ConnectPoolTestSupport.envAllowing(5);
+        // A sub-quota equal to the pool's limit and no Flight session in the pool: the plain sentence.
+        ConnectPoolMgr pool = new ConnectPoolMgr(10, 10);
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
+                pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
+                pool.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 10));
+
+        // Once Flight sessions hold part of the pool, both protocols are told the sub-quota and its
+        // usage - a MySQL client refused by a pool that Flight sessions filled reads where they went.
+        // One connection of each protocol, so that the Flight usage cannot pass for the pool's count.
+        ConnectPoolMgr quota = new ConnectPoolMgr(10, 2);
+        registered(quota, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        registered(quota, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
+                quota.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 2));
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
+                quota.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));
+        ConnectPoolMgr halved = new ConnectPoolMgr(10);
+        registered(halved, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        registered(halved, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 10, Arrow Flight SQL: 5 (current: 1)",
+                halved.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
+
+        // A sub-quota tighter than the pool's limit is named to a Flight client even while no
+        // Flight session is in the pool: it is the limit that refused it.
+        ConnectPoolMgr none = new ConnectPoolMgr(10, 0);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 0, Arrow Flight SQL: 0 (current: 0)",
+                none.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 0));
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 0",
+                none.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 0));
+    }
+
+    // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
+    // unregisterConnection() is the catch-all teardown path: the idle timeout (wait_timeout), bearer
+    // token expiry or eviction, CloseSession and a KILL CONNECTION from another connection all reach
+    // here (a query timeout only cancels the query). The protocol must release what it holds for the
+    // session -- for Flight the channel-cached results and the deferred coordinators -- even for a
+    // connection that was never registered (an abandoned connection is cleaned up, not leaked), and
+    // before the bookkeeping, so that a failure there cannot strand the coordinators.
+    @Test
+    public void testUnregisterReleasesTheProtocolSessionFirstEvenWhenNotRegistered() {
+        ConnectPoolMgr pool = new ConnectPoolMgr(100);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+
+        pool.unregisterConnection(ctx);
+
+        InOrder inOrder = Mockito.inOrder(ctx);
+        inOrder.verify(ctx).releaseProtocolSession();
+        inOrder.verify(ctx).closeTxn();
+    }
+
+    @Test
+    public void testUnregisterRemovesAFlightSessionAndItsPeerIdentity() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(100, 1);
+        ConnectContext ctx = registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-7"), 7);
+        Assertions.assertSame(ctx, pool.getContextWithPeerIdentity("token-7"));
+
+        pool.unregisterConnection(ctx);
+
+        Assertions.assertNull(pool.getContext(7));
+        Assertions.assertNull(pool.getContextWithPeerIdentity("token-7"));
+        Assertions.assertEquals(0, pool.getConnectionNum());
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
+        Assertions.assertEquals(0, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        // The sub-quota slot is free again.
+        registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-8"), 8);
+        // Unregistering twice is harmless.
+        pool.unregisterConnection(ctx);
+        Assertions.assertEquals(1, pool.getConnectionNum());
+    }
+
+    // Two sessions under one bearer token, as two concurrent first requests of a token can open:
+    // the index names the later one, and the earlier one's teardown must not take that entry away.
+    @Test
+    public void testUnregisterRemovesOnlyTheConnectionsOwnPeerIdentityEntry() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(100, 2);
+        ConnectContext earlier = registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-x"), 1);
+        ConnectContext later = registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-x"), 2);
+        Assertions.assertSame(later, pool.getContextWithPeerIdentity("token-x"));
+
+        pool.unregisterConnection(earlier);
+
+        Assertions.assertNull(pool.getContext(1));
+        Assertions.assertSame(later, pool.getContextWithPeerIdentity("token-x"));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+
+        pool.unregisterConnection(later);
+        Assertions.assertNull(pool.getContextWithPeerIdentity("token-x"));
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
+    }
+
+    // qe_max_connection = 1 makes the default Flight sub-quota 0 (half, floored). No Flight session may
+    // open: the first one is refused at the pool (returns the count, not -1) while a MySQL connection
+    // still fits. The service floors the token cache at 1 so this refusal is what the client meets as
+    // RESOURCE_EXHAUSTED, instead of the freshly issued token being evicted first (see
+    // DorisFlightSqlService); here we cover the pool half of that boundary.
+    @Test
+    public void testAZeroFlightSubQuotaRefusesEveryFlightSessionButNotMysql() {
+        Assertions.assertEquals(0, ConnectPoolMgr.effectiveFlightMaxConnections(1, -1));
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        Assertions.assertEquals(0, pool.getFlightMaxConnections());
+
+        Assertions.assertTrue(pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "t")) >= 0,
+                "a Flight session must be refused when the sub-quota is 0");
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
+        Assertions.assertNull(pool.getContextWithPeerIdentity("t"));
+
+        // The one pool slot is still open to a MySQL connection.
+        Assertions.assertEquals(-1, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, BOB)));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+    }
+
+    // One attempt must not hold the last pool slot across another attempt's checks. Freeze one
+    // registration inside getMaxConn (the user check) -- where the earlier increment-check-rollback code
+    // was already holding the pool increment -- and register a connection that fits on another thread:
+    // it must be admitted. The staged code refused it (the frozen attempt's pool increment made the pool
+    // look full); the single admission critical section admits it, because the pool is reserved only
+    // inside the lock and getMaxConn is read before the lock. What this pins is that nothing is reserved
+    // before every check has passed, not the lock itself: getMaxConn is read outside it.
+    @Test
+    @Timeout(30)
+    public void testConcurrentAdmissionDoesNotRefuseAFittingConnectionWhileAnotherIsInFlight() throws Exception {
+        CountDownLatch frozenInGetMaxConn = new CountDownLatch(1);
+        CountDownLatch releaseFrozen = new CountDownLatch(1);
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(auth.getMaxConn(Mockito.anyString())).thenAnswer(inv -> {
+            if (ALICE.getQualifiedUser().equals(inv.getArgument(0))) {
+                frozenInGetMaxConn.countDown();
+                releaseFrozen.await();
+            }
+            return 100L;
+        });
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(internalCatalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+
+        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, CAROL), 1); // one slot left
+
+        ConnectContext frozen = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
+        frozen.setConnectionId(2);
+        ConnectContext fitting = ConnectPoolTestSupport.mysqlConnection(env, BOB);
+        fitting.setConnectionId(3);
+
+        Thread frozenThread = new Thread(() -> pool.registerConnection(frozen));
+        frozenThread.start();
+        Assertions.assertTrue(frozenInGetMaxConn.await(10, TimeUnit.SECONDS),
+                "the frozen attempt never reached getMaxConn");
+
+        AtomicInteger fittingResult = new AtomicInteger(Integer.MIN_VALUE);
+        Thread fittingThread = new Thread(() -> fittingResult.set(pool.registerConnection(fitting)));
+        fittingThread.start();
+        fittingThread.join();
+        Assertions.assertEquals(-1, fittingResult.get(),
+                "a connection that fits the pool was refused while another attempt's admission was in flight");
+
+        releaseFrozen.countDown();
+        frozenThread.join();
+    }
+}

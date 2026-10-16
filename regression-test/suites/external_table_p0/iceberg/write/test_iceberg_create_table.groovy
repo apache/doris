@@ -58,17 +58,17 @@ suite("test_iceberg_create_table", "p0,external") {
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = olap """
-            exception "Cannot create olap table out of internal catalog. Make sure 'engine' type is specified when use the catalog: ${catalog_name}"
+            exception "Engine 'olap' does not match catalog '${catalog_name}'."
         }
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = hive """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "Engine 'hive' does not match catalog '${catalog_name}'."
         }
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = jdbc """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "Engine 'jdbc' does not match catalog '${catalog_name}'."
         }
 
         sql """ create table ${db1}.${tb1} (id int) engine = iceberg """

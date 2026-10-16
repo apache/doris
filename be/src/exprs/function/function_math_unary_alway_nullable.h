@@ -61,14 +61,14 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(input_rows_count);
 
-        execute_in_iterations(col->get_data().data(), dst_data.data(), input_rows_count);
+        const auto* input_data = col->get_data().data();
+        execute_in_iterations(input_data, dst_data.data(), input_rows_count);
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto* result_null_map_data = result_null_map->get_data().data();
 
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (Impl::is_invalid_input(col->get_data()[i])) [[unlikely]] {
-                result_null_map->get_data().data()[i] = 1;
-            }
+            result_null_map_data[i] = Impl::is_invalid_input(input_data[i]);
         }
 
         block.replace_by_position(

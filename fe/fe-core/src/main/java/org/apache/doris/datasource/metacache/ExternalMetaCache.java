@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 
@@ -57,7 +58,7 @@ public interface ExternalMetaCache {
      * <p>This is a low-level extension API. Prefer typed engine operations when
      * available.
      */
-    <K, V> MetaCacheEntry<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType);
+    <K, V> MetaCache<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType);
 
     /**
      * Validate that the catalog has been initialized in current engine cache.

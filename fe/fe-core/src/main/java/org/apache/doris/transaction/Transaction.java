@@ -24,4 +24,22 @@ public interface Transaction {
     void commit() throws UserException;
 
     void rollback();
+
+    /**
+     * Receives one serialized commit fragment produced by BE after writing a
+     * data fragment. Implementations deserialize their connector-specific Thrift
+     * payload and accumulate it for {@link #commit()}.
+     *
+     * <p>Default is a no-op for transactions that do not collect BE commit data.</p>
+     *
+     * @param commitFragment the serialized connector-specific commit payload
+     */
+    default void addCommitData(byte[] commitFragment) {
+        // no-op: write transactions override this
+    }
+
+    /** Returns the number of rows affected by the write(s) in this transaction. */
+    default long getUpdateCnt() {
+        return 0;
+    }
 }

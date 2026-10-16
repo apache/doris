@@ -29,6 +29,7 @@
 
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -42,8 +43,6 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
-const static std::string OP = "op";
 const static std::string DATA_SIZE = "data_size";
 const static std::string HEADER = "header";
 

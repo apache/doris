@@ -32,7 +32,6 @@ enum class CompactionProfileType : uint8_t {
     BASE = 0,
     CUMULATIVE = 1,
     FULL = 2,
-    BINLOG = 3,
 };
 
 const char* to_string(CompactionProfileType type);

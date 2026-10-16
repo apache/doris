@@ -161,9 +161,19 @@ suite("test_single_column_multi_index1", "p0") {
       runMatchQueries()
 
       sql """ DROP INDEX request_text_idx ON ${tableName}; """
-      wait_for_latest_op_on_table_finish(tableName, timeout)
+      if (isCloudMode()) {
+        // Cloud uses a schema change job here; Local uses an asynchronous index change job.
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+      } else {
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+      }
       sql """ DROP INDEX request_keyword_idx ON ${tableName}; """
-      wait_for_latest_op_on_table_finish(tableName, timeout)
+      if (isCloudMode()) {
+        // Cloud uses a schema change job here; Local uses an asynchronous index change job.
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+      } else {
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+      }
 
       runMatchQueries()
     } finally {

@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
@@ -173,6 +174,26 @@ public class ShowTableCommand extends ShowCommand {
                 }
                 Preconditions.checkArgument(table.get().getType().equals(TableIf.TableType.STREAM));
                 rows.add(Lists.newArrayList(table.get().getName()));
+            }
+        } else if (!(dbIf.getCatalog() instanceof InternalCatalog)
+                && !isVerbose && type.equals(PlanType.SHOW_TABLES)) {
+            // Non-verbose SHOW TABLES on an external catalog: list names directly
+            // instead of dbIf.getTables(), which loads every table via the meta
+            // cache (one remote metadata load per table). The per-table SHOW priv
+            // filter below must be kept (name-based, needs no table load).
+            // NOTE: must use getTableNamesWithLock(), NOT getTableNamesOrEmptyWithLock():
+            // the latter swallows the case-insensitive name-conflict / meta_names_mapping
+            // exception and returns an empty set, silently hiding conflicting table names.
+            for (String tableName : dbIf.getTableNamesWithLock()) {
+                if (matcher != null && !matcher.match(tableName)) {
+                    continue;
+                }
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), tableName,
+                                PrivPredicate.SHOW)) {
+                    continue;
+                }
+                rows.add(Lists.newArrayList(tableName));
             }
         } else {
             for (TableIf tbl : dbIf.getTables()) {

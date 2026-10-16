@@ -395,9 +395,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
         }
-        // check data descriptions, support 2 cases bellow:
-        // case 1: multi file paths, multi data descriptions
-        // case 2: one hive table, one data description
+        // check data descriptions (multi file paths, multi data descriptions).
+        // note: load-from-external-table (Spark Load) is deprecated and rejected below.
         boolean isLoadFromTable = false;
         for (NereidsDataDescription dataDescription : dataDescriptions) {
             if (brokerDesc == null && resourceDesc == null) {
@@ -497,7 +496,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
             LoadManager loadManager = ctx.getEnv().getLoadManager();
             if (etlJobType == EtlJobType.LOCAL_FILE) {
-                if (!ctx.getCapability().supportClientLocalFile()) {
+                if (getDataDescriptions().get(0).isClientLocal() && !ctx.getCapability().supportClientLocalFile()) {
                     ctx.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
                             + " to load client local file.");
                     return;

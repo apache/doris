@@ -43,7 +43,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
@@ -126,20 +126,19 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
-    // Such columns are not exist in frontend schema info, so we need to
-    // add them into tablet_schema for later column indexing.
-    static TabletColumn create_materialized_variant_column(const std::string& root,
-                                                           const std::vector<std::string>& paths,
-                                                           int32_t parent_unique_id,
-                                                           int32_t max_subcolumns_count,
-                                                           bool enable_doc_mode = false);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_default_value_expr() const { return _has_default_value_expr; }
+    const std::string& default_value_expr() const { return _default_value_expr; }
     int32_t length() const { return _length; }
     void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
+    }
+    void set_default_value_expr(const std::string& default_value_expr) {
+        _default_value_expr = default_value_expr;
+        _has_default_value_expr = true;
     }
     int32_t index_length() const { return _index_length; }
     void set_index_length(int32_t index_length) { _index_length = index_length; }
@@ -155,6 +154,8 @@ public:
                                                       int current_be_exec_version) const;
     AggregateFunctionPtr get_aggregate_function(std::string suffix,
                                                 int current_be_exec_version) const;
+    AggregateFunctionPtr get_aggregate_function(std::string suffix, int current_be_exec_version,
+                                                DataTypePtr runtime_type) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -202,6 +203,8 @@ public:
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
     std::shared_ptr<const IDataType> get_vec_type() const;
+    // Returns schema metadata suitable for diagnostics. The default value itself is omitted.
+    std::string debug_string() const;
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
@@ -301,6 +304,8 @@ private:
 
     bool _has_default_value = false;
     std::string _default_value;
+    bool _has_default_value_expr = false;
+    std::string _default_value_expr;
 
     bool _is_decimal = false;
     int32_t _precision = -1;
@@ -404,7 +409,7 @@ using PathSet = phmap::flat_hash_set<std::string>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
-    enum class ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
+    enum class ColumnType { NORMAL = 0, VARIANT = 1 };
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
@@ -518,7 +523,9 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
+    bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -549,6 +556,31 @@ public:
             }
         }
         return inverted_indexes;
+    }
+    // True when anything at all lives in this schema's inverted index FILE.
+    //
+    // Spelled out as `has_inverted_index() || has_ann_index()` at ~27 call sites
+    // before this existed -- rowset writers, segment creation, segcompaction,
+    // snapshot and migration, and most of the cloud paths. Every one of them is
+    // asking the same question ("is there an index file to carry, warm, link or
+    // rewrite?"), and each open-coded copy is a place a third index type would
+    // have to be remembered.
+    bool has_inverted_or_ann_index() const { return has_inverted_index() || has_ann_index(); }
+
+    // Both index types that live in the inverted index FILE, in schema order.
+    // Every storage format stores them together: V1/V2/V3 as CLucene directories,
+    // SNII as text metadata groups plus an ANN blob logical index. A rewrite that
+    // enumerated only the inverted ones would seal a file missing every ANN index
+    // while the schema still claimed them.
+    const std::vector<const TabletIndex*> inverted_and_ann_indexes() const {
+        std::vector<const TabletIndex*> indexes;
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::INVERTED ||
+                index->index_type() == IndexType::ANN) {
+                indexes.emplace_back(index.get());
+            }
+        }
+        return indexes;
     }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
@@ -596,16 +628,18 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(const TabletColumn& column) const;
     const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
                                  const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
-    Block create_block(
-            const std::vector<uint32_t>& return_columns,
-            const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    Block create_block() const;
+    // Each column id is an ordinal in TabletSchema::_cols, not a unique id or ReadSchema ordinal.
+    // The resulting Block uses the selected physical TabletSchema column types.
+    Block create_storage_block(const std::vector<uint32_t>& column_ids) const;
+    Block create_storage_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;
@@ -619,21 +653,6 @@ public:
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
-
-    // Merge columns that not exit in current schema, these column is dropped in current schema
-    // but they are useful in some cases. For example,
-    // 1. origin schema is  ColA, ColB
-    // 2. insert values     1, 2
-    // 3. delete where ColB = 2
-    // 4. drop ColB
-    // 5. insert values  3
-    // 6. add column ColB, although it is name ColB, but it is different with previous ColB, the new ColB we name could call ColB'
-    // 7. insert value  4, 5
-    // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
-    // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
-    void merge_dropped_columns(const TabletSchema& src_schema);
-
-    bool is_dropped_column(const TabletColumn& col) const;
 
     // copy extracted columns from src_schema
     void copy_extracted_columns(const TabletSchema& src_schema);
@@ -689,8 +708,6 @@ public:
         return str;
     }
 
-    Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
-
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
@@ -708,33 +725,6 @@ public:
         TabletIndexes indexes;
     };
 
-    // all path in path_set_info are relative to the parent column
-    struct PathsSetInfo {
-        std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed columns
-        std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
-        PathSet sub_path_set;                                             // extracted columns
-        PathSet sparse_path_set;                                          // sparse columns
-
-        // "Materialized regular path" means compaction chose to store this path as a dedicated
-        // column in the schema, either typed or extracted, instead of re-emitting it dynamically.
-        bool contains_materialized_regular_path(const std::string& path) const {
-            return typed_path_set.contains(path) || sub_path_set.contains(path);
-        }
-    };
-
-    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
-        _path_set_info_map = std::move(path_set_info_map);
-    }
-
-    const PathsSetInfo& path_set_info(int32_t unique_id) const {
-        return _path_set_info_map.at(unique_id);
-    }
-
-    const PathsSetInfo* try_path_set_info(int32_t unique_id) const {
-        auto it = _path_set_info_map.find(unique_id);
-        return it == _path_set_info_map.end() ? nullptr : &it->second;
-    }
-
     bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }
 
     int32_t variant_max_subcolumns_count() const {
@@ -751,18 +741,6 @@ public:
     }
 
     bool has_seq_map() const { return !_seq_col_idx_to_value_cols_idx.empty(); }
-
-    const std::unordered_map<uint32_t, uint32_t>& value_col_idx_to_seq_col_idx() const {
-        return _value_col_idx_to_seq_col_idx;
-    }
-
-    void add_pruned_columns_data_type(int32_t col_unique_id, DataTypePtr data_type) {
-        _pruned_columns_data_type[col_unique_id] = std::move(data_type);
-    }
-
-    void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
-
-    bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
 
     TabletStorageFormatPB storage_format() const { return _storage_format; }
     void set_storage_format(TabletStorageFormatPB v) { _storage_format = v; }
@@ -822,6 +800,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _row_lsn_col_idx = -1;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;
@@ -839,10 +818,6 @@ private:
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
-    std::map<int32_t, DataTypePtr> _pruned_columns_data_type;
-
-    // value: extracted path set and sparse path set
-    std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
 
     // key: field_pattern
     // value: indexes
@@ -860,8 +835,6 @@ private:
     std::unordered_map<uint32_t, uint32_t> _value_col_uid_to_seq_col_uid;
     // Sequence column index mapping to value column index
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_idx_to_value_cols_idx;
-    // Value column index mapping to sequence column index(also map sequence column it self)
-    std::unordered_map<uint32_t, uint32_t> _value_col_idx_to_seq_col_idx;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -138,6 +138,12 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         if (target instanceof DateTimeType) {
             return this.scale == 0;
         }
+        // Numeric datetime casts omit the fractional part. They are injective only when the source
+        // scale is zero; the resulting 14-digit integer fits in BIGINT and exactly in DOUBLE.
+        if (scale == 0 && (target instanceof BigIntType || target instanceof LargeIntType
+                || target instanceof DoubleType)) {
+            return true;
+        }
         return target instanceof CharacterType;
     }
 

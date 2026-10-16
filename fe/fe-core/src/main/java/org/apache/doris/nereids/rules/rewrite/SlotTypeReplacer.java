@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
@@ -64,6 +64,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableCollection;
@@ -377,7 +378,14 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
             List<Slot> replaceSlots = new ArrayList<>(replaced.second);
-            if (fileScan.getTable() instanceof IcebergExternalTable) {
+            // Gate the name-to-field-id access-path rewrite on the field-id access-path capability, which is
+            // separate from the prune capability: a connector can honour a pruned nested type while still
+            // being addressed by name. (Not the legacy exact-class IcebergExternalTable, which is dead
+            // post-flip — the table is a PluginDrivenExternalTable.) The translation below is
+            // connector-agnostic: it reads column.getUniqueId()/getChildren(), which the connector populates
+            // with its stable field ids.
+            if (fileScan.getTable() instanceof PluginDrivenExternalTable
+                    && ((PluginDrivenExternalTable) fileScan.getTable()).usesFieldIdAccessPath()) {
                 for (int i = 0; i < replaceSlots.size(); i++) {
                     Slot slot = replaceSlots.get(i);
                     if (!(slot instanceof SlotReference)) {
@@ -389,8 +397,8 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         continue;
                     }
                     List<ColumnAccessPath> allAccessPathsWithId
-                            = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
-                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                            = replaceAccessPathToFieldId(allAccessPaths.get(), slotReference);
+                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceAccessPathToFieldId(
                             slotReference.getPredicateAccessPaths().get(), slotReference);
                     replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
                             allAccessPathsWithId,
@@ -618,40 +626,48 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
-        return new Cast(newChild, newType);
+        // Rebuild through withChildren/withTargetType so the concrete cast kind survives. A
+        // TRY_CAST that reaches here has kept its whole immediate child value (see
+        // AccessPathExpressionCollector.visitTryCast, which never translates an access path
+        // through the cast), but that child can still be rebuilt: for
+        // element_at(try_cast(element_at(wrapper, 'f') as struct<...>), 'g') the collector
+        // records [wrapper, f], so pruning may drop a sibling of wrapper and replace the
+        // inner element_at. Constructing a Cast here would silently downgrade the whole-value
+        // TRY_CAST into a strict CAST, turning its NULL result into a cast error.
+        return cast.withChildren(ImmutableList.of(newChild)).withTargetType(newType);
     }
 
-    private List<ColumnAccessPath> replaceIcebergAccessPathToId(
+    private List<ColumnAccessPath> replaceAccessPathToFieldId(
             List<ColumnAccessPath> originAccessPaths, SlotReference slotReference) {
         Column column = slotReference.getOriginalColumn().get();
         List<ColumnAccessPath> replacedAccessPaths = new ArrayList<>();
         for (ColumnAccessPath accessPath : originAccessPaths) {
-            List<String> icebergColumnAccessPath = new ArrayList<>(accessPath.getPath());
-            replaceIcebergAccessPathToId(
-                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
+            List<String> fieldIdAccessPath = new ArrayList<>(accessPath.getPath());
+            replaceAccessPathToFieldId(
+                    fieldIdAccessPath, 0, slotReference.getDataType(), column
             );
-            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), icebergColumnAccessPath));
+            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), fieldIdAccessPath));
         }
         return replacedAccessPaths;
     }
 
-    private void replaceIcebergAccessPathToId(List<String> originPath, int index, DataType type, Column column) {
+    private void replaceAccessPathToFieldId(List<String> originPath, int index, DataType type, Column column) {
         if (index >= originPath.size()) {
             return;
         }
         if (index == 0) {
             originPath.set(index, String.valueOf(column.getUniqueId()));
-            replaceIcebergAccessPathToId(originPath, index + 1, type, column);
+            replaceAccessPathToFieldId(originPath, index + 1, type, column);
         } else {
             String fieldName = originPath.get(index);
             if (type instanceof ArrayType) {
                 // skip replace *
-                replaceIcebergAccessPathToId(
+                replaceAccessPathToFieldId(
                         originPath, index + 1, ((ArrayType) type).getItemType(), column.getChildren().get(0)
                 );
             } else if (type instanceof MapType) {
                 if (fieldName.equals(AccessPathInfo.ACCESS_ALL) || fieldName.equals(AccessPathInfo.ACCESS_MAP_VALUES)) {
-                    replaceIcebergAccessPathToId(
+                    replaceAccessPathToFieldId(
                             originPath, index + 1, ((MapType) type).getValueType(), column.getChildren().get(1)
                     );
                 }
@@ -660,10 +676,14 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                     if (child.getName().equals(fieldName)) {
                         originPath.set(index, String.valueOf(child.getUniqueId()));
                         DataType childType = ((StructType) type).getNameToFields().get(fieldName).getDataType();
-                        replaceIcebergAccessPathToId(originPath, index + 1, childType, child);
+                        replaceAccessPathToFieldId(originPath, index + 1, childType, child);
                         break;
                     }
                 }
+            } else if (type instanceof VariantType) {
+                // Variant object keys are data, not Iceberg schema field IDs. Replacing them with
+                // the root ID destroys the physical shredding path before it reaches the scanner.
+                return;
             } else {
                 originPath.set(index, String.valueOf(column.getUniqueId()));
             }

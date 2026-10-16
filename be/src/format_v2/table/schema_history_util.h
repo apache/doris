@@ -27,6 +27,14 @@
 
 namespace doris::format {
 
+// Unwrap a thrift TFieldPtr, returning nullptr when the pointer is unset.
+inline const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
+    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
+        return nullptr;
+    }
+    return field_ptr.field_ptr.get();
+}
+
 const schema::external::TSchema* find_history_schema(const TFileScanRangeParams* params,
                                                      int64_t schema_id);
 

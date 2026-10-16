@@ -35,6 +35,12 @@ import java.util.Set;
  */
 public final class HiveTableFormatDetector {
 
+    /** Remote HMS table parameter iceberg stamps on its tables ({@code ICEBERG}). */
+    private static final String TABLE_TYPE_PARAM = "table_type";
+
+    /** Remote HMS table parameter the Flink hudi connector stamps on its tables ({@code hudi}). */
+    private static final String FLINK_CONNECTOR_PARAM = "flink.connector";
+
     private static final Set<String> SUPPORTED_HIVE_INPUT_FORMATS;
     private static final Set<String> SUPPORTED_HUDI_INPUT_FORMATS;
 
@@ -46,6 +52,16 @@ public final class HiveTableFormatDetector {
         // Some Hudi tables use HoodieParquetInputFormatBase as input format
         // but cannot be treated as Hudi — read parquet files directly as Hive.
         hiveFormats.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
+        // LZO-compressed text InputFormats (hadoop-lzo / lzo-hadoop). Read-only: all three class names
+        // contain "text", so HiveFileFormat resolves them to TEXT_FILE, which with LazySimpleSerDe yields
+        // BE FORMAT_TEXT. Parity with legacy HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS; without these an
+        // LZO-text table would fail the (now fail-loud) format check.
+        //   com.hadoop.compression.lzo.LzoTextInputFormat   - twitter hadoop-lzo (GPL)
+        //   com.hadoop.mapreduce.LzoTextInputFormat         - lzo-hadoop mapreduce API (org.anarres)
+        //   com.hadoop.mapred.DeprecatedLzoTextInputFormat  - lzo-hadoop legacy mapred API (org.anarres)
+        hiveFormats.add("com.hadoop.compression.lzo.LzoTextInputFormat");
+        hiveFormats.add("com.hadoop.mapreduce.LzoTextInputFormat");
+        hiveFormats.add("com.hadoop.mapred.DeprecatedLzoTextInputFormat");
         SUPPORTED_HIVE_INPUT_FORMATS = Collections.unmodifiableSet(hiveFormats);
 
         SUPPORTED_HUDI_INPUT_FORMATS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -78,13 +94,13 @@ public final class HiveTableFormatDetector {
         Map<String, String> params = tableInfo.getParameters();
 
         // 1. Iceberg detection
-        if (params != null && "ICEBERG".equalsIgnoreCase(params.get("table_type"))) {
+        if (params != null && "ICEBERG".equalsIgnoreCase(params.get(TABLE_TYPE_PARAM))) {
             return HiveTableType.ICEBERG;
         }
 
         // 2. Hudi detection
         String inputFormat = tableInfo.getInputFormat();
-        if (params != null && "hudi".equalsIgnoreCase(params.get("flink.connector"))) {
+        if (params != null && "hudi".equalsIgnoreCase(params.get(FLINK_CONNECTOR_PARAM))) {
             return HiveTableType.HUDI;
         }
         if (inputFormat != null && SUPPORTED_HUDI_INPUT_FORMATS.contains(inputFormat)) {

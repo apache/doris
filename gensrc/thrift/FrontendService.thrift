@@ -68,6 +68,9 @@ struct TDescribeTablesParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   8: optional set<string> reserved_field_8
+  // Report COLUMN_KEY the way MySQL does. Forwarded from the schema scan node because
+  // this request carries no session of its own.
+  9: optional bool mysql_compatible_index_metadata = false
 }
 
 // Results of a call to describeTable()
@@ -183,6 +186,8 @@ struct TListPrivilegesResult{
 struct TReportExecStatusResult {
   // required in V1
   1: optional Status.TStatus status
+  // Set only after FE accepts the external-file commit vectors for this report.
+  2: optional bool external_file_commit_data_accepted
 }
 
 // Service Protocol Details
@@ -333,6 +338,9 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  // Paimon commit messages prepared by BE and committed by FE.
+  34: optional list<DataSinks.TPaimonCommitMessage> paimon_commit_messages
 }
 
 struct TFeResult {
@@ -372,6 +380,11 @@ struct TGroupCommitInfo{
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
+    8: optional string loadSelectionPreferredKey
+    9: optional string loadSelectionMode
+    // set by followers that understand selection errors carried in TMasterOpResult
+    // statusCode/errMessage; masters must keep throwing for callers without it
+    10: optional bool supportsSelectionErrorResult
 }
 
 struct TMasterOpRequest {
@@ -416,6 +429,7 @@ struct TMasterOpRequest {
     // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
     34: optional set<string> reserved_field_34
     35: optional bool reserved_field_35
+    36: optional string connectingFeLocalResourceGroup
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -430,6 +444,10 @@ struct TMasterOpRequest {
     1005: optional string delegated_credential_token
     1006: optional i64 delegated_credential_expires_at_millis
     1007: optional string delegated_credential_session_id
+    // Whether COM_STMT_EXECUTE requested CURSOR_TYPE_READ_ONLY.
+    1008: optional bool cursor_fetch_requested
+    // Capabilities negotiated with the original MySQL client.
+    1009: optional i32 mysql_capability
 }
 
 struct TColumnDefinition {
@@ -461,6 +479,10 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    12: optional list<i64> auditStatisticsBackendIds;
+    // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
+    13: optional bool clientDeprecatedEofApplied;
 }
 
 // Certificate-based authentication info forwarded from BE to FE
@@ -823,6 +845,7 @@ struct TCloudVersionInfo {
    2: optional i64 partitionId
    3: optional i64 version
    4: optional i64 versionUpdateTime
+   5: optional i64 commitTso
 }
 
 struct TFrontendSyncCloudVersionRequest {
@@ -897,6 +920,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
+  // Wire ids must stay consistent across maintained branches. Do not renumber or reuse ids.
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
@@ -911,12 +935,16 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
-  DATABASE_PROPERTIES = 13,
-  AUTHENTICATION_INTEGRATIONS = 14,
+  AUTHENTICATION_INTEGRATIONS = 13,
+  ROLE_MAPPINGS = 14,
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
-  ROLE_MAPPINGS = 17,
+  DATABASE_PROPERTIES = 17,
   EXTENSIONS = 18,
+  TSO_STATUS = 19,
+  STATISTICS = 20,
+  KEY_COLUMN_USAGE = 21,
+  TABLE_CONSTRAINTS = 22,
 }
 
 struct TMetadataTableRequestParams {
@@ -937,6 +965,7 @@ struct TMetadataTableRequestParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   15: optional set<string> reserved_field_15
+  16: optional PlanNodes.TLanceIndexMetadataParams lance_index_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -951,6 +980,9 @@ struct TSchemaTableRequestParams {
     // Reserved for downstream field `current_roles` to keep thrift field ids
     // wire-compatible across maintained branches. Do not reuse this id.
     9: optional set<string> reserved_field_9
+    // The one table the query asked for, when it pinned one with `TABLE_NAME = '...'`.
+    // Lets the FE answer from that table instead of walking the whole database.
+    10: optional string table_name
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1601,6 +1633,7 @@ struct TShowProcessListResult {
 }
 
 struct TShowUserRequest {
+    1: optional Types.TUserIdentity current_user_ident // to filter rows by the requesting user's privileges
 }
 
 struct TShowUserResult {
@@ -1957,6 +1990,37 @@ struct TSyncCloudTabletStatsRequest {
     1: optional binary tablet_stats_pb
 }
 
+// Establishes a closed upper bound for a time-based incremental read. The master FE
+// captures its current TSO before the transaction watermark and waits for transactions
+// involving the requested tables when wait_for_transactions is true.
+struct TAcquireTimeBasedChangeReadFenceRequest {
+    1: required map<i64, list<i64>> db_to_table_ids
+    2: optional i64 end_timestamp_ms
+    3: required i64 timeout_ms
+    4: required bool wait_for_transactions
+    // False/absent retains the legacy drain for old callers and unbounded relations.
+    5: optional bool all_ends_explicit
+}
+
+struct TIncrWindowNotReady {
+    1: required i64 requested_end_timestamp_ms
+    2: required i64 committed_tso
+    3: required i64 retry_after_ms
+    4: optional i64 current_tso
+    // Absent on older masters: ERR_INCR_WINDOW_NOT_READY (5100).
+    5: optional i32 error_code
+    6: optional i64 timeout_ms
+    7: optional string reason
+}
+
+struct TAcquireTimeBasedChangeReadFenceResult {
+    1: required Status.TStatus status
+    2: optional i64 current_tso
+    3: optional i64 max_journal_id
+    4: optional i64 committed_tso
+    5: optional TIncrWindowNotReady window_not_ready
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -2014,6 +2078,9 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TAcquireTimeBasedChangeReadFenceResult acquireTimeBasedChangeReadFence(
+        1: TAcquireTimeBasedChangeReadFenceRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
 

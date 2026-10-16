@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
@@ -102,20 +103,19 @@ public class S3Resource extends Resource {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
 
-        // the endpoint for ping need add uri scheme.
-        String pingEndpoint = properties.get(S3ResourceCompat.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://") && !pingEndpoint.startsWith("https://")) {
-            pingEndpoint = "http://" + properties.get(S3ResourceCompat.ENDPOINT);
-            properties.put(S3ResourceCompat.ENDPOINT, pingEndpoint);
-            properties.put(S3ResourceCompat.Env.ENDPOINT, pingEndpoint);
-        }
-        String region = S3ResourceCompat.getRegionOfEndpoint(pingEndpoint);
+        String endpoint = properties.get(S3ResourceCompat.ENDPOINT);
+        properties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
+        String region = S3ResourceCompat.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3ResourceCompat.REGION, region);
 
         if (needCheck) {
+            Map<String, String> pingProperties = new HashMap<>(properties);
+            String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
+            pingProperties.put(S3ResourceCompat.ENDPOINT, pingEndpoint);
+            pingProperties.put(S3ResourceCompat.Env.ENDPOINT, pingEndpoint);
             String bucketName = properties.get(S3ResourceCompat.BUCKET);
             String rootPath = properties.get(S3ResourceCompat.ROOT_PATH);
-            pingS3(bucketName, rootPath, properties);
+            pingS3(bucketName, rootPath, pingProperties);
         }
         // optional
         S3ResourceCompat.optionalS3Property(properties);
@@ -233,6 +233,9 @@ public class S3Resource extends Resource {
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3ResourceCompat.convertToStdProperties(properties);
+        if (!Strings.isNullOrEmpty(properties.get(S3ResourceCompat.ENDPOINT))) {
+            properties.put(S3ResourceCompat.Env.ENDPOINT, properties.get(S3ResourceCompat.ENDPOINT));
+        }
         boolean needCheck = isNeedCheck(properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);
@@ -241,6 +244,9 @@ public class S3Resource extends Resource {
             S3ResourceCompat.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
             changedProperties.putAll(properties);
+            String endpoint = S3Util.buildEndpointUrl(changedProperties.get(S3ResourceCompat.ENDPOINT));
+            changedProperties.put(S3ResourceCompat.ENDPOINT, endpoint);
+            changedProperties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
             String bucketName = properties.getOrDefault(S3ResourceCompat.BUCKET,
                     this.properties.get(S3ResourceCompat.BUCKET));
             String rootPath = properties.getOrDefault(S3ResourceCompat.ROOT_PATH,
@@ -289,10 +295,9 @@ public class S3Resource extends Resource {
                 this.properties.get(S3ResourceCompat.SESSION_TOKEN));
         String endpoint = properties.getOrDefault(S3ResourceCompat.ENDPOINT,
                 this.properties.get(S3ResourceCompat.ENDPOINT));
-        String pingEndpoint = "http://" + endpoint;
-        String region = S3ResourceCompat.getRegionOfEndpoint(pingEndpoint);
+        String region = S3ResourceCompat.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3ResourceCompat.REGION, region);
-        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
+        return new CloudCredentialWithEndpoint(endpoint, region, ak, sk, token);
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {

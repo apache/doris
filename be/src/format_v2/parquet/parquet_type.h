@@ -67,6 +67,8 @@ struct ParquetTypeDescriptor {
     bool is_timestamp = false;                 // whether this is a timestamp type
     bool timestamp_is_adjusted_to_utc = false; // whether the timestamp is UTC-normalized
     bool is_string_like = false;               // binary type that is neither decimal nor FLOAT16
+    bool is_string_annotation = false;         // STRING logical type, distinct from raw BINARY
+    bool is_uuid = false;                      // UUID logical type over FIXED_LEN_BYTE_ARRAY(16)
     std::string unsupported_reason; // non-empty when this Parquet logical type is unsupported
 };
 

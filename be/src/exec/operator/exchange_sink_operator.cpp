@@ -28,6 +28,7 @@
 #include <random>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
 #include "exec/exchange/exchange_writer.h"
@@ -35,6 +36,7 @@
 #include "exec/operator/exchange_sink_buffer.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/partitioner/external/external_table_sink_hash_partitioner.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/scale_writer_partitioning_exchanger.hpp"
@@ -49,7 +51,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
-static const std::string timer_name = "WaitForDependencyTime";
+static const std::string wait_for_dependency_timer_name = "WaitForDependencyTime";
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -81,23 +83,25 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             "");
     _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(custom_profile(), "LocalBytesSent", TUnit::BYTES);
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(common_profile(), timer_name, 1);
-    _wait_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(common_profile(), "WaitForRpcBufferQueue", timer_name, 1);
+    _wait_for_dependency_timer =
+            ADD_TIMER_WITH_LEVEL(common_profile(), wait_for_dependency_timer_name, 1);
+    _wait_queue_timer = ADD_CHILD_TIMER_WITH_LEVEL(common_profile(), "WaitForRpcBufferQueue",
+                                                   wait_for_dependency_timer_name, 1);
 
     _create_channels();
     // Make sure brpc stub is ready before execution.
     for (auto& channel : channels) {
         RETURN_IF_ERROR(channel->init(state));
     }
-    _wait_broadcast_buffer_timer =
-            ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer", timer_name);
+    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer",
+                                                   wait_for_dependency_timer_name);
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
     // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
-        _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
+        _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
+        _part_type == TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED) {
         std::random_device rd;
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
@@ -174,6 +178,27 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("ScaleWriterPartitioner({})", _partition_count));
+    } else if (_part_type == TPartitionType::EXTERNAL_TABLE_SINK_HASH_PARTITIONED) {
+        if (state->be_exec_version() < SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION) {
+            return Status::NotSupported(
+                    "External table sink hash exchange requires BE execution version {}, actual {}",
+                    SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION, state->be_exec_version());
+        }
+        if (!p._has_external_table_sink_hash_partition_info) {
+            return Status::InternalError("External table sink hash partition info is missing");
+        }
+        _partition_count = channels.size();
+        const bool use_crc32c = _state->query_options().__isset.enable_new_shuffle_hash_method &&
+                                _state->query_options().enable_new_shuffle_hash_method;
+        const ShuffleHashMethod hash_method =
+                use_crc32c ? ShuffleHashMethod::CRC32C : ShuffleHashMethod::CRC32;
+        _partitioner = std::make_unique<ExternalTableSinkHashPartitioner>(
+                _partition_count, hash_method, p._external_table_sink_hash_partition_info);
+        RETURN_IF_ERROR(_partitioner->init(p._texprs));
+        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        custom_profile()->add_info_string(
+                "Partitioner",
+                fmt::format("ExternalTableSinkHashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::MERGE_PARTITIONED) {
         if (!p._has_merge_partition_info) {
             return Status::InternalError("Merge partition info is missing");
@@ -262,7 +287,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                     _wait_channel_timer.push_back(common_profile()->add_nonzero_counter(
                             fmt::format("WaitForLocalExchangeBuffer{}",
                                         _local_channels_dependency.size()),
-                            TUnit ::TIME_NS, timer_name, 1));
+                            TUnit ::TIME_NS, wait_for_dependency_timer_name, 1));
                 }
             }
         }
@@ -271,6 +296,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
         _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+        _part_type == TPartitionType::EXTERNAL_TABLE_SINK_HASH_PARTITIONED ||
         _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
         _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
@@ -321,6 +347,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
+           sink.output_partition.type == TPartitionType::EXTERNAL_TABLE_SINK_HASH_PARTITIONED ||
+           sink.output_partition.type == TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::MERGE_PARTITIONED);
 #endif
     _name = "ExchangeSinkOperatorX";
@@ -331,6 +359,11 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     if (sink.output_partition.__isset.merge_partition_info) {
         _merge_partition_info = sink.output_partition.merge_partition_info;
         _has_merge_partition_info = true;
+    }
+    if (sink.output_partition.__isset.external_table_sink_hash_partition_info) {
+        _external_table_sink_hash_partition_info =
+                sink.output_partition.external_table_sink_hash_partition_info;
+        _has_external_table_sink_hash_partition_info = true;
     }
 
     if (_part_type != TPartitionType::UNPARTITIONED) {
@@ -363,7 +396,8 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         if (_output_tuple_id == -1) {
-            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state,
+                                           _child->operator_row_desc_after_projection()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
             auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
@@ -482,6 +516,9 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
                         block_holder->reset_block();
                     }
 
+                    RETURN_IF_ERROR(block_holder->prepare_serialized_block(
+                            local_state._sink_buffer->send_multi_blocks(),
+                            local_state._rpc_channels_num));
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;
@@ -533,20 +570,16 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+               _part_type == TPartitionType::EXTERNAL_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(local_state._writer->write(state, block, eos));
-    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
+    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
+               _part_type == TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
+        const auto block_bytes = block->bytes();
         RETURN_IF_ERROR(send_to_current_channel());
-        _data_processed += block->bytes();
-        if (_writer_count < local_state.channels.size()) {
-            if (_data_processed >=
-                _writer_count *
-                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
-                _writer_count++;
-            }
-        }
-        local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
+        const auto writer_count = _update_writer_scaling(block_bytes, local_state.channels.size());
+        local_state.current_channel_idx = (local_state.current_channel_idx + 1) % writer_count;
     } else {
         // Range partition
         // 1. calculate range
@@ -583,6 +616,18 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
         }
     }
     return final_st;
+}
+
+size_t ExchangeSinkOperatorX::_update_writer_scaling(size_t block_bytes, size_t max_writer_count) {
+    LockGuard lock(_writer_scaling_mutex);
+    _data_processed += block_bytes;
+    if (_writer_count < max_writer_count &&
+        _data_processed >=
+                _writer_count *
+                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
+        ++_writer_count;
+    }
+    return _writer_count;
 }
 
 void ExchangeSinkLocalState::register_channels(ExchangeSinkBuffer* buffer) {

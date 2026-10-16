@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/local_file_system.h"
 #include "util/debug_points.h"
 
 namespace doris {

@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;

@@ -569,7 +569,7 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(_root->row_desc().num_materialized_slots());
+                _block->clear_column_data(_root->operator_row_desc_after_projection().num_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
@@ -664,7 +664,8 @@ Status PipelineTask::execute(bool* done) {
                         ->task_controller()
                         ->is_enable_reserve_memory() &&
                 workload_group && !(_wake_up_early || _dry_run)) {
-                const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
+                const auto sink_reserve_size =
+                        _sink->get_reserve_mem_size(_state, _eos, _block.get());
 
                 if (sink_reserve_size > 0 && _should_trigger_revoking(sink_reserve_size)) {
                     LOG(INFO) << fmt::format(
@@ -869,6 +870,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 
@@ -1069,7 +1074,7 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
     auto cancel_if_error = [&](const Status& st) {
         if (!st.ok()) {
             if (auto frag = fragment_context().lock()) {
-                frag->cancel(st);
+                frag->get_query_ctx()->cancel(st);
             }
         }
     };

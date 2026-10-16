@@ -121,11 +121,16 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 "DESC with show_hidden_columns=true should expose _row_id for ${tableName}, got ${hiddenColumns}")
         assertTrue(hiddenColumns.contains("_last_updated_sequence_number"),
                 "DESC with show_hidden_columns=true should expose _last_updated_sequence_number for ${tableName}, got ${hiddenColumns}")
+        assertTrue(hiddenColumns.contains("_file"),
+                "DESC with show_hidden_columns=true should expose _file for ${tableName}, got ${hiddenColumns}")
+        assertTrue(hiddenColumns.contains("_pos"),
+                "DESC with show_hidden_columns=true should expose _pos for ${tableName}, got ${hiddenColumns}")
 
         def selectHidden = sql("""select * from ${tableName} order by id""")
         log.info("Checking hidden SELECT * layout for ${tableName}: rowCount=${selectHidden.size()}, firstRow=${selectHidden ? selectHidden[0] : 'EMPTY'}")
         assertTrue(selectHidden.size() > 0, "SELECT * with hidden columns should return rows for ${tableName}")
-        assertEquals(visibleColumnCount + 2 + 1, selectHidden[0].size()) // _row_id + _last_updated_sequence_number + __DORIS_ICEBERG_ROWID_COL__
+        // _file + _pos + _row_id + _last_updated_sequence_number + __DORIS_ICEBERG_ROWID_COL__
+        assertEquals(visibleColumnCount + 2 + 2 + 1, selectHidden[0].size())
 
         sql("""set show_hidden_columns = false""")
     }
@@ -418,7 +423,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
 
                 test {
                     sql """insert into ${unpartitionedTable}(_row_id, id, name, age) values (1, 9, 'BadRow', 99)"""
-                    exception "Cannot specify row lineage column '_row_id' in INSERT statement"
+                    exception "Cannot specify invisible column '_row_id' in INSERT statement"
                 }
 
                 test {
@@ -426,7 +431,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${unpartitionedTable}(_last_updated_sequence_number, id, name, age)
                         values (1, 10, 'BadSeq', 100)
                     """
-                    exception "Cannot specify row lineage column '_last_updated_sequence_number' in INSERT statement"
+                    exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
 
                 sql """insert into ${unpartitionedTable}(id, name, age) values (4, 'Doris', 40)"""
@@ -529,7 +534,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${partitionedTable}(_row_id, id, name, age, dt)
                         values (1, 14, 'BadPartitionRow', 24, '2024-01-04')
                     """
-                    exception "Cannot specify row lineage column '_row_id' in INSERT statement"
+                    exception "Cannot specify invisible column '_row_id' in INSERT statement"
                 }
 
                 test {
@@ -537,7 +542,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${partitionedTable}(_last_updated_sequence_number, id, name, age, dt)
                         values (1, 15, 'BadPartitionSeq', 25, '2024-01-05')
                     """
-                    exception "Cannot specify row lineage column '_last_updated_sequence_number' in INSERT statement"
+                    exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
 
                 sql """insert into ${partitionedTable}(id, name, age, dt) values (14, 'Sara', 24, '2024-01-04')"""

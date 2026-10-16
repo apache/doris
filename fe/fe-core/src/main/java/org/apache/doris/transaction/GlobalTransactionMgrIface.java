@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -115,6 +116,24 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
+    default boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment);
+    }
+
+    // FE-driven inserts own the cloud delete bitmap retries. BE-driven loads retry at the caller
+    // and must continue to use the single-attempt overloads that accept an attachment.
+    default boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment, streamUpdateInfos);
+    }
+
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;
 
@@ -135,6 +154,10 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
             Map<Long, Set<Long>> backendPartitions) throws UserException;
+
+    default long advanceTsoFence(long proposedFenceTso) throws UserException {
+        throw new UserException("TSO fence is only supported in cloud mode");
+    }
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException;
@@ -201,6 +224,12 @@ public interface GlobalTransactionMgrIface extends Writable {
     public long getAllPublishTxnNum();
 
     public Long getNextTransactionId() throws UserException;
+
+    /**
+     * Return the transaction ID upper bound expected by {@link #isPreviousTransactionsFinished}.
+     * This is a read-only operation and must not allocate a transaction ID.
+     */
+    public long getTransactionIdWatermark() throws UserException;
 
     public void readFields(DataInput in) throws IOException;
 

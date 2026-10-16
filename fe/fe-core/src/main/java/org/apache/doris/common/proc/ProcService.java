@@ -59,6 +59,7 @@ public final class ProcService {
         root.register("bdbje", new BDBJEProcDir());
         root.register("diagnose", new DiagnoseProcDir());
         root.register("binlog", new BinlogProcDir());
+        root.register("mtmv_cache", new MTMVCacheProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node

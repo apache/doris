@@ -52,7 +52,6 @@ public class SortNode extends PlanNode {
     private final SortInfo info;
     private final boolean useTopN;
     private boolean useTopnOpt = false;
-    private boolean useTwoPhaseReadOpt;
     private boolean hasRuntimePredicate = false;
 
     // If mergeByexchange is set to true, the sort information is pushed to the
@@ -98,7 +97,7 @@ public class SortNode extends PlanNode {
         } else {
             if (limit <= 0) {
                 algorithm = TSortAlgorithm.FULL_SORT;
-            } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
+            } else if (hasRuntimePredicate) {
                 algorithm = TSortAlgorithm.HEAP_SORT;
             } else {
                 if (limit + offset < 50000) {
@@ -143,11 +142,6 @@ public class SortNode extends PlanNode {
         this.useTopnOpt = useTopnOpt;
     }
 
-    public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
-        this.useTwoPhaseReadOpt = useTwoPhaseReadOpt;
-        updateSortAlgorithm();
-    }
-
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         if (detailLevel == TExplainLevel.BRIEF) {
@@ -173,10 +167,6 @@ public class SortNode extends PlanNode {
         if (useTopnOpt) {
             output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
         }
-        if (useTwoPhaseReadOpt) {
-            output.append(detailPrefix + "OPT TWO PHASE\n");
-        }
-
         output.append(detailPrefix + "algorithm: ");
         if (algorithm == TSortAlgorithm.HEAP_SORT) {
             output.append("heap sort\n");
@@ -271,13 +261,15 @@ public class SortNode extends PlanNode {
             // BE: SortSink._is_analytic_sort=true → required_data_distribution() = HASH.
             // This sort serves a parent AnalyticEvalNode (window function) and requires
             // data partitioned by the analytic's partition exprs.
-            if (AddLocalExchange.isColocated(this)) {
-                requireChild = LocalExchangeTypeRequire.requireHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash());
-            } else {
-                requireChild = parentRequire.autoRequireHash();
-            }
+            // requireHash() is the generic hash require: BUCKET_HASH_SHUFFLE satisfies it too,
+            // so a bucket-distributed child keeps its bucket placement and no local exchange is
+            // inserted. outputType must therefore stay null and be derived from enforceResult —
+            // hardcoding LOCAL_EXECUTION_HASH_SHUFFLE here would advertise a placement the data
+            // is not on, and a parent asking for exactly LOCAL_EXECUTION_HASH_SHUFFLE (a bucket
+            // join upgraded to local hash) would skip its realign local exchange.
+            requireChild = AddLocalExchange.isColocated(this)
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : parentRequire.autoRequireHash();
         } else if (mergeByexchange) {
             // BE: SortSink._merge_by_exchange=true → required_data_distribution() = PASSTHROUGH.
             requireChild = LocalExchangeTypeRequire.requirePassthrough();

@@ -20,6 +20,7 @@
 
 #include "core/block/block.h"
 
+#include <concurrentqueue.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
@@ -128,7 +129,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
-        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
+        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->type(),
                                      slot_desc->col_name()));
     }
 }
@@ -828,6 +829,7 @@ void Block::clear() {
     data.clear();
 }
 
+// Both clear paths must preserve shared children even when a composite column is top-level exclusive.
 void Block::clear_column_data(int64_t column_size) {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
@@ -839,7 +841,7 @@ void Block::clear_column_data(int64_t column_size) {
     }
     for (auto& d : data) {
         if (d.column) {
-            if (d.column->is_exclusive()) {
+            if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
@@ -854,7 +856,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         DCHECK_LT(col, data.size());
         auto& column = data[col].column;
         if (column) {
-            if (column->is_exclusive()) {
+            if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();

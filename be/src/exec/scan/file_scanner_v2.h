@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -26,6 +27,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "core/block/adaptive_block_size_predictor.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/scanner.h"
@@ -37,7 +39,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 
 namespace doris {
 
@@ -53,6 +54,8 @@ class FileScannerV2 final : public Scanner {
 public:
     static constexpr const char* NAME = "FileScannerV2";
     static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
 
     struct RealtimeCounterDeltas {
         int64_t scan_rows = 0;
@@ -88,6 +91,11 @@ public:
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
+    static Status TEST_validate_variant_projection(TFileFormatType::type format_type,
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+        return _validate_variant_projection(format_type, has_variant_projection, table_format);
+    }
     static Status TEST_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
         return _contextualize_output_filter_status(std::move(status), format_type);
@@ -104,6 +112,18 @@ public:
                   ShardedKVCache* kv_cache,
                   const std::unordered_map<std::string, int>* colname_to_slot_id);
 
+    // Standalone scanner used by TopN two-phase materialization.
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
+                  const std::unordered_map<std::string, int>* colname_to_slot_id,
+                  TupleDescriptor* tuple_desc)
+            : Scanner(state, profile), _params(params) {
+        (void)colname_to_slot_id;
+        _output_tuple_desc = tuple_desc;
+    }
+
+    Status read_by_rows(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                        Block* result_block, int64_t* init_reader_ms, int64_t* get_block_ms);
+
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
     Status _open_impl(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
@@ -114,6 +134,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    bool _can_merge_padding_blocks(const Block& left, const Block& right) const override;
     Status _filter_output_block(Block* block) override;
     void _collect_profile_before_close() override;
     bool _should_update_load_counters() const override;
@@ -121,6 +142,9 @@ protected:
 private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
+    static Status _validate_variant_projection(TFileFormatType::type format_type,
+                                               bool has_variant_projection,
+                                               const std::string& table_format);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
@@ -177,11 +201,13 @@ private:
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     bool _has_prepared_split = false;
+    int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    bool _has_variant_projection = false;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
     // readers that cannot derive their schema from file metadata.

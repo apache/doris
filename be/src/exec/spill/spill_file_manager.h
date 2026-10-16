@@ -20,12 +20,15 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "common/metrics/metrics.h"
+#include "common/status.h"
 #include "exec/spill/spill_file.h"
 #include "storage/options.h"
+#include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -38,6 +41,8 @@ class AtomicGauge;
 using UIntGauge = AtomicGauge<uint64_t>;
 class MetricEntity;
 struct MetricPrototype;
+class QueryContext;
+class ResourceContext;
 
 class SpillFileManager;
 class SpillDataDir {
@@ -81,6 +86,7 @@ public:
 
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    void _update_inode_usage();
     double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0
@@ -106,10 +112,48 @@ private:
     IntGauge* spill_disk_limit = nullptr;
     IntGauge* spill_disk_avail_capacity = nullptr;
     IntGauge* spill_disk_data_size = nullptr;
+    // inode statistics of the disk of this data dir, refreshed by update_capacity(). Spill creates
+    // one directory per query and per operator plus one file per part, so inodes may be exhausted
+    // long before bytes are. The gauges are the only storage of these values; the total is 0 when
+    // the file system does not report a fixed inode count.
+    IntGauge* spill_disk_inode_total = nullptr;
+    IntGauge* spill_disk_inode_available = nullptr;
     // for test
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
+
+// Adapts one external writer to the same root selection, capacity accounting and query cleanup
+// used by Doris spill files.
+class ExternalSpillSession {
+public:
+    ~ExternalSpillSession();
+
+    Status get_paths(std::vector<std::string>* paths);
+
+    Status reserve(const std::string& path, int64_t bytes);
+
+    void update_accounting(const std::string& path, int64_t current_bytes_delta,
+                           int64_t write_bytes, int64_t read_bytes);
+
+private:
+    friend class SpillFileManager;
+
+    ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
+                         std::string relative_path);
+    bool _contains(const std::string& path) const;
+
+    SpillFileManager* _manager;
+    std::weak_ptr<QueryContext> _query_context;
+    std::shared_ptr<ResourceContext> _resource_context;
+    std::string _query_id;
+    std::string _relative_path;
+    SpillDataDir* _data_dir = nullptr;
+    std::string _path;
+    int64_t _accounted_bytes = 0;
+    std::mutex _mutex;
+};
+
 class SpillFileManager {
 public:
     ~SpillFileManager();
@@ -118,23 +162,28 @@ public:
 
     Status init();
 
-    void stop() {
-        _stop_background_threads_latch.count_down();
-        if (_spill_gc_thread) {
-            _spill_gc_thread->join();
-        }
-    }
+    void stop();
 
     // Create SpillFile and register it
     // @param relative_path  Operator-formatted path under the spill root,
     //                       e.g. "query_id/sort-node_id-task_id-unique_id"
     Status create_spill_file(const std::string& relative_path, SpillFileSPtr& spill_file);
 
+    // Create a lazy managed session for an external spill implementation. A spill root is selected
+    // and registered only when the external implementation first requests its path.
+    Status create_external_spill_session(const std::string& relative_path,
+                                         QueryContext* query_context,
+                                         std::unique_ptr<ExternalSpillSession>* spill_session);
+
     /// Get a unique ID for constructing spill file paths.
     uint64_t next_id() { return id_++; }
 
-    // Mark SpillFile for deletion; asynchronously delete spill files in the GC thread
+    // Delete SpillFile data synchronously.
     void delete_spill_file(SpillFileSPtr spill_file);
+
+    // Recursively delete a per-query spill directory during query teardown. Failed deletions are
+    // retained by the manager and retried by its GC and shutdown paths.
+    void delete_query_spill_directory(const std::string& query_id, SpillDataDir* data_dir);
 
     void gc(int32_t max_work_time_ms);
 
@@ -143,15 +192,48 @@ public:
     void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
 private:
+    friend class ExternalSpillSession;
+
+    struct PendingQuerySpillDirectory {
+        int failed_count {0};
+        std::string query_dir;
+    };
+
+    // Per-store statistics of one gc round, logged in the gc summary.
+    struct SpillGcStats {
+        bool has_work = false;
+        // Query directories still under the gc root after this round, i.e. the gc backlog.
+        size_t backlog_dirs = 0;
+        size_t deleted_dirs = 0;
+        size_t deleted_files = 0;
+        size_t failed_deletes = 0;
+    };
+
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
+    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
+    void _retry_pending_query_spill_directories();
+    Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
+    void _release_external_spill_session(ExternalSpillSession* spill_session);
+
+    // Delete the gc backlog of one spill store until `max_work_time_ns` of `watch` has elapsed.
+    void _gc_spill_store(SpillDataDir* store_dir, const MonotonicStopWatch& watch,
+                         int64_t max_work_time_ns, SpillGcStats* stats);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
+    SpillDataDir* _get_store_for_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
+
+    // Query cleanup uses the regular pending-deletion path. External leases only defer deletion
+    // while an SDK task can still access the same query directory; filesystem I/O never holds this
+    // mutex.
+    std::mutex _pending_query_spill_directories_mutex;
+    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+    std::unordered_map<std::string, size_t> _external_spill_directory_leases;
 
     std::atomic_uint64_t id_ = 0;
 

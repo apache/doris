@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -51,8 +52,8 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
@@ -159,6 +160,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
         } else {
+            // Bucketed hash agg exception: allow one-phase GLOBAL + distribute
+            // pattern so the translator can fuse it into BucketedAggregationNode.
+            // Only aggregates with the shape the translator actually fuses qualify;
+            // the others would keep their exchange and stay banned as before. That
+            // includes a distribute on the parent's keys (agg_shuffle_use_parent_key),
+            // a strict subset of the GROUP BY keys, and a distribute whose input is not
+            // a single olap scan pipeline (a nested aggregate, a join, a set operation,
+            // a projected CTE consumer), which the translator never fuses.
+            // Gate with data-volume checks using group-level statistics to avoid
+            // generating this pattern when bucketed agg is unsuitable.
+            if (AggregateUtils.isBucketedHashAggFusible(parent, requiredChildProperty)) {
+                return !bucketedDataVolumeGatesPass(aggregate);
+            }
             return true;
         }
     }
@@ -216,6 +230,55 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     private boolean onePhaseAggWithDistribute(PhysicalHashAggregate<? extends Plan> aggregate) {
         return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute;
+    }
+
+    /**
+     * Check data-volume gates for bucketed hash aggregation using group-level
+     * statistics available during property regulation. Returns true if the
+     * pattern should be allowed (stats pass or unavailable), false if it should
+     * be banned due to unfavorable data characteristics.
+     * Mirrors the checks from the old implementBucketedPhase.
+     */
+    private boolean bucketedDataVolumeGatesPass(PhysicalHashAggregate<? extends Plan> aggregate) {
+        Statistics inputStats = aggregate.getGroupExpression().get().childStatistics(0);
+        if (inputStats == null) {
+            return true; // no stats → allow (other gates handle eligibility)
+        }
+        Statistics outputStats = aggregate.getGroupExpression().get()
+                .getOwnerGroup().getStatistics();
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        double rows = inputStats.getRowCount();
+
+        // Gate 1: minimum input rows
+        if (sv.bucketedAggMinInputRows > 0 && rows < sv.bucketedAggMinInputRows) {
+            return false;
+        }
+
+        // Gate 2: high-cardinality GROUP BY columns
+        double highCardThreshold = sv.bucketedAggHighCardThreshold;
+        if (highCardThreshold > 0) {
+            for (Expression groupByKey : aggregate.getGroupByExpressions()) {
+                ColumnStatistic colStat = inputStats.findColumnStatistics(groupByKey);
+                if (colStat != null && !colStat.isUnKnown
+                        && colStat.ndv > rows * highCardThreshold) {
+                    return false;
+                }
+            }
+        }
+
+        // Gate 3: max group keys (merge phase cost dominates)
+        if (sv.bucketedAggMaxGroupKeys > 0 && outputStats != null
+                && outputStats.getRowCount() > sv.bucketedAggMaxGroupKeys) {
+            return false;
+        }
+
+        // Gate 4: aggregation output cardinality ratio
+        if (highCardThreshold > 0 && outputStats != null
+                && outputStats.getRowCount() > rows * highCardThreshold) {
+            return false;
+        }
+
+        return true;
     }
 
     private boolean childIsCTEConsumer() {
@@ -936,10 +999,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
         child.getOwnerGroup().addEnforcer(enforcer);
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        Cost enforceCost = CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput));
+        CostWeight costWeight = jobContext.getCascadesContext().getStatementContext().getCostWeight();
+        Cost enforceCost = CostCalculator.calculateCost(
+                connectContext, enforcer, Lists.newArrayList(childOutput), costWeight);
         enforcer.setCost(enforceCost);
-        Cost totalCost = CostCalculator.addChildCost(
-                connectContext, enforcer.getPlan(), enforceCost, currentCost, 0);
+        Cost totalCost = enforceCost.add(currentCost, costWeight);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(childOutput), totalCost)) {

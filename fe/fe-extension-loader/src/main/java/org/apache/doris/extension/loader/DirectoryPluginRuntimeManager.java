@@ -49,7 +49,7 @@ import java.util.stream.Stream;
  *
  * <h2>Responsibilities</h2>
  *
- * <p>The {@link #loadAll(List, ClassLoader, Class, ClassLoadingPolicy)} flow:
+ * <p>The {@link #loadAll(List, ClassLoader, Class, ClassLoadingPolicy, ApiVersionGate)} flow:
  * <ol>
  *   <li>Scans each root in {@code pluginRoots} and treats its direct
  *       subdirectories as plugin directories.</li>
@@ -59,6 +59,8 @@ import java.util.stream.Stream;
  *       configurable parent-first package-prefix policy.</li>
  *   <li>Discovers exactly one typed factory via {@link java.util.ServiceLoader}
  *       (for example, {@code AuthenticationPluginFactory}).</li>
+ *   <li>Checks the plugin API version the jar declares against the one the caller's
+ *       {@link ApiVersionGate} expects, before any plugin code runs.</li>
  *   <li>Validates and records load outcomes and returns a {@link LoadReport}
  *       with successes and failures.</li>
  * </ol>
@@ -79,8 +81,8 @@ import java.util.stream.Stream;
  *
  * <p>Failures are staged for observability and troubleshooting:
  * {@code scan}, {@code resolve}, {@code createClassLoader}, {@code discover},
- * {@code instantiate}, and {@code conflict}. Per-directory failures do not stop
- * other directories from loading.
+ * {@code apiVersion}, {@code instantiate}, and {@code conflict}. Per-directory
+ * failures do not stop other directories from loading.
  *
  * <h2>Conflict Strategy</h2>
  *
@@ -105,11 +107,19 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
 
+    /**
+     * Loads every plugin directory found under {@code pluginRoots}.
+     *
+     * @param apiVersionGate the caller family's plugin API contract. Mandatory and never nullable: an
+     *        optional gate would reintroduce exactly the failure mode this check exists to remove — a
+     *        version check that silently admits everything because nobody wired it up.
+     */
     public LoadReport<F> loadAll(List<Path> pluginRoots, ClassLoader parent, Class<F> factoryType,
-            ClassLoadingPolicy policy) {
+            ClassLoadingPolicy policy, ApiVersionGate apiVersionGate) {
         Objects.requireNonNull(pluginRoots, "pluginRoots");
         Objects.requireNonNull(parent, "parent");
         Objects.requireNonNull(factoryType, "factoryType");
+        Objects.requireNonNull(apiVersionGate, "apiVersionGate");
         ClassLoadingPolicy effectivePolicy = policy != null ? policy : ClassLoadingPolicy.defaultPolicy();
 
         List<Path> pluginDirs = new ArrayList<>();
@@ -128,7 +138,8 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         synchronized (lifecycleLock) {
             for (Path pluginDir : pluginDirs) {
                 try {
-                    PluginHandle<F> handle = loadFromPluginDir(pluginDir, parent, factoryType, effectivePolicy);
+                    PluginHandle<F> handle = loadFromPluginDir(pluginDir, parent, factoryType, effectivePolicy,
+                            apiVersionGate);
                     if (handlesByName.containsKey(handle.getPluginName())) {
                         closeClassLoader(handle.getClassLoader());
                         failures.add(new LoadFailure(
@@ -208,7 +219,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     }
 
     private PluginHandle<F> loadFromPluginDir(Path pluginDir, ClassLoader parent, Class<F> factoryType,
-            ClassLoadingPolicy policy) throws PluginLoadException {
+            ClassLoadingPolicy policy, ApiVersionGate apiVersionGate) throws PluginLoadException {
         Path normalizedDir = normalize(pluginDir);
 
         // Collect root-level jars (plugin primary jars) and lib/ jars (dependencies) separately.
@@ -253,10 +264,34 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             }
             // Re-load and instantiate the factory class from the runtime classloader so that it
             // has full access to lib/ classes (e.g. CosFileSystemProvider needs S3 classes).
+            Class<?> discoveredClass;
+            try {
+                discoveredClass = classLoader.loadClass(factoryClassName);
+            } catch (ReflectiveOperationException e) {
+                throw new PluginLoadException(
+                        normalizedDir,
+                        LoadFailure.STAGE_INSTANTIATE,
+                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        e);
+            }
+
+            // Version check before construction, and before asSubclass(): a plugin built against a
+            // different SPI major is precisely the one whose types may no longer line up, so it must be
+            // answered with a diagnosis naming both versions rather than with a cast or linkage error.
+            String declaredApiVersion = readManifestMainAttribute(
+                    discoveredClass, allJars, apiVersionGate.getManifestAttribute());
+            String rejection = apiVersionGate.rejectionReason(declaredApiVersion);
+            if (rejection != null) {
+                throw new PluginLoadException(
+                        normalizedDir,
+                        LoadFailure.STAGE_API_VERSION,
+                        "Rejected plugin in " + normalizedDir + ": " + rejection,
+                        null);
+            }
+
             try {
                 @SuppressWarnings("unchecked")
-                Class<? extends F> factoryClass = (Class<? extends F>)
-                        classLoader.loadClass(factoryClassName).asSubclass(factoryType);
+                Class<? extends F> factoryClass = (Class<? extends F>) discoveredClass.asSubclass(factoryType);
                 factory = factoryClass.getDeclaredConstructor().newInstance();
             } catch (ReflectiveOperationException e) {
                 throw new PluginLoadException(
@@ -321,20 +356,25 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 version);
     }
 
+    /** Extracts one datum from an open plugin jar's MANIFEST. */
+    private interface ManifestReader {
+        String read(JarFile jarFile) throws IOException;
+    }
+
     /**
-     * Reads Implementation-Version from the MANIFEST of the jar that defined the
-     * factory class: the class's code source when available (covers layouts where
-     * the service descriptor sits in a root jar but the implementation lives in
-     * lib/), otherwise the first candidate jar containing the class entry.
-     * Version is display-only metadata: failures degrade to null instead of
-     * failing the load.
+     * Applies {@code reader} to the MANIFEST of the jar that defined the factory class: the class's code
+     * source when available (covers layouts where the service descriptor sits in a root jar but the
+     * implementation lives in lib/), otherwise the first candidate jar containing the class entry.
+     *
+     * <p>An unreadable jar degrades to null rather than throwing. For the display-only version that leaves
+     * the inventory row's version empty; for the plugin API version it reads as "declared nothing", which
+     * {@link ApiVersionGate} rejects — the fail-closed direction in both cases.
      */
-    private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
-        String packagePath = ManifestVersions.packagePathOf(factoryClass);
+    private String readFromDefiningJar(Class<?> factoryClass, List<Path> candidateJars, ManifestReader reader) {
         Path definingJar = ManifestVersions.jarOf(factoryClass);
         if (definingJar != null) {
             try (JarFile jarFile = new JarFile(definingJar.toFile())) {
-                return ManifestVersions.fromManifest(jarFile, packagePath);
+                return reader.read(jarFile);
             } catch (IOException ignored) {
                 // Fall through to scanning the candidate jars.
             }
@@ -345,12 +385,26 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 if (jarFile.getEntry(classEntry) == null) {
                     continue;
                 }
-                return ManifestVersions.fromManifest(jarFile, packagePath);
+                return reader.read(jarFile);
             } catch (IOException ignored) {
-                // Display-only metadata; fall through to the next candidate jar.
+                // Fall through to the next candidate jar.
             }
         }
         return null;
+    }
+
+    /** Implementation-Version, honoring the class's package section. Display-only metadata. */
+    private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
+        String packagePath = ManifestVersions.packagePathOf(factoryClass);
+        return readFromDefiningJar(factoryClass, candidateJars,
+                jarFile -> ManifestVersions.fromManifest(jarFile, packagePath));
+    }
+
+    /** The plugin API version a jar declares, as a MANIFEST main attribute. Null when absent. */
+    private String readManifestMainAttribute(Class<?> factoryClass, List<Path> candidateJars,
+            String attributeName) {
+        return readFromDefiningJar(factoryClass, candidateJars,
+                jarFile -> ManifestVersions.mainAttribute(jarFile, attributeName));
     }
 
     /**

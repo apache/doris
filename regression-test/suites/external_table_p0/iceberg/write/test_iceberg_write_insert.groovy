@@ -826,6 +826,7 @@ suite("test_iceberg_write_insert", "p0,external") {
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'hive.parquet.time-zone' = 'Asia/Shanghai',
                 'use_meta_cache' = 'true'
             );"""
 

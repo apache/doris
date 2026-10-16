@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-metastore-paimon</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector Metastore Paimon</name>
+    <description>
+        Paimon per-engine metastore backends: the concrete HMS/DLF/REST/JDBC/FileSystem
+        *MetaStoreProperties impls + their MetaStoreProvider entries (META-INF/services), discovered by
+        ServiceLoader at CREATE-CATALOG time. Mirrors fe-filesystem's per-backend modules: the shared
+        extension point, framework, and engine-neutral HMS/DLF conf bases live in
+        fe-connector-metastore-spi; this module supplies only paimon's flavor of validate()
+        (warehouse[+OSS for DLF] + the shared connection checks). Bundled child-first into the
+        fe-connector-paimon plugin-zip (NOT compiled into fe-core); only paimon's plugin classpath sees
+        these providers, so bindForType(flavor) resolves within-engine at runtime.
+    </description>
+
+    <dependencies>
+        <!-- Extension point + framework + engine-neutral HMS/DLF conf bases (Abstract{Hms,Dlf}MetaStoreProperties,
+             MetaStoreProvider(s), MetaStoreParseUtils, JdbcDriverSupport). Transitively pulls
+             metastore-api + fe-kerberos + fe-extension-spi + fe-foundation. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The neutral *MetaStoreProperties contracts the impls implement (also transitive via -spi;
+             declared directly for clarity). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding in the of() factories; D-004). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- AuthType + KerberosAuthSpec value objects (the HMS conf base + its parity test use them;
+             also transitive via -spi/-api). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- StringUtils / BooleanUtils — match the up-move source's exact blank/boolean semantics. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-connector-metastore-paimon</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <!-- A library jar bundled into the fe-connector-paimon plugin-zip (via that module's
+                         assembly dependencySet), not a standalone plugin: nothing to copy here. -->
+                    <execution>
+                        <id>copy-plugin-deps</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

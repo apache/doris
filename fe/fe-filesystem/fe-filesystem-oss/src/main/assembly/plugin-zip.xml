@@ -54,6 +54,11 @@ under the License.
             <outputDirectory>/lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
             <scope>runtime</scope>
+            <excludes>
+                <!-- Logging provided by host -->
+                <exclude>org.apache.logging.log4j:*</exclude>
+                <exclude>org.slf4j:*</exclude>
+            </excludes>
         </dependencySet>
     </dependencySets>
 </assembly>

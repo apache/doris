@@ -152,11 +152,10 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Field field = SessionVariable.class.getDeclaredField("insertVisibleTimeoutReturnMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
-        Assertions.assertArrayEquals(new String[] {
-                "控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+        Assertions.assertEquals(
                 "Controls the status returned to the client when a normal internal-table INSERT times out "
-                        + "while waiting for publish visibility."
-        }, varAttr.description());
+                        + "while waiting for publish visibility.",
+                varAttr.description());
         Assertions.assertArrayEquals(new String[] {
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR
@@ -190,19 +189,33 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFlussUnionReadModeRejectsInvalidValuesAtSetTime() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Field field = SessionVariable.class.getDeclaredField("flussUnionReadMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals("checkFlussUnionReadMode", varAttr.checker());
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("ReQuIrEd")));
+        Assertions.assertEquals("ReQuIrEd", sessionVar.flussUnionReadMode);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "fluss_union_read_mode value is invalid",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("nonsense"))));
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
 
         Field field = SessionVariable.class.getDeclaredField("runtimeFilterBroadcastJoinProducerNum");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
-        Assertions.assertArrayEquals(new String[] {
-                "控制 Nereids 分布式规划中每个 broadcast join runtime filter 的生产 BE 数量。"
-                        + "设置为小于等于 0 时不限制。Legacy Coordinator 路径保持原行为。",
+        Assertions.assertEquals(
                 "Controls the number of producer BEs for each broadcast join runtime filter in "
                         + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                        + "The legacy Coordinator path keeps the existing behavior."
-        }, varAttr.description());
+                        + "The legacy Coordinator path keeps the existing behavior.",
+                varAttr.description());
     }
 
     @Test
@@ -213,6 +226,19 @@ public class SessionVariablesTest extends TestWithFeService {
         Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
         Assertions.assertTrue(varAttr.fuzzy());
+    }
+
+    @Test
+    public void testFileScannerV2RemainsEnabledInFuzzyMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+        sessionVar.enableFileScannerV2 = false;
+        sessionVar.initFuzzyModeVariables();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+
+        Field field = SessionVariable.class.getDeclaredField("enableFileScannerV2");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertFalse(varAttr.fuzzy());
     }
 
     @Test
@@ -242,6 +268,33 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testHistoricalConcurrencyHintCleanup() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        try {
+            for (String variable : new String[] {SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                    SessionVariable.COLOCATE_MAX_PARALLEL_NUM, SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                    SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                    SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                    SessionVariable.SEND_BATCH_PARALLELISM, SessionVariable.LOAD_STREAM_PER_NODE}) {
+                SessionVariable restored = new SessionVariable();
+                restored.readFromJson("{\"" + variable + "\":2000}");
+                connectContext.setSessionVariable(restored);
+
+                executeNereidsSql("SELECT /*+ SET_VAR(" + variable + "=8) */ 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertFalse(restored.getIsSingleSetVar());
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+
+                executeNereidsSql("SELECT 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+            }
+        } finally {
+            connectContext.setSessionVariable(original);
+        }
     }
 
     @Test
@@ -391,6 +444,24 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testSplitBatchAndQueueLimitsUseTheirOwnVariableCheckers() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
+            Field field = VariableMgr.getVarContext(name).getField();
+            for (int value : new int[] {1, 9}) {
+                VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value)));
+                Assertions.assertEquals(value, field.getInt(variable));
+            }
+            for (int value : new int[] {0, -1}) {
+                DdlException failure = Assertions.assertThrows(DdlException.class,
+                        () -> VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value))));
+                Assertions.assertTrue(failure.getMessage().contains(name + " value should greater than or equal 1"));
+                Assertions.assertEquals(9, field.getInt(variable));
+            }
+        }
+    }
+
+    @Test
     public void testFileCacheQueryLimitBytesToThrift() throws Exception {
         SessionVariable variable = new SessionVariable();
         VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
@@ -400,5 +471,26 @@ public class SessionVariablesTest extends TestWithFeService {
         TQueryOptions queryOptions = variable.toThrift();
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
+    }
+
+    @Test
+    public void testCoordinatorThriftLimitPropagatesToBackends() {
+        TQueryOptions queryOptions = new SessionVariable().toThrift();
+
+        Assertions.assertTrue(queryOptions.isSetCoordinatorThriftMaxMessageSize());
+        Assertions.assertEquals(Config.thrift_max_message_size,
+                queryOptions.getCoordinatorThriftMaxMessageSize());
+        Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
+    }
+
+    @Test
+    public void testHyperscanFallbackPropagatesToBackends() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        Assertions.assertTrue(variable.toThrift().isEnableHyperscanFallback());
+
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
+
+        Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
     }
 }

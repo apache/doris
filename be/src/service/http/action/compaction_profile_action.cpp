@@ -106,10 +106,10 @@ void CompactionProfileAction::handle(HttpRequest* req) {
     // compact_type
     compact_type = req->param("compact_type");
     if (!compact_type.empty() && compact_type != "base" && compact_type != "cumulative" &&
-        compact_type != "full" && compact_type != "binlog") {
+        compact_type != "full") {
         HttpChannel::send_reply(
                 req, HttpStatus::BAD_REQUEST,
-                R"({"status":"Error","msg":"compact_type must be one of: base, cumulative, full, binlog"})");
+                R"({"status":"Error","msg":"compact_type must be one of: base, cumulative, full"})");
         return;
     }
 

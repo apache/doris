@@ -66,10 +66,14 @@ suite("test_es_catalog_http_open_api", "p2,external") {
         """
 
         List<String> feHosts = getFrontendIpHttpPort()
+        // These FE endpoints require credentials: ESCatalogAction calls executeCheckPassword when
+        // enable_all_http_auth is on, which is the default.
+        String feUser = context.config.jdbcUser
+        String fePwd = context.config.jdbcPassword ?: ""
         // for each catalog 5..8, send a request
         for (int i = 5; i <= 8; i++) {
             String catalog = String.format("test_es_catalog_http_open_api_es%s", i)
-            def (code, out, err) = curl("GET", String.format("http://%s/rest/v2/api/es_catalog/get_mapping?catalog=%s&table=test1", feHosts[0], catalog))
+            def (code, out, err) = curl("GET", String.format("http://%s/rest/v2/api/es_catalog/get_mapping?catalog=%s&table=test1", feHosts[0], catalog), null, 10, feUser, fePwd)
             logger.info("Get mapping response: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(code == 0)
             assertTrue(out.toLowerCase().contains("success"))
@@ -77,7 +81,7 @@ suite("test_es_catalog_http_open_api", "p2,external") {
             assertTrue(out.toLowerCase().contains(catalog))
 
             String body = '{"query":{"match_all":{}},"stored_fields":"_none_","docvalue_fields":["test6"],"sort":["_doc"],"size":4064}';
-            def (code1, out1, err1) = curl("POST", String.format("http://%s/rest/v2/api/es_catalog/search?catalog=%s&table=test1", feHosts[0], catalog), body)
+            def (code1, out1, err1) = curl("POST", String.format("http://%s/rest/v2/api/es_catalog/search?catalog=%s&table=test1", feHosts[0], catalog), body, 10, feUser, fePwd)
             logger.info("Search index response: code=" + code1 + ", out=" + out1 + ", err=" + err1)
             assertTrue(code1 == 0)
             assertTrue(out1.toLowerCase().contains("success"))

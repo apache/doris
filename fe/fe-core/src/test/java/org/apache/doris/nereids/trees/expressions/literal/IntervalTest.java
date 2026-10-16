@@ -29,4 +29,10 @@ public class IntervalTest {
         Interval i2 = new Interval(new IntegerLiteral(1), TimeUnit.SECOND);
         Assertions.assertNotEquals(i1, i2);
     }
+
+    @Test
+    public void testIntervalToSql() {
+        Interval interval = new Interval(new IntegerLiteral(1), TimeUnit.DAY);
+        Assertions.assertEquals("INTERVAL 1 DAY", interval.toSql());
+    }
 }

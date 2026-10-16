@@ -16,14 +16,15 @@
 // under the License.
 
 suite("regression_test_variant_view", "var_view") {
+    def variantV2Function = "parse_to_variant"
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             file file_name // import json file
             time 10000 // limit inflight 10s
@@ -62,9 +63,9 @@ suite("regression_test_variant_view", "var_view") {
             cast(v["repo"]["name"] as string) as repo_name,
             count() AS comments,
             count(distinct cast(v["actor"]["login"] as string)) AS authors
-            FROM github_events_view 
+            FROM github_events_view
             WHERE cast(v["type"] as string) = 'CommitCommentEvent'
-            GROUP BY repo_name 
+            GROUP BY repo_name
             ORDER BY count() DESC, 1, 3
             LIMIT 50
     """
@@ -77,7 +78,7 @@ suite("regression_test_variant_view", "var_view") {
     qt_sql "select * from v3"
 
     sql "drop view if exists v4"
-    sql """insert into github_events_view values (1, '{"ratio" : 1.1, "repo" : {"name" : "apache/doris", "id" : 12345}}')"""
+    sql """insert into github_events_view values (1, ${variantV2Function}('{"ratio" : 1.1, "repo" : {"name" : "apache/doris", "id" : 12345}}'))"""
     sql """create view v4 as SELECT cast(v["repo"]["name"] as string) repo_name,  cast(v["repo"]["id"] as int) as id from github_events_view where v['ratio'] > 0.7"""
     qt_sql """select * from v4"""
 }

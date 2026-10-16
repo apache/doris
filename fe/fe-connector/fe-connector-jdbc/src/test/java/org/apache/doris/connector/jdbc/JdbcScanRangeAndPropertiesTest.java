@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.Map;
 
 class JdbcScanRangeAndPropertiesTest {
@@ -74,12 +74,6 @@ class JdbcScanRangeAndPropertiesTest {
     }
 
     @Test
-    void testScanRangeType() {
-        JdbcScanRange range = new JdbcScanRange.Builder().build();
-        Assertions.assertEquals(ConnectorScanRangeType.FILE_SCAN, range.getRangeType());
-    }
-
-    @Test
     void testScanRangePath() {
         JdbcScanRange range = new JdbcScanRange.Builder().build();
         Assertions.assertTrue(range.getPath().isPresent());
@@ -90,6 +84,42 @@ class JdbcScanRangeAndPropertiesTest {
     void testScanRangeTableFormatType() {
         JdbcScanRange range = new JdbcScanRange.Builder().build();
         Assertions.assertEquals("jdbc", range.getTableFormatType());
+    }
+
+    /**
+     * Pins what the DEFAULT {@code ConnectorScanRange.populateRangeParams} sends to BE.
+     *
+     * <p>WHY this test lives in the jdbc module: {@code JdbcScanRange} is the only shipped range that does not
+     * override {@code populateRangeParams} (the other seven build their own typed thrift descriptor), so this
+     * is the only production path through the default implementation — and until this test it had no coverage
+     * at all. The {@code jdbc_params} map it fills IS the input of BE's jdbc reader
+     * ({@code file_scanner.cpp} / {@code jdbc_reader.cpp} read it, and the JNI scanner picks keys out of it by
+     * name), so dropping a key from that map is a wire-visible change, not a cleanup.</p>
+     */
+    @Test
+    void testPopulateRangeParamsCarriesBeConsumedKeysAndNoDeadRangeTypeKey() {
+        JdbcScanRange range = new JdbcScanRange.Builder()
+                .querySql("SELECT * FROM t")
+                .jdbcUrl("jdbc:mysql://host:3306/db")
+                .jdbcUser("root")
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        range.populateRangeParams(formatDesc, new TFileRangeDesc());
+        Map<String, String> params = formatDesc.getJdbcParams();
+
+        // The keys BE really reads must survive untouched.
+        Assertions.assertEquals("SELECT * FROM t", params.get("query_sql"));
+        Assertions.assertEquals("jdbc:mysql://host:3306/db", params.get("jdbc_url"));
+        Assertions.assertEquals("root", params.get("jdbc_user"));
+        Assertions.assertEquals("jni", params.get("connector_file_format"),
+                "jdbc is read through the JNI scanner framework");
+
+        // MUTATION: re-adding props.put("connector_scan_range_type", ...) in the default
+        // populateRangeParams turns this red. Neither BE (zero hits across be/) nor JdbcJniScanner reads that
+        // key, and every connector returned the same value for it, so it was pure freight.
+        Assertions.assertFalse(params.containsKey("connector_scan_range_type"),
+                "the scan-range-type key is dead freight: nothing on the BE side reads it");
     }
 
     @Test
@@ -117,60 +147,4 @@ class JdbcScanRangeAndPropertiesTest {
         Assertions.assertEquals("false", range.getProperties().get("connection_pool_keep_alive"));
     }
 
-    // === JdbcConnectorProperties.getInt ===
-
-    @Test
-    void testGetIntValidValue() {
-        Map<String, String> props = new HashMap<>();
-        props.put("pool_size", "42");
-        Assertions.assertEquals(42, JdbcConnectorProperties.getInt(props, "pool_size", 10));
-    }
-
-    @Test
-    void testGetIntMissingKeyReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        Assertions.assertEquals(10, JdbcConnectorProperties.getInt(props, "missing", 10));
-    }
-
-    @Test
-    void testGetIntNullValueReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", null);
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntEmptyStringReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "");
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntNonNumericReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "not_a_number");
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntWithWhitespace() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "  100  ");
-        Assertions.assertEquals(100, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntNegativeValue() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "-1");
-        Assertions.assertEquals(-1, JdbcConnectorProperties.getInt(props, "key", 0));
-    }
-
-    @Test
-    void testGetIntZero() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "0");
-        Assertions.assertEquals(0, JdbcConnectorProperties.getInt(props, "key", 99));
-    }
 }

@@ -70,6 +70,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -2059,8 +2060,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
                 // per-iteration because Tablet.addReplica(...) below needs the tablet present
                 // in the inverted index.
+                // Row-binlog tables permit only light schema changes, so this shadow index is ordinary.
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        newSchemaHash, medium);
+                        newSchemaHash, medium, false /* isRowBinlog */);
                 List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
                         originIndex.getTablets().size());
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -2341,7 +2343,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true, true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -2544,8 +2546,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index and ann index can only do light_schema_change in local mode
+                    // BfIndex and NGRAM_BF use light schema change only when new-data-only indexing is enabled.
+                    // Local mode also supports INVERTED and ANN; cloud mode supports non-tokenized INVERTED.
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
@@ -2637,20 +2639,21 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // for inverted index, light schema change is supported in both cloud and local mode;
-                        // for ngram index, light schema change is supported only in cloud mode;
+                        // Inverted index supports light schema change in both cloud and local mode.
+                        // NGRAM_BF and BfIndex support it only in cloud mode.
                         boolean supportLightIndexChange = false;
-                        if (Config.isCloudMode()) {
-                            if (enableAddIndexForNewData) {
-                                supportLightIndexChange = (
-                                        found.getIndexType() == IndexType.NGRAM_BF
-                                                || found.getIndexType() == IndexType.INVERTED);
+                        if (found != null) {
+                            if (Config.isCloudMode()) {
+                                supportLightIndexChange = enableAddIndexForNewData
+                                        && (found.getIndexType() == IndexType.NGRAM_BF
+                                        || found.getIndexType() == IndexType.BLOOMFILTER
+                                        || found.getIndexType() == IndexType.INVERTED);
+                            } else {
+                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
+                                        || found.getIndexType() == IndexType.ANN;
                             }
-                        } else {
-                            supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                    || found.getIndexType() == IndexType.ANN;
                         }
-                        if (found != null && supportLightIndexChange) {
+                        if (supportLightIndexChange) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -2678,8 +2681,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
             } else if (Config.enable_light_index_change && lightIndexChange) {
+                Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
+                // For light index changes, directly modify table metadata first.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         alterIndexes, isDropIndex, jobId, false, propertyMap);
             } else if (buildIndexChange) {
@@ -2855,13 +2859,6 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.readUnlock();
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
-                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
-                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException("Only AUTO RANGE PARTITION table could set "
-                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
-        }
-
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
         int isInMemory = -1; // < 0 means don't update inMemory properties
         if (inMemory != null) {
@@ -2997,6 +2994,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         olapTable.writeLockOrDdlException();
         try {
+            checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
@@ -3004,6 +3002,24 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+    }
+
+    protected void checkPartitionRetentionCount(OlapTable olapTable, Map<String, String> properties)
+            throws UserException {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            return;
+        }
+        if (!(olapTable.getPartitionInfo().enableAutomaticPartition()
+                && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        }
+        // Dynamic partition creation and retention-count cleanup are mutually exclusive scheduler modes.
+        if (olapTable.dynamicPartitionExists()
+                && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+            throw new UserException("Can not use partition.retention_count and "
+                    + "dynamic_partition properties at the same time");
+        }
     }
 
     /**
@@ -3060,18 +3076,34 @@ public class SchemaChangeHandler extends AlterHandler {
                                           int skipWriteIndexOnLoad,
                                           int disableAutoCompaction,
                                           int verticalCompactionNumColumnsPerGroup) throws UserException {
-        // be id -> <tablet id,schemaHash>
-        Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Partition partition;
         olapTable.readLock();
         try {
-            Partition partition = olapTable.getPartition(partitionName);
+            partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
+        } finally {
+            olapTable.readUnlock();
+        }
+        updatePartitionProperties(db, olapTable, partition, storagePolicyId, isInMemory, binlogConfig,
+                compactionPolicy, timeSeriesCompactionConfig, skipWriteIndexOnLoad, disableAutoCompaction,
+                verticalCompactionNumColumnsPerGroup);
+    }
 
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+    protected void updatePartitionProperties(Database db, OlapTable olapTable, Partition partition,
+            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad, int disableAutoCompaction,
+            int verticalCompactionNumColumnsPerGroup) throws UserException {
+        String tableName = olapTable.getName();
+        String partitionName = partition.getName();
+        // Use the captured partition identity, including temporary partitions with the same name.
+        Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
+        olapTable.readLock();
+        try {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
@@ -3304,6 +3336,13 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        if (indexDef.getIndexType() == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+            throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
+        }
+
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
@@ -3317,6 +3356,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
         }
+
+        // CreateIndexOp#validate materializes the IndexDefinition into alterIndex before
+        // checkColumn runs, so the property defaults that are only filled in during checkColumn
+        // (currently the gram family's support_phrase=false) have to be written back here, or the
+        // index that is persisted and shipped to BE would lose them.
+        indexDef.applyPropertiesTo(alterIndex);
 
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
@@ -3348,6 +3393,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
+                            if (InvertedIndexUtil.hasSameNonIkAnalyzerSelector(
+                                    index.getProperties(), indexDef.getProperties())) {
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName
+                                        + ") with the same analyzer selector already exists.");
+                            }
                             String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {
@@ -3528,7 +3579,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3962,6 +4013,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (!mergePropertiesStatus.first) {
                         throw new AnalysisException(mergePropertiesStatus.second);
                     }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+                        newBinlogConfig.applyExplicitRowTtl(newBinlogConfig.getTtlSeconds());
+                    }
                 }
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
@@ -3969,10 +4023,21 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         boolean hasChanged = !newBinlogConfig.equals(oldBinlogConfig);
-        if (!hasChanged) {
+        if (!hasChanged && !oldBinlogConfig.isEnableForStreaming()) {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
+            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
+                    + olapTable.getName());
+        }
+
+        if (newBinlogConfig.isEnableForCCR()) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+            }
         }
 
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception
@@ -3991,6 +4056,10 @@ public class SchemaChangeHandler extends AlterHandler {
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
 
+        if (oldBinlogConfig.isEnableForStreaming()) {
+            updateRowBinlogConfig(db, olapTable, oldBinlogConfig, newBinlogConfig);
+            return false;
+        }
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
@@ -4005,6 +4074,60 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         return false;
+    }
+
+    private void updateRowBinlogConfig(Database db, OlapTable table, BinlogConfig oldConfig,
+            BinlogConfig newConfig) throws UserException {
+        List<Partition> partitions;
+        table.writeLockOrDdlException();
+        try {
+            if (!table.getBinlogConfig().equals(oldConfig)) {
+                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            }
+            // Journal a new generation even for an identical retry. Earlier timed-out tasks
+            // must not overwrite tablets after a later retention extension has succeeded.
+            newConfig.setConfigVersion(Math.addExact(oldConfig.getConfigVersion(), 1));
+            BinlogConfig published = new BinlogConfig(newConfig);
+            if (oldConfig.isRowTtlEnabled() && newConfig.getTtlSeconds() > oldConfig.getTtlSeconds()) {
+                // An extension is visible only after every tablet accepts the longer TTL.
+                published.setTtlSeconds(oldConfig.getTtlSeconds());
+            }
+            // A shorter TTL authorizes irreversible deletion. Persist it before any RPC.
+            Env.getCurrentEnv().updateBinlogConfig(db, table, published);
+            partitions = Lists.newArrayList(table.getAllPartitions());
+        } finally {
+            table.writeUnlock();
+        }
+
+        int updatedPartitions = 0;
+        for (Partition partition : partitions) {
+            int failAfter = DebugPointUtil.getDebugParamOrDefault(
+                    "SchemaChangeHandler.updateRowBinlogConfig.fail_after_partitions", -1);
+            if (failAfter >= 0 && updatedPartitions >= failAfter) {
+                throw new DdlException("debug point: ROW binlog configuration update failed after "
+                        + updatedPartitions + " partitions");
+            }
+            updatePartitionProperties(db, table, partition, -1, -1,
+                    newConfig, null, null, -1, -1, -1);
+            updatedPartitions++;
+        }
+
+        table.writeLockOrDdlException();
+        try {
+            if (table.getBinlogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
+                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            }
+            Set<Long> updatedIds = partitions.stream().map(Partition::getId).collect(Collectors.toSet());
+            Set<Long> currentIds = table.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toSet());
+            if (!updatedIds.equals(currentIds)) {
+                throw new DdlException("Partitions changed during binlog configuration update; retry ALTER TABLE");
+            }
+            if (!table.getBinlogConfig().equals(newConfig)) {
+                Env.getCurrentEnv().updateBinlogConfig(db, table, newConfig);
+            }
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     private void removeColumnWhenDropGeneratedColumn(Column dropColumn, Map<String, Column> nameToColumn) {

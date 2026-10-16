@@ -21,18 +21,24 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <set>
+#include <utility>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -43,6 +49,138 @@ class CloudMetaMgrTest : public testing::Test {
     void SetUp() override {}
     void TearDown() override {}
 };
+
+TEST_F(CloudMetaMgrTest, response_status_uses_actual_code_when_valid) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::MS_TOO_BUSY));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::KV_TXN_CONFLICT));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::OK));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+
+    status.clear_code();
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::MS_TOO_BUSY));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.clear_actual_code();
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_falls_back_to_non_ok_code_for_invalid_actual_code) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_with_ok) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::OK);
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_without_code) {
+    MetaServiceResponseStatus status;
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
+    MetaServiceResponseStatus status;
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+
+    status.set_code(MetaServiceCode::OK);
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+}
+
+TEST_F(CloudMetaMgrTest, PreRowsetDeleteBitmapStatsRequestEncoding) {
+    CloudStorageEngine engine(EngineOptions {});
+    CloudMetaMgr meta_mgr;
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
+    DeleteBitmap delete_bitmap(tablet->tablet_id());
+    std::map<std::string, int64_t> rowset_to_versions;
+
+    int32_t old_write_version = config::delete_bitmap_store_write_version;
+    bool old_remove_agg_by_keys = config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys;
+    config::delete_bitmap_store_write_version = 1;
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+    Defer cleanup {[&] {
+        config::delete_bitmap_store_write_version = old_write_version;
+        config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = old_remove_agg_by_keys;
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto capture_request = [&](const CloudTablet::PreRowsetDeleteBitmapStats* stats) {
+        bool called = false;
+        UpdateDeleteBitmapRequest captured_req;
+        SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "CloudMetaMgr::cloud_update_delete_bitmap_without_lock.before_rpc",
+                [&](auto&& args) {
+                    auto* req = try_any_cast<UpdateDeleteBitmapRequest*>(args[0]);
+                    captured_req.CopyFrom(*req);
+                    called = true;
+                    auto* ret = try_any_cast<std::pair<Status, bool>*>(args.back());
+                    ret->first = Status::OK();
+                    ret->second = true;
+                },
+                &guard);
+        auto status = meta_mgr.cloud_update_delete_bitmap_without_lock(
+                *tablet, &delete_bitmap, rowset_to_versions, stats, tablet->table_id(), 1, 2);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(called);
+        return captured_req;
+    };
+
+    config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = false;
+    auto config_disabled_req = capture_request(nullptr);
+    EXPECT_FALSE(config_disabled_req.enable_remove_agg_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_FALSE(config_disabled_req.enable_remove_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_EQ(config_disabled_req.pre_rowset_delete_bitmap_stats_size(), 0);
+
+    CloudTablet::PreRowsetDeleteBitmapStats empty_stats;
+    empty_stats.emplace(
+            "rowset_without_delete_bitmap",
+            std::vector<std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>> {});
+    empty_stats.emplace(
+            "second_rowset_without_delete_bitmap",
+            std::vector<std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>> {});
+    config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = true;
+    auto config_enabled_req = capture_request(&empty_stats);
+    EXPECT_TRUE(config_enabled_req.enable_remove_agg_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_TRUE(config_enabled_req.enable_remove_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_EQ(config_enabled_req.pre_rowset_delete_bitmap_stats_size(), 0);
+
+    using DeleteBitmapStat = std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>;
+    CloudTablet::PreRowsetDeleteBitmapStats populated_stats;
+    populated_stats.emplace("rowset_with_delete_bitmap",
+                            std::vector<DeleteBitmapStat> {{3, 7, 1024}, {8, 9, 2048}});
+    auto populated_stats_req = capture_request(&populated_stats);
+    ASSERT_EQ(populated_stats_req.pre_rowset_delete_bitmap_stats_size(), 1);
+    const auto& rowset_stats = populated_stats_req.pre_rowset_delete_bitmap_stats(0);
+    EXPECT_EQ(rowset_stats.rowset_id(), "rowset_with_delete_bitmap");
+    ASSERT_EQ(rowset_stats.delete_bitmap_stats_size(), 2);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).segment_id(), 3);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).version(), 7);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).delete_bitmap_size(), 1024);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).segment_id(), 8);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).version(), 9);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).delete_bitmap_size(), 2048);
+}
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
     auto* sp = SyncPoint::get_instance();
@@ -230,6 +368,57 @@ TEST_F(CloudMetaMgrTest, abort_txn_uses_label_when_txn_id_is_missing) {
     EXPECT_EQ(captured_req.db_id(), ctx.db_id);
     EXPECT_TRUE(captured_req.has_label());
     EXPECT_EQ(captured_req.label(), ctx.label);
+}
+
+TEST_F(CloudMetaMgrTest, inverted_index_format_survives_meta_pb_conversion) {
+    RowsetMetaPB local_rowset;
+    local_rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto cloud_rowset = doris_rowset_meta_to_cloud(local_rowset);
+    ASSERT_TRUE(cloud_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, cloud_rowset.inverted_index_storage_format());
+
+    auto restored_rowset = cloud_rowset_meta_to_doris(cloud_rowset);
+    ASSERT_TRUE(restored_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, restored_rowset.inverted_index_storage_format());
+
+    RowsetMetaPB movable_rowset;
+    movable_rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    RowsetMetaCloudPB moved_cloud_rowset;
+    doris_rowset_meta_to_cloud(&moved_cloud_rowset, std::move(movable_rowset));
+    ASSERT_TRUE(moved_cloud_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_cloud_rowset.inverted_index_storage_format());
+
+    RowsetMetaPB moved_local_rowset;
+    cloud_rowset_meta_to_doris(&moved_local_rowset, std::move(moved_cloud_rowset));
+    ASSERT_TRUE(moved_local_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_local_rowset.inverted_index_storage_format());
+
+    TabletMetaPB local_tablet;
+    local_tablet.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    auto cloud_tablet = doris_tablet_meta_to_cloud(local_tablet);
+    ASSERT_TRUE(cloud_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2, cloud_tablet.inverted_index_storage_format());
+
+    auto restored_tablet = cloud_tablet_meta_to_doris(cloud_tablet);
+    ASSERT_TRUE(restored_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2, restored_tablet.inverted_index_storage_format());
+
+    TabletMetaPB movable_tablet;
+    movable_tablet.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    TabletMetaCloudPB moved_cloud_tablet;
+    doris_tablet_meta_to_cloud(&moved_cloud_tablet, std::move(movable_tablet));
+    ASSERT_TRUE(moved_cloud_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_cloud_tablet.inverted_index_storage_format());
+
+    TabletMetaPB moved_local_tablet;
+    cloud_tablet_meta_to_doris(&moved_local_tablet, std::move(moved_cloud_tablet));
+    ASSERT_TRUE(moved_local_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_local_tablet.inverted_index_storage_format());
+
+    RowsetMetaPB legacy_rowset;
+    EXPECT_FALSE(doris_rowset_meta_to_cloud(legacy_rowset).has_inverted_index_storage_format());
+    TabletMetaPB legacy_tablet;
+    EXPECT_FALSE(doris_tablet_meta_to_cloud(legacy_tablet).has_inverted_index_storage_format());
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {

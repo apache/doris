@@ -38,38 +38,84 @@ public:
 
     static constexpr auto system_prompt = "";
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>()));
     }
 
-    Status execute_with_adapter(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, uint32_t result,
-                                size_t input_rows_count, const TAIResource& config,
-                                std::shared_ptr<AIAdapter>& adapter) const {
+    using PreparedFunctionImpl::execute;
+
+    AIResource select_ai_resource(const TAIResource& resource, PrimitiveType input_type) const {
+        bool has_complete_multimodal_embed_properties = _has_complete_resource_properties(
+                resource.embed_mm_endpoint, resource.embed_mm_provider_type,
+                resource.embed_mm_model_name, resource.embed_mm_api_key);
+        if (input_type == PrimitiveType::TYPE_JSONB && has_complete_multimodal_embed_properties) {
+            return AIResource::from_multimodal_embed(resource);
+        }
+        bool has_complete_embed_properties = _has_complete_resource_properties(
+                resource.embed_endpoint, resource.embed_provider_type, resource.embed_model_name,
+                resource.embed_api_key);
+        return has_complete_embed_properties ? AIResource::from_embed(resource)
+                                             : AIResource(resource);
+    }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, const AIResource& config,
+                   std::shared_ptr<AIAdapter>& adapter) const {
         if (arguments.size() != 2) {
             return Status::InvalidArgument("Function EMBED expects 2 arguments, but got {}",
                                            arguments.size());
         }
 
-        PrimitiveType input_type =
-                remove_nullable(block.get_by_position(arguments[1]).type)->get_primitive_type();
+        const auto& input = block.get_by_position(arguments[1]);
+        ColumnUInt8::MutablePtr result_null_map;
+        if (input.type->is_nullable()) {
+            const auto& [column, is_const] = unpack_if_const(input.column);
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column);
+            result_null_map = ColumnUInt8::create(input_rows_count, 0);
+            VectorizedUtils::update_null_map(result_null_map->get_data(),
+                                             nullable.get_null_map_data(), is_const);
+        }
+
+        if (result_null_map &&
+            !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
+        ColumnPtr input_column =
+                input.unnest_nullable(input.type->is_nullable() ? input.get_nullable_column_info()
+                                                                : NullableColumnInfo {},
+                                      false)
+                        .column;
+        PrimitiveType input_type = remove_nullable(input.type)->get_primitive_type();
         if (input_type == PrimitiveType::TYPE_JSONB) {
-            return _execute_multimodal_embed(context, block, arguments, result, input_rows_count,
-                                             config, adapter);
+            return _execute_multimodal_embed(context, block, result, input_rows_count, config,
+                                             adapter, input_column, std::move(result_null_map));
         }
         if (input_type == PrimitiveType::TYPE_STRING || input_type == PrimitiveType::TYPE_VARCHAR ||
             input_type == PrimitiveType::TYPE_CHAR) {
-            return _execute_text_embed(context, block, arguments, result, input_rows_count, config,
-                                       adapter);
+            return _execute_text_embed(context, block, result, input_rows_count, config, adapter,
+                                       input_column, std::move(result_null_map));
         }
         return Status::InvalidArgument(
                 "Function EMBED expects the second argument to be STRING or JSON, but got type {}",
-                block.get_by_position(arguments[1]).type->get_name());
+                input.type->get_name());
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
 
 private:
+    static bool _has_complete_resource_properties(std::string_view endpoint,
+                                                  std::string_view provider_type,
+                                                  std::string_view model_name,
+                                                  std::string_view api_key) {
+        return !endpoint.empty() && !provider_type.empty() && !model_name.empty() &&
+               (provider_type == "LOCAL" || !api_key.empty());
+    }
+
     static int32_t _get_embed_max_batch_size(FunctionContext* context) {
         QueryContext* query_ctx = context->state()->get_query_ctx();
         DORIS_CHECK(query_ctx != nullptr);
@@ -77,10 +123,10 @@ private:
         return query_ctx->query_options().embed_max_batch_size;
     }
 
-    Status _execute_text_embed(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count, const TAIResource& config,
-                               std::shared_ptr<AIAdapter>& adapter) const {
+    Status _execute_text_embed(FunctionContext* context, Block& block, uint32_t result,
+                               size_t input_rows_count, const AIResource& config,
+                               std::shared_ptr<AIAdapter>& adapter, const ColumnPtr& input_column,
+                               ColumnUInt8::MutablePtr result_null_map) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
         std::vector<std::string> batch_prompts;
@@ -88,10 +134,16 @@ private:
         const int32_t max_batch_size = _get_embed_max_batch_size(context);
         const size_t max_context_window_size =
                 static_cast<size_t>(get_ai_context_window_size(context));
+        const NullMap* null_map = result_null_map ? &result_null_map->get_data() : nullptr;
+        const Columns prompt_columns {input_column};
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && (*null_map)[i]) {
+                continue;
+            }
+
             std::string prompt;
-            RETURN_IF_ERROR(build_prompt(block, arguments, i, prompt));
+            RETURN_IF_ERROR(build_prompt(prompt_columns, i, prompt));
 
             const size_t prompt_size = prompt.size();
 
@@ -122,19 +174,23 @@ private:
         RETURN_IF_ERROR(
                 _flush_text_embedding_batch(batch_prompts, *col_result, config, adapter, context));
 
-        block.replace_by_position(result, std::move(col_result));
+        block.replace_by_position(result, _expand_and_wrap_nullable_result(
+                                                  std::move(col_result), std::move(result_null_map),
+                                                  input_rows_count));
         return Status::OK();
     }
 
-    Status _execute_multimodal_embed(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, uint32_t result,
-                                     size_t input_rows_count, const TAIResource& config,
-                                     std::shared_ptr<AIAdapter>& adapter) const {
+    Status _execute_multimodal_embed(FunctionContext* context, Block& block, uint32_t result,
+                                     size_t input_rows_count, const AIResource& config,
+                                     std::shared_ptr<AIAdapter>& adapter,
+                                     const ColumnPtr& input_column,
+                                     ColumnUInt8::MutablePtr result_null_map) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
         std::vector<MultimodalType> batch_media_types;
         std::vector<std::string> batch_media_content_types;
         std::vector<std::string> batch_media_urls;
+        const NullMap* null_map = result_null_map ? &result_null_map->get_data() : nullptr;
 
         int64_t ttl_seconds = 3600;
         QueryContext* query_ctx = context->state()->get_query_ctx();
@@ -147,10 +203,13 @@ private:
 
         const int32_t max_batch_size = _get_embed_max_batch_size(context);
 
-        const ColumnWithTypeAndName& file_column = block.get_by_position(arguments[1]);
         for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && (*null_map)[i]) {
+                continue;
+            }
+
             rapidjson::Document file_input;
-            RETURN_IF_ERROR(_parse_file_input(file_column, i, file_input));
+            RETURN_IF_ERROR(_parse_file_input(*input_column, i, file_input));
 
             std::string content_type;
             MultimodalType media_type;
@@ -175,7 +234,9 @@ private:
                 batch_media_types, batch_media_content_types, batch_media_urls, *col_result, config,
                 adapter, context));
 
-        block.replace_by_position(result, std::move(col_result));
+        block.replace_by_position(result, _expand_and_wrap_nullable_result(
+                                                  std::move(col_result), std::move(result_null_map),
+                                                  input_rows_count));
         return Status::OK();
     }
 
@@ -183,7 +244,7 @@ private:
     // Sends one embedding request with a prebuilt request body and validates returned row count.
     Status _execute_prebuilt_embedding_request(const std::string& request_body,
                                                std::vector<std::vector<float>>& results,
-                                               size_t expected_size, const TAIResource& config,
+                                               size_t expected_size, const AIResource& config,
                                                std::shared_ptr<AIAdapter>& adapter,
                                                FunctionContext* context) const {
         std::string response;
@@ -216,7 +277,7 @@ private:
     // EMBED-private helper.
     // Flushes one accumulated text embedding batch into the output array column.
     Status _flush_text_embedding_batch(std::vector<std::string>& batch_prompts,
-                                       ColumnArray& col_result, const TAIResource& config,
+                                       ColumnArray& col_result, const AIResource& config,
                                        std::shared_ptr<AIAdapter>& adapter,
                                        FunctionContext* context) const {
         if (batch_prompts.empty()) {
@@ -240,7 +301,7 @@ private:
     Status _flush_multimodal_embedding_batch(std::vector<MultimodalType>& batch_media_types,
                                              std::vector<std::string>& batch_media_content_types,
                                              std::vector<std::string>& batch_media_urls,
-                                             ColumnArray& col_result, const TAIResource& config,
+                                             ColumnArray& col_result, const AIResource& config,
                                              std::shared_ptr<AIAdapter>& adapter,
                                              FunctionContext* context) const {
         if (batch_media_urls.empty()) {
@@ -279,6 +340,29 @@ private:
         null_map.insert_many_vals(0, float_result.size());
     }
 
+    static ColumnPtr _expand_and_wrap_nullable_result(ColumnArray::MutablePtr result,
+                                                      ColumnUInt8::MutablePtr result_null_map,
+                                                      size_t input_rows_count) {
+        if (!result_null_map) {
+            return result;
+        }
+
+        auto& offsets = result->get_offsets();
+        size_t compact_row = offsets.size();
+        offsets.resize(input_rows_count);
+        // For example, embedding rows 1 and 3 produces compact offsets [5, 10]. Given
+        // result_null_map [1, 0, 1, 0, 1], expand them to [0, 5, 5, 10, 10], where NULL rows
+        // reuse the previous offset. Fill backwards to avoid overwriting unread compact offsets.
+        for (size_t row = input_rows_count; row-- > 0;) {
+            if (result_null_map->get_data()[row]) {
+                offsets[row] = compact_row == 0 ? 0 : offsets[compact_row - 1];
+            } else {
+                offsets[row] = offsets[--compact_row];
+            }
+        }
+        return ColumnNullable::create(std::move(result), std::move(result_null_map));
+    }
+
     static bool _starts_with_ignore_case(std::string_view s, std::string_view prefix) {
         if (s.size() < prefix.size()) {
             return false;
@@ -308,11 +392,10 @@ private:
     }
 
     // Parse the FILE-like JSONB argument into a JSON object for downstream field reads.
-    static Status _parse_file_input(const ColumnWithTypeAndName& file_column, size_t row_num,
+    static Status _parse_file_input(const IColumn& file_column, size_t row_num,
                                     rapidjson::Document& file_input) {
-        std::string file_json =
-                JsonbToJson::jsonb_to_json_string(file_column.column->get_data_at(row_num).data,
-                                                  file_column.column->get_data_at(row_num).size);
+        StringRef file_ref = file_column.get_data_at(row_num);
+        std::string file_json = JsonbToJson::jsonb_to_json_string(file_ref.data, file_ref.size);
         file_input.Parse(file_json.c_str());
         DORIS_CHECK(!file_input.HasParseError() && file_input.IsObject());
         return Status::OK();
@@ -374,18 +457,15 @@ private:
 
         S3ClientConf s3_client_conf;
         RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
-        auto s3_client = S3ClientFactory::instance().create(s3_client_conf);
-        if (s3_client == nullptr) {
-            return Status::InternalError("Failed to create S3 client for EMBED file input");
-        }
+        auto s3_client = DORIS_TRY(S3ClientFactory::instance().create(s3_client_conf));
 
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
         std::string bucket = s3_uri.get_bucket();
         std::string key = s3_uri.get_key();
         DORIS_CHECK(!bucket.empty() && !key.empty());
-        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key}, ttl_seconds,
-                                                      s3_client_conf);
+        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key, .prefix = ""},
+                                                      ttl_seconds);
         return Status::OK();
     }
 };

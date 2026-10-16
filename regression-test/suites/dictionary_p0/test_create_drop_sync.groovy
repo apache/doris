@@ -15,7 +15,7 @@
  // specific language governing permissions and limitations
  // under the License.
 
-suite('test_create_drop_sync') {
+suite('test_create_drop_sync', 'nonConcurrent') {
     sql "DROP DATABASE IF EXISTS test_create_drop_sync"
     sql "CREATE DATABASE test_create_drop_sync"
     sql "USE test_create_drop_sync"
@@ -37,6 +37,7 @@ suite('test_create_drop_sync') {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num" = "1")
     """
+    sql "INSERT INTO source_table VALUES (1, 'beijing', '001')"
 
     // create dictionary
     sql """
@@ -81,8 +82,35 @@ suite('test_create_drop_sync') {
         properties('data_lifetime'='600');
     """
 
-    // drop and recreate the database. check dic1 is dropped.
-    sql "DROP DATABASE test_create_drop_sync"
+    waitAllDictionariesReady()
+
+    def refreshFuture
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs('DictionaryManager.dataLoad.blockBeforePlan')
+        refreshFuture = thread {
+            sql "REFRESH DICTIONARY test_create_drop_sync.dic1"
+        }
+        awaitUntil(10) {
+            def dictionaries = sql "SHOW DICTIONARIES"
+            dictionaries.size() == 1 && dictionaries[0][4] == "LOADING"
+        }
+        sql "DROP DATABASE test_create_drop_sync"
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs('DictionaryManager.dataLoad.blockBeforePlan')
+    }
+
+    Exception refreshFailure = null
+    assertNotNull(refreshFuture)
+    try {
+        refreshFuture.get()
+    } catch (Exception e) {
+        refreshFailure = e
+    }
+    assertNotNull(refreshFailure)
+    assertTrue(refreshFailure.toString().contains("Dictionary dic1 has been dropped"), refreshFailure.toString())
+    assertFalse(refreshFailure.toString().contains("Cannot invoke"), refreshFailure.toString())
+
+    // Recreate the database and verify that the dropped dictionary is not retained.
     sql "CREATE DATABASE test_create_drop_sync"
     sql "USE test_create_drop_sync"
     dict_res = sql "SHOW DICTIONARIES"

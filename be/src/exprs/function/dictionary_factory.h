@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <gen_cpp/BackendService_types.h>
 
 #include <mutex>

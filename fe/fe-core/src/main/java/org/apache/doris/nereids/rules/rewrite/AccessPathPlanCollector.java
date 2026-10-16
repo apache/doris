@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
@@ -249,6 +250,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     List<String> outerPath = outerSlotAccessPath.getPath();
                     List<String> replaceSlotNamePath = new ArrayList<>();
                     replaceSlotNamePath.add(innerSlot.getName());
+                    if (outerPath.size() == 1 && innerSlot instanceof SlotReference
+                            && ((SlotReference) innerSlot).hasSubColPath()) {
+                        // A whole access to a derived subcolumn slot is whole only relative to that
+                        // slot; preserve its physical leaf path when propagating to the scan slot.
+                        replaceSlotNamePath.addAll(((SlotReference) innerSlot).getSubPath());
+                    }
                     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
                     allSlotToAccessPaths.put(
                             innerSlot.getExprId().asInt(),
@@ -354,7 +361,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
+                scanSlotToAccessPaths.put(
+                        slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -368,7 +376,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
+                scanSlotToAccessPaths.put(
+                        slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -401,7 +410,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         List<CollectAccessPathResult> normalizedAccessPaths = new ArrayList<>();
         for (CollectAccessPathResult accessPath : accessPaths) {
             List<String> path = accessPath.getPath();
-            if (isDataSkippingOnlyAccessPath(path) && path.size() > 1) {
+            if (path.size() > 1 && accessPath.getType() == ColumnAccessPathType.META) {
                 // NULL/OFFSET suffixes are OLAP segment-reader-only optimizations. External
                 // table and TVF readers use access paths as real nested field paths, so read
                 // the referenced column/sub-column normally instead of sending a pseudo field.
@@ -414,14 +423,5 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
         }
         return normalizedAccessPaths;
-    }
-
-    private static boolean isDataSkippingOnlyAccessPath(List<String> path) {
-        if (path.isEmpty()) {
-            return false;
-        }
-        String lastComponent = path.get(path.size() - 1);
-        return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
-                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 }

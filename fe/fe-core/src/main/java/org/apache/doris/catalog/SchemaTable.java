@@ -257,7 +257,9 @@ public class SchemaTable extends Table {
                             .column("INDEX_TYPE", ScalarType.createVarchar(16))
                             .column("COMMENT", ScalarType.createVarchar(16))
                             // for datagrip
-                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024)).build()))
+                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024))
+                            .column("IS_VISIBLE", ScalarType.createVarchar(3))
+                            .column("EXPRESSION", ScalarType.createVarchar(1024)).build()))
             // Compatible with mysql for mysqldump
             .put("column_statistics",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_statistics", TableType.SCHEMA,
@@ -553,7 +555,11 @@ public class SchemaTable extends Table {
                                     .column("TraceId", ScalarType.createVarchar(256))
                                     .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE", ScalarType.createVarchar(64))
-                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
+                                    .column("CloudCluster", ScalarType.createVarchar(64))
+                                    // MySQL / ArrowFlightSQL. Keep it the last column: ConnectContext.ThreadInfo
+                                    // builds the row in this order, and the BE processlist scanner reads it
+                                    // by position and pads a row of an older FE that ends at CloudCluster.
+                                    .column("Protocol", ScalarType.createVarchar(16)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -649,6 +655,11 @@ public class SchemaTable extends Table {
                                     .column("LAST_LOAD_SUCCESS_TIME", ScalarType.createStringType())
                                     .column("LAST_LOAD_FAILURE_TIME", ScalarType.createStringType())
                                     .column("LAST_ERROR", ScalarType.createStringType())
+                                    // Upgrade BE before FE: older BE scanners do not recognize these slots.
+                                    .column("MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WEIGHT_REJECT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LAST_WEIGHT_REJECT_REASON", ScalarType.createStringType())
                                     .build())
             )
             .put("backend_kerberos_ticket_cache",
@@ -897,6 +908,18 @@ public class SchemaTable extends Table {
                             .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("tso_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "tso_status", TableType.SCHEMA,
+                            builder().column("WINDOW_END_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_LOGICAL_COUNTER",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO_PHYSICAL_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))

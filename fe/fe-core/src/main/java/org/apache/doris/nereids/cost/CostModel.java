@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -67,10 +66,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
@@ -89,6 +88,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     // The cost of using external tables should be somewhat higher than using internal tables,
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
+    static final double BUCKETED_AGG_COST_DISCOUNT = 0.5;
+
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     private final int beNumber;
     private final int parallelInstance;
@@ -96,7 +97,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
     public CostModel(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() > 0) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -107,14 +108,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         }
         this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
-    }
-
-    public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {
-        Preconditions.checkArgument(childCost instanceof Cost && planCost instanceof Cost);
-        return new Cost(sessionVariable,
-                childCost.getCpuCost() + planCost.getCpuCost(),
-                childCost.getMemoryCost() + planCost.getMemoryCost(),
-                childCost.getNetworkCost() + planCost.getNetworkCost());
     }
 
     @Override
@@ -139,7 +132,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 if (useMvHint.get().getUseMvTableColumnMap().containsKey(mvQualifier)) {
                     useMvHint.get().getUseMvTableColumnMap().put(mvQualifier, true);
                     useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-                    return Cost.ofCpu(context.getSessionVariable(), Double.NEGATIVE_INFINITY);
+                    return Cost.ofCpu(context.getCostWeight(), Double.NEGATIVE_INFINITY);
                 }
             }
             if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
@@ -153,10 +146,10 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     .containsKey(table.getFullQualifiers())) {
                 useMvHint.get().getUseMvTableColumnMap().put(table.getFullQualifiers(), true);
                 useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
-                return Cost.ofCpu(context.getSessionVariable(), Double.NEGATIVE_INFINITY);
+                return Cost.ofCpu(context.getCostWeight(), Double.NEGATIVE_INFINITY);
             }
         }
-        return Cost.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
+        return Cost.ofCpu(context.getCostWeight(), rows - aggMvBonus);
     }
 
     private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
@@ -206,13 +199,13 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
         }
-        return Cost.ofCpu(context.getSessionVariable(),
+        return Cost.ofCpu(context.getCostWeight(),
                 (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
     }
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        return Cost.ofCpu(context.getCostWeight(), statistics.getRowCount());
     }
 
     @Override
@@ -220,14 +213,14 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
         Cost costValue = (Cost) storageLayerAggregate.getRelation().accept(this, context);
         // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
-        return new Cost(context.getSessionVariable(), costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
+        return new Cost(context.getCostWeight(), costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
                 costValue.getNetworkCost());
     }
 
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
+        return Cost.ofCpu(context.getCostWeight(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
@@ -242,13 +235,13 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.zero();
         }
         double exprCost = expressionTreeCost(physicalProject.getProjects());
-        return Cost.ofCpu(context.getSessionVariable(), exprCost + 1);
+        return Cost.ofCpu(context.getCostWeight(), exprCost + 1);
     }
 
     @Override
     public Cost visitPhysicalOdbcScan(PhysicalOdbcScan physicalOdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
+        return Cost.ofCpu(context.getCostWeight(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
@@ -264,7 +257,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount *= 100;
         }
-        return Cost.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
+        return Cost.of(context.getCostWeight(), childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -279,14 +272,14 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount = rowCount * 100 + 100;
         }
-        return Cost.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
+        return Cost.of(context.getCostWeight(), childRowCount, rowCount, childRowCount);
     }
 
     @Override
     public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 childStatistics.getRowCount(),
                 statistics.getRowCount(),
                 childStatistics.getRowCount());
@@ -303,7 +296,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         double dataSizeFactor = childStatistics.dataSizeFactor(distribute.child().getOutput());
         // shuffle
         if (spec instanceof DistributionSpecHash) {
-            return Cost.of(context.getSessionVariable(),
+            return Cost.of(context.getCostWeight(),
                     intputRowCount / beNumForDist,
                     0,
                     intputRowCount * dataSizeFactor / beNumForDist
@@ -315,7 +308,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
             // - sender number and receiver number is not available at RBO stage now, so we use beNumber
             // - senders and receivers work in parallel, that why we use square of beNumber
-            return Cost.of(context.getSessionVariable(),
+            return Cost.of(context.getCostWeight(),
                     0,
                     0,
                     intputRowCount * dataSizeFactor);
@@ -324,7 +317,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
         // gather
         if (spec instanceof DistributionSpecGather) {
-            return Cost.of(context.getSessionVariable(),
+            return Cost.of(context.getCostWeight(),
                     0,
                     0,
                     intputRowCount * dataSizeFactor / beNumForDist);
@@ -332,7 +325,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
         // any
         // cost of random shuffle is lower than hash shuffle.
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 0,
                 0,
                 intputRowCount * dataSizeFactor
@@ -356,28 +349,31 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         Statistics inputStatistics = context.getChildStatistics(0);
         double exprCost = expressionTreeCost(aggregate.getExpressions());
         if (aggregate.getAggPhase().isLocal()) {
-            return Cost.of(context.getSessionVariable(),
+            return Cost.of(context.getCostWeight(),
                     exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
-            int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
-            // global
-            return Cost.of(context.getSessionVariable(),
-                    exprCost / 100 + inputStatistics.getRowCount() / factor,
-                    inputStatistics.getRowCount() / factor, 0);
+            boolean isPartitioned = !aggregate.getGroupByExpressions().isEmpty()
+                    || aggregate.getPartitionExpressions().filter(expressions -> !expressions.isEmpty()).isPresent();
+            int factor = isPartitioned ? beNumber : 1;
+            double rowCost = inputStatistics.getRowCount() / factor;
+            // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
+            // aggregate and the child chosen for it have the shape the translator fuses
+            // into BucketedAggregationNode (data-volume gates are enforced by
+            // ChildrenPropertiesRegulator), apply a discount to prefer this path over
+            // two-phase aggregation. Aggregates that the translator keeps on the regular
+            // AggregationNode path still pay for their exchange, so they get no discount:
+            // e.g. the dedup aggregate of a mixed DISTINCT / non-DISTINCT query, whose
+            // non-distinct functions are partial, or an aggregate whose distribute child
+            // does not hash exactly the GROUP BY keys or does not read a single olap scan
+            // pipeline (a nested aggregate, a CTE consumer). CostCalculator checks this
+            // on the memo, see AggregateUtils.isBucketedHashAggFusible.
+            if (context.isBucketedAggFusion()) {
+                rowCost *= BUCKETED_AGG_COST_DISCOUNT;
+            }
+            return Cost.of(context.getCostWeight(),
+                    exprCost / 100 + rowCost, rowCost, 0);
         }
-    }
-
-    @Override
-    public Cost visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, PlanContext context) {
-        // Bucketed agg is similar to one-phase agg: all computation on a single BE,
-        // but avoids exchange overhead. Cost is comparable to one-phase agg.
-        Statistics inputStatistics = context.getChildStatistics(0);
-        double exprCost = expressionTreeCost(aggregate.getExpressions());
-        return Cost.of(context.getSessionVariable(),
-                exprCost / 100 + inputStatistics.getRowCount(),
-                inputStatistics.getRowCount(), 0);
     }
 
     @Override
@@ -438,7 +434,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
         */
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
-            return Cost.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
+            return Cost.of(context.getCostWeight(), leftRowCount + rightRowCount + outputRowCount,
                     0,
                     leftRowCount + rightRowCount
             );
@@ -499,14 +495,14 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
 
-            return Cost.of(context.getSessionVariable(),
+            return Cost.of(context.getCostWeight(),
                     leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor * buildSideFactor
                             + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
         }
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor + outputRowCount,
                         rightRowCount, 0
         );
@@ -567,7 +563,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
         }
         nljPenalty = Math.max(nljPenalty, 1.0);
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount() * nljPenalty,
                 rightStatistics.getRowCount() * nljPenalty,
                 0);
@@ -576,7 +572,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanContext context) {
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 0
@@ -591,13 +587,13 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         }
         double memoryCost = context.getChildStatistics(0).computeSize(
                 physicalIntersect.child(0).getOutput());
-        return Cost.of(context.getSessionVariable(), cpuCost, memoryCost, 0);
+        return Cost.of(context.getCostWeight(), cpuCost, memoryCost, 0);
     }
 
     @Override
     public Cost visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 statistics.getRowCount(),
                 statistics.getRowCount(),
                 0
@@ -634,7 +630,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
         }
-        return Cost.of(context.getSessionVariable(), rows, 0, rows * tupleSize * networkFactor);
+        return Cost.of(context.getCostWeight(), rows, 0, rows * tupleSize * networkFactor);
     }
 
     @Override
@@ -664,6 +660,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
         }
-        return Cost.of(context.getSessionVariable(), rows, 0, rows * tupleSize * networkFactor);
+        return Cost.of(context.getCostWeight(), rows, 0, rows * tupleSize * networkFactor);
     }
 }

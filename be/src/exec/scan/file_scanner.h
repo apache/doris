@@ -30,6 +30,7 @@
 #include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
+#include "core/block/adaptive_block_size_predictor.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scan_io_context.h"
@@ -43,7 +44,6 @@
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris {

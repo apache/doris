@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
@@ -203,11 +204,11 @@ public class VariantType extends ScalarType {
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
+        TScalarType scalarType = container.getTypes().get(container.getTypes().size() - 1).scalar_type;
         // set the count
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        scalarType.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantIsV2(true);
     }
 
     @Override
@@ -279,4 +280,5 @@ public class VariantType extends ScalarType {
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
     }
+
 }

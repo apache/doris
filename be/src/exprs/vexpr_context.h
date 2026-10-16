@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/factory_creator.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -45,6 +46,8 @@
 
 namespace doris {
 class RowDescriptor;
+class ReadSchema;
+using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 class RuntimeState;
 class ZoneMapEvalContext;
 } // namespace doris
@@ -62,85 +65,45 @@ using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
 public:
-    IndexExecContext(const std::vector<ColumnId>& col_ids,
-                     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+    IndexExecContext(const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
                      const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
-                     const segment_v2::ColumnIteratorOptions& column_iter_opts)
-            : _col_ids(col_ids),
-              _index_iterators(index_iterators),
+                     const segment_v2::ColumnIteratorOptions& column_iter_opts,
+                     ReadSchemaSPtr read_schema)
+            : _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
-              _column_iter_opts(column_iter_opts) {}
-
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return nullptr;
-        }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _index_iterators.size()) {
-            return nullptr;
-        }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
+              _column_iter_opts(column_iter_opts),
+              _read_schema(std::move(read_schema)) {
+        DORIS_CHECK(_read_schema != nullptr);
     }
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_id(ColumnId column_id) const {
-        if (column_id >= _index_iterators.size()) {
+    segment_v2::IndexIterator* get_inverted_index_iterator(int32_t read_ordinal) const {
+        if (read_ordinal < 0 || static_cast<size_t>(read_ordinal) >= _index_iterators.size()) {
             return nullptr;
         }
-        if (!_index_iterators[column_id]) {
+        const auto& iterator = _index_iterators[read_ordinal];
+        if (!iterator) {
             return nullptr;
         }
-        return _index_iterators[column_id].get();
+        return iterator.get();
     }
 
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
-            int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
+    const IndexFieldNameAndTypePair* get_storage_name_and_type(int32_t read_ordinal) const {
+        if (read_ordinal < 0 ||
+            static_cast<size_t>(read_ordinal) >= _storage_name_and_type.size()) {
             return nullptr;
         }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(ColumnId column_id) const {
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    int column_index_by_id(ColumnId column_id) const {
-        for (int i = 0; i < _col_ids.size(); ++i) {
-            if (_col_ids[i] == column_id) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    bool get_column_id(int column_index, ColumnId* column_id) const {
-        if (column_id == nullptr) {
-            return false;
-        }
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return false;
-        }
-        *column_id = _col_ids[column_index];
-        return true;
+        return &_storage_name_and_type[read_ordinal];
     }
 
     segment_v2::Segment* segment() const { return _segment; }
+
+    const ReadSchemaSPtr& read_schema() const { return _read_schema; }
 
     const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
 
@@ -170,18 +133,30 @@ public:
         return &iter->second;
     }
 
+    // Dedicated entry point for approximate (superset) index results, kept strictly apart from
+    // the exact result map above.
+    void set_approx_index_result_for_expr(const VExpr* expr,
+                                          segment_v2::InvertedIndexResultBitmap bitmap) {
+        _approx_index_result_bitmap[expr] = std::move(bitmap);
+    }
+
+    const segment_v2::InvertedIndexResultBitmap* get_approx_index_result_for_expr(
+            const VExpr* expr) const {
+        auto iter = _approx_index_result_bitmap.find(expr);
+        if (iter == _approx_index_result_bitmap.end()) {
+            return nullptr;
+        }
+        return &iter->second;
+    }
+
     void set_index_result_column_for_expr(const VExpr* expr, ColumnPtr column) {
         _index_result_column[expr] = std::move(column);
     }
 
-    void set_true_for_index_status(const VExpr* expr, int column_index) {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return;
-        }
-        const auto& column_id = _col_ids[column_index];
-        if (_expr_index_status.contains(column_id)) {
-            if (_expr_index_status[column_id].contains(expr)) {
-                _expr_index_status[column_id][expr] = true;
+    void set_true_for_index_status(const VExpr* expr, int32_t read_ordinal) {
+        if (_expr_index_status.contains(read_ordinal)) {
+            if (_expr_index_status[read_ordinal].contains(expr)) {
+                _expr_index_status[read_ordinal][expr] = true;
             }
         }
     }
@@ -212,9 +187,6 @@ public:
     }
 
 private:
-    // A reference to a vector of column IDs for the current expression's output columns.
-    const std::vector<ColumnId>& _col_ids;
-
     // A reference to a vector of unique pointers to index iterators.
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& _index_iterators;
 
@@ -227,6 +199,20 @@ private:
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
 
+    // Approximate (superset) index results: rows outside the bitmap certainly do not match, but
+    // rows inside it may not match either, so it may only be used to prune candidate rows and
+    // the expression must stay in the push-down list to re-verify them. Three invariants:
+    // (a) never write into _index_result_bitmap / _index_result_column -- VExpr::fast_execute
+    //     would then pass the candidate bitmap off as the function result, and
+    //     _output_index_result_column would materialize it as a result column;
+    // (b) never call set_true_for_index_status -- the column would then be judged
+    //     need_read_data=false and there would be no column left to read during re-verification;
+    // (c) intersecting with _row_bitmap is allowed only when the expression happens to be the
+    //     root of the VExprContext (a top-level AND context); wrapped in NOT/OR, VCompoundPred
+    //     never sees this map, so it simply does not apply.
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
+            _approx_index_result_bitmap;
+
     // Per-expression analyzer context for inverted index evaluation.
     std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
 
@@ -237,6 +223,8 @@ private:
 
     segment_v2::Segment* _segment = nullptr; // Ref
     segment_v2::ColumnIteratorOptions _column_iter_opts;
+    // Keep the scan columns alive while index expressions use their TabletColumn pointers.
+    ReadSchemaSPtr _read_schema;
     segment_v2::IndexQueryContextPtr _index_query_context;
 };
 
@@ -288,10 +276,28 @@ public:
         return _fn_contexts[i].get();
     }
 
+    void set_auto_partition_boundary_context() {
+        for (auto& fn_context : _fn_contexts) {
+            fn_context->set_auto_partition_boundary_context();
+        }
+    }
+
     // execute expr with inverted index which column a, b has inverted indexes
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+
+    // The one expression whose approximate (superset) index result this caller will read back,
+    // or null when it reads none. SegmentIterator names the root of a pushed-down conjunct,
+    // because _apply_approx_index_result looks the result up by exactly that pointer; its
+    // virtual column loop names nothing, because it only materializes exact results. For any
+    // other expression -- an operand of a compound predicate, a nested child push-down -- the
+    // result would be stored under its own pointer and never read again, so a function that can
+    // only answer approximately skips the evaluation instead of paying for the index reads.
+    void set_approx_index_result_consumer(const VExpr* expr) {
+        _approx_index_result_consumer = expr;
+    }
+    const VExpr* approx_index_result_consumer() const { return _approx_index_result_consumer; }
 
     [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
             const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
@@ -370,8 +376,7 @@ public:
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params);
 
     Status evaluate_ann_range_search(
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
@@ -398,6 +403,10 @@ private:
     /// Variables keeping track of current state.
     bool _prepared = false;
     bool _opened = false;
+
+    /// See set_approx_index_result_consumer. Null by default, so a caller that does not read the
+    /// approximate map never pays for the index reads behind one.
+    const VExpr* _approx_index_result_consumer = nullptr;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
@@ -28,8 +29,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -71,11 +76,6 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
     private final RowBinlogTableWrapper rowBinlogTableWrapper;
 
     public TableBinlogFunction(Map<String, String> params) throws AnalysisException {
-        // Cloud mode uses a single-version snapshot for scan range versioning and is not supported here.
-        if (Config.isCloudMode()) {
-            throw new AnalysisException("binlog<row> table valued function is not supported in cloud mode");
-        }
-
         Map<String, String> validParams = Maps.newHashMap();
         for (Map.Entry<String, String> e : params.entrySet()) {
             String key = StringUtils.lowerCase(e.getKey());
@@ -113,7 +113,7 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        if (tableIf.getType() != TableType.OLAP) {
+        if (!(tableIf instanceof OlapTable)) {
             throw new AnalysisException("binlog<row> only supports OLAP table, table=" + tableName);
         }
 
@@ -130,6 +130,16 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
     }
 
     @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, tableName, PrivPredicate.SELECT)) {
+            String message = ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SELECT.getPrivs().toString(), tableName);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+        }
+    }
+
+    @Override
     public String getTableName() {
         return "BinlogTableFunction";
     }
@@ -138,7 +148,13 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
     public List<Column> getTableColumns() throws AnalysisException {
         originTable.readLock();
         try {
-            return originTable.getRowBinlogMeta().getSchema(true);
+            List<Column> schema = originTable.getRowBinlogMeta().getSchema(true);
+            if (!Util.showHiddenColumns() && originTable instanceof MTMV && ((MTMV) originTable).isIvm()) {
+                return schema.stream()
+                        .filter(column -> !IvmUtil.isIvmHiddenColumn(column.getName()))
+                        .collect(Collectors.toList());
+            }
+            return schema;
         } finally {
             originTable.readUnlock();
         }

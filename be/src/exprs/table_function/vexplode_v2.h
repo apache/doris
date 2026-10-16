@@ -55,10 +55,13 @@ public:
 
 private:
     Status _process_init_variant(Block* block, int value_column_idx, int children_column_idx);
+    void _ensure_variant_v2_output(MutableColumnPtr& column) const;
     std::vector<ColumnPtr> _array_columns;
     size_t _row_idx {0};
     ColumnArrayExecutionDatas _multi_detail;
     std::vector<size_t> _array_offsets;
+    std::vector<bool> _variant_v2_outputs;
+    bool _has_variant_v2_output {false};
 
     // `posexplode` & `posexplode_outer`
     bool _generate_row_index {false};

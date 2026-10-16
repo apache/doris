@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -39,7 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
@@ -55,6 +56,7 @@ class PipelineTask;
 class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
+class SpillDataDir;
 
 struct ReportStatusRequest {
     const Status status;
@@ -134,11 +136,12 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<PipelineFragmentContext> pip_ctx);
-    void cancel(Status new_status, int fragment_id = -1);
+    // The sole entry point for query cancellation. Only the first error is accepted; it is then
+    // propagated to every PipelineFragmentContext for fragment-local cleanup.
+    void cancel(Status new_status);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -202,6 +205,10 @@ public:
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
+
+    // Record a spill data directory before opening the first spill part so teardown only visits
+    // touched roots.
+    void record_spill_data_dir(SpillDataDir* data_dir);
 
     // Expose task-level query progress counters for runtime statistics reporting.
     void add_total_task_num(int delta);
@@ -329,13 +336,15 @@ private:
     MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
 
+    std::mutex _spill_data_dirs_mutex;
+    std::unordered_set<SpillDataDir*> _spill_data_dirs;
+
     std::shared_ptr<ResourceContext> _resource_ctx;
 
     void _init_resource_context();
     void _init_query_mem_tracker();
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
-
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 

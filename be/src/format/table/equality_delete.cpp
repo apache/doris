@@ -39,7 +39,12 @@ Status SimpleEqualityDelete::_build_set() {
     }
     auto& column_and_type = _delete_block->get_by_position(0);
     auto delete_column_type = remove_nullable(column_and_type.type)->get_primitive_type();
-    _hybrid_set.reset(create_set(delete_column_type, _delete_block->rows(), false));
+    size_t non_null_rows = _delete_block->rows();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column_and_type.column.get());
+        nullable != nullptr) {
+        non_null_rows = std::ranges::count(nullable->get_null_map_data(), UInt8(0));
+    }
+    _hybrid_set.reset(create_set(delete_column_type, non_null_rows, true));
     _hybrid_set->insert_fixed_len(column_and_type.column, 0);
     return Status::OK();
 }

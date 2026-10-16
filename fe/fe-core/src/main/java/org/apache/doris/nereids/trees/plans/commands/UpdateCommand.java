@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -38,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -54,6 +52,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -99,7 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table and route to IcebergUpdateCommand if so
+        // Check if target table is Iceberg table and route to ExternalRowLevelUpdatePlanBuilder if so
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = null;
         try {
@@ -108,14 +107,12 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             // Table not found, will be handled by regular error flow
         }
 
-        // Route to IcebergUpdateCommand for Iceberg tables
-        if (table instanceof IcebergExternalTable) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-            IcebergUpdateCommand icebergUpdateCommand = new IcebergUpdateCommand(
-                    nameParts, tableAlias, assignments, logicalQuery,
-                    deleteCtx);
-            icebergUpdateCommand.run(ctx, executor);
+        // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).run(ctx, executor);
             return;
         }
 
@@ -201,7 +198,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         break;
                     }
                 }
-                if (column.isKey() || existInExpr) {
+                boolean isGeneratedColumnDependency = column.getGeneratedColumnInfo() == null
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis());
+                boolean shouldReadGeneratedColumnDependency = isGeneratedColumnDependency
+                        && !column.hasOnUpdateDefaultValue();
+                if (column.isKey() || existInExpr || shouldReadGeneratedColumnDependency) {
                     partialUpdateSelectItems.add(expr instanceof UnboundSlot
                             ? ((NamedExpression) expr)
                             : new UnboundAlias(expr));
@@ -281,12 +282,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-        if (table instanceof IcebergExternalTable) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-            IcebergUpdateCommand icebergUpdateCommand = new IcebergUpdateCommand(
-                    nameParts, tableAlias, assignments, logicalQuery, deleteCtx);
-            return icebergUpdateCommand.getExplainPlan(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
     }

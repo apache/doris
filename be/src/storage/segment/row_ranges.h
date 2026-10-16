@@ -247,7 +247,7 @@ public:
 
     size_t count() { return _count; }
 
-    bool is_empty() { return _count == 0; }
+    bool is_empty() const { return _count == 0; }
 
     bool contain(rowid_t from, rowid_t to) {
         // binary search

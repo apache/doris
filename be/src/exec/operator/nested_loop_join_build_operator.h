@@ -82,4 +82,10 @@ private:
     RowDescriptor _row_descriptor;
 };
 
+/// Instantiated once in join_build_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
+extern template class JoinBuildSinkLocalState<NestedLoopJoinSharedState,
+                                              NestedLoopJoinBuildSinkLocalState>;
+
 } // namespace doris

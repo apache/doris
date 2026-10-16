@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 
+#include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -84,6 +85,44 @@ size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) c
     return _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
 }
 
+SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeState* state,
+                                                                        bool eos) const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    if (_sorter == nullptr) {
+        return {};
+    }
+    auto reservation = _sorter->get_reserve_mem_size_components(state, eos);
+    _include_spill_merge_reservation(state, eos, &reservation);
+    return reservation;
+}
+
+SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(
+        RuntimeState* state, bool eos, size_t incoming_rows, size_t incoming_bytes) const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    if (_sorter == nullptr) {
+        return {};
+    }
+    auto reservation =
+            _sorter->get_reserve_mem_size_components(state, eos, incoming_rows, incoming_bytes);
+    _include_spill_merge_reservation(state, eos, &reservation);
+    return reservation;
+}
+
+void VIcebergSortWriter::_include_spill_merge_reservation(RuntimeState* state, bool eos,
+                                                          SorterReserveMemory* reservation) const {
+    if (eos && !_sorted_spill_files.empty()) {
+        size_t spill_file_count = _sorted_spill_files.size();
+        if (_sorter->data_size() > 0) {
+            ++spill_file_count;
+        }
+        const size_t merge_workspace =
+                iceberg_spill_merge_workspace(spill_file_count, state->spill_buffer_size_bytes(),
+                                              state->spill_sort_merge_mem_limit_bytes());
+        reservation->transient_workspace =
+                std::max(reservation->transient_workspace, merge_workspace);
+    }
+}
+
 Status VIcebergSortWriter::trigger_spill() {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
     if (_closed || _sorter == nullptr) {
@@ -102,80 +141,35 @@ Status VIcebergSortWriter::close(const Status& status) {
 }
 
 Status VIcebergSortWriter::_close_locked(const Status& status) {
-    // Track the actual internal status of operations performed during close.
-    // This is important because if intermediate operations (like do_sort()) fail,
-    // we need to propagate the actual error status to the underlying partition writer's
-    // close() call, rather than the original status parameter which could be OK.
-    Status internal_status = Status::OK();
-    // Track the close status of the underlying partition writer.
-    // If _iceberg_partition_writer->close() fails (e.g., Parquet file flush error),
-    // we must propagate this error to the caller to avoid silent data loss.
-    Status close_status = Status::OK();
-
-    // Defer ensures the underlying partition writer is always closed and
-    // spill streams are cleaned up, regardless of whether intermediate operations succeed.
-    // Uses internal_status to propagate any errors that occurred during close operations.
-    Defer defer {[&]() {
-        // If any intermediate operation failed, pass that error to the partition writer;
-        // otherwise, pass the original status from the caller.
-        close_status =
-                _iceberg_partition_writer->close(internal_status.ok() ? status : internal_status);
-        if (!close_status.ok()) {
-            LOG(WARNING) << fmt::format("_iceberg_partition_writer close failed, reason: {}",
-                                        close_status.to_string());
-        }
-        _cleanup_spill_streams();
-    }};
-
-    // If the original status is already an error or the query is cancelled,
-    // skip all close operations and propagate the original error
-    if (!status.ok() || _runtime_state->is_cancelled()) {
-        return status;
-    }
-
-    // If sorter was never initialized (e.g., no data was written), nothing to do
-    if (_sorter == nullptr) {
-        return Status::OK();
-    }
-
-    // Check if there is any remaining data in the sorter (either unsorted or already sorted blocks)
-    if (!_sorter->merge_sort_state()->unsorted_block()->empty() ||
-        !_sorter->merge_sort_state()->get_sorted_block().empty()) {
-        if (_sorted_spill_files.empty()) {
-            // No spill has occurred, all data is in memory.
-            // Sort the remaining data, prepare for reading, and write to file.
-            internal_status = _sorter->do_sort();
-            if (!internal_status.ok()) {
-                return internal_status;
+    Status internal_status = status;
+    if (status.ok() && !_runtime_state->is_cancelled()) {
+        internal_status = Status::OK();
+        if (_sorter != nullptr && (!_sorter->merge_sort_state()->unsorted_block()->empty() ||
+                                   !_sorter->merge_sort_state()->get_sorted_block().empty())) {
+            if (_sorted_spill_files.empty()) {
+                internal_status = _sorter->do_sort();
+                if (internal_status.ok()) {
+                    internal_status = _sorter->prepare_for_read(false);
+                }
+                if (internal_status.ok()) {
+                    internal_status = _write_sorted_data();
+                }
+            } else {
+                internal_status = _do_spill();
             }
-            internal_status = _sorter->prepare_for_read(false);
-            if (!internal_status.ok()) {
-                return internal_status;
-            }
-            internal_status = _write_sorted_data();
-            return internal_status;
         }
-
-        // Some data has already been spilled to disk.
-        // Spill the remaining in-memory data to a new spill stream.
-        internal_status = _do_spill();
-        if (!internal_status.ok()) {
-            return internal_status;
+        if (internal_status.ok() && !_sorted_spill_files.empty()) {
+            internal_status = _combine_files_output();
         }
     }
 
-    // Merge all spilled streams using multi-way merge sort and output final sorted data to files
-    if (!_sorted_spill_files.empty()) {
-        internal_status = _combine_files_output();
-        if (!internal_status.ok()) {
-            return internal_status;
-        }
+    // Form the return value only after the underlying close runs; a deferred assignment is too late.
+    Status close_status =
+            _iceberg_partition_writer->close(internal_status.ok() ? status : internal_status);
+    _cleanup_spill_streams();
+    if (!internal_status.ok()) {
+        return internal_status;
     }
-
-    // Return close_status if internal operations succeeded but the underlying
-    // partition writer's close() failed (e.g., file flush error).
-    // This prevents silent data loss where the caller thinks the write succeeded
-    // but the file was not properly closed.
     return close_status;
 }
 

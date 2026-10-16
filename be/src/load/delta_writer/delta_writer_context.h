@@ -30,6 +30,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class AtomicStatus;
 
 enum class WriteRequestType {
     DATA = 0,       // data write
@@ -44,6 +45,8 @@ struct WriteRequest {
     int64_t txn_expiration = 0; // For cloud mode
     int64_t index_id = 0;
     int64_t partition_id = 0;
+    // the row binlog tablet id written together with this base tablet, 0 means no binlog.
+    int64_t binlog_tablet_id = 0;
     PUniqueId load_id;
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
@@ -54,11 +57,13 @@ struct WriteRequest {
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
     bool enable_table_memtable_backpressure = false;
+    // Shared by all writers of a load; published before writers can submit work.
+    std::shared_ptr<AtomicStatus> load_cancel_status = nullptr;
 };
 
 struct TabletAddRowsPayload {
     DorisVector<uint32_t> row_idxs;
-    DorisVector<int64_t> row_binlog_lsns = {};
+    DorisVector<int64_t> allocated_lsns = {};
 };
 
 } // namespace doris

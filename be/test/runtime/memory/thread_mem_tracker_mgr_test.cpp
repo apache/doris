@@ -24,6 +24,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -328,6 +329,39 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     thread_context->detach_task();
     EXPECT_EQ(t->consumption(), size1 + size2 + size1 + size2);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, TransfersReservationBetweenAsyncTasks) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "UT-TransferReservation");
+    auto resource_context = ResourceContext::create_shared();
+    resource_context->memory_context()->set_mem_tracker(tracker);
+    ThreadContext producer;
+    ThreadContext consumer;
+    producer.attach_task(resource_context);
+    consumer.attach_task(resource_context);
+    constexpr int64_t reservation = 4 * 1024 * 1024;
+
+    ASSERT_TRUE(producer.thread_mem_tracker_mgr->try_reserve(reservation).ok());
+    auto token = producer.thread_mem_tracker_mgr->take_reserved_memory();
+    EXPECT_EQ(producer.thread_mem_tracker_mgr->reserved_mem(), 0);
+    EXPECT_EQ(token.bytes(), reservation);
+
+    consumer.thread_mem_tracker_mgr->adopt_reserved_memory(std::move(token));
+    EXPECT_EQ(consumer.thread_mem_tracker_mgr->reserved_mem(), reservation);
+    consumer.thread_mem_tracker_mgr->consume(reservation);
+    EXPECT_EQ(consumer.thread_mem_tracker_mgr->reserved_mem(), 0);
+
+    ASSERT_TRUE(producer.thread_mem_tracker_mgr->try_reserve(reservation).ok());
+    {
+        auto abandoned = producer.thread_mem_tracker_mgr->take_reserved_memory();
+        EXPECT_EQ(abandoned.bytes(), reservation);
+    }
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), 0);
+
+    producer.detach_task();
+    consumer.detach_task();
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), 0);
 }
 
 TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {

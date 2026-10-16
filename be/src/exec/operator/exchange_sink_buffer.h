@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <butil/iobuf.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -37,6 +38,10 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/brpc_closure.h"
+
+namespace brpc {
+class SerializedRequest;
+}
 
 namespace doris {
 class PTransmitDataParams;
@@ -64,9 +69,18 @@ public:
 
     void reset_block() { _pblock->Clear(); }
 
+    // Called once by the producer, before publishing the holder to any channel.
+    Status prepare_serialized_block(bool send_multi_blocks, size_t num_receivers);
+
+    const butil::IOBuf& serialized_block() const { return _serialized_block; }
+
 private:
     friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
+    // Includes the outer PTransmitDataParams.block/blocks field tag and length.
+    // Keep _pblock for the existing protobuf and HTTP paths.
+    butil::IOBuf _serialized_block;
+    int64_t _queue_charge_bytes = 0;
     std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
     void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
@@ -271,6 +285,7 @@ public:
     Status add_block(Channel* channel, TransmitInfo&& request);
     Status add_block(Channel* channel, BroadcastTransmitInfo&& request);
     void close();
+    bool send_multi_blocks() const { return _send_multi_blocks; }
     void update_rpc_time(RpcInstance& ins, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
@@ -307,6 +322,10 @@ private:
     QueryContext* _context = nullptr;
 
     Status _send_rpc(RpcInstance& ins);
+
+    static Status _serialize_broadcast_request(const PTransmitDataParams& header,
+                                               const std::vector<BroadcastTransmitInfo>& requests,
+                                               brpc::SerializedRequest* serialized_request);
 
 #ifndef BE_TEST
     inline void _ended(RpcInstance& ins);

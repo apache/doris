@@ -109,7 +109,7 @@ public class TryCastTest {
             Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(6, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.originCastNullable());
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 
@@ -135,7 +135,7 @@ public class TryCastTest {
             Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(11, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.originCastNullable());
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 
@@ -158,7 +158,7 @@ public class TryCastTest {
             child = new SlotReference("slot", BigIntType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(20, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.originCastNullable());
+            Assertions.assertTrue(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(20, 2));
             Assertions.assertTrue(cast.nullable());
             Assertions.assertTrue(cast.originCastNullable());
@@ -266,7 +266,14 @@ public class TryCastTest {
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(4, 2), false);
             cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.originCastNullable());
+            Assertions.assertTrue(cast.originCastNullable());
+
+            // TRY_CAST itself is always nullable. Its underlying CAST nullability must additionally
+            // match the D2-to-D3 kernel's wrapper decision based on the original DECIMALV2 metadata.
+            child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(27, 0), false);
+            cast = new TryCast(child, DecimalV3Type.createDecimalV3Type(19, 0));
+            Assertions.assertTrue(cast.nullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -278,7 +285,9 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", DateTimeType.INSTANCE, false);
             TryCast cast = new TryCast(child, DateTimeType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.originCastNullable());
+            // TRY_CAST stays nullable, but its identity cast cannot produce NULL and BE must use a required
+            // intermediate result, matching Cast.castNullable's exact-type invariant.
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 

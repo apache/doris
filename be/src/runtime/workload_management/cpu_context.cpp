@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {

@@ -149,4 +149,10 @@ private:
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
+/// Instantiated once in set_sink_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class SetSinkLocalState<true>;
+extern template class SetSinkLocalState<false>;
+extern template class SetSinkOperatorX<true>;
+extern template class SetSinkOperatorX<false>;
+
 } // namespace doris

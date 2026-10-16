@@ -91,15 +91,24 @@ suite("test_query_sys_tables", "query,p0") {
     order_qt_query_files """ select * from `information_schema`.`files` """
 
     //test information_schema.statistics
-    // have no impl
+    // Scoped to the databases this suite creates: these tables now report the keys of every
+    // table the user can see, so an unfiltered select would depend on the whole cluster.
     qt_desc_statistics """desc `information_schema`.`statistics` """
-    order_qt_query_statistics """ select * from `information_schema`.`statistics` """
+    order_qt_query_statistics """ select TABLE_SCHEMA, TABLE_NAME, NON_UNIQUE, INDEX_NAME, SEQ_IN_INDEX,
+            COLUMN_NAME, COLLATION, SUB_PART, PACKED, NULLABLE, INDEX_TYPE, IS_VISIBLE, EXPRESSION
+            from `information_schema`.`statistics`
+            where TABLE_SCHEMA in ('${dbName1}', '${dbName2}', '${dbName3}') """
 
-    //test information_schema.table_constraints 
-    // have no impl
+    //test information_schema.table_constraints
     qt_desc_statistics """desc `information_schema`.`table_constraints` """
-    order_qt_query_table_constraints """ select * from `information_schema`.`table_constraints` """
-    
+    order_qt_query_table_constraints """ select * from `information_schema`.`table_constraints`
+            where TABLE_SCHEMA in ('${dbName1}', '${dbName2}', '${dbName3}') """
+
+    //test information_schema.key_column_usage
+    qt_desc_key_column_usage """desc `information_schema`.`key_column_usage` """
+    order_qt_query_key_column_usage """ select * from `information_schema`.`key_column_usage`
+            where TABLE_SCHEMA in ('${dbName1}', '${dbName2}', '${dbName3}') """
+
 
     // test schema_privileges
     sql """  DROP USER if exists 'cyw'; """   
@@ -248,7 +257,9 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from events"
     qt_sql "select * from routines"
     qt_sql "select * from referential_constraints"
-    qt_sql "select * from key_column_usage"
+    // key_column_usage is implemented now, so an unscoped select returns the keys of the
+    // internal schema tables and the baseline would churn every time those change. The
+    // scoped assertion earlier in this suite covers it.
     qt_sql "select * from triggers"
     qt_sql "select * from parameters"
     qt_sql "select * from profiling"

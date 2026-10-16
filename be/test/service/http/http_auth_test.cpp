@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
 #include <gtest/gtest.h>
+
+#include <string>
 
 #include "common/config.h"
 #include "service/http/ev_http_server.h"
@@ -40,7 +43,10 @@ public:
 
 private:
     bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        return !req.param("table").empty();
+        if (req.param("table").empty()) {
+            return false;
+        }
+        return HttpHandlerWithAuth::on_privilege(req, auth_request);
     };
 };
 
@@ -48,6 +54,17 @@ static HttpAuthTestHandler s_auth_handler =
         HttpAuthTestHandler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
 
 class HttpAuthTest : public testing::Test {};
+
+class AuthLogSink : public google::LogSink {
+public:
+    void send(google::LogSeverity /*severity*/, const char* /*full_filename*/,
+              const char* /*base_filename*/, int /*line*/, const google::LogMessageTime& /*time*/,
+              const char* message, std::size_t message_len) override {
+        messages.append(message, message_len);
+    }
+
+    std::string messages;
+};
 
 TEST_F(HttpAuthTest, disable_auth) {
     EXPECT_FALSE(config::enable_all_http_auth);
@@ -88,6 +105,47 @@ TEST_F(HttpAuthTest, enable_all_http_auth) {
         EXPECT_EQ(s_auth_handler.on_header(&req3), 0);
         evhttp_request_free(evhttp_req);
     }
+}
+
+TEST_F(HttpAuthTest, failed_auth_does_not_log_password) {
+    Defer restore_auth_config {[]() { config::enable_all_http_auth = false; }};
+    config::enable_all_http_auth = true;
+
+    AuthLogSink log_sink;
+    google::AddLogSink(&log_sink);
+    Defer remove_log_sink {[&log_sink]() { google::RemoveLogSink(&log_sink); }};
+
+    auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDpwbGFpbl90ZXh0X3NlY3JldA==");
+    req._params.emplace("table", "T");
+
+    EXPECT_EQ(s_auth_handler.on_header(&req), -1);
+    EXPECT_NE(log_sink.messages.find("permission verification failed, request: TCheckAuthRequest"),
+              std::string::npos);
+    EXPECT_NE(log_sink.messages.find("user=root"), std::string::npos);
+    EXPECT_NE(log_sink.messages.find("passwd=***MASKED***"), std::string::npos);
+    EXPECT_NE(log_sink.messages.find("priv_hier=GLOBAL"), std::string::npos);
+    EXPECT_EQ(log_sink.messages.find("plain_text_secret"), std::string::npos);
+    EXPECT_EQ(log_sink.messages.find("cm9vdDpwbGFpbl90ZXh0X3NlY3JldA=="), std::string::npos);
+}
+
+TEST_F(HttpAuthTest, invalid_token_does_not_log_token) {
+    Defer restore_auth_config {[]() { config::enable_all_http_auth = false; }};
+    config::enable_all_http_auth = true;
+
+    AuthLogSink log_sink;
+    google::AddLogSink(&log_sink);
+    Defer remove_log_sink {[&log_sink]() { google::RemoveLogSink(&log_sink); }};
+
+    auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req._headers.emplace(HttpHeaders::AUTH_TOKEN, "plain_text_token");
+
+    EXPECT_EQ(s_auth_handler.on_header(&req), -1);
+    EXPECT_NE(log_sink.messages.find("invalid auth token"), std::string::npos);
+    EXPECT_NE(log_sink.messages.find("value=***MASKED***"), std::string::npos);
+    EXPECT_EQ(log_sink.messages.find("plain_text_token"), std::string::npos);
 }
 
 // Test NONE privilege type - when enable_all_http_auth=true, even NONE type requires auth

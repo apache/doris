@@ -17,13 +17,22 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
@@ -38,6 +47,56 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 "CREATE TABLE t2 (col1 date, col2 int) DISTRIBUTED BY HASH(col2)\n" + "BUCKETS 1\n" + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n" + ");"
         );
+    }
+
+    @Test
+    void testGroupByOrdinalIsNotNarrowed() {
+        // getIntValue() is getNumber().intValue(), so a BIGINT or LARGEINT ordinal was truncated
+        // to its low 32 bits before the `>= 1 && <= selectItems` test. 4294967297 is 2^32 + 1 and
+        // 18446744073709551617 is 2^64 + 1: both truncated to 1 and silently bound to the first
+        // select item, while the plainly out-of-range 3 did not. The LARGEINT narrows to 1 through
+        // getLongValue() as well, so it pins the width-independent accessor, not merely a wider one.
+        String outOfRange = "select col1, count(*) from t1 group by 3";
+
+        // As a constant, the literal leaves col1 ungrouped. checkPlannerResult surfaces that as
+        // NereidsException, and every out-of-range ordinal must fail for that same reason.
+        NereidsException expected = Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(outOfRange),
+                "an ordinal past the end of the select list must not bind");
+        for (String ordinal : new String[] {"4294967297", "18446744073709551617"}) {
+            String wrapsToOne = "select col1, count(*) from t1 group by " + ordinal;
+            NereidsException actual = Assertions.assertThrows(NereidsException.class,
+                    () -> PlanChecker.from(connectContext).checkPlannerResult(wrapsToOne),
+                    ordinal + " must not be narrowed into range");
+            Assertions.assertEquals(expected.getMessage(), actual.getMessage(),
+                    ordinal + " must be rejected for the same reason as the out-of-range ordinal");
+        }
+    }
+
+    @Test
+    void testOrderByOrdinalIsNotNarrowed() {
+        // bindWithOrdinal also serves ORDER BY, on a plain select and on a set operation. There an
+        // out-of-range ordinal does not throw -- it stays a constant sort key -- so the check is on
+        // the analyzed plan: a wide ordinal must never turn into a sort on a column.
+        String[] queries = {
+                "select col1, col2 from t1 order by %s",
+                "select col1, col2 from t1 union all select col1, col2 from t2 order by %s",
+        };
+        for (String query : queries) {
+            // The check can tell the two apart: a real ordinal does sort on a column.
+            PlanChecker.from(connectContext)
+                    .analyze(String.format(query, "1"))
+                    .matches(logicalSort().when(BindExpressionTest::sortsOnASlot));
+            for (String ordinal : new String[] {"4294967297", "18446744073709551617"}) {
+                PlanChecker.from(connectContext)
+                        .analyze(String.format(query, ordinal))
+                        .nonMatch(logicalSort().when(BindExpressionTest::sortsOnASlot));
+            }
+        }
+    }
+
+    private static boolean sortsOnASlot(LogicalSort<?> sort) {
+        return sort.getOrderKeys().stream().anyMatch(key -> key.getExpr() instanceof Slot);
     }
 
     @Test
@@ -99,6 +158,37 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 .nonMatch(any()
                         .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
 
+    }
+
+    @Test
+    void testCompoundIntervalArithmetic() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval '1-2' year_month from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(YearMonthAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select interval '1 5' day_hour + cast(col1 as datetime) from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(DayHourAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval '2 30' hour_second from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(HourSecondSub.class::isInstance))));
+    }
+
+    @Test
+    void testSimpleIntervalArithmeticBinding() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsSub.class::isInstance))));
     }
 
     @Test

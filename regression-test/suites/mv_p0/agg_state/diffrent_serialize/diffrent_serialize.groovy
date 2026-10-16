@@ -67,22 +67,22 @@ suite ("diffrent_serialize") {
     }
     qt_select_mv "select k1,array_sort(map_keys(map_agg(k2,k3))),array_sortby(map_values(map_agg(k2,k3)),map_keys(map_agg(k2,k3))) from d_table group by k1 order by 1;"
     explain {
-        sql("select k1,array_agg(k2) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(array_agg(k2)) from d_table group by k1 order by 1;")
         contains "(mv3)"
     }
-    qt_select_mv "select k1,array_agg(k2) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(array_agg(k2)) from d_table group by k1 order by 1;"
 
     explain {
-        sql("select k1,collect_list(k2,3) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(collect_list(k2,3)) from d_table group by k1 order by 1;")
         contains "(mv4)"
     }
-    qt_select_mv "select k1,collect_list(k2,3) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(collect_list(k2,3)) from d_table group by k1 order by 1;"
 
     explain {
-        sql("select k1,collect_set(k2,3) from d_table group by k1 order by 1;")
+        sql("select k1,array_sort(collect_set(k2,3)) from d_table group by k1 order by 1;")
         contains "(mv5)"
     }
-    qt_select_mv "select k1,collect_set(k2,3) from d_table group by k1 order by 1;"
+    qt_select_mv "select k1,array_sort(collect_set(k2,3)) from d_table group by k1 order by 1;"
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 1,2,1,'a';"
@@ -93,7 +93,7 @@ suite ("diffrent_serialize") {
     mv_rewrite_success("select k1, multi_distinct_sum(k3) from d_table group by k1 order by k1;", "mv1_3")
     qt_select_mv "select k1, multi_distinct_sum(k3) from d_table group by k1 order by k1;"
 
-    mv_rewrite_success("select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;", "mv1_2")
-    qt_select_mv "select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;"
+    mv_rewrite_success("select k1, array_join(array_sort(split_by_string(multi_distinct_group_concat(k4), ',')), ',') from d_table group by k1 order by k1;", "mv1_2")
+    qt_select_mv "select k1, array_join(array_sort(split_by_string(multi_distinct_group_concat(k4), ',')), ',') from d_table group by k1 order by k1;"
 
 }

@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
+#include "storage/rowset_id.h"
 #include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"

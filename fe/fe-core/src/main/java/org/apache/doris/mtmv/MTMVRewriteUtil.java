@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -65,6 +66,7 @@ public class MTMVRewriteUtil {
         }
         Set<String> mtmvNeedComparePartitions = null;
         MTMVRefreshContext refreshContext = null;
+        PreparedPartitionSnapshots partitionSnapshots = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
@@ -75,7 +77,8 @@ public class MTMVRewriteUtil {
             }
             if (refreshContext == null) {
                 try {
-                    refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                    refreshContext = MTMVRefreshContext.buildContext(mtmv,
+                            queryUsedPartitions != null ? queryUsedPartitions : Maps.newHashMap());
                 } catch (AnalysisException e) {
                     LOG.warn("buildContext failed", e);
                     // After failure, one should quickly return to avoid repeated failures
@@ -95,8 +98,25 @@ public class MTMVRewriteUtil {
             if (!mtmvNeedComparePartitions.contains(partition.getName())) {
                 continue;
             }
+            if (partitionSnapshots == null) {
+                Set<String> partitionsToPreload = Sets.newHashSet();
+                for (Partition candidate : allPartitions) {
+                    boolean withinGracePeriod = gracePeriodMills > 0
+                            && currentTimeMills <= candidate.getVisibleVersionTime() + gracePeriodMills
+                            && !forceConsistent;
+                    if (!withinGracePeriod && mtmvNeedComparePartitions.contains(candidate.getName())) {
+                        partitionsToPreload.add(candidate.getName());
+                    }
+                }
+                try {
+                    partitionSnapshots = refreshContext.prepareComparablePartitionSnapshots(partitionsToPreload);
+                } catch (AnalysisException e) {
+                    LOG.warn("preload partition snapshots failed", e);
+                    return res;
+                }
+            }
             try {
-                if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
+                if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partitionSnapshots, partition.getName(),
                         mtmvRelation.getBaseTablesOneLevelAndFromView(),
                         forceConsistent ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables())) {
                     res.add(partition);

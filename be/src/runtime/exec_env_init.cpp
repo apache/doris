@@ -62,6 +62,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
@@ -79,6 +80,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/frontend_info.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/cache_manager.h"
@@ -99,11 +101,12 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"
@@ -189,7 +192,7 @@ ThreadPool* ExecEnv::non_block_close_thread_pool() {
     return _non_block_close_thread_pool.get();
 }
 
-ExecEnv::ExecEnv() = default;
+ExecEnv::ExecEnv() : _frontends(std::make_unique<std::map<TNetworkAddress, FrontendInfo>>()) {}
 
 ExecEnv::~ExecEnv() {
     destroy();
@@ -507,6 +510,14 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
             exit(-1);
         }
         return;
+    }
+    // Runs first because it rejects a nonpositive file_cache_each_block_size, which the
+    // s3_write_buffer_size check below divides by.
+    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
+            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
+    if (!hdfs_batch_status.ok()) {
+        LOG_FATAL("{}", hdfs_batch_status.to_string());
+        exit(-1);
     }
     if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
         config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
@@ -862,6 +873,12 @@ void ExecEnv::destroy() {
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
     SAFE_STOP(_stream_load_recorder_manager);
+    // Adaptive callbacks borrow WG/global flush pools and the S3 upload pool.
+    // Drain them before any of these dependencies can be destroyed.
+    if (_storage_engine) {
+        _storage_engine->adaptive_thread_controller()->stop();
+    }
+
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still

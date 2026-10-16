@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -85,11 +84,36 @@ public class MergeIntoCommandTest {
         Assertions.assertEquals(1, logicalJoin.getOtherJoinConjuncts().size());
         Expression onClause = logicalJoin.getOtherJoinConjuncts().get(0);
         Assertions.assertEquals(new NullLiteral(), onClause);
-        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
-        Assertions.assertEquals(source, logicalJoin.left());
-        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.right());
-        LogicalSubQueryAlias<?> alias = (LogicalSubQueryAlias<?>) logicalJoin.right();
+        // without WHEN NOT MATCHED clauses unmatched source rows are not needed, so the join
+        // is INNER, and the target stays on the left (probe) side
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.left());
+        LogicalSubQueryAlias<?> alias = (LogicalSubQueryAlias<?>) logicalJoin.left();
         Assertions.assertEquals("alias", alias.getAlias());
+    }
+
+    @Test
+    public void testGenerateBasePlanWithNotMatchedClause() throws Exception {
+        LogicalPlan source = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of());
+        MergeIntoCommand command = new MergeIntoCommand(
+                ImmutableList.of("ctl", "db", "tbl"), Optional.of("alias"), Optional.empty(),
+                source, new NullLiteral(),
+                ImmutableList.of(),
+                ImmutableList.of(new MergeNotMatchedClause(
+                        Optional.empty(), ImmutableList.of(), ImmutableList.of()))
+        );
+
+        Class<?> clazz = Class.forName("org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand");
+        Method generateBasePlan = clazz.getDeclaredMethod("generateBasePlan");
+        generateBasePlan.setAccessible(true);
+        LogicalPlan result = (LogicalPlan) generateBasePlan.invoke(command);
+        Assertions.assertInstanceOf(LogicalJoin.class, result);
+        LogicalJoin<?, ?> logicalJoin = (LogicalJoin<?, ?>) result;
+        // WHEN NOT MATCHED needs the unmatched source rows: source is the preserved right side
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.left());
     }
 
     @Test
@@ -111,11 +135,11 @@ public class MergeIntoCommandTest {
         Assertions.assertEquals(1, logicalJoin.getOtherJoinConjuncts().size());
         Expression onClause = logicalJoin.getOtherJoinConjuncts().get(0);
         Assertions.assertEquals(new NullLiteral(), onClause);
-        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
-        Assertions.assertEquals(source, logicalJoin.left());
-        Assertions.assertInstanceOf(LogicalCheckPolicy.class, logicalJoin.right());
-        Assertions.assertInstanceOf(UnboundRelation.class, logicalJoin.right().child(0));
-        UnboundRelation unboundRelation = (UnboundRelation) logicalJoin.right().child(0);
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalCheckPolicy.class, logicalJoin.left());
+        Assertions.assertInstanceOf(UnboundRelation.class, logicalJoin.left().child(0));
+        UnboundRelation unboundRelation = (UnboundRelation) logicalJoin.left().child(0);
         Assertions.assertEquals(nameParts, unboundRelation.getNameParts());
     }
 
@@ -142,11 +166,11 @@ public class MergeIntoCommandTest {
         Method generateBranchLabel = clazz.getDeclaredMethod("generateBranchLabel", NamedExpression.class);
         generateBranchLabel.setAccessible(true);
         NamedExpression result = (NamedExpression) generateBranchLabel.invoke(command, unboundSlot);
-        Expression matchedLabel = new If(new IntegerLiteral(1), new IntegerLiteral(0),
-                new If(new IntegerLiteral(2), new IntegerLiteral(1), new IntegerLiteral(2)));
-        Expression notMatchedLabel = new If(new IntegerLiteral(3), new IntegerLiteral(3),
-                new If(new IntegerLiteral(4), new IntegerLiteral(4), new IntegerLiteral(5)));
-        NamedExpression expected = new UnboundAlias(new If(new Not(new IsNull(unboundSlot)),
+        Expression matchedLabel = MergeUtils.selectBranch(new IntegerLiteral(1), new IntegerLiteral(0),
+                MergeUtils.selectBranch(new IntegerLiteral(2), new IntegerLiteral(1), new IntegerLiteral(2)));
+        Expression notMatchedLabel = MergeUtils.selectBranch(new IntegerLiteral(3), new IntegerLiteral(3),
+                MergeUtils.selectBranch(new IntegerLiteral(4), new IntegerLiteral(4), new IntegerLiteral(5)));
+        NamedExpression expected = new UnboundAlias(MergeUtils.selectBranch(new Not(new IsNull(unboundSlot)),
                 matchedLabel, notMatchedLabel), "__DORIS_MERGE_INTO_BRANCH_LABEL__");
         Assertions.assertEquals(expected, result);
     }
@@ -918,14 +942,30 @@ public class MergeIntoCommandTest {
         generateFinalProjections.setAccessible(true);
         List<NamedExpression> result = (List<NamedExpression>) generateFinalProjections.invoke(command, colNames, finalProjections);
         List<NamedExpression> expected = ImmutableList.of(
-                new UnboundAlias(new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(3)), new IntegerLiteral(41),
-                        new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(2)), new IntegerLiteral(31),
-                                new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(1)), new IntegerLiteral(21),
-                                        new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(0)), new IntegerLiteral(11), new NullLiteral())))), "c1"),
-                new UnboundAlias(new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(3)), new IntegerLiteral(42),
-                        new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(2)), new IntegerLiteral(32),
-                                new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(1)), new IntegerLiteral(22),
-                                        new If(new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(0)), new IntegerLiteral(12), new NullLiteral())))), "c2")
+                new UnboundAlias(MergeUtils.selectBranch(
+                        new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(3)),
+                        new IntegerLiteral(41), MergeUtils.selectBranch(
+                                new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                        new IntegerLiteral(2)),
+                                new IntegerLiteral(31), MergeUtils.selectBranch(
+                                        new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                                new IntegerLiteral(1)),
+                                        new IntegerLiteral(21), MergeUtils.selectBranch(
+                                                new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                                        new IntegerLiteral(0)),
+                                                new IntegerLiteral(11), new NullLiteral())))), "c1"),
+                new UnboundAlias(MergeUtils.selectBranch(
+                        new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"), new IntegerLiteral(3)),
+                        new IntegerLiteral(42), MergeUtils.selectBranch(
+                                new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                        new IntegerLiteral(2)),
+                                new IntegerLiteral(32), MergeUtils.selectBranch(
+                                        new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                                new IntegerLiteral(1)),
+                                        new IntegerLiteral(22), MergeUtils.selectBranch(
+                                                new EqualTo(new UnboundSlot("__DORIS_MERGE_INTO_BRANCH_LABEL__"),
+                                                        new IntegerLiteral(0)),
+                                                new IntegerLiteral(12), new NullLiteral())))), "c2")
         );
 
         Assertions.assertEquals(expected, result);

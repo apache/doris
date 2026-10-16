@@ -494,7 +494,7 @@ struct SeqCase {
 
 // The FE allows sequence columns of isFixedPointType() || isDateType()
 // (PropertyAnalyzer::analyzeSequenceType and the sequence_col mapping share
-// the check): the five integer types plus all five date types. BOOL is NOT
+// the check): the five integer types plus all six date types. BOOL is NOT
 // seq-eligible. DATE and DATETIME remain here for legacy TabletSchemas even
 // though newly created tables use their v2 counterparts.
 std::vector<SeqCase> seq_cases() {
@@ -540,6 +540,8 @@ std::vector<SeqCase> seq_cases() {
                  fill_raw<uint64_t>(c, 2, datetimev2_bits(2024, 6, 15, 12, 30, 45));
              },
              "01fa19ec7ad00000"},
+            {"timestamp_ns", FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 8,
+             [](MutableColumns& c) { fill_raw<int64_t>(c, 2, 5); }, "8000000000000005"},
     };
 }
 
@@ -552,7 +554,7 @@ protected:
     void build(const TabletSchemaSPtr& schema, size_t num_rows,
                const std::function<void(MutableColumns&)>& fill) {
         _schema = schema;
-        _block = schema->create_block();
+        _block = schema->create_storage_block();
         {
             auto guard = _block.mutate_columns_scoped();
             fill(guard.mutable_columns());
@@ -694,7 +696,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         // 3. Fill the block from kAllKeyData. Cluster-key schemas keep the sort
         // columns in table order and reverse the primary-key source rows.
         _schema = schema;
-        _block = schema->create_block();
+        _block = schema->create_storage_block();
         auto timezone = cctz::utc_time_zone();
         DataTypeSerDe::FormatOptions format_options;
         format_options.timezone = &timezone;
@@ -933,7 +935,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
                 EXPECT_EQ(primary_keys[row], canonical_full_keys[0][kAllKeyData.size() - 1 - row]);
             }
 
-            // SegmentWriter sorts these primary-index entries in memory because
+            // VerticalSegmentWriter sorts these primary-index entries in memory because
             // physical row order follows cluster keys, not primary keys.
             auto sorted_primary_index_keys = primary_index_keys;
             std::sort(sorted_primary_index_keys.begin(), sorted_primary_index_keys.end());
@@ -1071,6 +1073,134 @@ TEST_F(RowKeyEncoderTest, SeqSuffix) {
     }
 }
 
+// TIMESTAMP_NS is a signed epoch-nanosecond Int64. Verify that every table
+// model uses its monotonic Int64 key coding for full and short keys, and that
+// the MOW primary-key view uses exactly the same bytes.
+TEST_F(RowKeyEncoderTest, TimestampNsKeyEncodingAllTableModels) {
+    struct SchemaCase {
+        const char* name;
+        KeysType keys_type;
+        bool mow;
+    };
+    constexpr std::array<SchemaCase, 4> kSchemaCases = {{
+            {"duplicate_keys", DUP_KEYS, false},
+            {"aggregate_keys", AGG_KEYS, false},
+            {"unique_keys_merge_on_read", UNIQUE_KEYS, false},
+            {"unique_keys_merge_on_write", UNIQUE_KEYS, true},
+    }};
+    constexpr std::array<int64_t, 5> kValues = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                                std::numeric_limits<int64_t>::max()};
+    constexpr std::array<std::string_view, 5> kExpectedKeys = {
+            "020000000000000000", "027fffffffffffffff", "028000000000000000", "028000000000000001",
+            "02ffffffffffffffff"};
+
+    for (const auto& schema_case : kSchemaCases) {
+        SCOPED_TRACE(schema_case.name);
+        auto schema = std::make_shared<TabletSchema>();
+        auto key_column = make_key_column(0, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+                                          sizeof(int64_t), sizeof(int64_t));
+        key_column->_is_nullable = false;
+        schema->append_column(*key_column);
+        schema->_keys_type = schema_case.keys_type;
+        schema->_num_short_key_columns = 1;
+        build(schema, kValues.size(), [&](MutableColumns& columns) {
+            for (const auto value : kValues) {
+                fill_raw<int64_t>(columns, 0, value);
+            }
+        });
+
+        RowKeyEncoder encoder(*schema, schema_case.mow);
+        std::vector<IOlapColumnDataAccessor*> key_columns {acc(0)};
+        std::string previous_key;
+        for (size_t row = 0; row < kValues.size(); ++row) {
+            const std::string full_key = encoder.full_encode(key_columns, row);
+            const std::string short_key = encoder.encode_short_keys(key_columns, row);
+            EXPECT_EQ(to_hex(full_key), kExpectedKeys[row]);
+            EXPECT_EQ(short_key, full_key);
+            if (schema_case.mow) {
+                EXPECT_EQ(encoder.full_encode_primary_keys(key_columns, row), full_key);
+            } else {
+                EXPECT_TRUE(encoder.full_encode_primary_keys({}, row).empty());
+            }
+            if (row > 0) {
+                EXPECT_LT(previous_key, full_key);
+            }
+            previous_key = full_key;
+        }
+    }
+}
+
+// full_encode_primary_keys() is the primary key index's view. With cluster keys the segment sorts
+// by those instead, so this is where the two views come apart: the probe side must encode the
+// primary key columns, not whatever full_encode() happens to give.
+TEST_F(RowKeyEncoderTest, PrimaryKeyViewDiffersFromSortKeyViewWithClusterKeys) {
+    auto schema = different_key_count_schema(); // key uid 0, cluster keys uid 1..4
+    build(schema, 2, [&](MutableColumns& c) {
+        fill_int(c, 0, {1, 2});
+        fill_int(c, 1, {10, 20});
+        fill_int(c, 2, {30, 40});
+        fill_int(c, 3, {50, 60});
+        fill_int(c, 4, {70, 80});
+    });
+    ASSERT_EQ(_schema->num_key_columns(), 1);
+    ASSERT_EQ(_schema->cluster_key_uids().size(), 4);
+
+    RowKeyEncoder encoder(*_schema, /*mow=*/true);
+    std::vector<IOlapColumnDataAccessor*> primary_key_columns {acc(0)};
+    std::vector<IOlapColumnDataAccessor*> sort_key_columns {acc(1), acc(2), acc(3), acc(4)};
+    for (size_t row = 0; row < 2; ++row) {
+        const std::string primary_key = encoder.full_encode_primary_keys(primary_key_columns, row);
+        EXPECT_FALSE(primary_key.empty());
+        EXPECT_NE(to_hex(encoder.full_encode(sort_key_columns, row)), to_hex(primary_key));
+    }
+}
+
+// Without cluster keys the two views coincide, and the primary-key one still has to be built --
+// that is what lets the probe side call full_encode_primary_keys() for every mow table instead of
+// branching on the table's shape.
+TEST_F(RowKeyEncoderTest, PrimaryKeyViewEqualsSortKeyViewWithoutClusterKeys) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_key(0));
+    schema->append_column(*create_int_key(1));
+    schema->append_column(
+            *create_int_value(2, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE));
+    schema->_keys_type = UNIQUE_KEYS;
+    schema->_num_short_key_columns = 1;
+    build(schema, 2, [&](MutableColumns& c) {
+        fill_int(c, 0, {1, 2});
+        fill_int(c, 1, {10, 20});
+        fill_int(c, 2, {0, 0});
+    });
+    ASSERT_TRUE(_schema->cluster_key_uids().empty());
+
+    RowKeyEncoder encoder(*_schema, /*mow=*/true);
+    std::vector<IOlapColumnDataAccessor*> key_columns {acc(0), acc(1)};
+    for (size_t row = 0; row < 2; ++row) {
+        const std::string sort_key = encoder.full_encode(key_columns, row);
+        EXPECT_FALSE(sort_key.empty());
+        EXPECT_EQ(to_hex(encoder.full_encode_primary_keys(key_columns, row)), to_hex(sort_key));
+    }
+}
+
+// A non-mow encoder has no primary key index to build, so it builds no primary-key view either.
+TEST_F(RowKeyEncoderTest, NonMowBuildsNoPrimaryKeyView) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_key(0));
+    schema->append_column(
+            *create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE));
+    schema->_keys_type = DUP_KEYS;
+    schema->_num_short_key_columns = 1;
+    build(schema, 1, [&](MutableColumns& c) {
+        fill_int(c, 0, {1});
+        fill_int(c, 1, {0});
+    });
+
+    RowKeyEncoder encoder(*_schema, /*mow=*/false);
+    std::vector<IOlapColumnDataAccessor*> key_columns {acc(0)};
+    EXPECT_FALSE(encoder.full_encode(key_columns, 0).empty());
+    EXPECT_TRUE(encoder.full_encode_primary_keys({}, 0).empty());
+}
+
 // A cluster-key segment may contain several rows with the same primary key and
 // sequence value. Their primary-index prefixes are identical, so rowid is the
 // only tie-breaker. The chosen rowids cross every relevant byte/sign boundary
@@ -1101,7 +1231,7 @@ TEST_F(RowKeyEncoderTest, RowidSuffix) {
 
     auto schema = cluster_key_with_sequence_schema();
     build(schema, kRows.size(), [&](MutableColumns& columns) {
-        // Rowid is not a block column. SegmentWriter obtains it from the
+        // Rowid is not a block column. VerticalSegmentWriter obtains it from the
         // physical position and passes it separately to append_rowid_suffix().
         for (const auto& data : kRows) {
             fill_raw<int32_t>(columns, 0, data.primary_key);

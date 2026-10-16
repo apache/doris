@@ -92,15 +92,15 @@ suite("test_paimon_schema_branch_partition_matrix", "p0,external,paimon") {
             from ${branchTable}
             order by id
         """))
-        // Negative contract: Doris cannot initialize a Paimon branch with an independent schema.
-        test {
-            sql """
-                select id, branch_name, metric, branch_only
-                from ${branchTable}@branch(schema_branch)
-                order by id
-            """
-            exception "failed to initSchema"
-        }
+        // The branch's independently-evolved schema is now read via its OWN schema dir: applySnapshot
+        // routes @branch(schema_branch) to withBranch so the branch's schema-<id> resolves (old_name
+        // renamed to branch_name, metric widened to bigint, branch_only added; row 1 inherited from the
+        // base tag defaults branch_only=null).
+        assertEquals([[1, "base-1", 10L, null], [2, "branch-2", 6000000000L, "branch-only-2"]], sql("""
+            select id, branch_name, metric, branch_only
+            from ${branchTable}@branch(schema_branch)
+            order by id
+        """))
         test {
             sql """select branch_only from ${branchTable}"""
             exception "Unknown column 'branch_only'"

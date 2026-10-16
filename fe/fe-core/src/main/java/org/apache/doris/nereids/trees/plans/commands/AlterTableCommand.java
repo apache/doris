@@ -37,7 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
@@ -142,7 +141,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
 
     static void checkColumnOperationsSupported(TableIf table, List<AlterTableOp> alterTableOps)
             throws AnalysisException {
-        if (table instanceof IcebergExternalTable) {
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange()) {
             checkIcebergCompoundColumnOperations(alterTableOps);
             for (AlterTableOp alterTableOp : alterTableOps) {
                 ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
@@ -173,12 +173,29 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             }
             return;
         }
+        if (table instanceof PluginDrivenExternalTable) {
+            for (AlterTableOp alterTableOp : alterTableOps) {
+                checkExternalGeneratedColumn(getColumnDefinition(alterTableOp));
+                if (alterTableOp instanceof AddColumnsOp) {
+                    for (ColumnDefinition definition : ((AddColumnsOp) alterTableOp).getColumnDefinitions()) {
+                        checkExternalGeneratedColumn(definition);
+                    }
+                }
+            }
+        }
         for (AlterTableOp alterTableOp : alterTableOps) {
             ColumnPath columnPath = getNestedColumnPath(alterTableOp);
             if (columnPath != null) {
                 throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
                         + columnPath.getFullPath());
             }
+        }
+    }
+
+    private static void checkExternalGeneratedColumn(ColumnDefinition columnDefinition) throws AnalysisException {
+        if (columnDefinition != null && columnDefinition.getGeneratedColumnDesc().isPresent()) {
+            throw new AnalysisException(
+                    "Generated columns are not supported for external ADD/MODIFY COLUMN");
         }
     }
 
@@ -380,9 +397,10 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterTableOp instanceof DropColumnOp
                     || alterTableOp instanceof RenameColumnOp
                     || alterTableOp instanceof ModifyColumnOp
-                    || (alterTableOp instanceof ModifyColumnCommentOp && table instanceof IcebergExternalTable)
+                    || (alterTableOp instanceof ModifyColumnCommentOp
+                            && table instanceof PluginDrivenExternalTable
+                            && ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange())
                     || alterTableOp instanceof ReorderColumnsOp
-                    || alterTableOp instanceof ModifyEngineOp
                     || alterTableOp instanceof ModifyTablePropertiesOp
                     || alterTableOp instanceof CreateOrReplaceBranchOp
                     || alterTableOp instanceof CreateOrReplaceTagOp

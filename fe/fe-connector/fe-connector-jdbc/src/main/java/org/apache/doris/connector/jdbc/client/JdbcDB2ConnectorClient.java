@@ -17,9 +17,8 @@
 
 package org.apache.doris.connector.jdbc.client;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -70,7 +69,7 @@ public class JdbcDB2ConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from DB2", e);
+            throw jdbcException("Failed to get database name list from DB2", e);
         } finally {
             closeResources(rs, conn);
         }

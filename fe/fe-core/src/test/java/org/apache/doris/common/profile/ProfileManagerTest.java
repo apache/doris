@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.profile.ProfileManager.ProfileLoadStatus;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TCounter;
@@ -42,6 +43,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.io.File;
@@ -54,7 +57,10 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ResourceLock("global")
 class ProfileManagerTest {
@@ -77,7 +83,7 @@ class ProfileManagerTest {
         originalPath = ProfileManager.PROFILE_STORAGE_PATH;
         ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         profileManager.cleanProfile();
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
         originMaxProfiles = Config.max_query_profile_num;
     }
 
@@ -467,7 +473,7 @@ class ProfileManagerTest {
         // Clean profile
         profileManager.cleanProfile();
         // Make sure map is cleaned.
-        Assertions.assertTrue(profileManager.queryIdToProfileMap.isEmpty());
+        Assertions.assertTrue(profileManager.profileIdToProfileMap.isEmpty());
         Assertions.assertTrue(profileManager.queryIdToExecutionProfiles.isEmpty());
     }
 
@@ -518,7 +524,7 @@ class ProfileManagerTest {
 
     @Test
     void testLoadProfile() throws IOException {
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
 
         try {
             // Create some test profile files
@@ -529,8 +535,8 @@ class ProfileManagerTest {
             }
 
             profileManager.loadProfilesFromStorageIfFirstTime(true);
-            Assertions.assertTrue(profileManager.isProfileLoaded);
-            Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(ProfileLoadStatus.LOADED, profileManager.profileLoadStatus.get());
+            Assertions.assertEquals(30, profileManager.profileIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -602,7 +608,7 @@ class ProfileManagerTest {
         File[] files = tempDir.listFiles();
         assert files != null;
         Assertions.assertEquals(30, files.length);
-        Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(30, profileManager.profileIdToProfileMap.size());
         Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
     }
 
@@ -682,11 +688,11 @@ class ProfileManagerTest {
             }
 
             // Execute deletion
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify correct profiles were deleted
-            Assertions.assertEquals(10, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(10, profileManager.profileIdToProfileMap.size());
             for (int j = 0; j < spyProfiles.size(); j++) {
                 Mockito.verify(spyProfiles.get(j), Mockito.times(j < 20 ? 1 : 0)).deleteFromStorage();
             }
@@ -696,6 +702,82 @@ class ProfileManagerTest {
         } finally {
             Config.enable_profile_archive = originalArchiveEnabled;
             Config.max_spilled_profile_num = originMaxSpilledProfileNum;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testPruneMixedQueryAndBrokerLoadProfiles(boolean archiveEnabled) throws Exception {
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
+        String originalArchivePath = Config.profile_archive_path;
+        int originalMaxSpilled = Config.max_spilled_profile_num;
+        long originalStorageLimit = Config.spilled_profile_storage_limit_bytes;
+        int originalBatchSize = Config.profile_archive_batch_size;
+        int originalPendingTimeout = Config.profile_archive_pending_timeout_seconds;
+        List<Profile> profiles = new ArrayList<>();
+        List<File> profileFiles = new ArrayList<>();
+        try {
+            Config.enable_profile_archive = archiveEnabled;
+            Config.profile_archive_path = "";
+            Config.max_spilled_profile_num = 1;
+            Config.max_query_profile_num = 3;
+            Config.spilled_profile_storage_limit_bytes = Long.MAX_VALUE;
+            Config.profile_archive_batch_size = 100;
+            Config.profile_archive_pending_timeout_seconds = 3600;
+            long finishTime = System.currentTimeMillis();
+            for (int i = 0; i < 3; i++) {
+                boolean brokerLoad = i != 1;
+                TUniqueId queryId = new TUniqueId(0x22040L, i * 2 + 1);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(0);
+                profile.getSummaryProfile().getSummary().getInfoStrings().put(SummaryProfile.PROFILE_ID,
+                        brokerLoad ? String.valueOf(123456 + i) : DebugUtil.printId(queryId));
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(finishTime + i);
+                profile.addExecutionProfile(new ExecutionProfile(queryId, Lists.newArrayList(0)));
+                if (brokerLoad) {
+                    profile.addExecutionProfile(new ExecutionProfile(
+                            new TUniqueId(queryId.hi, queryId.lo + 1), Lists.newArrayList(1)));
+                }
+                for (ExecutionProfile execution : profile.getExecutionProfiles()) {
+                    profileManager.addExecutionProfile(execution);
+                }
+                profileManager.pushProfile(profile);
+                profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+                File profileFile = new File(profile.getProfileStoragePath());
+                Assertions.assertTrue(profileFile.exists());
+                profileFiles.add(profileFile);
+                profiles.add(profile);
+            }
+            List<ProfileElement> selected = profileManager.getProfilesToBeRemoved();
+            Assertions.assertEquals(2, selected.size());
+            Assertions.assertSame(profiles.get(0), selected.get(0).profile);
+            Assertions.assertSame(profiles.get(1), selected.get(1).profile);
+
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
+            profileManager.deleteOutdatedProfilesFromStorage();
+
+            Assertions.assertEquals(1, profileManager.profileIdToProfileMap.size());
+            Assertions.assertEquals(2, profileManager.queryIdToExecutionProfiles.size());
+            for (int i = 0; i < profiles.size(); i++) {
+                Profile profile = profiles.get(i);
+                boolean retained = i == 2;
+                Assertions.assertEquals(retained, profileManager.profileIdToProfileMap.containsKey(profile.getId()));
+                Assertions.assertEquals(retained, profileFiles.get(i).exists());
+                for (ExecutionProfile execution : profile.getExecutionProfiles()) {
+                    Assertions.assertEquals(retained,
+                            profileManager.queryIdToExecutionProfiles.containsKey(execution.getQueryId()));
+                }
+                if (!retained && archiveEnabled) {
+                    Assertions.assertTrue(new File(tempDir, "archive/pending/" + profileFiles.get(i).getName()).exists());
+                }
+            }
+        } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
+            Config.profile_archive_path = originalArchivePath;
+            Config.max_spilled_profile_num = originalMaxSpilled;
+            Config.spilled_profile_storage_limit_bytes = originalStorageLimit;
+            Config.profile_archive_batch_size = originalBatchSize;
+            Config.profile_archive_pending_timeout_seconds = originalPendingTimeout;
         }
     }
 
@@ -764,7 +846,7 @@ class ProfileManagerTest {
         }
 
         // Delete broken profiles
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify normal files still exist
@@ -796,7 +878,64 @@ class ProfileManagerTest {
         profileManager.loadProfilesFromStorageIfFirstTime(true);
 
         // Verify all profiles are loaded
-        Assertions.assertEquals(numProfiles, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(numProfiles, profileManager.profileIdToProfileMap.size());
+    }
+
+    @Test
+    public void testOnlyOneProfileLoaderCanRun() throws Exception {
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch duplicateLoadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoadToFinish = new CountDownLatch(1);
+        AtomicInteger scanCount = new AtomicInteger();
+        ProfileManager manager = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                if (scanCount.incrementAndGet() > 1) {
+                    duplicateLoadStarted.countDown();
+                }
+                loadStarted.countDown();
+                try {
+                    allowLoadToFinish.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                return Lists.newArrayList();
+            }
+        };
+        Thread initialLoad = new Thread(() -> manager.loadProfilesFromStorageIfFirstTime(true));
+
+        try {
+            initialLoad.start();
+            Assertions.assertTrue(loadStarted.await(5, TimeUnit.SECONDS));
+
+            for (int i = 0; i < 10; i++) {
+                manager.loadProfilesFromStorageIfFirstTime(false);
+            }
+
+            Assertions.assertFalse(duplicateLoadStarted.await(500, TimeUnit.MILLISECONDS));
+            Assertions.assertEquals(1, scanCount.get());
+        } finally {
+            allowLoadToFinish.countDown();
+            initialLoad.join(5000);
+            Assertions.assertFalse(initialLoad.isAlive());
+        }
+    }
+
+    @Test
+    public void testProfileLoaderCanRetryAfterFailure() throws IOException {
+        File invalidProfileStorage = new File(tempDir, "not_a_directory");
+        Assertions.assertTrue(invalidProfileStorage.createNewFile());
+        ProfileManager.PROFILE_STORAGE_PATH = invalidProfileStorage.getAbsolutePath();
+        ProfileManager manager = new ProfileManager();
+
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertEquals(ProfileLoadStatus.UNLOADED, manager.profileLoadStatus.get());
+
+        Assertions.assertTrue(invalidProfileStorage.delete());
+        ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertEquals(ProfileLoadStatus.LOADED, manager.profileLoadStatus.get());
     }
 
     @Test
@@ -819,7 +958,7 @@ class ProfileManagerTest {
         }
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteOutdatedProfilesFromStorage();
 
         // Verify number of profiles is within limits
@@ -844,7 +983,7 @@ class ProfileManagerTest {
         brokenFile.createNewFile();
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify broken profile is removed but valid one remains
@@ -877,11 +1016,11 @@ class ProfileManagerTest {
         profileManager.deleteOutdatedProfilesFromMemory(0);
 
         // Verify memory profile count is within limit
-        Assertions.assertEquals(Config.max_query_profile_num, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(Config.max_query_profile_num, profileManager.profileIdToProfileMap.size());
 
         // Verify newest profiles are kept
         for (String profileId : profilesToKeep) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profileId));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profileId));
         }
     }
 
@@ -903,13 +1042,13 @@ class ProfileManagerTest {
             profileManager.pushProfile(profile);
         }
         // Verify profile count
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
 
         // Try to delete outdated profiles
         profileManager.deleteOutdatedProfilesFromMemory(0);
 
         // Verify no profiles were deleted
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
 
         for (int i = 3; i < 5; i++) {
             Profile profile = profiles.get(i);
@@ -919,17 +1058,17 @@ class ProfileManagerTest {
         for (int i = 0; i < 5; i++) {
             Profile profile = profiles.get(i);
             if (i <= 1) {
-                Assertions.assertFalse(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+                Assertions.assertFalse(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
             } else {
-                Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+                Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
             }
         }
 
         profiles.clear();
 
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
         for (Profile profile : profiles) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
     }
 
@@ -962,10 +1101,10 @@ class ProfileManagerTest {
 
         // Verify unfinished profile was not deleted
         for (Profile profile : profileUnfinished) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
 
-        Assertions.assertEquals(5, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(5, profileManager.profileIdToProfileMap.size());
 
         profileFinished.clear();
         for (int i = 0; i < 5; i++) {
@@ -980,7 +1119,7 @@ class ProfileManagerTest {
 
         // Verify unfinished profile was not deleted
         for (Profile profile : profileUnfinished) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
     }
 
@@ -1018,7 +1157,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should move old profiles to pending and possibly archive
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify storage directory only has max allowed profiles
@@ -1086,7 +1225,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should directly delete old profiles
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify delete invocations
@@ -1143,7 +1282,7 @@ class ProfileManagerTest {
 
             // Simulate periodic cleanup via runAfterCatalogReady
             // Note: The first call will trigger cleanup since lastArchiveCleanupTime is 0
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.runAfterCatalogReady();
 
             // Verify that the old archive was deleted by runAfterCatalogReady

@@ -22,7 +22,11 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
+#include <memory>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -32,6 +36,7 @@
 #include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
+class ResourceManager;
 class TxnKv;
 
 struct StatInfo {
@@ -90,6 +95,22 @@ struct PartitionInfo {
     // clang-format on
 };
 
+struct TableStreamInfo {
+    int64_t stream_db_id;
+    int64_t stream_id;
+    int64_t base_db_id;
+    int64_t base_table_id;
+    bool stale;
+
+    std::string debug_string() const {
+        return "stream db id: " + std::to_string(stream_db_id) +
+               " stream id: " + std::to_string(stream_id) +
+               " base db id: " + std::to_string(base_db_id) +
+               " base table id: " + std::to_string(base_table_id) +
+               " stale: " + std::to_string(stale);
+    }
+};
+
 class MetaChecker {
 public:
     explicit MetaChecker(std::shared_ptr<TxnKv> txn_kv);
@@ -102,6 +123,8 @@ public:
     bool check_fe_meta_by_fdb();
     bool check_fdb_by_fe_meta();
     bool do_mvcc_check();
+
+    bool do_table_stream_meta_check();
 
     template <CHECK_TYPE>
     bool handle_check_fe_meta_by_fdb();
@@ -155,6 +178,7 @@ private:
 private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
+    std::shared_ptr<ResourceManager> resource_mgr_;
     MYSQL conn;
     StatInfo stat_info_;
     std::string instance_id_;

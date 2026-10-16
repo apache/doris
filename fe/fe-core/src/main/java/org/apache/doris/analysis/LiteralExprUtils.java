@@ -22,6 +22,8 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 
+import java.util.HexFormat;
+
 public class LiteralExprUtils {
 
     public static LiteralExpr createLiteral(String value, Type type) throws AnalysisException {
@@ -64,18 +66,34 @@ public class LiteralExprUtils {
             case JSONB:
                 literalExpr = new JsonLiteral(value);
                 break;
+            case VARBINARY:
+                // External partition metadata uses hex so NULs and non-UTF-8 bytes survive transport.
+                try {
+                    if (!value.startsWith("0x")) {
+                        throw new IllegalArgumentException("Binary partition values require a 0x prefix");
+                    }
+                    literalExpr = new VarBinaryLiteral(HexFormat.of().parseHex(value.substring(2)));
+                    literalExpr.setType(type);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException("Invalid binary partition value: " + value, e);
+                }
+                break;
             case DATE:
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                literalExpr = DateLiteralUtils.createDateLiteral(value, type);
+                literalExpr = DateLiteralUtils.createLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);
                 break;
             case IPV6:
                 literalExpr = new IPv6Literal(value);
+                break;
+            case UUID:
+                literalExpr = new UuidLiteral(value);
                 break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
@@ -104,6 +122,10 @@ public class LiteralExprUtils {
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 return DateLiteral.createMinValue(type);
+            case TIMESTAMP_NS:
+                return TimeStampNsLiteral.createMinValue();
+            case UUID:
+                return new UuidLiteral(UuidLiteral.UUID_MIN);
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }

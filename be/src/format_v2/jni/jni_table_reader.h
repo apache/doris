@@ -27,6 +27,7 @@
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris::format {
 
@@ -48,6 +49,7 @@ public:
 
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
     Status get_block(Block* block, bool* eos) override;
     Status abort_split() override;
     Status close() override;
@@ -67,8 +69,9 @@ public:
 #endif
 
 protected:
-    // Subclasses should implement these methods to specify the Java scanner class
-    virtual std::string connector_class() const = 0;
+    // Subclasses should implement this method to name the plugin and factory that build
+    // their Java scanner.
+    virtual Jni::PluginRef plugin_ref() const = 0;
     virtual Status validate_scan_range(const TFileRangeDesc&) const { return Status::OK(); }
     // Subclasses should implement this method to build the scanner params map
     virtual Status build_scanner_params(std::map<std::string, std::string>* params) const = 0;
@@ -81,6 +84,7 @@ protected:
     virtual Status _close_jni_scanner();
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
     virtual bool supports_batch_size_update_after_open() const { return true; }
+    virtual bool publishes_encoded_schema() const { return false; }
     virtual Status _open_jni_scanner();
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
@@ -94,8 +98,8 @@ private:
     // open
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
-    Status _register_jni_class_functions_once(JNIEnv* env);
-    Status _create_jni_scanner_object(JNIEnv* env, int batch_size);
+    void _apply_common_scanner_params();
+    Status _create_jni_scanner(JNIEnv* env, int batch_size);
     // get_next
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
@@ -123,18 +127,10 @@ private:
     int64_t _java_scan_watcher = 0;
     int64_t _fill_block_watcher = 0;
 
-    Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;
-    Jni::MethodId _jni_scanner_constructor;
-    Jni::MethodId _jni_scanner_open;
-    Jni::MethodId _jni_scanner_get_append_data_time;
-    Jni::MethodId _jni_scanner_get_create_vector_table_time;
-    Jni::MethodId _jni_scanner_get_next_batch;
-    Jni::MethodId _jni_scanner_close;
-    Jni::MethodId _jni_scanner_release_column;
-    Jni::MethodId _jni_scanner_release_table;
-    Jni::MethodId _jni_scanner_get_statistics;
-    Jni::MethodId _jni_scanner_set_batch_size;
+    // Resolved on the SPI base class and shared by every reader in the process, so this is a
+    // borrowed pointer into storage that outlives any reader.
+    const Jni::ScannerApi* _scanner_api = nullptr;
 };
 
 } // namespace doris::format

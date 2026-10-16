@@ -16,13 +16,11 @@
 // under the License.
 
 suite("test_row_binlog_basic", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_dup_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_binlog FORCE"
+    sql "DROP TABLE IF EXISTS test_mow_reinsert_with_before_binlog FORCE"
+    sql "DROP TABLE IF EXISTS test_mow_reinsert_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_seq_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_empty_rowset FORCE"
 
@@ -79,6 +77,38 @@ suite("test_row_binlog_basic", "nonConcurrent") {
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
             "binlog.need_historical_value" = "true"
+        )
+    """
+
+    sql """
+        CREATE TABLE test_mow_reinsert_with_before_binlog (
+            k1 INT,
+            v1 INT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
+            "binlog.need_historical_value" = "true"
+        )
+    """
+
+    sql """
+        CREATE TABLE test_mow_reinsert_binlog (
+            k1 INT,
+            v1 INT,
+            v2 STRING DEFAULT "default"
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW"
         )
     """
 
@@ -170,6 +200,25 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
+    def dupRawLsnRows = sql """
+        SELECT k1, k2, k3, v1, v2, __DORIS_ROW_LSN_COL__
+        FROM test_dup_with_binlog
+        ORDER BY k1, k2, k3, v1, v2
+    """
+    def dupBinlogLsnRows = sql """
+        SELECT k1, k2, k3, v1, v2, __DORIS_BINLOG_LSN__
+        FROM binlog("table" = "test_dup_with_binlog")
+        ORDER BY k1, k2, k3, v1, v2
+    """
+    assertEquals(dupRawLsnRows.size(), dupBinlogLsnRows.size())
+    def dupRowLsns = dupRawLsnRows.collect { it[5] as long }
+    dupRowLsns.each { lsn -> assertTrue(lsn > 0, "row lsn should be positive but got ${lsn}") }
+    assertEquals(dupRowLsns.size(), dupRowLsns.toSet().size())
+    for (int i = 0; i < dupRawLsnRows.size(); i++) {
+        assertEquals(dupRawLsnRows[i][0..4], dupBinlogLsnRows[i][0..4])
+        assertEquals(dupRawLsnRows[i][5], dupBinlogLsnRows[i][5])
+    }
+
     sql """
         INSERT INTO test_mow_with_binlog VALUES
             (1, 1, 1, 10, '10'),
@@ -198,6 +247,14 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
+    test {
+        sql """
+            SELECT __DORIS_ROW_LSN_COL__
+            FROM test_mow_with_binlog
+        """
+        exception "Unknown column"
+    }
+
     sql """
         INSERT INTO test_mow_with_before_binlog VALUES
             (1, 1, 1, 10, '10'),
@@ -225,6 +282,34 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_with_before_binlog")
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+    """
+
+    sql "INSERT INTO test_mow_reinsert_with_before_binlog VALUES (1, 10)"
+    sql "DELETE FROM test_mow_reinsert_with_before_binlog WHERE k1 = 1"
+    sql "INSERT INTO test_mow_reinsert_with_before_binlog VALUES (1, 10)"
+
+    qt_mow_reinsert_before_binlog """
+        SELECT __DORIS_BINLOG_OP__ AS op,
+               k1,
+               v1,
+               __BEFORE__v1__
+        FROM binlog("table" = "test_mow_reinsert_with_before_binlog")
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+    """
+
+    sql "INSERT INTO test_mow_reinsert_binlog VALUES (2, 20, 'partial')"
+    sql "DELETE FROM test_mow_reinsert_binlog WHERE k1 = 2"
+    sql "SET enable_unique_key_partial_update = true"
+    sql "INSERT INTO test_mow_reinsert_binlog(k1, v1) VALUES (2, 20)"
+    sql "SET enable_unique_key_partial_update = false"
+
+    qt_mow_reinsert_binlog """
+        SELECT __DORIS_BINLOG_OP__ AS op,
+               k1,
+               v1,
+               v2
+        FROM binlog("table" = "test_mow_reinsert_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 

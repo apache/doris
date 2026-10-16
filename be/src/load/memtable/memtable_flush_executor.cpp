@@ -31,6 +31,8 @@
 #include "common/signal_handler.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/binlog.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
@@ -117,6 +119,10 @@ SharedMemtable::~SharedMemtable() {
     if (block == nullptr) {
         return;
     }
+    if (has_allocated_lsns) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
+    }
     DCHECK(memtable != nullptr);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
@@ -155,6 +161,11 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
     return Status::OK();
 }
 
+Status FlushToken::_get_load_cancel_status() const {
+    return _load_cancel_status && !_load_cancel_status->ok() ? _load_cancel_status->status()
+                                                             : Status::OK();
+}
+
 Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
@@ -181,9 +192,10 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
+        shared_memtable->allocated_lsn_map = group_rowset_writer->context().allocated_lsn_map;
         // Keep data/binlog segment_id allocators in sync.
-        auto segment_id = data_writer->allocate_segment_id();
-        auto binlog_segment_id = binlog_writer->allocate_segment_id();
+        auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
+        auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
         DCHECK_EQ(segment_id, binlog_segment_id);
         shared_memtable->segment_id = segment_id;
 
@@ -193,9 +205,9 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                 shared_from_this(), shared_memtable, WriteRequestType::ROW_BINLOG,
                 submit_task_time));
     } else {
+        auto segment_id = DORIS_TRY(_rowset_writer->allocate_segment_id());
         tasks.emplace_back(MemtableFlushTask::create_shared(shared_from_this(), mem_table,
-                                                            _rowset_writer->allocate_segment_id(),
-                                                            submit_task_time));
+                                                            segment_id, submit_task_time));
     }
     // NOTE: we should guarantee WorkloadGroup is not deconstructed when submit memtable flush task.
     // because currently WorkloadGroup's can only be destroyed when all queries in the group is finished,
@@ -252,7 +264,7 @@ Status FlushToken::wait() {
             return _flush_status;
         }
     }
-    return Status::OK();
+    return _get_load_cancel_status();
 }
 
 Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& resource_context,
@@ -306,6 +318,15 @@ Status FlushToken::_memtable2block(MemTable* memtable, SharedMemtable* shared_me
         shared_memtable->block_status = memtable->to_block(&block);
         if (shared_memtable->block_status.ok()) {
             shared_memtable->block.reset(block.release());
+            // A non-null map is equivalent to RowsetWriterContext::need_allocated_lsn():
+            // GroupRowsetWriter::init() creates the map exactly when LSN allocation is needed.
+            const auto& lsn_map = shared_memtable->allocated_lsn_map;
+            if (lsn_map != nullptr && shared_memtable->block->rows() > 0) {
+                auto memtable_lsns = memtable->allocated_lsns();
+                DCHECK_EQ(memtable_lsns->size(), shared_memtable->block->rows());
+                lsn_map->insert_segment_allocated_lsns(shared_memtable->segment_id, memtable_lsns);
+                shared_memtable->has_allocated_lsns = true;
+            }
         }
     });
     if (!shared_memtable->block_status.ok()) {
@@ -340,7 +361,7 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
     }};
     DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_before_first_shutdown",
                     { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
-    if (_is_shutdown()) {
+    if (_is_shutdown() || !_get_load_cancel_status().ok()) {
         return;
     }
     DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_after_first_shutdown",
@@ -390,16 +411,7 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // }};
             std::shared_ptr<Block> flush_block;
             RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
-            if (flush_writer->context().write_binlog_opt().enable && flush_block->rows() > 0) {
-                const auto& memtable_lsns = memtable->row_binlog_lsns();
-                DCHECK_EQ(memtable_lsns.size(), flush_block->rows());
-                auto lsn_ids = std::make_shared<std::vector<int64_t>>(memtable_lsns.begin(),
-                                                                      memtable_lsns.end());
-                const_cast<RowsetWriterContext&>(flush_writer->context())
-                        .write_binlog_opt()
-                        .write_binlog_config()
-                        .insert_seg_lsn(segment_id, std::move(lsn_ids));
-            }
+            RETURN_IF_ERROR(_get_load_cancel_status());
             RETURN_IF_ERROR(
                     flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
             memtable->set_flush_success();
@@ -512,7 +524,8 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
 Status MemTableFlushExecutor::create_flush_token(
         std::shared_ptr<FlushToken>& flush_token, std::shared_ptr<RowsetWriter> rowset_writer,
         bool is_high_priority, std::shared_ptr<WorkloadGroup> wg_sptr,
-        std::shared_ptr<OlapTableSchemaParam> table_schema_param) {
+        std::shared_ptr<OlapTableSchemaParam> table_schema_param,
+        std::shared_ptr<AtomicStatus> load_cancel_status) {
     switch (rowset_writer->type()) {
     case ALPHA_ROWSET:
         // alpha rowset do not support flush in CONCURRENT.  and not support alpha rowset now.
@@ -520,7 +533,7 @@ Status MemTableFlushExecutor::create_flush_token(
     case BETA_ROWSET: {
         // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
         ThreadPool* pool = is_high_priority ? _high_prio_flush_pool.get() : _flush_pool.get();
-        flush_token = FlushToken::create_shared(pool, wg_sptr);
+        flush_token = FlushToken::create_shared(pool, wg_sptr, std::move(load_cancel_status));
         flush_token->set_rowset_writer(rowset_writer);
         flush_token->set_table_schema_param(std::move(table_schema_param));
         return Status::OK();

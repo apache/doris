@@ -32,6 +32,14 @@
 
 namespace doris {
 
+TEST(function_arithmetic_test, add_mixed_nullable_arguments_test) {
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_INT},
+                                Notnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {1}, int32_t {2}}, int32_t {3}}, {{Null(), int32_t {4}}, Null()}};
+
+    static_cast<void>(check_function<DataTypeInt32, true>("add", input_types, data_set));
+}
+
 TEST(function_arithmetic_test, function_arithmetic_mod_test) {
     std::string func_name = "mod";
 

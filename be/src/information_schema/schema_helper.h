@@ -99,9 +99,11 @@ public:
     static Status fetch_load_job(const std::string& ip, const int32_t port,
                                  const TFetchLoadJobRequest& request, TFetchLoadJobResult* result);
 
+    // `timeout_ms` bounds how long to wait for the master FE. Callers pass the execution
+    // timeout of the query they serve, so the RPC never outlives that query.
     static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
                                           const TFetchSchemaTableDataRequest& request,
-                                          TFetchSchemaTableDataResult* result);
+                                          TFetchSchemaTableDataResult* result, int timeout_ms);
 
     static Status get_master_keys(const std::string& ip, const int32_t port,
                                   const TGetEncryptionKeysRequest& request,

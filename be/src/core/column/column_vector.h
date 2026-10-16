@@ -47,6 +47,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint24.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "util/unaligned.h"
 
@@ -70,7 +71,7 @@ template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                   T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
-                  T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T) || T == TYPE_UUID);
 
 private:
     using Self = ColumnVector;
@@ -120,7 +121,7 @@ public:
 
     void insert_range_of_integer(value_type begin, value_type end) {
         if constexpr (!is_float_or_double(T) && T != TYPE_TIMEV2 && T != TYPE_TIMESTAMPTZ &&
-                      !is_date_type(T)) {
+                      !is_date_type(T) && !is_timestamp_ns_type(T)) {
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);
@@ -321,7 +322,7 @@ public:
     }
 
     Int64 get_int(size_t n) const override {
-        if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ) {
+        if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T)) {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Method get_int is not supported for " + get_name());
             return 0;
@@ -412,7 +413,13 @@ public:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
+        if constexpr (T == PrimitiveType::TYPE_DATE) {
+            return PrimitiveTypeTraits<T>::CppType::DATE_DEFAULT_VALUE;
+        } else if constexpr (T == PrimitiveType::TYPE_DATETIME) {
+            return PrimitiveTypeTraits<T>::CppType::DATETIME_DEFAULT_VALUE;
+        } else if constexpr (T == PrimitiveType::TYPE_DATEV2 ||
+                             T == PrimitiveType::TYPE_DATETIMEV2 ||
+                             T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
@@ -437,13 +444,37 @@ using ColumnDate = ColumnVector<TYPE_DATE>;
 using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnTimeStampNs = ColumnVector<TYPE_TIMESTAMP_NS>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
+using ColumnUUID = ColumnVector<TYPE_UUID>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
+
+/// Instantiated once in column_vector.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnVector<TYPE_BOOLEAN>;
+extern template class ColumnVector<TYPE_TINYINT>;
+extern template class ColumnVector<TYPE_SMALLINT>;
+extern template class ColumnVector<TYPE_INT>;
+extern template class ColumnVector<TYPE_BIGINT>;
+extern template class ColumnVector<TYPE_LARGEINT>;
+extern template class ColumnVector<TYPE_FLOAT>;
+extern template class ColumnVector<TYPE_DOUBLE>;
+extern template class ColumnVector<TYPE_IPV4>;
+extern template class ColumnVector<TYPE_IPV6>;
+extern template class ColumnVector<TYPE_UUID>;
+extern template class ColumnVector<TYPE_DATE>;
+extern template class ColumnVector<TYPE_DATEV2>;
+extern template class ColumnVector<TYPE_DATETIME>;
+extern template class ColumnVector<TYPE_DATETIMEV2>;
+extern template class ColumnVector<TYPE_TIMESTAMP_NS>;
+extern template class ColumnVector<TYPE_TIMEV2>;
+extern template class ColumnVector<TYPE_TIMESTAMPTZ>;
+extern template class ColumnVector<TYPE_UINT32>;
+extern template class ColumnVector<TYPE_UINT64>;
 
 } // namespace doris

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -156,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
+
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -342,6 +346,39 @@ DECLARE_mInt32(download_binlog_meta_timeout_ms);
 // the interval time(seconds) for agent report index policy to FE
 DECLARE_mInt32(report_index_policy_interval_seconds);
 
+// DNS cache: log the "Failed to resolve hostname ... use cached ip" warning
+// only once per N consecutive failures for the same hostname, to avoid
+// flooding be.WARNING. Set <= 1 to log every failure (legacy behavior).
+// Should be set <= dns_cache_max_consecutive_failures, otherwise only the
+// first-failure log is ever emitted before a host is evicted.
+DECLARE_mInt32(dns_cache_log_every_n_failures);
+
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+// At the default refresh interval of 60s, the default value of 30 means a
+// hostname that was once successfully resolved is evicted after ~30 minutes of
+// being un-resolvable.  Hostnames that have never been successfully resolved are
+// not tracked and are unaffected by this threshold.
+// Eviction additionally requires the most recent failure to be an authoritative
+// NXDOMAIN (getaddrinfo returning EAI_NONAME), i.e. the resolver positively
+// stating that the name does not exist. Transient failures such as EAI_AGAIN
+// (resolver unreachable or timed out) never evict, so a DNS-server outage
+// degrades to serving the last known IP instead of emptying the cache for every
+// hostname at once and turning a DNS incident into a cluster-wide RPC outage.
+// Set <= 0 to disable eviction (legacy behavior, kept for backward compatibility).
+DECLARE_mInt32(dns_cache_max_consecutive_failures);
+
+// DNS cache: seconds to suppress re-resolve attempts for a hostname that could
+// not be resolved -- either because it was evicted after repeated failures, or
+// because it never resolved in the first place.  During this window get()
+// returns an error immediately (no blocking getaddrinfo) so request threads are
+// not stalled while the backend is being drained or while a bad hostname is
+// being retried.
+// This also bounds recovery latency: the refresh thread does not retry hostnames
+// that are no longer in the cache, so a host comes back only when a caller's
+// get() runs after this TTL expires (one such retry per host per TTL).
+// Set <= 0 to disable the negative cache.
+DECLARE_mInt32(dns_cache_negative_ttl_seconds);
+
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
 // for udf
@@ -427,6 +464,7 @@ DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
@@ -538,9 +576,6 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 DECLARE_mBool(enable_rle_batch_put_optimization);
 DECLARE_Bool(enable_bmi2_optimizations);
 
-// If enabled, segments will be flushed column by column
-DECLARE_mBool(enable_vertical_segment_writer);
-
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -555,7 +590,6 @@ DECLARE_mInt32(binlog_compaction_task_num_per_disk);
 DECLARE_mInt32(binlog_compaction_file_count_threshold);
 DECLARE_mInt32(binlog_level_compaction_max_deltas);
 DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(binlog_compaction_permits_percent);
 DECLARE_mInt32(max_binlog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
@@ -702,16 +736,18 @@ DECLARE_Int32(webserver_num_workers);
 // 2. Client disconnects
 DECLARE_mInt32(async_reply_timeout_s);
 
-DECLARE_Bool(enable_single_replica_load);
-// Number of download workers for single replica load
-DECLARE_Int32(single_replica_load_download_num_workers);
-
 // Used for mini Load. mini load data file will be removed after this time.
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
 DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
+
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -742,7 +778,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
@@ -1000,6 +1035,10 @@ DECLARE_String(thrift_server_type_of_fe);
 // disable zone map index when page row is too few
 DECLARE_mInt32(zone_map_row_num_threshold);
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DECLARE_mInt32(in_zonemap_point_check_threshold);
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
@@ -1131,6 +1170,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
@@ -1247,6 +1288,7 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
+DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
@@ -1313,12 +1355,20 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_bytes);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1332,9 +1382,73 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
+
+// Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
+// it affects only writers created after the transition and never changes query/cache semantics.
+// Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// A pattern is compiled against the gram scheme the segment itself carries, read back from the
+// core metadata of the physical index the query is about to read, so the scheme can never
+// disagree with the one the writer used -- a policy that was dropped and recreated with different
+// properties does not affect segments already written.
+DECLARE_mBool(enable_gram_index_regexp);
+
+// Cost gate for the gram boolean query, in basis points (1/10000) of a segment's rows: give up
+// pruning once the candidate set is larger than that share. 0 disables the gate, 10000 or more can
+// never fire. This is a COST switch, never a semantic one -- a gram index only produces a superset
+// of the candidate rows and the expression above re-verifies each of them, so giving up means the
+// query returns the whole docid range of the segment and prunes nothing. It can therefore only
+// cost speed, never correctness, whatever value it is set to.
+//
+// The unit is basis points rather than percent because the useful range is far below one percent.
+// Pruning only pays when the surviving candidates are sparse enough that whole pages of the column
+// can be skipped: with B rows per remote read unit and candidates spread uniformly, the fraction of
+// units still touched is 1 - (1 - C/N)^B, which is already ~1 by C/N = 1%. Measured on a 34.46M row
+// httplogs table against remote object storage, cold-read speedup by candidate count was 14.1x at
+// 2 candidates, 5.5x at 128, 1.5x at 25K, 1.2x at 46K, and turned into a regression from 56K
+// upwards, bottoming out at 0.70x. 15 bp (0.15%) is the largest share that admitted no regression
+// in that sweep while keeping every double-digit win.
+DECLARE_mInt32(gram_index_max_candidate_ratio_bp);
+
+// Row floor below which the candidate ratio gate above is not applied at all. A small segment's
+// entire gram index is a few KB and one or two requests, so giving up there saves nothing
+// measurable while throwing away the pruning the index really does deliver; the ratio only starts
+// to mean something at a size where the skipped index IO can outweigh the rows it stops
+// eliminating. The default is one Roaring container's worth of rows (65536). 0 applies the ratio
+// at every segment size.
+DECLARE_mInt32(gram_index_candidate_ratio_min_rows);
+
+// Adaptive gram density: solve the boundary rate from each segment's own bytes instead of
+// taking the rate configured on the tokenizer.
+//
+// A configured rate cannot mean the same thing on two columns. Measured at a nominal 0.25 the
+// realised grams per byte were 0.204 on log text, 0.287 on URL paths and 0.182 on agent
+// traces, and the coverage it bought ranged from 91.7% of 12-byte literals to 98.9% -- under
+// serving one column while overpaying on another, in every posting list. Solving instead
+// makes the promise the constant and the rate the variable.
+DECLARE_mBool(enable_gram_index_adaptive_density);
+// The promise the solve keeps, not a tuning pair: literals of at least this many bytes are
+// findable, for this share of the column's own windows of that length. Both are dimensionless
+// and the same on every dataset; what varies is the density they resolve to.
+DECLARE_mInt32(gram_index_min_literal_bytes);
+DECLARE_mInt32(gram_index_density_coverage_permille);
+// How much of a segment is held back to solve on. The sample is buffered rather than
+// tokenized, so this is a transient memory cost and a bound on how long the write path waits
+// before it can cut anything; the histogram behind the solve is a fixed 256 KB regardless.
+DECLARE_mInt64(gram_index_density_sample_bytes);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1347,8 +1461,66 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// PROCESS-WIDE share for SNII index-build RAM, as a PERCENT of the process
+// memory limit -- the index-build analogue of
+// load_process_max_memory_limit_percent. The per-writer
+// inverted_index_ram_buffer_size is a reclaimable-buffer spill threshold, not a
+// hard cap on persistent vocabulary bytes: a concurrent load keeps (tablets x
+// concurrency) writers alive at once, none of which may reach that threshold,
+// while their SUM can still be large. Once live SNII index-build memory
+// (ingestion plus index-merge compaction) crosses this share, the writers
+// holding the largest reclaimable posting arenas are asked to spill early
+// (async-safe advisory requests, honored on each writer's own thread; output
+// stays byte-identical). Read at every decision, so a change takes effect
+// immediately for writers that are already running.
+//
+// 0 disables SNII's own share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply.
+//
+// FLOORED AGAINST inverted_index_ram_buffer_size: the share is never less than
+// four writers' worth of the per-writer spill threshold. A smaller share would
+// put a small BE permanently over it as soon as two writers exist -- unrelievable
+// back-pressure rather than a limit -- because the per-writer threshold is what
+// one writer may hold before it spills on its own.
+DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
+// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
+// writer must hold before a process-wide forced-spill request is honored, and
+// before the global limiter selects it as a spill victim. A forced spill
+// reclaims ONLY the posting arena -- the persistent vocab / pair-map
+// structures survive it -- so honoring below a real floor degenerates into a
+// storm of tiny runs whenever the memory over the share is dominated by
+// persistent bytes (each run still adds framing, sorting and merge work for
+// near-zero memory relief). THIS FLOOR, not any judgement about whether the
+// overage is reachable, is what bounds forced spilling: it caps the cost at one
+// >= floor-sized run per floor of arena growth per writer. Forced spilling
+// therefore reclaims SPILLABLE memory only, never persistent memory.
+// Default 64 MiB.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// Historical run-file cap, now an additional limit on active inputs per merge
+// group (minimum two). Ingestion runs share one append-only spool. Zero leaves
+// fan-in bounded by the postings workspace and fd limits. Default 64.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared hard posting-workspace budget, captured by new ingestion/compaction
+// reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
@@ -1360,6 +1532,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1443,6 +1620,9 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
@@ -1490,6 +1670,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);
@@ -1621,6 +1803,22 @@ DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
 DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1638,6 +1836,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);
@@ -1658,14 +1861,15 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
-/** Paimon file system configurations **/
-DECLARE_Strings(paimon_file_system_scheme_mappings);
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
-// http scheme in S3Client to use. E.g. http or https
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
@@ -1855,6 +2059,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mBool(enable_cloud_random_segment_id);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST

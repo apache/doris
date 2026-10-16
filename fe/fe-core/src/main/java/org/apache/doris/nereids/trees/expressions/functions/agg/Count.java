@@ -37,7 +37,8 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -105,18 +106,10 @@ public class Count extends NotNullableAggregateFunction
         }
     }
 
-    static void checkDistinctVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType.isVariantType()) {
-            throwDistinctArgumentException(function);
-        }
-    }
-
     private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
         return argumentType.isComplexType()
                 || argumentType.isObjectType()
-                || argumentType.isJsonType()
-                || argumentType.isVariantType();
+                || argumentType.isJsonType();
     }
 
     private static void throwDistinctArgumentException(Expression function) {
@@ -195,7 +188,8 @@ public class Count extends NotNullableAggregateFunction
         if (this.isDistinct()) {
             return new BitmapUnionCount(param);
         } else {
-            return new Sum(param);
+            // sum0, not sum: count returns 0 on empty input while sum returns NULL
+            return new Sum0(param);
         }
     }
 

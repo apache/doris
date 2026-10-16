@@ -25,12 +25,11 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -62,8 +61,6 @@ public class MetaInfoActionV2 extends RestBaseController {
     private static final String NAMESPACES = "namespaces";
     private static final String DATABASES = "databases";
     private static final String TABLES = "tables";
-    private static final String PARAM_LIMIT = "limit";
-    private static final String PARAM_OFFSET = "offset";
     private static final String PARAM_WITH_MV = "with_mv";
 
     /**
@@ -83,7 +80,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             method = {RequestMethod.GET})
     public Object getAllCatalogs(
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         // 1. get all catalogs with privilege
         List<CatalogIf> ctls = Env.getCurrentEnv().getCatalogMgr()
@@ -95,8 +94,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         ctlsNames.add(0, InternalCatalog.INTERNAL_CATALOG_NAME);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, ctlsNames.size());
-        return ResponseEntityBuilder.ok(ctlsNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, ctlsNames));
     }
 
     /**
@@ -117,7 +115,9 @@ public class MetaInfoActionV2 extends RestBaseController {
     public Object getAllDatabases(
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -131,7 +131,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         for (String fullName : dbNames) {
             final String db = fullName;
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                    .checkDbPriv(ConnectContext.get(), catalogName, fullName,
                             PrivPredicate.SHOW)) {
                 continue;
             }
@@ -141,8 +141,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         Collections.sort(filteredDbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, filteredDbNames.size());
-        return ResponseEntityBuilder.ok(filteredDbNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, filteredDbNames));
     }
 
     /** Get all tables of a database
@@ -162,7 +161,9 @@ public class MetaInfoActionV2 extends RestBaseController {
     public Object getTables(
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -182,7 +183,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (TableIf tbl : db.getTables()) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                        .checkTblPriv(ConnectContext.get(), catalogName, dbName,
                                 tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -195,8 +196,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         Collections.sort(tblNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, tblNames.size());
-        return ResponseEntityBuilder.ok(tblNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, tblNames));
     }
 
     /**
@@ -234,7 +234,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -351,41 +353,6 @@ public class MetaInfoActionV2 extends RestBaseController {
 
     private String convertIfNull(String val) {
         return val.equals(FeConstants.null_string) ? null : val;
-    }
-
-    // get limit and offset from query parameter
-    // and return fromIndex and toIndex of a list
-    private Pair<Integer, Integer> getFromToIndex(HttpServletRequest request, int maxNum) {
-        String limitStr = request.getParameter(PARAM_LIMIT);
-        String offsetStr = request.getParameter(PARAM_OFFSET);
-
-        int offset = 0;
-        int limit = Integer.MAX_VALUE;
-        if (Strings.isNullOrEmpty(limitStr)) {
-            // limit not set
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                throw new BadRequestException("Param offset should be set with param limit");
-            }
-        } else {
-            // limit is set
-            limit = Integer.valueOf(limitStr);
-            if (limit < 0) {
-                throw new BadRequestException("Param limit should >= 0");
-            }
-
-            offset = 0;
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                offset = Integer.valueOf(offsetStr);
-                if (offset < 0) {
-                    throw new BadRequestException("Param offset should >= 0");
-                }
-            }
-        }
-
-        if (maxNum <= 0) {
-            return Pair.of(0, 0);
-        }
-        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
     }
 
     @Getter

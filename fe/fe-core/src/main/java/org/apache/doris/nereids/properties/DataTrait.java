@@ -73,8 +73,7 @@ public class DataTrait {
     }
 
     public boolean isDependent(Set<Slot> dominate, Set<Slot> dependency) {
-        return fdDg.findValidFuncDeps(Sets.union(dependency, dominate))
-                .isFuncDeps(dominate, dependency);
+        return fdDg.isDependent(dominate, dependency);
     }
 
     public boolean isUnique(Slot slot) {
@@ -235,6 +234,16 @@ public class DataTrait {
 
         public void addFuncDepsDG(DataTrait fd) {
             fdDgBuilder.addDeps(fd.fdDg);
+        }
+
+        /**
+         * Add FDs from the nullable side of an outer join, filtering out edges whose
+         * determinant may be NULL in the immediate child's current output — those would
+         * be invalidated by null-extension of unmatched rows. Determinants are canonicalized
+         * against childOutput (by ExprId) before the nullability check.
+         */
+        public void addFuncDepsDGForOuterJoinNullableSide(DataTrait fd, List<Slot> childOutput) {
+            fdDgBuilder.addDepsForOuterJoinNullableSide(fd.fdDg, childOutput);
         }
 
         /**add Dependency relation for dominate and dependency*/

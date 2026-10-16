@@ -131,6 +131,27 @@ public interface FileSystemProperties extends StorageProperties {
     }
 
     /**
+     * Stable fingerprint of this storage identity, published under
+     * {@code doris.fs.cache.key.<scheme>} in every BE-bound / Hadoop-bound property map derived
+     * from it, so that the Doris-patched {@code org.apache.hadoop.fs.FileSystem} never shares one
+     * cached instance between different credential sets. See {@link FsCacheKeys}.
+     *
+     * <p>The default hashes the concrete class name together with
+     * {@link FsCacheKeys#identityProperties}, i.e. the user-supplied keys this binding consumed
+     * (credentials included) plus the raw Hadoop keys consumers overlay on top of the derived map.
+     * A provider whose derived map resolves inputs the raw properties do not carry (the HDFS
+     * families read {@code hadoop.config.resources} XML files into theirs) must override this and
+     * mix that map in under {@link FsCacheKeys#derivedIdentityKey}. It lives here
+     * rather than on {@link StorageProperties} because publishing it needs the scheme sets
+     * ({@link #getSupportedSchemes()} / {@link #legacyCacheSchemes()}) declared at this level;
+     * a provider with neither (Broker, Local) publishes nothing, which is correct — it carries no
+     * credentials the Hadoop FileSystem cache could confuse.
+     */
+    default String fsCacheFingerprint() {
+        return FsCacheKeys.fingerprintOf(this);
+    }
+
+    /**
      * Converts to backend storage properties if this provider supports BE access.
      */
     default Optional<BackendStorageProperties> toBackendProperties() {

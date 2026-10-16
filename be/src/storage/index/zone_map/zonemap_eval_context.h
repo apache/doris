@@ -52,10 +52,13 @@ public:
     struct SlotZoneMap {
         DataTypePtr data_type;
         std::shared_ptr<const segment_v2::ZoneMap> zone_map;
+        // Parquet min/max does not expose whether a floating chunk also contains NaNs.
+        bool floating_nan_count_unknown = false;
     };
 
     std::shared_ptr<const segment_v2::ZoneMap> zone_map(int slot_index) const;
     DataTypePtr data_type(int slot_index) const;
+    bool floating_nan_count_unknown(int slot_index) const;
 
     phmap::flat_hash_map<int, SlotZoneMap> slots;
 

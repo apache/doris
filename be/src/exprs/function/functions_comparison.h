@@ -41,6 +41,7 @@
 #include "core/decimal_comparison.h"
 #include "core/field.h"
 #include "core/memcmp_small.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
@@ -48,6 +49,7 @@
 #include "exprs/function/functions_logical.h"
 #include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -314,6 +316,15 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 
     const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
     const auto& literal = slot_literal->literal;
+    const bool literal_is_nan = literal.is_nan();
+    const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
+                                      (effective_op == Op::NE && !literal_is_nan) ||
+                                      (effective_op == Op::GT && !literal_is_nan) ||
+                                      effective_op == Op::GE;
+    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+        // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
+        return unsupported_zonemap_filter(ctx);
+    }
     switch (effective_op) {
     case Op::EQ:
         return literal < zone_map.min_value || zone_map.max_value < literal
@@ -367,7 +378,13 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
-    return op == Op::EQ && can_evaluate(arguments);
+    if (op != Op::EQ || !can_evaluate(arguments)) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    // Bloom membership cannot disprove Doris NaN equality across different physical encodings.
+    return !slot_literal->literal.is_nan();
 }
 
 inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {
@@ -416,7 +433,7 @@ inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
 inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
                                                  const VExprSPtrs& arguments, Op op) {
     DORIS_CHECK(op == Op::EQ);
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    auto slot_literal = expr_zonemap::extract_bloom_filter_slot_and_literal(arguments);
     DORIS_CHECK(slot_literal.has_value());
     return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
 }
@@ -620,6 +637,92 @@ private:
         return Status::OK();
     }
 
+    template <typename TemporalValue>
+    static int compare_timestamp_ns_with_temporal(const TimeStampNsValue& timestamp,
+                                                  const TemporalValue& temporal,
+                                                  uint32_t temporal_nanosecond) {
+        const auto timestamp_datetime = timestamp.to_datetime();
+        const auto compare_part = [](auto left, auto right) {
+            if (left < right) {
+                return -1;
+            }
+            if (left > right) {
+                return 1;
+            }
+            return 0;
+        };
+        int comparison = compare_part(static_cast<int64_t>(timestamp_datetime.year()),
+                                      static_cast<int64_t>(temporal.year()));
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.month(), temporal.month());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.day(), temporal.day());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.hour(), temporal.hour());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.minute(), temporal.minute());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.second(), temporal.second());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp.nanosecond(), temporal_nanosecond);
+        }
+        return comparison;
+    }
+
+    template <PrimitiveType TemporalPType, bool timestamp_ns_on_left>
+    Status execute_timestamp_ns_temporal(FunctionContext* context, Block& block, uint32_t result,
+                                         const ColumnPtr& left_column,
+                                         const ColumnPtr& right_column,
+                                         size_t input_rows_count) const {
+        static_assert(TemporalPType == TYPE_DATE || TemporalPType == TYPE_DATEV2 ||
+                      TemporalPType == TYPE_DATETIME || TemporalPType == TYPE_DATETIMEV2 ||
+                      TemporalPType == TYPE_TIMESTAMPTZ);
+        const auto& timestamp_column = timestamp_ns_on_left ? left_column : right_column;
+        const auto& temporal_column = timestamp_ns_on_left ? right_column : left_column;
+        auto [timestamp_unpacked, timestamp_is_const] = unpack_if_const(timestamp_column);
+        auto [temporal_unpacked, temporal_is_const] = unpack_if_const(temporal_column);
+        const auto& timestamps =
+                assert_cast<const ColumnTimeStampNs&>(*timestamp_unpacked).get_data();
+        using TemporalColumn = typename PrimitiveTypeTraits<TemporalPType>::ColumnType;
+        using TemporalValue = typename PrimitiveTypeTraits<TemporalPType>::CppType;
+        const auto& temporals = assert_cast<const TemporalColumn&>(*temporal_unpacked).get_data();
+
+        auto result_column = ColumnUInt8::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto& timestamp = timestamps[timestamp_is_const ? 0 : row];
+            const auto& temporal =
+                    reinterpret_cast<const TemporalValue&>(temporals[temporal_is_const ? 0 : row]);
+            int comparison;
+            if constexpr (TemporalPType == TYPE_TIMESTAMPTZ) {
+                const auto utc_datetime = temporal.utc_dt();
+                const cctz::civil_second utc_civil(utc_datetime.year(), utc_datetime.month(),
+                                                   utc_datetime.day(), utc_datetime.hour(),
+                                                   utc_datetime.minute(), utc_datetime.second());
+                const auto utc_time = cctz::convert(utc_civil, cctz::utc_time_zone());
+                const auto local_civil = cctz::convert(utc_time, context->state()->timezone_obj());
+                // Keep the signed civil year across date boundaries. NULL payloads are
+                // normalized without validation; the nullable framework masks their results.
+                comparison = compare_timestamp_ns_with_temporal(timestamp, local_civil,
+                                                                utc_datetime.microsecond() * 1000);
+            } else {
+                comparison = compare_timestamp_ns_with_temporal(timestamp, temporal,
+                                                                temporal.microsecond() * 1000);
+            }
+            if constexpr (!timestamp_ns_on_left) {
+                comparison = -comparison;
+            }
+            result_data[row] = Op<TYPE_INT>::apply(comparison, 0);
+        }
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
 public:
     String get_name() const override { return name; }
 
@@ -658,7 +761,8 @@ public:
 
     bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
         auto op = comparison_zonemap_detail::op_from_name(name);
-        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+        return op == comparison_zonemap_detail::Op::EQ &&
+               expr_zonemap::can_evaluate_bloom_filter_equality(arguments);
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
@@ -737,6 +841,9 @@ public:
         return Status::OK();
     }
 
+    // Keep all primitive-type pairs in one dispatch point so every comparison operator shares the
+    // same mixed TIMESTAMP_NS semantics.
+    // NOLINTNEXTLINE(readability-function-size)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
@@ -749,6 +856,26 @@ public:
 
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
+
+#define EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE)                                          \
+    if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&                                 \
+        right_type->get_primitive_type() == TYPE) {                                             \
+        return execute_timestamp_ns_temporal<TYPE, true>(context, block, result, col_left_ptr,  \
+                                                         col_right_ptr, input_rows_count);      \
+    }                                                                                           \
+    if (left_type->get_primitive_type() == TYPE &&                                              \
+        right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {                                \
+        return execute_timestamp_ns_temporal<TYPE, false>(context, block, result, col_left_ptr, \
+                                                          col_right_ptr, input_rows_count);     \
+    }
+
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATE)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIME)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIMEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_TIMESTAMPTZ)
+
+#undef EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON
 
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)
@@ -777,7 +904,8 @@ public:
         }
 
         auto can_compare = [](PrimitiveType t) -> bool {
-            return is_int_or_bool(t) || is_float_or_double(t) || is_ip(t) || is_date_type(t);
+            return is_int_or_bool(t) || is_float_or_double(t) || is_ip(t) || is_date_type(t) ||
+                   is_timestamp_ns_type(t);
         };
 
         if (can_compare(left_type->get_primitive_type()) &&
@@ -798,6 +926,8 @@ public:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_TIMESTAMP_NS:
+            return execute_num_type<TYPE_TIMESTAMP_NS>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TIMESTAMPTZ:
             return execute_num_type<TYPE_TIMESTAMPTZ>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:
@@ -814,6 +944,8 @@ public:
             return execute_num_type<TYPE_IPV4>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_IPV6:
             return execute_num_type<TYPE_IPV6>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_UUID:
+            return execute_num_type<TYPE_UUID>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_FLOAT:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:

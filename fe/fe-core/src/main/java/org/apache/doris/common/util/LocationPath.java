@@ -23,12 +23,12 @@ import org.apache.doris.datasource.storage.StorageRegistry;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.storage.StorageUriUtils;
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.fs.Path;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -37,7 +37,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * LocationPath is a utility class for parsing, validating, and normalizing storage location URIs.
@@ -285,9 +284,10 @@ public class LocationPath {
      * This method attempts to locate the binding using the following logic:
      * <p>
      * 1. Direct match by type: Attempts to retrieve the binding from the map using the given {@code type}.
-     * 2. S3-Minio fallback: If the requested type is S3 and no binding is found, try to fall back to MinIO
+     * 2. OSS-HDFS fallback: A plain {@code oss://} URI uses the OSS-HDFS binding when native OSS is absent.
+     * 3. S3-Minio fallback: If the requested type is S3 and no binding is found, try to fall back to MinIO
      * (or Ozone) configuration, assuming it is compatible with S3.
-     * 3. Compatibility fallback based on schema:
+     * 4. Compatibility fallback based on schema:
      * In older configurations, the schema name might not strictly match the actual storage type.
      * For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
      * To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
@@ -306,7 +306,14 @@ public class LocationPath {
             return adapter;
         }
 
-        // Step 2: Fallback - if type is S3 and MinIO is configured, assume it's compatible
+        // OSS-HDFS and native OSS share the oss scheme; catalog binding intentionally keeps only
+        // one of them, so a missing native OSS binding must preserve the selected Jindo adapter.
+        if (type == StorageTypeId.OSS
+                && storageAdaptersMap.containsKey(StorageTypeId.OSS_HDFS)) {
+            return storageAdaptersMap.get(StorageTypeId.OSS_HDFS);
+        }
+
+        // Step 3: Fallback - if type is S3 and MinIO is configured, assume it's compatible
         if (type == StorageTypeId.S3
                 && storageAdaptersMap.containsKey(StorageTypeId.MINIO)) {
             return storageAdaptersMap.get(StorageTypeId.MINIO);
@@ -316,7 +323,7 @@ public class LocationPath {
             return storageAdaptersMap.get(StorageTypeId.OZONE);
         }
 
-        // Step 3: Compatibility fallback based on schema
+        // Step 4: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.
         // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
         // To handle such legacy inconsistencies, we try to find a storage configuration whose name is "s3".
@@ -367,13 +374,6 @@ public class LocationPath {
         return locationPath.getTFileTypeForBE();
     }
 
-    public static String getTempWritePath(String loc, String prefix) {
-        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
-    }
-
     public TFileType getTFileTypeForBE() {
         if (("abfs".equals(schema) || "abfss".equals(schema))
                 && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
@@ -388,10 +388,19 @@ public class LocationPath {
     /**
      * The converted path is used for BE
      *
+     * <p>Returns the normalized location verbatim. This used to route through hadoop's
+     * {@code Path}, which rewrote the string on the way out: it collapsed repeated slashes,
+     * dropped a trailing slash, resolved {@code .}/{@code ..} segments, and turned an empty
+     * authority into a single slash ({@code hdfs:///a/b} became {@code hdfs:/a/b}). None of that
+     * is wanted here — object stores key on the exact byte string, so {@code a//b} and {@code a/b}
+     * name different objects, and collapsing them rewrites the key. This matches
+     * {@link Location}, which stores what it was given, and Trino's {@code io.trino.filesystem
+     * .Location}, whose javadoc likewise states it does not follow URI format rules.
+     *
      * @return BE scan range path
      */
-    public Path toStorageLocation() {
-        return new Path(normalizedLocation);
+    public Location toStorageLocation() {
+        return Location.of(normalizedLocation);
     }
 
 
@@ -419,9 +428,5 @@ public class LocationPath {
 
     public StorageAdapter getStorageAdapter() {
         return storageAdapter;
-    }
-
-    public Path getPath() {
-        return new Path(normalizedLocation);
     }
 }

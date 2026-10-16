@@ -25,11 +25,10 @@ import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTableSink;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.util.List;
 
 public class GroupCommitBlockSinkTest {
 
@@ -38,32 +37,27 @@ public class GroupCommitBlockSinkTest {
         OlapTable dstTable = Mockito.mock(OlapTable.class);
         TupleDescriptor tuple = Mockito.mock(TupleDescriptor.class);
         GroupCommitBlockSink sink = new GroupCommitBlockSink(
-                dstTable, tuple, Lists.newArrayList(1L), false, "async_mode", 0.0);
+                dstTable, tuple, Lists.newArrayList(1L), "async_mode", 0.0);
 
-        List<TOlapTableLocationParam> params = sink.initLocationParams(new TOlapTableSink());
+        TOlapTableLocationParam location = sink.initLocationParam(new TOlapTableSink());
 
-        Assert.assertEquals(2, params.size());
-        Assert.assertNotNull(params.get(0).getTablets());
-        Assert.assertTrue("master location should be empty placeholder",
-                params.get(0).getTablets().isEmpty());
-        Assert.assertNotNull(params.get(1).getTablets());
-        Assert.assertTrue("slave location should be empty placeholder",
-                params.get(1).getTablets().isEmpty());
+        Assertions.assertNotNull(location.getTablets());
+        Assertions.assertTrue(location.getTablets().isEmpty(), "location should be empty placeholder");
         Mockito.verifyNoInteractions(dstTable);
         Mockito.verifyNoInteractions(tuple);
     }
 
     @Test
     public void testParseGroupCommit() {
-        Assert.assertEquals(TGroupCommitMode.ASYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.ASYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("async_mode"));
-        Assert.assertEquals(TGroupCommitMode.ASYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.ASYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("ASYNC_MODE"));
-        Assert.assertEquals(TGroupCommitMode.SYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.SYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("sync_mode"));
-        Assert.assertEquals(TGroupCommitMode.OFF_MODE,
+        Assertions.assertEquals(TGroupCommitMode.OFF_MODE,
                 GroupCommitBlockSink.parseGroupCommit("off_mode"));
-        Assert.assertNull(GroupCommitBlockSink.parseGroupCommit(null));
-        Assert.assertNull(GroupCommitBlockSink.parseGroupCommit("invalid"));
+        Assertions.assertNull(GroupCommitBlockSink.parseGroupCommit(null));
+        Assertions.assertNull(GroupCommitBlockSink.parseGroupCommit("invalid"));
     }
 }

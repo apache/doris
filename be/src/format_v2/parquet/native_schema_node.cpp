@@ -64,7 +64,8 @@ Status build_native_schema_node(const DataTypePtr& projected_type,
     const auto type = remove_nullable(projected_type);
     switch (type->get_primitive_type()) {
     case TYPE_STRUCT: {
-        if (file_schema.kind != ParquetColumnSchemaKind::STRUCT) {
+        if (file_schema.kind != ParquetColumnSchemaKind::STRUCT &&
+            file_schema.kind != ParquetColumnSchemaKind::VARIANT) {
             return Status::Corruption("Parquet column {} is not a STRUCT", file_schema.name);
         }
         const auto* struct_type = assert_cast<const DataTypeStruct*>(type.get());

@@ -30,6 +30,7 @@
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>
@@ -104,6 +105,22 @@ bvar::Status<uint64_t> g_fragment_last_active_time(
         "fragment_last_active_time", duration_cast<std::chrono::milliseconds>(
                                              std::chrono::system_clock::now().time_since_epoch())
                                              .count());
+
+void increment_fragment_executing_count() {
+    g_fragment_executing_count << 1;
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    g_fragment_last_active_time.set_value(now);
+}
+
+void decrement_fragment_executing_count() {
+    g_fragment_executing_count << -1;
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    g_fragment_last_active_time.set_value(now);
+}
 
 uint64_t get_fragment_executing_count() {
     return g_fragment_executing_count.get_value();
@@ -353,10 +370,14 @@ void FragmentMgr::stop() {
     // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
     _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
+    decltype(_rerunnable_params_map) rerunnable_params_map;
     {
         std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
-        _rerunnable_params_map.clear();
+        rerunnable_params_map.swap(_rerunnable_params_map);
     }
+    // RerunableFragmentInfo holds QueryContext. Destroy it after releasing the lock because
+    // QueryContext::~QueryContext() can re-enter remove_query_context().
+    rerunnable_params_map.clear();
 }
 
 static void empty_function(RuntimeState*, Status*) {}
@@ -420,27 +441,28 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     if (_pipeline_map.erase(key)) {
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        g_fragment_executing_count << -1;
-        g_fragment_last_active_time.set_value(now);
+        decrement_fragment_executing_count();
     }
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
-    // Clean up any saved rerunnable params for this query to avoid memory leaks.
-    // This covers both cancel and normal destruction paths.
+    // Successful FINAL_CLOSE removes rerunnable entries one fragment at a time. Detach any entries
+    // that remain when the query is removed, such as on cancellation.
+    decltype(_rerunnable_params_map) rerunnable_params_map;
     {
         std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
         for (auto it = _rerunnable_params_map.begin(); it != _rerunnable_params_map.end();) {
             if (it->first.first == key) {
-                it = _rerunnable_params_map.erase(it);
+                auto current = it++;
+                rerunnable_params_map.insert(_rerunnable_params_map.extract(current));
             } else {
                 ++it;
             }
         }
     }
+    // Destroy detached entries outside _rerunnable_params_lock. Releasing their last QueryContext
+    // reference can run QueryContext::~QueryContext(), which calls this method.
+    rerunnable_params_map.clear();
     _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
@@ -656,7 +678,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
         });
         if (!prepare_st.ok()) {
-            query_ctx->cancel(prepare_st, params.fragment_id);
+            query_ctx->cancel(prepare_st);
             return prepare_st;
         }
     }
@@ -665,11 +687,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        g_fragment_executing_count << 1;
-        g_fragment_last_active_time.set_value(now);
+        increment_fragment_executing_count();
 
         // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
         auto res = _pipeline_map.find({params.query_id, params.fragment_id});
@@ -1002,6 +1020,37 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {}
+
+Status FragmentMgr::_build_external_scan_selected_columns(
+        const TPlanFragment& plan_fragment, const DescriptorTbl& desc_tbl,
+        std::vector<TScanColumnDesc>* selected_columns) {
+    // The memory scratch sink emits Arrow columns in output expression order, so the returned
+    // schema must use the same order to prevent positional column misbinding.
+    for (const auto& expr : plan_fragment.output_exprs) {
+        if (expr.nodes.empty() || expr.nodes[0].node_type != TExprNodeType::SLOT_REF) {
+            LOG(WARNING) << "output expr is not slot ref";
+            return Status::InvalidArgument("output expr is not slot ref");
+        }
+
+        const auto& slot_ref = expr.nodes[0].slot_ref;
+        if (desc_tbl.get_tuple_descriptor(slot_ref.tuple_id) == nullptr) {
+            LOG(WARNING) << "tuple descriptor is null. id: " << slot_ref.tuple_id;
+            return Status::InvalidArgument("tuple descriptor is null");
+        }
+        const auto* slot_desc = desc_tbl.get_slot_descriptor(slot_ref.slot_id);
+        if (slot_desc == nullptr) {
+            LOG(WARNING) << "slot descriptor is null. id: " << slot_ref.slot_id;
+            return Status::InvalidArgument("slot descriptor is null");
+        }
+
+        TScanColumnDesc column;
+        column.__set_name(slot_desc->col_name());
+        column.__set_type(to_thrift(slot_desc->type()->get_primitive_type()));
+        selected_columns->emplace_back(std::move(column));
+    }
+    return Status::OK();
+}
+
 /*
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TPipelineFragmentParams
@@ -1022,21 +1071,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                "processed";
         return Status::InvalidArgument(msg.str());
     }
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    if (tuple_desc == nullptr) {
-        LOG(WARNING) << "open context error: extract TupleDescriptor failure";
-        std::stringstream msg;
-        msg << " get  TupleDescriptor error, should not be modified after returned Doris FE "
-               "processed";
-        return Status::InvalidArgument(msg.str());
-    }
-    // process selected columns form slots
-    for (const SlotDescriptor* slot : tuple_desc->slots()) {
-        TScanColumnDesc col;
-        col.__set_name(slot->col_name());
-        col.__set_type(to_thrift(slot->type()->get_primitive_type()));
-        selected_columns->emplace_back(std::move(col));
-    }
+    RETURN_IF_ERROR(_build_external_scan_selected_columns(t_query_plan_info.plan_fragment,
+                                                          *desc_tbl, selected_columns));
 
     VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
                << apache::thrift::ThriftDebugString(t_query_plan_info);
@@ -1091,6 +1127,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.batch_size = params.batch_size;
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
+    query_options.__isset.mem_limit = params.__isset.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     exec_fragment_params.__set_query_options(query_options);
@@ -1252,10 +1289,10 @@ Status FragmentMgr::transmit_rec_cte_block(
 // wait_for_destroy: collect deregister RF IDs, store brpc closure, trigger old PFC close
 // rebuild: increment stage, deregister old RFs, create+prepare new PFC from saved params
 // submit: submit the new PFC's pipeline tasks for execution
-// final_close: async wait for close, send final report, clean up (last round only)
+// final_close: send final report, detach saved params, trigger the last PFC close
 //
-// The brpc ClosureGuard is stored in the PFC so the RPC response is deferred until
-// the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
+// During wait_for_destroy, the brpc ClosureGuard is stored in the PFC so the RPC response is
+// deferred until the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
 // synchronization point to know when the old PFC has finished all its tasks.
 Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
                                    const TUniqueId& query_id, int fragment_id,
@@ -1293,6 +1330,17 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         SCOPED_ATTACH_TASK(query_ctx);
         RETURN_IF_ERROR(
                 fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::FINAL_CLOSE));
+
+        if (stage == PRerunFragmentParams::FINAL_CLOSE) {
+            // Detach the entry under the lock and destroy it afterward. This keeps the invariant
+            // that RerunableFragmentInfo, which owns QueryContext, is never destroyed while holding
+            // _rerunnable_params_lock.
+            decltype(_rerunnable_params_map)::node_type final_close_info;
+            {
+                std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+                final_close_info = _rerunnable_params_map.extract({query_id, fragment_id});
+            }
+        }
         fragment_ctx->notify_close();
         return Status::OK();
     } else if (stage == PRerunFragmentParams::REBUILD) {
@@ -1329,12 +1377,13 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(_thread_pool.get()),
                                          prepare_st);
         if (!prepare_st.ok()) {
-            q_ctx->cancel(prepare_st, info.params.fragment_id);
+            q_ctx->cancel(prepare_st);
             return prepare_st;
         }
 
         // Insert new PFC into _pipeline_map (old one was removed)
         _pipeline_map.insert({info.params.query_id, info.params.fragment_id}, context);
+        increment_fragment_executing_count();
 
         // Update QueryContext mapping (must support overwrite)
         q_ctx->set_pipeline_context(info.params.fragment_id, context);

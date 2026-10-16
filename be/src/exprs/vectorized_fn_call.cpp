@@ -36,17 +36,20 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
 #include "exprs/function/array/function_array_distance.h"
 #include "exprs/function/function_agg_state.h"
+#include "exprs/function/function_agg_state_finalize.h"
 #include "exprs/function/function_fake.h"
 #include "exprs/function/function_java_udf.h"
 #include "exprs/function/function_python_udf.h"
@@ -77,6 +80,7 @@ class TExprNode;
 namespace doris {
 
 const std::string AGG_STATE_SUFFIX = "_state";
+const std::string AGG_FINALIZE_SUFFIX = "_finalize";
 
 // Now left child is a function call, we need to check if it is a distance function
 const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name,
@@ -90,7 +94,7 @@ using simd::RawComparisonOp;
 
 std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
     RawComparisonOp op;
-    if (function_name == "eq") {
+    if (function_name == "eq" || function_name == "eq_for_null") {
         op = RawComparisonOp::EQ;
     } else if (function_name == "ne") {
         op = RawComparisonOp::NE;
@@ -124,11 +128,121 @@ std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name,
     __builtin_unreachable();
 }
 
+bool raw_string_comparison_matches(int comparison, RawComparisonOp op) {
+    switch (op) {
+    case RawComparisonOp::EQ:
+        return comparison == 0;
+    case RawComparisonOp::NE:
+        return comparison != 0;
+    case RawComparisonOp::LT:
+        return comparison < 0;
+    case RawComparisonOp::LE:
+        return comparison <= 0;
+    case RawComparisonOp::GT:
+        return comparison > 0;
+    case RawComparisonOp::GE:
+        return comparison >= 0;
+    }
+    __builtin_unreachable();
+}
+
 template <typename T, PrimitiveType PT>
 void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
                             RawComparisonOp op, uint8_t* matches) {
     const T rhs = literal.get<PT>();
     simd::raw_compare(values, num_values, rhs, op, matches);
+}
+
+template <typename T>
+bool raw_scalar_comparison_matches(const T& lhs, const T& rhs, RawComparisonOp op) {
+    switch (op) {
+    case RawComparisonOp::EQ:
+        return lhs == rhs;
+    case RawComparisonOp::NE:
+        return lhs != rhs;
+    case RawComparisonOp::LT:
+        return lhs < rhs;
+    case RawComparisonOp::LE:
+        return lhs <= rhs;
+    case RawComparisonOp::GT:
+        return lhs > rhs;
+    case RawComparisonOp::GE:
+        return lhs >= rhs;
+    }
+    __builtin_unreachable();
+}
+
+template <PrimitiveType PT>
+void execute_raw_scalar_comparison(const uint8_t* values, size_t num_values, const Field& literal,
+                                   RawComparisonOp op, uint8_t* matches) {
+    using T = typename PrimitiveTypeTraits<PT>::CppType;
+    const T& rhs = literal.get<PT>();
+    for (size_t row = 0; row < num_values; ++row) {
+        T lhs;
+        std::memcpy(&lhs, values + row * sizeof(T), sizeof(T));
+        matches[row] &= raw_scalar_comparison_matches(lhs, rhs, op) ? 1 : 0;
+    }
+}
+
+size_t raw_comparison_value_size(PrimitiveType primitive_type) {
+    switch (primitive_type) {
+#define RETURN_RAW_COMPARISON_SIZE(TYPE) \
+    case TYPE:                           \
+        return sizeof(typename PrimitiveTypeTraits<TYPE>::CppType)
+        RETURN_RAW_COMPARISON_SIZE(TYPE_BOOLEAN);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TINYINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_SMALLINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_INT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_BIGINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_LARGEINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_FLOAT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DOUBLE);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATE);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIME);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMESTAMP_NS);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMESTAMPTZ);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL32);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL64);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMALV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL128I);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL256);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_IPV4);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_IPV6);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_UUID);
+#undef RETURN_RAW_COMPARISON_SIZE
+    default:
+        return 0;
+    }
+}
+
+Status create_agg_state_finalize_function(const std::string& function_name,
+                                          const DataTypes& argument_types,
+                                          const DataTypePtr& return_type,
+                                          FunctionBasePtr& function) {
+    if (argument_types.size() != 1 ||
+        remove_nullable(argument_types[0])->get_primitive_type() != TYPE_AGG_STATE) {
+        return Status::InternalError("Finalize function requires one AGG_STATE argument");
+    }
+    const auto state_type = remove_nullable(argument_types[0]);
+    const auto* agg_state = assert_cast<const DataTypeAggState*>(state_type.get());
+    if (agg_state->get_function_name() + AGG_FINALIZE_SUFFIX != function_name) {
+        return Status::InternalError("{} does not match function {}", state_type->get_name(),
+                                     function_name);
+    }
+    const auto& nested = agg_state->get_nested_function();
+    auto expected_type = nested->get_return_type();
+    if (argument_types[0]->is_nullable()) {
+        expected_type = make_nullable(expected_type);
+    }
+    if (!expected_type->equals(*return_type)) {
+        return Status::InternalError("{} expects return type {}, but got {}", function_name,
+                                     expected_type->get_name(), return_type->get_name());
+    }
+    function = FunctionAggStateFinalize::create(argument_types, return_type, nested);
+    return Status::OK();
 }
 
 } // namespace
@@ -209,8 +323,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             _function = FunctionAggState::create(
                     argument_types, _data_type,
                     assert_cast<const DataTypeAggState*>(_data_type.get())->get_nested_function());
+        } else if (match_suffix(_fn.name.function_name, AGG_FINALIZE_SUFFIX)) {
+            RETURN_IF_ERROR(create_agg_state_finalize_function(
+                    _fn.name.function_name, argument_types, _data_type, _function));
         } else {
-            return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
+            return Status::InternalError("Unsupported AggState function {}", _fn.signature);
         }
     } else {
         // get the function. won't prepare function.
@@ -408,9 +525,7 @@ bool VectorizedFnCall::can_execute_on_raw_fixed_values(const DataTypePtr& data_t
         !remove_nullable(slot_literal->literal_type)->equals(*raw_type)) {
         return false;
     }
-    const auto primitive_type = raw_type->get_primitive_type();
-    return primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT ||
-           primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
+    return raw_comparison_value_size(raw_type->get_primitive_type()) != 0;
 }
 
 Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
@@ -428,9 +543,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
     const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
     DORIS_CHECK(op.has_value());
     const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
-    const size_t expected_width = primitive_type == TYPE_INT || primitive_type == TYPE_FLOAT
-                                          ? sizeof(uint32_t)
-                                          : sizeof(uint64_t);
+    const size_t expected_width = raw_comparison_value_size(primitive_type);
     if (value_width != expected_width) {
         return Status::Corruption("Raw expression width {} does not match expected {}", value_width,
                                   expected_width);
@@ -452,8 +565,99 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         execute_raw_comparison<double, TYPE_DOUBLE>(values, num_values, slot_literal->literal, *op,
                                                     matches);
         break;
+#define EXECUTE_RAW_SCALAR_COMPARISON(TYPE)                                                 \
+    case TYPE:                                                                              \
+        execute_raw_scalar_comparison<TYPE>(values, num_values, slot_literal->literal, *op, \
+                                            matches);                                       \
+        break
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_BOOLEAN);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TINYINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_SMALLINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_LARGEINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATE);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIME);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIMEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMESTAMP_NS);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMESTAMPTZ);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL32);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL64);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMALV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL128I);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL256);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV4);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV6);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_UUID);
+#undef EXECUTE_RAW_SCALAR_COMPARISON
     default:
         __builtin_unreachable();
+    }
+    return Status::OK();
+}
+
+bool VectorizedFnCall::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                        int column_id) const {
+    if (data_type == nullptr || !is_string_type(remove_nullable(data_type)->get_primitive_type()) ||
+        !raw_comparison_op(_function_name, false).has_value()) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+           !slot_literal->literal.is_null() &&
+           is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()) &&
+           is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type());
+}
+
+Status VectorizedFnCall::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                      const DataTypePtr& data_type, int column_id,
+                                                      uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate raw binary values", expr_name());
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    DORIS_CHECK(slot_literal.has_value());
+    const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
+    DORIS_CHECK(op.has_value());
+    const auto& literal = slot_literal->literal.get<TYPE_STRING>();
+    const StringRef literal_ref(literal.data(), literal.size());
+    for (size_t row = 0; row < num_values; ++row) {
+        matches[row] &=
+                raw_string_comparison_matches(values[row].compare(literal_ref), *op) ? 1 : 0;
+    }
+    return Status::OK();
+}
+
+bool VectorizedFnCall::can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const {
+    if (data_type == nullptr) {
+        return false;
+    }
+    if (_children.size() == 1 &&
+        (_function_name == "is_null_pred" || _function_name == "is_not_null_pred")) {
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+        return slot != nullptr && slot->column_id() == column_id;
+    }
+    if (_function_name == "eq_for_null") {
+        const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+        return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+               slot_literal->literal.is_null();
+    }
+    return false;
+}
+
+Status VectorizedFnCall::execute_on_null_map(const uint8_t* null_map, size_t num_values,
+                                             const DataTypePtr& data_type, int column_id,
+                                             uint8_t* matches) const {
+    if (!can_execute_on_null_map(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate a NULL map", expr_name());
+    }
+    DORIS_CHECK(null_map != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const bool keep_nulls = _function_name == "is_null_pred" || _function_name == "eq_for_null";
+    for (size_t row = 0; row < num_values; ++row) {
+        matches[row] &= (null_map[row] != 0) == keep_nulls ? 1 : 0;
     }
     return Status::OK();
 }
@@ -499,19 +703,55 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 }
 
 bool VectorizedFnCall::is_deterministic() const {
+    // array_shuffle gives the rows of a block different orders, even with a seed.
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric", "array_shuffle", "shuffle"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
-    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
-            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {"eq",
+                                                                    "eq_for_null",
+                                                                    "ne",
+                                                                    "lt",
+                                                                    "le",
+                                                                    "gt",
+                                                                    "ge",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_null_pred",
+                                                                    "is_not_null_pred",
+                                                                    "element_at",
+                                                                    "struct_element"};
+    bool function_is_total = TOTAL_PREDICATE_FUNCTIONS.contains(_function_name);
+    if (_function_name == "array_contains" && get_num_children() == 2) {
+        const auto& left_child_type = get_child(0)->data_type();
+        const auto& right_child_type = get_child(1)->data_type();
+        if (left_child_type != nullptr && right_child_type != nullptr) {
+            const auto array_type = remove_nullable(left_child_type);
+            const auto right_type = remove_nullable(right_child_type);
+            if (array_type->get_primitive_type() == TYPE_ARRAY) {
+                const auto element_type = remove_nullable(
+                        assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+                const auto element_primitive_type = element_type->get_primitive_type();
+                const auto right_primitive_type = right_type->get_primitive_type();
+                const bool types_match = element_primitive_type == right_primitive_type ||
+                                         (is_string_type(element_primitive_type) &&
+                                          is_string_type(right_primitive_type));
+                // Match the executable dispatch domain so metadata pruning cannot hide an
+                // unsupported-signature error from a row rejected by a later predicate.
+                function_is_total =
+                        types_match && dispatch_switch_all(element_primitive_type,
+                                                           [](const auto&) { return true; });
+            }
+        }
+    }
     // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
-    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
-    return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
-           VExpr::is_safe_to_execute_on_selected_rows();
+    // for their input domain. Accessors return NULL for absent elements, and supported membership
+    // signatures are total, so admitting them keeps nested metadata predicates reachable without
+    // crossing an error-producing child such as gt(mod(x, -1), 0).
+    return function_is_total && VExpr::is_safe_to_execute_on_selected_rows();
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {
@@ -721,8 +961,7 @@ void VectorizedFnCall::prepare_ann_range_search(
 
 Status VectorizedFnCall::evaluate_ann_range_search(
         const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap,
         segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
@@ -736,17 +975,12 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                               range_search_runtime.to_string());
     size_t origin_num = row_bitmap.cardinality();
 
-    const auto idx_in_block = range_search_runtime.src_col_idx;
-    DCHECK_LT(idx_in_block, idx_to_cid.size())
-            << "idx_in_block: " << idx_in_block << ", idx_to_cid.size(): " << idx_to_cid.size();
-
-    ColumnId src_col_cid = idx_to_cid[idx_in_block];
-    DCHECK(src_col_cid < cid_to_index_iterators.size());
-    segment_v2::IndexIterator* index_iterator = cid_to_index_iterators[src_col_cid].get();
+    const auto src_col_idx = range_search_runtime.src_col_idx;
+    DCHECK_LT(src_col_idx, index_iterators.size());
+    segment_v2::IndexIterator* index_iterator = index_iterators[src_col_idx].get();
     if (index_iterator == nullptr) {
         VLOG_DEBUG << "ANN range search skipped: "
-                   << fmt::format("No index iterator for column cid {}", src_col_cid);
-        ;
+                   << fmt::format("No index iterator for column {}", src_col_idx);
         return Status::OK();
     }
 
@@ -754,15 +988,15 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
     if (ann_index_iterator == nullptr) {
         VLOG_DEBUG << "ANN range search skipped: "
-                   << fmt::format("Column cid {} has no ANN index iterator", src_col_cid);
+                   << fmt::format("Column {} has no ANN index iterator", src_col_idx);
         return Status::OK();
     }
     DCHECK(ann_index_iterator->get_reader(AnnIndexReaderType::ANN) != nullptr)
-            << "Ann index iterator should have reader. Column cid: " << src_col_cid;
+            << "Ann index iterator should have reader. Column: " << src_col_idx;
     std::shared_ptr<AnnIndexReader> ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(
             ann_index_iterator->get_reader(segment_v2::AnnIndexReaderType::ANN));
     DCHECK(ann_index_reader != nullptr)
-            << "Ann index reader should not be null. Column cid: " << src_col_cid;
+            << "Ann index reader should not be null. Column: " << src_col_idx;
     // Check if metrics type is match.
     if (ann_index_reader->get_metric_type() != range_search_runtime.metric_type) {
         VLOG_DEBUG << "ANN range search skipped: "
@@ -800,7 +1034,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         SCOPED_TIMER(&(stats->load_index_costs_ns));
         if (!ann_index_iterator->try_load_index()) {
             VLOG_DEBUG << "ANN range search skipped: "
-                       << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+                       << fmt::format("Failed to load ANN index for column {}", src_col_idx);
             ann_index_stats.fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
@@ -839,10 +1073,10 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         // Typical situation: range search and operator is LE or LT.
         if (result.distance != nullptr) {
             DCHECK(result.row_ids != nullptr);
-            ColumnId dst_col_cid = idx_to_cid[range_search_runtime.dst_col_idx];
-            DCHECK(dst_col_cid < column_iterators.size());
-            DCHECK(column_iterators[dst_col_cid] != nullptr);
-            segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_cid].get();
+            const auto dst_col_idx = cast_set<size_t>(range_search_runtime.dst_col_idx);
+            DCHECK_LT(dst_col_idx, column_iterators.size());
+            DCHECK(column_iterators[dst_col_idx] != nullptr);
+            segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_idx].get();
             DCHECK(column_iterator != nullptr);
             segment_v2::VirtualColumnIterator* virtual_column_iterator =
                     dynamic_cast<segment_v2::VirtualColumnIterator*>(column_iterator);

@@ -37,8 +37,6 @@ suite("test_http_node_action_auth", "p0,auth,nonConcurrent") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
     try {
-        sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
-
         def operateFe = { user_name, password, action, check_func ->
             httpTest {
                 basicAuthorization "${user_name}", "${password}"
@@ -107,7 +105,6 @@ suite("test_http_node_action_auth", "p0,auth,nonConcurrent") {
             }
         }
     } finally {
-        sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
         try_sql("DROP USER ${user}")
     }
 }

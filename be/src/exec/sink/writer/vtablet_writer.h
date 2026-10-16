@@ -226,7 +226,7 @@ struct Payload {
     std::unique_ptr<IColumn::Selector> row_ids;
     RowPartTabletIds* row_part_tablet_ids = nullptr;
     std::vector<uint32_t> route_idxs;
-    std::vector<int64_t> row_binlog_lsns;
+    std::vector<int64_t> allocated_lsns;
 };
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
@@ -246,10 +246,6 @@ public:
             ss << '\n';
         }
         return ss.str();
-    }
-
-    void add_slave_tablet_nodes(int64_t tablet_id, const std::vector<int64_t>& slave_nodes) {
-        _slave_tablet_nodes[tablet_id] = slave_nodes;
     }
 
     // this function is NON_REENTRANT
@@ -407,8 +403,6 @@ protected:
     // tablet_ids. New receivers ignore them and route by partition id, while old receivers use
     // this local tablet id instead of failing on an empty tablet_ids list.
     std::unordered_map<int64_t, int64_t> _adaptive_partition_compat_tablets;
-    // map from tablet_id to node_id where slave replicas locate in
-    std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
@@ -589,6 +583,8 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
+    static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
+
     int _max_failed_replicas(int64_t tablet_id);
 
     int _load_required_replicas_num(int64_t tablet_id);
@@ -719,8 +715,6 @@ private:
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
     OlapTableLocationParam* _location = nullptr;
-    bool _write_single_replica = false;
-    OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
@@ -729,8 +723,8 @@ private:
     bthread::Mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
     std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
-    // Table-level row-binlog LSN buffer
-    std::shared_ptr<AutoIncIDBuffer> _row_binlog_lsn_buffer;
+    // Table-level LSN buffer
+    std::shared_ptr<AutoIncIDBuffer> _allocated_lsn_buffer;
 
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 

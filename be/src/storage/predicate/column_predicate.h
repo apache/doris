@@ -51,32 +51,8 @@ enum class PredicateType {
     IS_NOT_NULL = 10,
     BF = 11,    // BloomFilter
     MATCH = 13, // fulltext match
+    LIKE = 14,
 };
-
-template <PrimitiveType primitive_type, typename ResultType>
-ResultType get_zone_map_value(void* data_ptr) {
-    ResultType res;
-    // DecimalV2's storage value is different from predicate or compute value type
-    // need convert it to DecimalV2Value
-    if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
-        decimal12_t decimal_12_t_value;
-        memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
-        res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint24_t date;
-        memcpy(&date, data_ptr, sizeof(uint24_t));
-        res.from_olap_date(date);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint64_t datetime;
-        memcpy(&datetime, data_ptr, sizeof(uint64_t));
-        res.from_olap_datetime(datetime);
-    } else {
-        memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
-    }
-    return res;
-}
 
 inline std::string type_to_string(PredicateType type) {
     switch (type) {
@@ -115,6 +91,9 @@ inline std::string type_to_string(PredicateType type) {
 
     case PredicateType::BF:
         return "BF";
+
+    case PredicateType::LIKE:
+        return "LIKE";
     default:
         return "";
     };
@@ -349,7 +328,8 @@ public:
         if (_predicate_input_rows_counter == nullptr ||
             _predicate_filtered_rows_counter == nullptr ||
             _predicate_always_true_rows_counter == nullptr) {
-            throw Exception(INTERNAL_ERROR, "Predicate profile counters are not initialized");
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Predicate profile counters are not initialized");
         }
         COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
         COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
@@ -382,6 +362,8 @@ public:
             return "bf";
         case PredicateType::MATCH:
             return "match";
+        case PredicateType::LIKE:
+            return "like";
         default:
             return "unknown";
         }
@@ -397,7 +379,7 @@ public:
 protected:
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
-        throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
     void reset_judge_selectivity() const { _rf_selectivity.reset_judge_selectivity(); }

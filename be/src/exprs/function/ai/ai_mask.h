@@ -37,13 +37,13 @@ public:
 
     static constexpr size_t number_of_arguments = 3;
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeString>();
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionAIMask>(); }
 
-    Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
+    Status build_prompt(const Columns& prompt_columns, size_t row_num,
                         std::string& prompt) const override;
 };
 

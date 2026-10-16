@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <concurrentqueue.h>
+
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 

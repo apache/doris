@@ -32,9 +32,15 @@ under the License.
     <description>Foundation utilities for Doris FE modules and SPI plugins</description>
 
     <dependencies>
+        <!-- fastutil-core is used only by ConcurrentLong2LongHashMap / ConcurrentLong2ObjectHashMap.
+             optional=true keeps it on this module's own compile/test classpath but stops it
+             propagating into the SPI plugin zips (6.6 MB x 14), which consume fe-foundation purely
+             for the property/argument utilities and never touch it.unimi.dsi. Consumers of those two
+             maps must declare fastutil-core themselves; fe-core already does. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>

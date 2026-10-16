@@ -23,11 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -40,9 +36,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * InferNotNull from Agg count(distinct);
- */
+/** Infer not-null predicates from null-ignoring global aggregate arguments. */
 public class InferAggNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
@@ -103,21 +97,13 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
 
     private Set<Expression> inferFunctionNotNulls(
             AggregateFunction aggregateFunction, CascadesContext cascadesContext) {
-        return ExpressionUtils.inferNotNull(ImmutableSet.copyOf(aggregateFunction.children()), cascadesContext);
+        return ExpressionUtils.inferNotNullForNullIgnoringAggregate(
+                ImmutableSet.copyOf(aggregateFunction.children()), cascadesContext);
     }
 
     private boolean canInferFunctionNotNull(AggregateFunction aggregateFunction) {
-        return isSupportedAggregateFunction(aggregateFunction)
-                && !aggregateFunction.children().isEmpty()
-                && ExpressionUtils.isCheapEnoughToInferNotNull(aggregateFunction.children());
-    }
-
-    private boolean isSupportedAggregateFunction(AggregateFunction aggregateFunction) {
-        return aggregateFunction instanceof Count
-                || aggregateFunction instanceof Avg
-                || aggregateFunction instanceof Sum
-                || aggregateFunction instanceof Max
-                || aggregateFunction instanceof Min;
+        return aggregateFunction instanceof NullIgnoringAggregateFunction
+                && !aggregateFunction.children().isEmpty();
     }
 
 }

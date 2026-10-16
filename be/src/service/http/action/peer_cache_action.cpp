@@ -25,14 +25,13 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_warm_up_manager.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
 
 namespace doris {
-
-static constexpr std::string_view HEADER_JSON = "application/json";
 
 // Serialize a single TabletPeerCandidates into a rapidjson object
 static void tablet_peer_to_json(int64_t tablet_id, const TabletPeerCandidates& tpc,

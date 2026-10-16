@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -97,6 +98,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -131,6 +133,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Optional<String> resourceName = Optional.empty();
 
     public FileFormatProperties fileFormatProperties;
+    private String hiveParquetTimeZone = "";
     private long tableId;
 
     public abstract TFileType getTFileType();
@@ -156,6 +159,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
@@ -169,6 +176,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 S3Util.validateAndTestEndpoint(
                         ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
             }
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
+            }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
                 // Always prefer glob semantics: for exact paths it ensures precise matching
@@ -181,8 +192,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     entries = fs.listFiles(Location.of(path));
                 }
                 for (FileEntry e : entries) {
-                    fileStatuses.add(new TBrokerFileStatus(
-                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    TBrokerFileStatus status = new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory());
+                    // BE keys cached blocks of external files by path and modification time, so a
+                    // file overwritten in place must arrive with its new mtime, not as mtime 0.
+                    status.setModificationTime(e.modificationTime());
+                    fileStatuses.add(status);
                 }
             } catch (IOException e) {
                 throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
@@ -219,15 +234,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
+        fileFormatProperties.enableMappingTimestampTz = true;
 
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
+        try {
+            this.hiveParquetTimeZone = FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
@@ -258,6 +277,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
+    }
+
+    @Override
+    public String getHiveParquetTimeZone() {
+        return hiveParquetTimeZone;
     }
 
     public TFileAttributes getFileAttributes() {
@@ -406,13 +430,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                String fieldName = structField.getName().toLowerCase();
+                String originalFieldName = structField.getName();
+                String fieldName = originalFieldName.toLowerCase(Locale.ROOT);
                 if (fieldLowerNames.contains(fieldName)) {
                     throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
                 } else {
                     fieldLowerNames.add(fieldName);
-                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
-                            structField.getContainsNull()));
+                    // File readers return the external schema spelling, which must survive CTAS metadata writes;
+                    // only the runtime lookup key and duplicate detection are normalized.
+                    fields.add(new StructField(fieldName, originalFieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull(), !structField.getComment().isEmpty()));
                 }
                 parsedNodes += fieldType.value();
             }
@@ -483,6 +510,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (!hiveParquetTimeZone.isEmpty()) {
+            fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

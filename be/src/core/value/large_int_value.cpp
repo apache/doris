@@ -17,11 +17,26 @@
 
 #include "core/value/large_int_value.h"
 
+#include <fmt/compile.h>
+#include <fmt/format.h>
+
 #include <string>
 
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+int64_t LargeIntValue::to_buffer(__int128 value, char* buffer) {
+    return fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer;
+}
+
+std::string LargeIntValue::to_string(__int128 value) {
+    return fmt::format(FMT_COMPILE("{}"), value);
+}
+
+std::string LargeIntValue::to_string(__uint128_t value) {
+    return fmt::format(FMT_COMPILE("{}"), value);
+}
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value) {
     std::ostream::sentry s(os);

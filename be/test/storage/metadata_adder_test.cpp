@@ -21,6 +21,8 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"

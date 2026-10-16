@@ -216,8 +216,7 @@ TEST_F(OlapTypeTest, deser_double_old) {
     while (std::getline(input_file, line)) {
         Field restored_field;
         auto status = data_type_serde->from_fe_string(line, restored_field);
-        // from_fe_string rejects NaN/Infinity strings, and also rejects
-        // double::max()/lowest() whose string representation parses to Infinity
+        // from_fe_string rejects NaN/Infinity strings.
         if (std::isnan(test_input_values[line_index]) ||
             std::isinf(test_input_values[line_index])) {
             EXPECT_FALSE(status.ok());
@@ -272,6 +271,16 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             {0.123456789F, "0.12345679"},
             {1234567890123456.12345F, "1234568000000000"},
             {12345678901234567.12345F, "1.2345678e+16"}};
+    const std::vector<std::string> expected_e7 = {"1e-07", "2e-07", "3e-07",
+                                                  "4e-07", "5e-07", "6e-07",
+                                                  "7e-07", "8e-07", "9.0000003e-07"};
+    const std::vector<std::string> expected_e9 = {"1e-09",         "2e-09", "2.9999998e-09",
+                                                  "4e-09",         "5e-09", "5.9999996e-09",
+                                                  "6.9999997e-09", "8e-09", "9e-09"};
+    for (int i = 1; i < 10; ++i) {
+        normal_input_values.emplace_back(i * 0.0000001F, expected_e7[i - 1]);
+        normal_input_values.emplace_back(i * 0.000000001F, expected_e9[i - 1]);
+    }
     std::vector<std::pair<float, std::string>> test_input_values;
     for (const auto& [float_value, expected_str] : normal_input_values) {
         test_input_values.emplace_back(float_value, expected_str);
@@ -707,7 +716,7 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
 // ---------------------------------------------------------------------------
 // Float: to_olap_string / from_zonemap_string for normal values.
 //   to_olap_string uses CastToString::from_number which calls _fast_to_buffer.
-//   Format: fmt "{:.7g}" (digits10+1=7 significant digits).
+//   Format: fmt "{:.9g}" (max_digits10=9 significant digits).
 //   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_zonemap_string
 //   (which uses fast_float::from_chars) CANNOT parse them back → returns error.
 //   In ZoneMap, NaN/Inf are tracked via boolean flags, not stored in min/max values.
@@ -1858,11 +1867,9 @@ TEST_F(OlapTypeTest, timestamptz_type) {
     }
 }
 
-// from_olap_string for string types (CHAR / VARCHAR / STRING) strnlens the
-// input so any trailing '\0' bytes that came from a fixed-width CHAR write
-// are dropped before the value lands in the Field. VARCHAR / STRING ZoneMap
-// values do not normally carry trailing '\0' (the writers store the natural
-// byte length), so strnlen is a no-op for them.
+// from_olap_string cuts a CHAR value at its first '\0': a CHAR(N) write pads the value
+// with '\0' up to the schema length, and the page read path cuts it the same way.
+// VARCHAR and STRING are stored with their natural byte length, so they keep every byte.
 TEST_F(OlapTypeTest, from_olap_string_strings) {
     struct Case {
         PrimitiveType type;
@@ -1875,9 +1882,7 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
             {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
             {TYPE_CHAR, std::string(10, '\0'), ""},
             {TYPE_CHAR, "alpha", "alpha"},
-            // VARCHAR / STRING never carry trailing '\0' in their ZoneMap
-            // representation, so the helper is a transparent pass-through
-            // for the typical case.
+            // VARCHAR / STRING are handed back byte for byte.
             {TYPE_VARCHAR, "hello", "hello"},
             {TYPE_STRING, "world\nline2", "world\nline2"},
             {TYPE_STRING, "", ""},
@@ -1894,14 +1899,24 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
     }
 }
 
-// VARCHAR / STRING values containing an embedded '\0' are truncated at the
-// first '\0' — the same strnlen behaviour applies to all string types. This
-// is acceptable in practice because Doris string columns do not store
-// embedded NULs in their ZoneMap representation; the test pins the contract.
-TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null_truncates) {
-    auto data_type = DataTypeFactory::instance().create_data_type(
-            TYPE_VARCHAR, /*is_nullable=*/false, 0, 0, /*length=*/32);
-    expect_from_storage_string_paths(data_type, std::string("ab\0cd", 5), [](const Field& field) {
+// A VARCHAR / STRING value may hold a '\0' in the middle, and every byte has
+// to survive the parse. Cutting at that '\0' used to give a zone map bound the data never
+// held, which then pruned rows that match. CHAR is still cut, because its '\0' is padding
+// and the page read path cuts CHAR values the same way.
+TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null) {
+    const std::string embedded_null("ab\0cd", 5);
+
+    for (auto type : {TYPE_VARCHAR, TYPE_STRING}) {
+        auto data_type = DataTypeFactory::instance().create_data_type(type, /*is_nullable=*/false,
+                                                                      0, 0, /*length=*/32);
+        expect_from_storage_string_paths(data_type, embedded_null, [&](const Field& field) {
+            EXPECT_EQ(field.get<TYPE_STRING>(), embedded_null) << "type=" << static_cast<int>(type);
+        });
+    }
+
+    auto char_type = DataTypeFactory::instance().create_data_type(TYPE_CHAR, /*is_nullable=*/false,
+                                                                  0, 0, /*length=*/5);
+    expect_from_storage_string_paths(char_type, embedded_null, [](const Field& field) {
         EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
     });
 }

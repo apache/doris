@@ -195,6 +195,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_soft, MetricUnit::NOUNIT
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_hard, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_cumulative_max_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_size_based_max_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_time_series_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_binlog_max_compaction_score, MetricUnit::NOUNIT);
 
@@ -202,7 +204,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowsets_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(binlog_compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
 
 DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
@@ -393,6 +394,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_hard);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_size_based_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_time_series_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_binlog_max_compaction_score);
 
@@ -400,7 +403,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segments_num);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, binlog_compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
 
     HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);
@@ -488,6 +490,7 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
 
 void DorisMetrics::init_jvm_metrics() {
     _jvm_metrics.reset(new JvmMetrics(&_metric_registry));
+    _jvm_metrics_view.store(_jvm_metrics.get(), std::memory_order_release);
 }
 
 void DorisMetrics::_update() {
@@ -524,11 +527,15 @@ void DorisMetrics::_update_process_fd_num() {
         process_fd_num_used->set_value(0);
         return;
     }
-    int64_t count =
-            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
-                std::error_code error_code;
-                return entry.is_regular_file(error_code) && !error_code;
-            });
+    // Entries under /proc/self/fd are symlinks, and every is_regular_file() call
+    // follows the link with a stat(), which is O(fds) syscalls and can stall
+    // /metrics for hundreds of milliseconds when there are many open fds.
+    // Count the entries directly (readdir only) to avoid the per-entry stat.
+    int64_t count = 0;
+    for (const auto& entry : dict_iter) {
+        (void)entry;
+        ++count;
+    }
 
     process_fd_num_used->set_value(count);
 

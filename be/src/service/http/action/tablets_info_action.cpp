@@ -29,6 +29,7 @@
 #include "cloud/config.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -38,8 +39,6 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-
-const static std::string HEADER_JSON = "application/json";
 
 TabletsInfoAction::TabletsInfoAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                      TPrivilegeType::type type)

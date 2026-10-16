@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -134,8 +133,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return false;
                     }
 
-                    Set<Slot> aggSlots = funcs.stream()
-                            .flatMap(f -> f.getInputSlots().stream())
+                    Set<Slot> aggSlots = normalizeArguments(funcs, agg.child()).stream()
+                            .flatMap(argument -> argument.getInputSlots().stream())
                             .collect(Collectors.toSet());
                     return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
                                 checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));
@@ -694,6 +693,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
+        // File footers and OLAP zone maps retain only source endpoints. Casts that introduce NULL
+        // can discard a valid interior value. Check the cast independently of source nullability
+        // so safe widening casts over nullable columns remain eligible. Floating sources may have
+        // NaNs omitted by file statistics; DOUBLE/DECIMAL-to-FLOAT can also underflow to signed
+        // zero and change the MIN/MAX representative even without introducing NULL.
+        if ((functionClasses.contains(Min.class) || functionClasses.contains(Max.class))
+                && argumentsOfAggregateFunction.stream().anyMatch(argument -> argument instanceof Cast
+                        && (Cast.castNullable(false, argument.child(0).getDataType(), argument.getDataType())
+                                || argument.child(0).getDataType().isFloatLikeType()
+                                || (argument.child(0).getDataType().isDecimalLikeType()
+                                        && argument.getDataType().isFloatType())))) {
+            return canNotPush;
+        }
+
         Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
                 .map(supportedAgg::get)
                 .collect(Collectors.toSet());
@@ -725,8 +738,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (column.isAggregated()) {
                 return canNotPush;
             }
-            // The zone map max length of CharFamily is 512, do not
-            // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 if (logicalScan instanceof LogicalOlapScan
                         && ((LogicalOlapScan) logicalScan).getTable() instanceof RowBinlogTableWrapper
@@ -734,11 +745,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return canNotPush;
                 }
                 PrimitiveType colType = column.getType().getPrimitiveType();
-                if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
-                         || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
-                    return canNotPush;
-                }
-                if (colType.isCharFamily() && column.getType().getLength() > 512 && !enablePushDownStringMinMax()) {
+                if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                     return canNotPush;
                 }
             }
@@ -782,8 +789,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
-            Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
-                    : new LogicalFileScanToPhysicalFileScan().build();
+            Rule rule = new LogicalFileScanToPhysicalFileScan().build();
             PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
                     .get(0);
             if (project != null) {
@@ -801,11 +807,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             return canNotPush;
         }
-    }
-
-    private boolean enablePushDownStringMinMax() {
-        ConnectContext connectContext = ConnectContext.get();
-        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
     }
 
     private boolean enablePushDownNoGroupAgg() {

@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -77,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
@@ -168,7 +168,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(IntersectCount.class, "intersect_count"),
                 agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
                 agg(LinearHistogram.class, "linear_histogram"),
-                agg(MapAgg.class, "map_agg_v1"),
                 agg(MapAggV2.class, "map_agg_v2", "map_agg"),
                 agg(Max.class, "max"),
                 agg(MaxBy.class, "max_by"),
@@ -190,6 +189,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Percentile.class, "percentile", "percentile_cont"),
                 agg(PercentileReservoir.class, "percentile_reservoir"),
                 agg(PercentileApprox.class, "percentile_approx"),
+                agg(PercentileApproxArray.class, "percentile_approx_array"),
                 agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
                 agg(PercentileArray.class, "percentile_array"),
                 agg(QuantileUnion.class, "quantile_union"),

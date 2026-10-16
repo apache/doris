@@ -35,6 +35,8 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/group_rowset_writer.h"
@@ -64,6 +66,14 @@ MemTableWriter::~MemTableWriter() {
     _mem_table.reset();
 }
 
+uint64_t MemTableWriter::workload_group_id() const {
+    auto wg = _resource_ctx->workload_group();
+    if (wg != nullptr) {
+        return wg->id();
+    }
+    return 0;
+}
+
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
                             TabletSchemaSPtr tablet_schema,
                             std::shared_ptr<PartialUpdateInfo> partial_update_info,
@@ -73,25 +83,26 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
     _resource_ctx = thread_context()->resource_ctx();
-    _need_row_binlog_lsn = false;
+    // Only the row-binlog base index needs LSN, aligned with the sink (row_binlog_id > 0).
+    _need_lsn = false;
     if (_req.table_schema_param != nullptr) {
         for (const auto* index_schema : _req.table_schema_param->indexes()) {
             if (index_schema->index_id == _req.index_id) {
-                _need_row_binlog_lsn = index_schema->row_binlog_id > 0;
+                _need_lsn = index_schema->row_binlog_id > 0;
                 break;
             }
         }
     }
-    if (_need_row_binlog_lsn) {
+    if (_need_lsn) {
         const auto keys_type = _tablet_schema->keys_type();
         if (keys_type == KeysType::AGG_KEYS ||
             (keys_type == KeysType::UNIQUE_KEYS && !_unique_key_mow)) {
             // Row-binlog LSN sidecar does not support MemTable aggregation now. For AGG tables
             // and unique key merge-on-read tables, multiple input rows can be merged into one
             // output row in MemTable, so their output LSN semantics should be implemented
-            // explicitly before enabling row-binlog LSNs on these table types.
+            // explicitly before enabling allocated LSNs on these table types.
             return Status::NotSupported(
-                    "row binlog lsn does not support AGG table or unique key merge-on-read table");
+                    "allocated lsn does not support AGG table or unique key merge-on-read table");
         }
     }
 
@@ -103,7 +114,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
                     _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
-                    _req.table_schema_param));
+                    _req.table_schema_param, _req.load_cancel_status));
 
     _is_init = true;
     return Status::OK();
@@ -115,12 +126,15 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
         *memtable_flushed = false;
     }
     if (UNLIKELY(rows.row_idxs.empty())) {
-        DCHECK(rows.row_binlog_lsns.empty());
+        DCHECK(rows.allocated_lsns.empty());
         return Status::OK();
     }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
@@ -132,13 +146,13 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
                                              _req.tablet_id, _req.load_id.hi(), _req.load_id.lo());
     }
 
-    if (_need_row_binlog_lsn) {
-        if (rows.row_binlog_lsns.empty()) {
+    if (_need_lsn) {
+        if (rows.allocated_lsns.empty()) {
             return Status::InternalError(
-                    "row binlog lsn is missing for tablet_id={}, index_id={}, load_id={}-{}",
+                    "allocated lsn is missing for tablet_id={}, index_id={}, load_id={}-{}",
                     _req.tablet_id, _req.index_id, _req.load_id.hi(), _req.load_id.lo());
         }
-        DCHECK(rows.row_binlog_lsns.size() == rows.row_idxs.size());
+        DCHECK(rows.allocated_lsns.size() == rows.row_idxs.size());
     }
 
     // Flush and reset memtable if it is raw rows great than int32_t.
@@ -154,7 +168,8 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     }
 
     _total_received_rows += rows.row_idxs.size();
-    auto st = _mem_table->insert(block, rows);
+    Status st;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = _mem_table->insert(block, rows), st);
 
     // Reset memtable immediately after insert failure to prevent potential flush operations.
     // This is a defensive measure because:
@@ -174,7 +189,13 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     }
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
-        _mem_table->shrink_memtable_by_agg();
+        // Aggregation can replace the columns before row metadata allocation fails.
+        // Discard the failed memtable while _lock still excludes pressure flushing.
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(_mem_table->shrink_memtable_by_agg(), st);
+        if (!st.ok()) [[unlikely]] {
+            _reset_mem_table();
+            return st;
+        }
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());
@@ -210,10 +231,20 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    // Three calling paths:
-    // 1. call by local, from `VTabletWriterV2::_write_memtable`.
-    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
-    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        // Reclaim the unsubmitted memtable even while an RPC retains this writer.
+        // Do not cancel the flush token here: pressure flushing holds the limiter
+        // lock and must not wait for running flush tasks. Leave _is_cancelled
+        // unset so the final owner's cancel still drains the token.
+        {
+            std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+            _mem_table.reset();
+        }
+        return Status::Cancelled("Load has been cancelled: {}",
+                                 _req.load_cancel_status->status().to_string());
+    }
+    // Memory-pressure flushing can race with writer initialization or close.
+    // DeltaWriter also exposes this operation through flush_memtable_async().
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -259,7 +290,7 @@ void MemTableWriter::_reset_mem_table() {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
                                       _unique_key_mow, _partial_update_info.get(), _resource_ctx,
-                                      _need_row_binlog_lsn));
+                                      _need_lsn));
     }
 
     _segment_num++;
@@ -269,6 +300,9 @@ Status MemTableWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }

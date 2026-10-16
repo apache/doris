@@ -19,6 +19,7 @@ package org.apache.doris.qe.runtime;
 
 import org.apache.doris.common.Status;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -28,6 +29,20 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 class SingleFragmentPipelineTaskTest {
+    @Test
+    void failedAcceptanceLeavesFinalReportRetryable() {
+        SingleFragmentPipelineTask task = createTask(createBackend(100L));
+        TReportExecStatusParams report = new TReportExecStatusParams().setDone(true);
+
+        Assertions.assertThrows(RuntimeException.class,
+                () -> task.processReportExecStatus(report, () -> {
+                    throw new RuntimeException("injected failure");
+                }));
+        Assertions.assertFalse(task.isDone());
+        Assertions.assertTrue(task.processReportExecStatus(report, () -> { }));
+        Assertions.assertTrue(task.isDone());
+    }
+
     @Test
     void backendWithUnchangedProcessEpochIsHealthy() {
         Backend backend = createBackend(100L);

@@ -35,6 +35,7 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -147,6 +148,8 @@ protected:
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
+        // Position-delete row projection must reject a physically absent required field exactly like data scans.
+        options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
         // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
         // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
         options->allow_idless_complex_wrapper_projection =
@@ -533,8 +536,8 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_partition_column(MutableCo
     }
 
     if (!_partition_value) {
-        auto partition_value = slot.get_data_type_ptr()->create_column();
-        auto serde = slot.get_data_type_ptr()->get_serde();
+        auto partition_value = slot.type()->create_column();
+        auto serde = slot.type()->get_serde();
         StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
                                  _iceberg_file_desc->partition_data_json.size());
         DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
@@ -567,7 +570,7 @@ void IcebergPositionDeleteSysTableV2Reader::_init_read_columns(bool read_row) {
     if (read_row) {
         for (const auto* slot : *_file_slot_descs) {
             if (slot->col_name() == kRowColumn) {
-                _read_columns.push_back({kRowColumn, slot->get_data_type_ptr()});
+                _read_columns.push_back({kRowColumn, slot->type()});
                 break;
             }
         }
@@ -591,6 +594,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_build_delete_file_projected_colum
             columns->push_back(*it);
             columns->back().type = column.type;
             set_iceberg_delete_field_id(&columns->back());
+            // The copied row tree bypasses IcebergTableReader::annotate_projected_column, so prepare its
+            // typed nested defaults before the generic inner reader builds the column mapper.
+            RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&columns->back()));
             continue;
         }
         auto field = build_delete_file_column(column.name, column.type);

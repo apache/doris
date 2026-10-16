@@ -99,10 +99,12 @@ protected:
 
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
-        return ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),
-                                            delete_desc, READ_DELETE_FILE_BATCH_SIZE,
-                                            &this->get_state()->timezone_obj(), this->get_io_ctx(),
-                                            this->get_state(), this->_meta_cache);
+        auto reader = ParquetReader::create_unique(
+                this->get_profile(), this->get_scan_params(), delete_desc,
+                READ_DELETE_FILE_BATCH_SIZE, &this->get_state()->timezone_obj(), this->get_io_ctx(),
+                this->get_state(), this->_meta_cache);
+        reader->set_preserve_binary_uuid(true);
+        return reader;
     }
 
     static ColumnIdResult _create_column_ids(

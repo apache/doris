@@ -90,9 +90,11 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             hive_docker """ ${create_table_str} """
         }
 
-        def outfile_to_HDFS = {
+        def outfile_to_HDFS = { enableInt96Timestamps ->
             // select ... into outfile ...
             def uuid = UUID.randomUUID().toString()
+            def int96Property = enableInt96Timestamps == null ? "" :
+                    ",\n                    \"enable_int96_timestamps\" = \"${enableInt96Timestamps}\""
 
             outfile_path = "/user/doris/tmp_data/${uuid}"
             uri = "${defaultFS}" + "${outfile_path}/exp_"
@@ -102,8 +104,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
                 INTO OUTFILE "${uri}"
                 FORMAT AS ${format}
                 PROPERTIES (
-                    "hadoop.username" = "${hdfsUserName}",
-                    "enable_int96_timestamps" = "true"
+                    "hadoop.username" = "${hdfsUserName}"${int96Property}
                 );
             """
             logger.info("outfile success path: " + res[0][3]);
@@ -143,7 +144,8 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_select_base1 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
             // create hive table
             create_hive_table(hive_table, hive_field_define)
@@ -182,7 +184,8 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_select_base2 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
             // create hive table
             create_hive_table(hive_table, hive_field_define)
@@ -223,7 +226,8 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_select_base3 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
             // create hive table
             create_hive_table(hive_table, hive_field_define)
@@ -268,17 +272,24 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_select_base4 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
-            // create hive table
-            create_hive_table(hive_table, hive_field_define)
-
-            qt_select_tvf4 """ select * from HDFS(
+            qt_select_tvf4 """ select user_id, name,
+                            cast(s_info as struct<user_id:int, date:date, datetime:datetimev2(6),
+                                    city:string, age:smallint, sex:tinyint, bool_col:boolean,
+                                    int_col:int, bigint_col:bigint, largeint_col:string, float_col:float,
+                                    double_col:double, char_col:string, decimal_col:decimal(27, 9)>)
+                            from HDFS(
                             "uri" = "${outfile_url}0.parquet",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}");
                             """
 
+            // Hive 2 and 3 do not support Parquet INT64 logical timestamps. Keep the Doris
+            // OUTFILE/TVF path on INT64, and use INT96 only for the legacy Hive compatibility check.
+            outfile_to_HDFS(true)
+            create_hive_table(hive_table, hive_field_define)
             qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
         } finally {

@@ -132,6 +132,12 @@ public:
         _bloom_filter = other_func->_bloom_filter;
     }
 
+    // Deep copy. The returned filter owns a separately allocated bloom filter. Only the
+    // parameters are copied if `copy_bloom_filter` is false, e.g. the filter is still used as
+    // an IN filter, so its bloom filter is never read.
+    virtual Status clone(std::shared_ptr<BloomFilterFuncBase>* res,
+                         bool copy_bloom_filter) const = 0;
+
     virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
 
     virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
@@ -144,6 +150,9 @@ public:
     virtual size_t raw_fixed_value_size() const = 0;
     virtual Status find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
                                         uint8_t* matches) const = 0;
+    virtual bool supports_raw_binary_values() const = 0;
+    virtual Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                         uint8_t* matches) const = 0;
     virtual bool test_field(const Field& field) const = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const IColumn& column, const uint8_t* nullmap,
@@ -163,6 +172,26 @@ private:
     }
 
 protected:
+    Status _deep_copy_from(const BloomFilterFuncBase& other, bool copy_bloom_filter) {
+        _bloom_filter_length = other._bloom_filter_length;
+        _runtime_bloom_filter_min_size = other._runtime_bloom_filter_min_size;
+        _runtime_bloom_filter_max_size = other._runtime_bloom_filter_max_size;
+        _build_bf_by_runtime_size = other._build_bf_by_runtime_size;
+        _bloom_filter_size_calculated_by_ndv = other._bloom_filter_size_calculated_by_ndv;
+        if (!copy_bloom_filter) {
+            return Status::OK();
+        }
+        if (other._bloom_filter == nullptr) {
+            // `other` is not initialized yet, e.g. the producer is disabled before it is built.
+            return Status::OK();
+        }
+        _bloom_filter_alloced = other._bloom_filter_alloced;
+        _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
+        RETURN_IF_ERROR(_bloom_filter->init(_bloom_filter_alloced));
+        _bloom_filter->set_contain_null(other.contain_null());
+        return _bloom_filter->merge(other._bloom_filter.get());
+    }
+
     int64_t _bloom_filter_alloced = 0;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     int64_t _bloom_filter_length;
@@ -176,6 +205,14 @@ template <PrimitiveType type>
 class BloomFilterFunc final : public BloomFilterFuncBase {
 public:
     BloomFilterFunc(bool null_aware) : BloomFilterFuncBase(null_aware) {}
+
+    Status clone(std::shared_ptr<BloomFilterFuncBase>* res, bool copy_bloom_filter) const override {
+        auto cloned = std::make_shared<BloomFilterFunc<type>>(_null_aware);
+        RETURN_IF_ERROR(cloned->_deep_copy_from(*this, copy_bloom_filter));
+        *res = std::move(cloned);
+        return Status::OK();
+    }
+
     void insert_set(std::shared_ptr<HybridSetBase> set) override {
         OpV2::insert_set(*_bloom_filter, set);
         _bloom_filter->set_contain_null(set->contain_null());
@@ -222,6 +259,26 @@ public:
                 ValueType value;
                 std::memcpy(&value, values + row * sizeof(ValueType), sizeof(ValueType));
                 matches[row] &= _bloom_filter->test_element<fixed_len_to_uint32_v2>(value) ? 1 : 0;
+            }
+            return Status::OK();
+        }
+    }
+
+    bool supports_raw_binary_values() const override { return is_string_type(type); }
+
+    Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                 uint8_t* matches) const override {
+        if constexpr (!is_string_type(type)) {
+            return Status::NotSupported("Non-string Bloom filter cannot probe binary values");
+        } else {
+            if (_bloom_filter == nullptr) {
+                return Status::InternalError("Bloom filter is not initialized");
+            }
+            DORIS_CHECK(values != nullptr || rows == 0);
+            DORIS_CHECK(matches != nullptr || rows == 0);
+            for (size_t row = 0; row < rows; ++row) {
+                matches[row] &=
+                        _bloom_filter->test_element<fixed_len_to_uint32_v2>(values[row]) ? 1 : 0;
             }
             return Status::OK();
         }

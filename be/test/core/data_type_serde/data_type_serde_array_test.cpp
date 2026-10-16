@@ -15,12 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
+#include <memory>
 
+#include "core/assert_cast.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -173,6 +182,115 @@ TEST_F(DataTypeArraySerDeFieldTest, empty_array_is_null_element_type) {
     DataTypeSerDe::deserialize_binary_to_field(chars.data(), field, info);
     EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_NULL);
     EXPECT_FALSE(info.need_convert);
+}
+
+TEST_F(DataTypeArraySerDeFieldTest, ReadArrowFixedSizeAndLargeList) {
+    auto nested_serde = std::make_shared<DataTypeNullableSerDe>(
+            std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>());
+    DataTypeArraySerDe serde(nested_serde);
+    cctz::time_zone tz;
+
+    const auto expect_array = [](const ColumnArray& column,
+                                 const std::vector<ColumnArray::Offset64>& expected_offsets,
+                                 const std::vector<float>& expected_values) {
+        const auto& offsets = column.get_offsets();
+        ASSERT_EQ(expected_offsets.size(), offsets.size());
+        for (size_t i = 0; i < expected_offsets.size(); ++i) {
+            EXPECT_EQ(expected_offsets[i], offsets[i]);
+        }
+        const auto& nullable_values = assert_cast<const ColumnNullable&>(column.get_data());
+        const auto& values =
+                assert_cast<const ColumnFloat32&>(nullable_values.get_nested_column()).get_data();
+        ASSERT_EQ(expected_values.size(), values.size());
+        for (size_t i = 0; i < expected_values.size(); ++i) {
+            EXPECT_EQ(0, nullable_values.get_null_map_data()[i]);
+            EXPECT_FLOAT_EQ(expected_values[i], values[i]);
+        }
+    };
+
+    // Lance vectors are Arrow FixedSizeList: every embedding has exactly three floats.
+    {
+        auto value_builder = std::make_shared<arrow::FloatBuilder>();
+        arrow::FixedSizeListBuilder builder(arrow::default_memory_pool(), value_builder, 3);
+        for (const std::array<float, 3>& embedding :
+             {std::array<float, 3> {0.0F, 0.0F, 0.0F}, std::array<float, 3> {1.0F, 0.0F, 0.0F},
+              std::array<float, 3> {-1.5F, 0.25F, 3.75F}}) {
+            ASSERT_TRUE(builder.Append().ok());
+            for (float value : embedding) {
+                ASSERT_TRUE(value_builder->Append(value).ok());
+            }
+        }
+        std::shared_ptr<arrow::FixedSizeListArray> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_array(*column, {3, 6, 9}, {0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, -1.5F, 0.25F, 3.75F});
+    }
+
+    // LargeList uses 64-bit Arrow offsets but has the same Doris ARRAY representation.
+    {
+        auto value_builder = std::make_shared<arrow::FloatBuilder>();
+        arrow::LargeListBuilder builder(arrow::default_memory_pool(), value_builder);
+        ASSERT_TRUE(builder.Append().ok());
+        ASSERT_TRUE(value_builder->Append(1.0F).ok());
+        ASSERT_TRUE(value_builder->Append(2.0F).ok());
+        ASSERT_TRUE(builder.Append().ok());
+        ASSERT_TRUE(value_builder->Append(3.0F).ok());
+        ASSERT_TRUE(builder.Append().ok());
+        std::shared_ptr<arrow::LargeListArray> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_array(*column, {2, 3, 3}, {1.0F, 2.0F, 3.0F});
+    }
+}
+
+// External Arrow producers may expose offsets through Buffer::Wrap without preserving the natural
+// alignment of int32_t or int64_t. Run with UBSan enabled to catch typed loads from such buffers.
+TEST_F(DataTypeArraySerDeFieldTest, ReadArrowListWithUnalignedOffsets) {
+    auto nested_serde = std::make_shared<DataTypeNullableSerDe>(
+            std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>());
+    DataTypeArraySerDe serde(nested_serde);
+
+    std::vector<float> values_data {1.0F, 2.0F, 3.0F};
+    const auto values_buffer = arrow::Buffer::Wrap(values_data);
+    const auto values = std::make_shared<arrow::FloatArray>(3, values_buffer);
+    const auto read_array = [&](const auto& arrow_array) {
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        EXPECT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), cctz::utc_time_zone())
+                            .ok());
+        EXPECT_EQ(column->get_offsets(), (ColumnArray::Offsets64 {2, 3, 3}));
+    };
+
+    const std::array<int32_t, 4> list_offsets {0, 2, 3, 3};
+    std::vector<uint8_t> list_offsets_storage(sizeof(list_offsets) + 1);
+    memcpy(list_offsets_storage.data() + 1, list_offsets.data(), sizeof(list_offsets));
+    const auto list_offsets_buffer =
+            arrow::Buffer::Wrap(list_offsets_storage.data() + 1, sizeof(list_offsets));
+    read_array(std::make_shared<arrow::ListArray>(arrow::list(arrow::float32()), 3,
+                                                  list_offsets_buffer, values));
+
+    const std::array<int64_t, 4> large_list_offsets {0, 2, 3, 3};
+    std::vector<uint8_t> large_list_offsets_storage(sizeof(large_list_offsets) + 1);
+    memcpy(large_list_offsets_storage.data() + 1, large_list_offsets.data(),
+           sizeof(large_list_offsets));
+    const auto large_list_offsets_buffer =
+            arrow::Buffer::Wrap(large_list_offsets_storage.data() + 1, sizeof(large_list_offsets));
+    read_array(std::make_shared<arrow::LargeListArray>(arrow::large_list(arrow::float32()), 3,
+                                                       large_list_offsets_buffer, values));
 }
 
 } // namespace doris

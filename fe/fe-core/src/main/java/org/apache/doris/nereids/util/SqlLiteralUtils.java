@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.SqlModeHelper;
 
 /**
@@ -89,8 +90,6 @@ public final class SqlLiteralUtils {
      * Quote a value as a STRING_LITERAL that can be parsed under the current SQL mode.
      */
     public static String quoteStringLiteral(String value) {
-        String escaped = SqlModeHelper.hasNoBackSlashEscapes()
-                ? value : value.replace("\\", "\\\\");
-        return "\"" + escaped.replace("\"", "\"\"") + "\"";
+        return SqlUtils.quoteStringLiteral(value, SqlModeHelper.hasNoBackSlashEscapes());
     }
 }

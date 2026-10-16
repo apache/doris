@@ -37,7 +37,9 @@
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
@@ -174,7 +176,7 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
             if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
                 (!sub_path.empty() && _path.native().find(sub_path) != std::string::npos)) {
                 res = -1;
-                errno = EIO;
+                errno = dp->param<int>("errno", EIO);
                 LOG(WARNING) << Status::IOError("debug read io error: {}", _path.native());
             }
         });

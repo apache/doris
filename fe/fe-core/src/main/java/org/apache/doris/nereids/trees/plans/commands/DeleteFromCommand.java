@@ -40,7 +40,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -70,7 +69,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -132,7 +130,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table and route to IcebergDeleteCommand if so
+        // Check if target table is Iceberg table and route to ExternalRowLevelDeletePlanBuilder if so
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = null;
         try {
@@ -141,17 +139,11 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             // Table not found, will be handled by regular error flow
         }
 
-        // Route to IcebergDeleteCommand for Iceberg tables
-        if (table instanceof org.apache.doris.datasource.iceberg.IcebergExternalTable) {
-            LOG.info("Routing DELETE to IcebergDeleteCommand for table: {}", table.getName());
-            org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext deleteCtx =
-                    new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext();
-            deleteCtx.setDeleteFileType(org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext
-                    .DeleteFileType.POSITION_DELETE);
-            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
-                    nameParts, tableAlias, isTempPart, partitions, logicalQuery,
-                    deleteCtx);
-            icebergDeleteCommand.run(ctx, executor);
+        // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
             return;
         }
 
@@ -217,9 +209,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
 
-        // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
+        // Row binlog needs row-bearing deletes to emit DELETE events. Predicate deletes only write
+        // delete predicates, so use `DeleteFromUsingCommand` even when MOW light delete is enabled.
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && !olapTable.getEnableMowLightDelete()) {
+                && (!olapTable.getEnableMowLightDelete() || olapTable.needRowBinlog())) {
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
                     Optional.empty(), false).run(ctx, executor);
             return;
@@ -503,14 +496,17 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-        if (table instanceof IcebergExternalTable) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
-                    nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
-            return icebergDeleteCommand.getExplainPlan(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
+    }
+
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(
+                table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
     }
 
     private OlapTable getTargetTable(ConnectContext ctx) {

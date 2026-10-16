@@ -20,20 +20,22 @@
 #include <jemalloc/jemalloc.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <string>
 
 #include "agent/utils.h"
 #include "runtime/memory/heap_profiler.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_handler.h"
 #include "service/http/http_handler_with_auth.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
+#include "util/string_util.h"
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
 const static std::string START_HEAP_PROFILE_NOTICE =
         "`curl http://be_host:be_webport/jeheap/active/true` to start heap profiler, note that "
         "`JEMALLOC_CONF` in `be/conf/be.conf` must contain `prof:true`, will only track and sample "
@@ -92,9 +94,15 @@ void SetJeHeapProfileResetActions::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     if (compile_check(req)) {
         const auto& lg_sample_str = req->param("reset_value");
-        size_t lg_sample = std::stol(lg_sample_str);
+        auto parsed_lg_sample = safe_stoll(lg_sample_str, "reset_value");
+        if (!parsed_lg_sample.has_value()) {
+            HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                    parsed_lg_sample.error().to_string_no_stack() + "\n");
+            return;
+        }
+        int64_t lg_sample = parsed_lg_sample.value();
         if (lg_sample > 0 && HeapProfiler::instance()->check_enable_heap_profiler() &&
-            HeapProfiler::instance()->heap_profiler_reset(lg_sample)) {
+            HeapProfiler::instance()->heap_profiler_reset(static_cast<size_t>(lg_sample))) {
             HttpChannel::send_reply(req, HttpStatus::OK,
                                     fmt::format("Jemalloc reset all memory profile statistics and "
                                                 "update the sample rate:{}\n",

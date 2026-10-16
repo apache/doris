@@ -19,26 +19,37 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "exprs/function/simple_function_factory.h"
 #include "exprs/vcolumn_ref.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vlambda_function_call_expr.h"
 #include "exprs/vlambda_function_expr.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "testutil/function_utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -112,6 +123,194 @@ private:
     std::string _name;
 };
 
+class MockCapturedInputExpr final : public VExpr {
+public:
+    MockCapturedInputExpr(DataTypePtr type, const IColumn* expected_input, bool* used_direct_input,
+                          bool* kept_capture_const)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _expected_input(expected_input),
+              _used_direct_input(used_direct_input),
+              _kept_capture_const(kept_capture_const) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        *_kept_capture_const = is_column_const(*block->get_by_position(0).column);
+        *_used_direct_input = block->get_by_position(1).column.get() == _expected_input;
+
+        ColumnPtr captured;
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, captured));
+        RETURN_IF_ERROR(get_child(1)->execute_column(context, block, selector, count, input));
+        captured = captured->convert_to_full_column_if_const();
+        input = input->convert_to_full_column_if_const();
+
+        const IColumn* captured_data = captured.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(captured_data)) {
+            captured_data = &nullable->get_nested_column();
+        }
+        const IColumn* input_data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(input_data)) {
+            input_data = &nullable->get_nested_column();
+        }
+        const auto& captured_values = assert_cast<const ColumnInt32&>(*captured_data);
+        const auto& input_values = assert_cast<const ColumnInt32&>(*input_data);
+        auto result = ColumnInt32::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(captured_values.get_element(i) + input_values.get_element(i));
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    const IColumn* _expected_input;
+    bool* _used_direct_input;
+    bool* _kept_capture_const;
+    std::string _name = "mock_captured_const_direct";
+};
+
+class MockIncrementExpr final : public VExpr {
+public:
+    explicit MockIncrementExpr(DataTypePtr type) : VExpr(type, false), _type(std::move(type)) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, input));
+        const IColumn* data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(data)) {
+            data = &nullable->get_nested_column();
+        }
+        const auto& values = assert_cast<const ColumnInt32&>(*data);
+        auto result = ColumnInt32::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(values.get_element(i) + 1);
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    std::string _name = "mock_increment";
+};
+
+class MockPositiveExpr final : public VExpr {
+public:
+    MockPositiveExpr(DataTypePtr type) : VExpr(type, false), _type(std::move(type)) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, input));
+        const IColumn* data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(data)) {
+            data = &nullable->get_nested_column();
+        }
+        const auto& values = assert_cast<const ColumnInt32&>(*data);
+        auto result = ColumnUInt8::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(values.get_element(i) > 0);
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    std::string _name = "mock_positive";
+};
+
+class MockBatchSizeExpr final : public VExpr {
+public:
+    MockBatchSizeExpr(DataTypePtr type, std::vector<size_t>* observed_batch_sizes)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _observed_batch_sizes(observed_batch_sizes) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* /*context*/, const Block* /*block*/,
+                               const Selector* /*selector*/, size_t count,
+                               ColumnPtr& result_column) const override {
+        _observed_batch_sizes->push_back(count);
+        result_column = ColumnInt32::create(count, 0);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    std::vector<size_t>* _observed_batch_sizes;
+    std::string _name = "mock_batch_size";
+};
+
+class MockGreatestExpr final : public VExpr {
+public:
+    MockGreatestExpr(DataTypePtr type, std::vector<size_t>* observed_batch_sizes)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _observed_batch_sizes(observed_batch_sizes) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        _observed_batch_sizes->push_back(count);
+        std::vector<ColumnPtr> inputs;
+        inputs.reserve(children().size());
+        for (const auto& child : children()) {
+            ColumnPtr input;
+            RETURN_IF_ERROR(child->execute_column(context, block, selector, count, input));
+            inputs.push_back(input->convert_to_full_column_if_const());
+        }
+
+        auto result = ColumnInt32::create();
+        result->reserve(count);
+        for (size_t row = 0; row < count; ++row) {
+            int32_t greatest = _get_int_data(inputs[0]).get_element(row);
+            for (size_t i = 1; i < inputs.size(); ++i) {
+                greatest = std::max(greatest, _get_int_data(inputs[i]).get_element(row));
+            }
+            result->insert_value(greatest);
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    const ColumnInt32& _get_int_data(const ColumnPtr& column) const {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+            return assert_cast<const ColumnInt32&>(nullable->get_nested_column());
+        }
+        return assert_cast<const ColumnInt32&>(*column);
+    }
+
+    DataTypePtr _type;
+    std::vector<size_t>* _observed_batch_sizes;
+    std::string _name = "mock_greatest";
+};
+
 class MockSubtractExpr final : public VExpr {
 public:
     explicit MockSubtractExpr(DataTypePtr type) : VExpr(type, false), _type(std::move(type)) {}
@@ -153,12 +352,18 @@ private:
 
 class MockAddExpr final : public VExpr {
 public:
-    explicit MockAddExpr(DataTypePtr type) : VExpr(type, false), _type(std::move(type)) {}
+    explicit MockAddExpr(DataTypePtr type, std::vector<size_t>* observed_batch_sizes = nullptr)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _observed_batch_sizes(observed_batch_sizes) {}
 
     const std::string& expr_name() const override { return _name; }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
+        if (_observed_batch_sizes != nullptr) {
+            _observed_batch_sizes->push_back(count);
+        }
         ColumnPtr left;
         ColumnPtr right;
         RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, left));
@@ -187,7 +392,61 @@ private:
     }
 
     DataTypePtr _type;
+    std::vector<size_t>* _observed_batch_sizes;
     std::string _name = "mock_add";
+};
+
+class MockSparseCapturedInputExpr final : public VExpr {
+public:
+    MockSparseCapturedInputExpr(DataTypePtr type, size_t captured_column_position,
+                                bool* sparse_slots_use_column_nothing)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _captured_column_position(captured_column_position),
+              _sparse_slots_use_column_nothing(sparse_slots_use_column_nothing) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        *_sparse_slots_use_column_nothing = true;
+        for (size_t i = 0; i < _captured_column_position; ++i) {
+            if (!check_and_get_column<ColumnNothing>(block->get_by_position(i).column.get())) {
+                *_sparse_slots_use_column_nothing = false;
+                break;
+            }
+        }
+
+        ColumnPtr captured;
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, captured));
+        RETURN_IF_ERROR(get_child(1)->execute_column(context, block, selector, count, input));
+        const IColumn* captured_data = captured.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(captured_data)) {
+            captured_data = &nullable->get_nested_column();
+        }
+        const IColumn* input_data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(input_data)) {
+            input_data = &nullable->get_nested_column();
+        }
+        const auto& captured_values = assert_cast<const ColumnInt32&>(*captured_data);
+        const auto& input_values = assert_cast<const ColumnInt32&>(*input_data);
+        auto result = ColumnInt32::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(captured_values.get_element(i) + input_values.get_element(i));
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    size_t _captured_column_position;
+    bool* _sparse_slots_use_column_nothing;
+    std::string _name = "mock_sparse_captured_input";
 };
 
 class MockMultiplyExpr final : public VExpr {
@@ -360,6 +619,16 @@ static ColumnPtr make_int_array_column(const std::vector<std::vector<int32_t>>& 
     return ColumnArray::create(std::move(nullable_int_column), std::move(offsets));
 }
 
+static ColumnPtr make_nullable_int_array_column(const std::vector<std::vector<int32_t>>& rows,
+                                                const std::vector<uint8_t>& array_null_map) {
+    auto array_column = IColumn::mutate(make_int_array_column(rows));
+    auto null_map = ColumnUInt8::create();
+    for (uint8_t is_null : array_null_map) {
+        null_map->insert_value(is_null);
+    }
+    return ColumnNullable::create(std::move(array_column), std::move(null_map));
+}
+
 static ColumnPtr make_nested_int_array_column() {
     // Two input rows:
     //   row 0: [[1, 2], [3]]
@@ -423,6 +692,856 @@ static void open_expr(const VExprSPtr& expr, VExprContext* context) {
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
     ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+}
+
+static void open_expr_with_batch_size(const VExprSPtr& expr, VExprContext* context,
+                                      int batch_size) {
+    RuntimeState state;
+    TQueryOptions query_options;
+    query_options.__set_batch_size(batch_size);
+    state.set_query_options(query_options);
+    RowDescriptor row_desc;
+    ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
+    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+}
+
+static void open_expr_with_block_budget(const VExprSPtr& expr, VExprContext* context,
+                                        int batch_size, int64_t preferred_block_size_bytes) {
+    RuntimeState state;
+    TQueryOptions query_options;
+    query_options.__set_batch_size(batch_size);
+    query_options.__set_preferred_block_size_bytes(preferred_block_size_bytes);
+    state.set_query_options(query_options);
+    RowDescriptor row_desc;
+    ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
+    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+}
+
+static const ColumnInt32& get_int_array_values(const ColumnPtr& result) {
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(*result_array.get_data_ptr());
+    return assert_cast<const ColumnInt32&>(nullable_values.get_nested_column());
+}
+
+TEST(ArrayMapFunctionTest, IdentityLambdaSharesNestedInputColumn) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto input = make_int_array_column({{1, 2}, {3}});
+    const auto& input_array = assert_cast<const ColumnArray&>(*input);
+    const IColumn* nested_input = input_array.get_data_ptr().get();
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    lambda->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    root->add_child(lambda);
+    root->add_child(
+            std::make_shared<MockColumnExpr>(std::move(input), array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 2, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    EXPECT_EQ(result_array.get_data_ptr().get(), nested_input);
+}
+
+TEST(ArrayFilterFunctionTest, NullableSecondaryLambdaArrayPropagatesToResult) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+    auto array_bool_type = std::make_shared<DataTypeArray>(make_nullable(bool_type));
+    auto nullable_array_bool_type = std::make_shared<DataTypeNullable>(array_bool_type);
+
+    auto filter = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2, "array_filter"));
+    filter->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}, {3, 4}}),
+                                                       array_int_type, "source"));
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_bool_type, 3));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(bool_type, {"x", "y"}));
+    auto body = std::make_shared<MockPositiveExpr>(bool_type);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    lambda->add_child(body);
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}, {3, 4}}),
+                                                    array_int_type, "source"));
+    map->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{100, 101}, {10, 0}}, {1, 0}), nullable_array_int_type,
+            "secondary"));
+    filter->add_child(map);
+
+    VExprContext context(filter);
+    open_expr(filter, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = filter->execute_column(&context, &block, nullptr, 2, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 1}));
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*result_array.get_data_ptr()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt32::Container({3}));
+}
+
+TEST(ArrayFilterFunctionTest, AllNullSourceSkipsConstantPredicateExpansion) {
+    constexpr size_t row_count = 2;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto array_bool_type = std::make_shared<DataTypeArray>(make_nullable(bool_type));
+
+    auto filter = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, row_count, "array_filter"));
+    filter->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{}, {}}, {1, 1}), nullable_array_int_type, "source"));
+
+    auto predicate_data = ColumnUInt8::create();
+    predicate_data->get_data().assign({1, 1});
+    auto predicate_null_map = ColumnUInt8::create(2, 0);
+    auto predicate_offsets = ColumnArray::ColumnOffsets::create();
+    predicate_offsets->get_data().push_back(2);
+    auto predicate = ColumnArray::create(
+            ColumnNullable::create(std::move(predicate_data), std::move(predicate_null_map)),
+            std::move(predicate_offsets));
+    filter->add_child(std::make_shared<MockConstColumnExpr>(std::move(predicate), array_bool_type,
+                                                            "predicate"));
+
+    VExprContext context(filter);
+    open_expr(filter, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = filter->execute_column(&context, &block, nullptr, row_count, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(is_column_const(*result));
+    EXPECT_TRUE(result->only_null());
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{1, 2}, {3, 4}}, {1, 0});
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(nullable_int_type, {"x"}));
+    lambda->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", nullable_int_type)));
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(source, nullable_array_int_type, "source"));
+
+    VExprContext map_context(map);
+    open_expr(map, &map_context);
+
+    Block input_block;
+    ColumnPtr mapped;
+    auto status = map->execute_column(&map_context, &input_block, nullptr, 2, mapped);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& mapped_nullable = assert_cast<const ColumnNullable&>(*mapped);
+    EXPECT_EQ(mapped_nullable.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    EXPECT_EQ(assert_cast<const ColumnArray&>(mapped_nullable.get_nested_column()).get_offsets(),
+              ColumnArray::Offsets64({0, 2}));
+
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({std::move(mapped), nullable_array_int_type, "mapped"});
+    block.insert({std::move(source), nullable_array_int_type, "source"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
+                                 false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 2}));
+    const auto& values = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt64::Container({1, 1}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, EqualHiddenOffsetsReuseInputOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{100}, {1}}, {1, 0});
+    const auto& source_array = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*source).get_nested_column());
+    const auto* source_offsets = source_array.get_offsets_ptr().get();
+
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({source, nullable_array_int_type, "lhs"});
+    block.insert({source, nullable_array_int_type, "rhs"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
+                                 false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    auto status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets_ptr().get(), source_offsets);
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({1, 2}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
+    constexpr size_t row_count = 64;
+    constexpr size_t row_size = 2048;
+    constexpr int64_t max_execution_bytes = 256 * 1024;
+
+    std::vector<std::vector<int32_t>> lhs_rows(row_count, std::vector<int32_t>(row_size, 1));
+    std::vector<std::vector<int32_t>> rhs_rows(row_count, std::vector<int32_t>(row_size, 2));
+    lhs_rows[0] = {999};
+    rhs_rows[0].clear();
+    rhs_rows.back().pop_back();
+
+    std::vector<uint8_t> lhs_null_map(row_count, 0);
+    lhs_null_map[0] = 1;
+    auto lhs = make_nullable_int_array_column(lhs_rows, lhs_null_map);
+    auto rhs = make_int_array_column(rhs_rows);
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({std::move(lhs), nullable_array_int_type, "lhs"});
+    block.insert({std::move(rhs), array_int_type, "rhs"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayEnumerateValidateBeforeCompact");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("must be equal"), std::string::npos) << status;
+    EXPECT_LT(execution_peak, max_execution_bytes);
+}
+
+TEST(ArraySortByFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{9, 8}, {2, 1}}, {1, 0});
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(nullable_int_type, {"x"}));
+    lambda->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", nullable_int_type)));
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(source, nullable_array_int_type, "source"));
+
+    VExprContext map_context(map);
+    open_expr(map, &map_context);
+    Block input_block;
+    ColumnPtr mapped;
+    auto status = map->execute_column(&map_context, &input_block, nullptr, 2, mapped);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block block;
+    block.insert({std::move(mapped), nullable_array_int_type, "mapped"});
+    block.insert({std::move(source), nullable_array_int_type, "source"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_sortby", block.get_columns_with_type_and_name(), nullable_array_int_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(nullable_array_int_type,
+                                 {nullable_array_int_type, nullable_array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, nullable_array_int_type, "result"});
+    status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 2}));
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt32::Container({1, 2}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, AllNullLaterArgumentSkipsEarlierConstantExpansion) {
+    constexpr size_t row_count = 512;
+    constexpr size_t array_size = 4096;
+    constexpr int64_t max_execution_bytes = 1024 * 1024;
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayEnumerateUniqAllNullFastPath");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    std::vector<int32_t> constant_values(array_size, 1);
+    auto constant_array = ColumnConst::create(make_int_array_column({constant_values}), row_count);
+    auto all_null_array = make_nullable_int_array_column(
+            std::vector<std::vector<int32_t>>(row_count), std::vector<uint8_t>(row_count, 1));
+
+    Block block;
+    block.insert({std::move(constant_array), array_int_type, "constant_array"});
+    block.insert({std::move(all_null_array), nullable_array_int_type, "all_null_array"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {array_int_type, nullable_array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(block.get_by_position(2).column->only_null());
+    EXPECT_LT(execution_peak, max_execution_bytes);
+}
+
+TEST(ArrayMapFunctionTest, LambdaWithConstantCaptureUsesNestedColumnDirectly) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto input = make_int_array_column({{1, 2}, {3}});
+    const auto& input_array = assert_cast<const ColumnArray&>(*input);
+    const IColumn* nested_input = input_array.get_data_ptr().get();
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    bool used_direct_input = false;
+    bool kept_capture_const = false;
+    auto body = std::make_shared<MockCapturedInputExpr>(int_type, nested_input, &used_direct_input,
+                                                        &kept_capture_const);
+    body->add_child(make_slot_ref(0, "captured", int_type));
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(
+            std::make_shared<MockColumnExpr>(std::move(input), array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({ColumnConst::create(make_int_column({10}), 2), int_type, "captured"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(used_direct_input);
+    EXPECT_TRUE(kept_capture_const);
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_EQ(values.get_element(0), 11);
+    EXPECT_EQ(values.get_element(1), 12);
+    EXPECT_EQ(values.get_element(2), 13);
+}
+
+TEST(ArrayMapFunctionTest, LargeLambdaProducesCorrectResult) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<int32_t> input_values(100000);
+    for (size_t i = 0; i < input_values.size(); ++i) {
+        input_values[i] = static_cast<int32_t>(i);
+    }
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockIncrementExpr>(int_type);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({std::move(input_values)}), array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 100000);
+    EXPECT_EQ(values.get_element(0), 1);
+    EXPECT_EQ(values.get_element(99999), 100000);
+}
+
+TEST(ArrayMapFunctionTest, VariableLengthCaptureUsesLargerBatch) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockBatchSizeExpr>(int_type, &observed_batch_sizes);
+    body->add_child(make_slot_ref(0, "captured", string_type));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2, 3, 4, 5}}),
+                                                     array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, 2);
+
+    auto captured = ColumnString::create();
+    std::string captured_value(5000, 'a');
+    captured->insert_data(captured_value.data(), captured_value.size());
+    Block block;
+    block.insert({std::move(captured), string_type, "captured"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], 5);
+    EXPECT_EQ(get_int_array_values(result).size(), 5);
+}
+
+TEST(ArrayMapFunctionTest, FixedLengthComplexLambdaUsesLargerBatch) {
+    constexpr size_t intermediate_count = 100;
+    constexpr size_t nested_count = 1000;
+    constexpr int outer_batch_size = 256;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<size_t> observed_batch_sizes;
+    std::vector<int32_t> input_values(nested_count);
+    for (size_t i = 0; i < nested_count; ++i) {
+        input_values[i] = static_cast<int32_t>(i);
+    }
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockGreatestExpr>(int_type, &observed_batch_sizes);
+    for (size_t i = 0; i < intermediate_count; ++i) {
+        auto increment = std::make_shared<MockIncrementExpr>(int_type);
+        increment->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+        body->add_child(increment);
+    }
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({std::move(input_values)}), array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, outer_batch_size);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], nested_count);
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), nested_count);
+    EXPECT_EQ(values.get_element(0), 1);
+    EXPECT_EQ(values.get_element(nested_count - 1), nested_count);
+}
+
+TEST(ArrayMapFunctionTest, FixedLengthInputsUseLargerBatch) {
+    constexpr size_t capture_count = 64;
+    constexpr size_t nested_count = 1000;
+    constexpr int outer_batch_size = 128;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int64_type = std::make_shared<DataTypeInt64>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockBatchSizeExpr>(int_type, &observed_batch_sizes);
+    for (size_t i = 0; i < capture_count; ++i) {
+        body->add_child(
+                make_slot_ref(static_cast<int>(i), "captured_" + std::to_string(i), int64_type));
+    }
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({std::vector<int32_t>(nested_count, 1)}), array_int_type,
+            "input_array"));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, outer_batch_size);
+
+    Block block;
+    for (size_t i = 0; i < capture_count; ++i) {
+        auto captured = ColumnInt64::create();
+        captured->insert_value(static_cast<int64_t>(i));
+        block.insert({std::move(captured), int64_type, "captured_" + std::to_string(i)});
+    }
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], nested_count);
+    EXPECT_EQ(get_int_array_values(result).size(), nested_count);
+}
+
+TEST(ArrayMapFunctionTest, FixedLengthInputsUsePreferredBlockSizeBudget) {
+    constexpr size_t capture_count = 64;
+    constexpr size_t nested_count = 3000;
+    constexpr int outer_batch_size = 65535;
+    constexpr int64_t preferred_block_size_bytes = 1024 * 1024;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int64_type = std::make_shared<DataTypeInt64>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    const bool old_enable_adaptive_batch_size = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    Defer restore_adaptive_batch_size {[old_enable_adaptive_batch_size] {
+        config::enable_adaptive_batch_size = old_enable_adaptive_batch_size;
+    }};
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockBatchSizeExpr>(int_type, &observed_batch_sizes);
+    for (size_t i = 0; i < capture_count; ++i) {
+        body->add_child(
+                make_slot_ref(static_cast<int>(i), "captured_" + std::to_string(i), int64_type));
+    }
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({std::vector<int32_t>(nested_count, 1)}), array_int_type,
+            "input_array"));
+
+    VExprContext context(root);
+    open_expr_with_block_budget(root, &context, outer_batch_size, preferred_block_size_bytes);
+
+    Block block;
+    for (size_t i = 0; i < capture_count; ++i) {
+        auto captured = ColumnInt64::create();
+        captured->insert_value(static_cast<int64_t>(i));
+        block.insert({std::move(captured), int64_type, "captured_" + std::to_string(i)});
+    }
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_GT(observed_batch_sizes.size(), 1);
+    size_t observed_rows = 0;
+    for (size_t batch_rows : observed_batch_sizes) {
+        EXPECT_LE(batch_rows, preferred_block_size_bytes / (capture_count * sizeof(int64_t)));
+        observed_rows += batch_rows;
+    }
+    EXPECT_EQ(observed_rows, nested_count);
+    EXPECT_EQ(get_int_array_values(result).size(), nested_count);
+}
+
+TEST(ArrayMapFunctionTest, MultiBatchPreservesCaptureMappingAcrossSelectedArrayRows) {
+    constexpr size_t selected_array_size = 300;
+    constexpr int outer_batch_size = 64;
+    constexpr int lambda_batch_size = outer_batch_size;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto body = std::make_shared<MockAddExpr>(int_type, &observed_batch_sizes);
+    body->add_child(make_slot_ref(0, "captured_0", int_type));
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(make_slot_ref(1, "input_array", array_int_type));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, outer_batch_size);
+
+    std::vector<std::vector<int32_t>> input_rows(6);
+    input_rows[0] = {-1};
+    input_rows[1].resize(selected_array_size);
+    for (size_t i = 0; i < selected_array_size; ++i) {
+        input_rows[1][i] = static_cast<int32_t>(i);
+    }
+    input_rows[2] = {-2, -3};
+    input_rows[4] = {-4};
+    input_rows[5].resize(selected_array_size);
+    for (size_t i = 0; i < selected_array_size; ++i) {
+        input_rows[5][i] = 1000 + static_cast<int32_t>(i);
+    }
+
+    Block block;
+    block.insert({make_int_column({100, 10, 200, 30, 300, 50}), int_type, "captured_0"});
+    block.insert({make_int_array_column(input_rows), array_int_type, "input_array"});
+
+    Selector selector;
+    selector.push_back(1);
+    selector.push_back(3);
+    selector.push_back(5);
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, &selector, selector.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const size_t total_nested_rows = 2 * selected_array_size;
+    const size_t expected_full_batches = total_nested_rows / lambda_batch_size;
+    const size_t expected_last_batch_size = total_nested_rows % lambda_batch_size;
+    ASSERT_EQ(observed_batch_sizes.size(), expected_full_batches + (expected_last_batch_size > 0));
+    for (size_t i = 0; i < expected_full_batches; ++i) {
+        EXPECT_EQ(observed_batch_sizes[i], lambda_batch_size);
+    }
+    if (expected_last_batch_size > 0) {
+        EXPECT_EQ(observed_batch_sizes.back(), expected_last_batch_size);
+    }
+
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    ASSERT_EQ(result_array.size(), 3);
+    EXPECT_EQ(result_array.get_offsets()[0], selected_array_size);
+    EXPECT_EQ(result_array.get_offsets()[1], selected_array_size);
+    EXPECT_EQ(result_array.get_offsets()[2], total_nested_rows);
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), total_nested_rows);
+    EXPECT_EQ(values.get_element(0), 10);
+    EXPECT_EQ(values.get_element(selected_array_size - 1), 309);
+    EXPECT_EQ(values.get_element(selected_array_size), 1050);
+    EXPECT_EQ(values.get_element(lambda_batch_size - 1),
+              10 + static_cast<int32_t>(lambda_batch_size - 1));
+    EXPECT_EQ(values.get_element(lambda_batch_size), 10 + lambda_batch_size);
+    EXPECT_EQ(values.get_element(total_nested_rows - 1), 1349);
+}
+
+TEST(ArrayMapFunctionTest, HiddenPayloadAfterValidRowUsesOwnOffsetsAcrossBatchesAndSelector) {
+    constexpr int lambda_batch_size = 3;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 3));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x", "y"}));
+    auto body = std::make_shared<MockAddExpr>(int_type, &observed_batch_sizes);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(make_slot_ref(0, "left", nullable_array_int_type));
+    root->add_child(make_slot_ref(1, "right", array_int_type));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, lambda_batch_size);
+
+    Block block;
+    block.insert({make_nullable_int_array_column(
+                          {{-100}, {1, 2}, {-200}, {900, 901, 902}, {-300}, {3, 4, 5, 6, 7}},
+                          {0, 0, 0, 1, 0, 0}),
+                  nullable_array_int_type, "left"});
+    block.insert({make_int_array_column(
+                          {{-10}, {10, 20}, {-20}, {800, 801}, {-30}, {30, 40, 50, 60, 70}}),
+                  array_int_type, "right"});
+
+    Selector selector {1, 3, 5};
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, &selector, selector.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(observed_batch_sizes.size(), 3);
+    EXPECT_EQ(observed_batch_sizes[0], 3);
+    EXPECT_EQ(observed_batch_sizes[1], 3);
+    EXPECT_EQ(observed_batch_sizes[2], 1);
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_result.size(), 3);
+    EXPECT_FALSE(nullable_result.is_null_at(0));
+    EXPECT_TRUE(nullable_result.is_null_at(1));
+    EXPECT_FALSE(nullable_result.is_null_at(2));
+
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets()[0], 2);
+    EXPECT_EQ(result_array.get_offsets()[1], 2);
+    EXPECT_EQ(result_array.get_offsets()[2], 7);
+
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(*result_array.get_data_ptr());
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_values.get_nested_column());
+    ASSERT_EQ(values.size(), 7);
+    EXPECT_EQ(values.get_element(0), 11);
+    EXPECT_EQ(values.get_element(1), 22);
+    EXPECT_EQ(values.get_element(2), 33);
+    EXPECT_EQ(values.get_element(3), 44);
+    EXPECT_EQ(values.get_element(4), 55);
+    EXPECT_EQ(values.get_element(5), 66);
+    EXPECT_EQ(values.get_element(6), 77);
+}
+
+TEST(ArrayMapFunctionTest, NonNullLengthMismatchStillReturnsErrorWithNullArrayRow) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 3));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x", "y"}));
+    lambda->add_child(std::make_shared<MockBodyExpr>(int_type, "unused_body"));
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{100, 101}, {1}}, {1, 0}), nullable_array_int_type,
+            "left"));
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{200}, {10, 20}}),
+                                                     array_int_type, "right"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 2, result);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
+}
+
+TEST(ArrayMapFunctionTest, SparseCapturedColumnUsesColumnNothingForUnusedSlots) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto uint8_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    constexpr size_t captured_column_position = 999;
+    std::vector<int32_t> input_values(1000, 1);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    bool sparse_slots_use_column_nothing = false;
+    auto body = std::make_shared<MockSparseCapturedInputExpr>(int_type, captured_column_position,
+                                                              &sparse_slots_use_column_nothing);
+    body->add_child(make_slot_ref(captured_column_position, "captured", int_type));
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({std::move(input_values)}), array_int_type, "input_array"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    for (size_t i = 0; i < captured_column_position; ++i) {
+        block.insert({ColumnUInt8::create(1, 0), uint8_type, "unused"});
+    }
+    block.insert({make_int_column({10}), int_type, "captured"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(sparse_slots_use_column_nothing);
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 1000);
+    EXPECT_EQ(values.get_element(0), 11);
+    EXPECT_EQ(values.get_element(999), 11);
+}
+
+TEST(ArrayMapFunctionTest, CapturedColumnExpansionUsesOuterSelector) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+    auto add = std::make_shared<MockAddExpr>(int_type);
+    add->add_child(make_slot_ref(0, "captured", int_type));
+    add->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    lambda->add_child(add);
+    root->add_child(lambda);
+    root->add_child(make_slot_ref(1, "input_array", array_int_type));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({10, 20, 30, 40}), int_type, "captured"});
+    block.insert(
+            {make_int_array_column({{1, 2}, {3}, {}, {7, 8, 9}}), array_int_type, "input_array"});
+    Selector selector;
+    selector.push_back(1);
+    selector.push_back(3);
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, &selector, selector.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    ASSERT_EQ(result_array.size(), 2);
+    ASSERT_EQ(result_array.get_offsets()[0], 1);
+    ASSERT_EQ(result_array.get_offsets()[1], 4);
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 4);
+    EXPECT_EQ(values.get_element(0), 23);
+    EXPECT_EQ(values.get_element(1), 47);
+    EXPECT_EQ(values.get_element(2), 48);
+    EXPECT_EQ(values.get_element(3), 49);
 }
 
 TEST(ArrayMapFunctionTest, NestedLambdaWithSameArgumentNameUsesInnerScope) {
@@ -538,6 +1657,39 @@ TEST(ArrayMapFunctionTest, NamedLambdaWithFewerArgumentsThanArraysUsesDeclaredBi
     EXPECT_EQ(values.get_element(0), 10);
     EXPECT_EQ(values.get_element(1), 20);
     EXPECT_EQ(values.get_element(2), 30);
+}
+
+TEST(ArrayMapFunctionTest, ArraySortSkipsComparatorForOuterNullRow) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2, "array_sort"));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"left", "right"}));
+    lambda->add_child(std::make_shared<MockBodyExpr>(int8_type, "unused_comparator"));
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_nullable_int_array_column({{2, 1}}, {1}),
+                                                     nullable_array_int_type, "input"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_TRUE(nullable_result.is_null_at(0));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    ASSERT_EQ(result_array.get_offsets()[0], 2);
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_element(0), 2);
+    EXPECT_EQ(values.get_element(1), 1);
 }
 
 TEST(ArrayMapFunctionTest, NestedArraySortInsideArrayMapSkipsArrayMapArgumentInference) {
@@ -657,6 +1809,124 @@ TEST(ArrayMapFunctionTest, NestedArraySortComparatorCapturingOuterArgumentReturn
             status.to_string().find("array_sort comparator only supports its own lambda arguments"),
             std::string::npos);
     EXPECT_NE(status.to_string().find("captured column ref 'i'"), std::string::npos);
+}
+
+// Builds array_sort((x, y) -> body, arr).
+static VExprSPtr make_array_sort_call(const DataTypePtr& comparator_type, const VExprSPtr& body,
+                                      ColumnPtr array_column) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto comparator =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(comparator_type, {"x", "y"}));
+    comparator->add_child(body);
+    root->add_child(comparator);
+    root->add_child(
+            std::make_shared<MockColumnExpr>(std::move(array_column), array_int_type, "arr"));
+    return root;
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningIntSorts) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // This mirrors array_sort((x, y) -> x - y, [1, 0]). The comparator returns -1 or 1 in an INT
+    // column, so the INT result must be read instead of a TINYINT one.
+    auto subtract = std::make_shared<MockSubtractExpr>(int_type);
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    auto root = make_array_sort_call(int_type, subtract, make_int_array_column({{1, 0}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_EQ(values.get_element(0), 0);
+    EXPECT_EQ(values.get_element(1), 1);
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningOutOfRangeReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // The comparator always returns 2, like array_sort((x, y) -> 2, arr). Only -1, 0 and 1 are
+    // allowed.
+    auto body = std::make_shared<MockColumnExpr>(ColumnInt32::create(1, 2), int_type, "two");
+    auto root = make_array_sort_call(int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find(
+                          "array_sort comparator returns 2, but it must return -1, 0 or 1"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningNullReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+
+    // The comparator always returns NULL, like array_sort((x, y) -> x - y, [2, NULL]).
+    auto null_result = ColumnNullable::create(ColumnInt32::create(1, 0), ColumnUInt8::create(1, 1));
+    auto body = std::make_shared<MockColumnExpr>(std::move(null_result), nullable_int_type,
+                                                 "null_result");
+    auto root = make_array_sort_call(nullable_int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find("array_sort comparator returns NULL"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningBooleanReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+
+    // An older FE may send array_sort((x, y) -> x < y, arr), whose comparator returns BOOLEAN.
+    auto body =
+            std::make_shared<MockColumnExpr>(ColumnUInt8::create(1, 1), bool_type, "bool_result");
+    auto root = make_array_sort_call(bool_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("array_sort comparator must return -1, 0 or 1"),
+              std::string::npos)
+            << status.to_string();
 }
 
 TEST(ArrayMapFunctionTest,

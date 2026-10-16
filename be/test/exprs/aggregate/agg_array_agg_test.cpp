@@ -17,13 +17,14 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
 #include "core/arena.h"
 #include "core/column/column_array.h"
@@ -34,16 +35,21 @@
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/agg_function_test.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_array_agg.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sort.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 class IColumn;
@@ -52,6 +58,83 @@ class IColumn;
 namespace doris {
 
 struct AggregateFunctionArrayAggTest : public AggregateFunctiontest {};
+
+namespace {
+
+Field array_field(std::initializer_list<Field> values) {
+    return Field::create_field<TYPE_ARRAY>(Array(values));
+}
+
+Field map_field(std::initializer_list<Field> keys, std::initializer_list<Field> values) {
+    return Field::create_field<TYPE_MAP>(Map {array_field(keys), array_field(values)});
+}
+
+void add_column_to_state(const IAggregateFunction& function, AggregateDataPtr state,
+                         const IColumn& column, Arena& arena) {
+    const IColumn* columns[] = {&column};
+    for (size_t row = 0; row < column.size(); ++row) {
+        function.add(state, columns, row, arena);
+    }
+}
+
+void check_complex_array_agg_state(const DataTypePtr& data_type,
+                                   std::initializer_list<Field> source_values,
+                                   std::initializer_list<Field> rhs_values) {
+    SCOPED_TRACE(data_type->get_name());
+    const auto nullable_type = make_nullable(data_type);
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "array_agg", {nullable_type}, nullptr, false,
+            BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
+    function->set_version(BeExecVersionManager::get_newest_version());
+
+    auto source_column = nullable_type->create_column();
+    for (const auto& value : source_values) {
+        source_column->insert(value);
+    }
+    auto rhs_column = nullable_type->create_column();
+    for (const auto& value : rhs_values) {
+        rhs_column->insert(value);
+    }
+
+    Arena arena;
+    AggregateFunctionGuard source(function.get());
+    AggregateFunctionGuard restored(function.get());
+    AggregateFunctionGuard rhs(function.get());
+    add_column_to_state(*function, source.data(), *source_column, arena);
+    add_column_to_state(*function, rhs.data(), *rhs_column, arena);
+
+    auto serialized_column = ColumnString::create();
+    BufferWritable writer(*serialized_column);
+    function->serialize(source.data(), writer);
+    writer.commit();
+    ASSERT_EQ(serialized_column->size(), 1);
+
+    auto serialized_data = serialized_column->get_data_at(0);
+    BufferReadable reader(serialized_data);
+    function->deserialize(restored.data(), reader, arena);
+    function->merge(restored.data(), rhs.data(), arena);
+
+    auto result_column = function->get_return_type()->create_column();
+    function->insert_result_into(restored.data(), *result_column);
+    auto expected_column = function->get_return_type()->create_column();
+    Array expected_values(source_values);
+    expected_values.insert(expected_values.end(), rhs_values.begin(), rhs_values.end());
+    expected_column->insert(Field::create_field<TYPE_ARRAY>(expected_values));
+    EXPECT_TRUE(ColumnHelper::column_equal(std::move(result_column), std::move(expected_column)));
+}
+
+class ThrowOnSerializeDataType final : public DataTypeString {
+public:
+    char* serialize(const IColumn&, char* buf, int) const override {
+        *buf = 1;
+        throw Exception(ErrorCode::MEM_ALLOC_FAILED, "mock serialize allocation failure");
+    }
+};
+
+static_assert(sizeof(AggregateFunctionArrayAggData<INVALID_TYPE>) == sizeof(MutableColumnPtr));
+
+} // namespace
 
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
     create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()},
@@ -199,6 +282,138 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
 
     execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
+}
+
+TEST_F(AggregateFunctionArrayAggTest, complex_type_state_serialize_deserialize_and_merge) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+
+    Array streamvbyte_values;
+    for (int32_t value = 0; value < 65; ++value) {
+        streamvbyte_values.emplace_back(Field::create_field<TYPE_INT>(value));
+    }
+    check_complex_array_agg_state(std::make_shared<DataTypeArray>(nullable_int),
+                                  {Field::create_field<TYPE_ARRAY>(std::move(streamvbyte_values))},
+                                  {});
+
+    check_complex_array_agg_state(
+            std::make_shared<DataTypeArray>(nullable_int),
+            {array_field({Field::create_field<TYPE_INT>(1), Field()}), Field()},
+            {array_field({Field::create_field<TYPE_INT>(2), Field::create_field<TYPE_INT>(3)})});
+
+    check_complex_array_agg_state(
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_int, nullable_string}),
+            {Field::create_field<TYPE_STRUCT>(Struct {Field::create_field<TYPE_INT>(1),
+                                                      Field::create_field<TYPE_STRING>("one")}),
+             Field()},
+            {Field::create_field<TYPE_STRUCT>(
+                    Struct {Field(), Field::create_field<TYPE_STRING>("two")})});
+
+    check_complex_array_agg_state(std::make_shared<DataTypeMap>(nullable_string, nullable_int),
+                                  {map_field({Field::create_field<TYPE_STRING>("one"),
+                                              Field::create_field<TYPE_STRING>("null")},
+                                             {Field::create_field<TYPE_INT>(1), Field()}),
+                                   Field()},
+                                  {map_field({Field::create_field<TYPE_STRING>("two")},
+                                             {Field::create_field<TYPE_INT>(2)})});
+}
+
+TEST_F(AggregateFunctionArrayAggTest, foreach_complex_type_state_growth_and_round_trip) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto nullable_inner_array = make_nullable(std::make_shared<DataTypeArray>(nullable_int));
+    auto input_type = std::make_shared<DataTypeArray>(nullable_inner_array);
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "array_agg_foreach", {input_type}, input_type, false,
+            BeExecVersionManager::get_newest_version(), {.is_foreach = true, .column_names = {}});
+    ASSERT_NE(function, nullptr);
+    function->set_version(BeExecVersionManager::get_newest_version());
+
+    auto input_column = input_type->create_column();
+    input_column->insert(array_field({array_field({Field::create_field<TYPE_INT>(1)})}));
+    input_column->insert(array_field(
+            {array_field({Field::create_field<TYPE_INT>(2)}),
+             array_field({Field::create_field<TYPE_INT>(3), Field::create_field<TYPE_INT>(4)}),
+             Field()}));
+
+    Arena arena;
+    AggregateFunctionGuard source(function.get());
+    AggregateFunctionGuard restored(function.get());
+    AggregateFunctionGuard merged(function.get());
+    add_column_to_state(*function, source.data(), *input_column, arena);
+
+    auto serialized_column = ColumnString::create();
+    BufferWritable writer(*serialized_column);
+    function->serialize(source.data(), writer);
+    writer.commit();
+
+    auto serialized_data = serialized_column->get_data_at(0);
+    BufferReadable reader(serialized_data);
+    function->deserialize(restored.data(), reader, arena);
+    function->merge(merged.data(), restored.data(), arena);
+
+    auto result_column = function->get_return_type()->create_column();
+    function->insert_result_into(merged.data(), *result_column);
+    auto expected_column = function->get_return_type()->create_column();
+    expected_column->insert(
+            array_field({array_field({array_field({Field::create_field<TYPE_INT>(1)}),
+                                      array_field({Field::create_field<TYPE_INT>(2)})}),
+                         array_field({array_field({Field::create_field<TYPE_INT>(3),
+                                                   Field::create_field<TYPE_INT>(4)})}),
+                         array_field({Field()})}));
+    EXPECT_TRUE(ColumnHelper::column_equal(std::move(result_column), std::move(expected_column)));
+}
+
+TEST_F(AggregateFunctionArrayAggTest, complex_type_state_write_rolls_back_on_failure) {
+    auto data_type = std::make_shared<ThrowOnSerializeDataType>();
+    AggregateFunctionArrayAggData<INVALID_TYPE> data(DataTypes {data_type});
+    auto serialized_column = ColumnString::create();
+    BufferWritable writer(*serialized_column);
+    writer.write_c_string("prefix");
+
+    EXPECT_THROW(data.write(writer, *data_type, BeExecVersionManager::get_newest_version()),
+                 Exception);
+    EXPECT_EQ(serialized_column->get_chars().size(), 6);
+
+    writer.commit();
+    EXPECT_EQ(serialized_column->get_data_at(0).to_string(), "prefix");
+}
+
+TEST_F(AggregateFunctionArrayAggTest, large_complex_type_state_serialization_is_tracked) {
+    constexpr size_t PAYLOAD_BYTES = 2 * 1024 * 1024;
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    auto nullable_inner_array = make_nullable(std::make_shared<DataTypeArray>(nullable_string));
+    auto input_type = std::make_shared<DataTypeArray>(nullable_inner_array);
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "array_agg_foreach", {input_type}, input_type, false,
+            BeExecVersionManager::get_newest_version(), {.is_foreach = true, .column_names = {}});
+    ASSERT_NE(function, nullptr);
+    function->set_version(BeExecVersionManager::get_newest_version());
+
+    auto input_column = input_type->create_column();
+    input_column->insert(array_field(
+            {array_field({Field::create_field<TYPE_STRING>(String(PAYLOAD_BYTES, 'x'))})}));
+    Arena arena;
+    AggregateFunctionGuard state(function.get());
+    add_column_to_state(*function, state.data(), *input_column, arena);
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayAggLargeStateSerializationTest");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        auto serialized_column = ColumnString::create();
+        BufferWritable writer(*serialized_column);
+        function->serialize(state.data(), writer);
+        writer.commit();
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+
+        const auto tracked_bytes = tracker->consumption() - baseline;
+        EXPECT_GT(tracked_bytes, PAYLOAD_BYTES);
+        EXPECT_GE(tracked_bytes, serialized_column->allocated_bytes());
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
 }
 
 TEST(AggregateFunctionSortDataTest, merge_does_not_share_rhs_block) {

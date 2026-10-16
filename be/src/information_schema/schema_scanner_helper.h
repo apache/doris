@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cstdint>
-#ifndef _SCHEMA_SCANNER_HELPER_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -45,4 +44,3 @@ public:
 };
 
 } // namespace doris
-#endif

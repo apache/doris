@@ -51,7 +51,8 @@ public:
     NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size);
     ~NativeParquetMetadata();
 
-    Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz);
+    Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
+                       bool preserve_binary_uuid = false);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
     size_t get_mem_size() const { return _parsed_size; }
@@ -82,8 +83,7 @@ namespace detail {
 
 inline constexpr int64_t MAX_SERIALIZED_PARQUET_INDEX_BYTES = 64LL << 20;
 
-Status validate_native_footer_size(uint32_t serialized_size, size_t file_size,
-                                   size_t metadata_size_limit);
+Status validate_native_footer_size(uint32_t serialized_size, size_t file_size);
 
 std::string build_native_file_cache_key(std::string_view fs_name, std::string_view path,
                                         int64_t description_mtime, int64_t reader_mtime,
@@ -139,10 +139,14 @@ struct ParquetFileContext {
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
     std::string native_page_cache_file_key;
+    // Set once after the logical file schema is built. Per-request planning uses this guard so
+    // ordinary files never enter Variant projection or shredded-statistics paths.
+    bool contains_variant = false;
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
-                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
+                bool preserve_binary_uuid = false);
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;

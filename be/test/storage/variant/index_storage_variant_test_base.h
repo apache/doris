@@ -27,8 +27,10 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/value/jsonb_value.h"
 #include "storage/predicate/predicate_creator.h"
 #include "testutil/index_storage_test_util.h"
+#include "util/jsonb_writer.h"
 
 namespace doris::index_storage_test {
 
@@ -41,6 +43,35 @@ inline std::shared_ptr<ColumnPredicate> string_equals(int32_t column_id, std::st
 
 inline DataTypePtr nullable_string_target_type() {
     return make_nullable(std::make_shared<DataTypeString>());
+}
+
+inline std::optional<std::string> canonical_variant_value(const std::optional<std::string>& value) {
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    JsonBinaryValue jsonb;
+    if (jsonb.from_json_string(value.value()).ok()) {
+        return jsonb.to_json_string();
+    }
+
+    // The legacy reader serializes a string scalar without JSON quotes. Normalize that
+    // presentation difference before comparing V1 and V2 logical values.
+    JsonbWriter writer;
+    DORIS_CHECK(writer.writeStartString());
+    DORIS_CHECK(writer.writeString(value->data(), value->size()));
+    DORIS_CHECK(writer.writeEndString());
+    return JsonbToJson::jsonb_to_json_string(writer.getOutput()->getBuffer(),
+                                             writer.getOutput()->getSize());
+}
+
+inline std::vector<std::optional<std::string>> canonical_variant_values(
+        const std::vector<std::optional<std::string>>& values) {
+    std::vector<std::optional<std::string>> result;
+    result.reserve(values.size());
+    for (const auto& value : values) {
+        result.push_back(canonical_variant_value(value));
+    }
+    return result;
 }
 
 inline bool has_doc_value_column(const IndexRowsetProbe& probe) {

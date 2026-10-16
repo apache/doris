@@ -192,6 +192,11 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=3/5 (p1,p2,p3)")
     }
     explain {
+        sql """select * from test_add_sub_diff_ceil_floor_t
+                where date_ceil(dt, interval 1 day) <'2019-01-01' """
+        contains("partitions=3/5 (p1,p2,p3)")
+    }
+    explain {
         sql """select * from test_add_sub_diff_ceil_floor_t where hour_ceil(dt) <'2019-01-01' """
         contains("partitions=3/5 (p1,p2,p3)")
     }
@@ -378,6 +383,15 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
     }
     // from_days and unix_timestamp
+    def originalTimeZone = sql("select @@time_zone")[0][0]
+    sql "set time_zone = 'Asia/Shanghai'"
+    explain {
+        sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
+        contains("partitions=4/6 (p1,p4,p5,p6)")
+    }
+
+    // A fixed-offset zone has no DST gaps, so unix_timestamp is monotonic on unbounded partitions.
+    sql "set time_zone = '+08:00'"
     explain {
         sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
         contains("partitions=3/6 (p4,p5,p6)")
@@ -438,6 +452,7 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from unix_time_t where unix_timestamp(dt) <=0"""
         contains("partitions=1/4 (p1)")
     }
+    sql "set time_zone = '${originalTimeZone}'"
 
     explain {
         sql """select * from max_t where year(weeks_add(dt, 1)) >2019"""
@@ -455,4 +470,22 @@ suite("test_add_sub_diff_ceil_floor") {
     //    sql """select * from max_t where weeks_diff(dt, quarter(weeks_sub(dt, 1))) >'2020-01-01'"""
     //    contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
     //}
+
+    // Partition pruning already skips evaluation errors in partitions excluded by a necessary
+    // condition. Keep that established behavior when the inferred condition enables binary search.
+    sql "drop table if exists date_ceil_upper_bound_t"
+    sql """create table date_ceil_upper_bound_t (dt datetimev2 not null) duplicate key(dt)
+    partition by range(dt) (
+            partition p_old values less than ('2022-01-01'),
+            partition p_max values less than MAXVALUE
+    ) distributed by hash(dt) buckets 1 properties('replication_num'='1');"""
+    sql """insert into date_ceil_upper_bound_t values
+            ('2021-01-01 00:00:00'), ('2021-12-31 00:00:00'), ('9999-12-31 23:59:59')"""
+    test {
+        sql """select date_ceil(dt, interval 1 day)
+                from date_ceil_upper_bound_t partition(p_max)"""
+        exception "out of range"
+    }
+    order_qt_date_ceil_upper_bound """select * from date_ceil_upper_bound_t
+            where date_ceil(dt, interval 1 day) <= '2021-01-01'"""
 }

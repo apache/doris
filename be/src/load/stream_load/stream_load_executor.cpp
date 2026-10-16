@@ -44,6 +44,7 @@
 #include "load/message_body_sink.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
@@ -56,6 +57,25 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+constexpr const char* MASKED_CREDENTIAL = "***MASKED***";
+
+TLoadTxnCommitRequest request_for_log(const TLoadTxnCommitRequest& request) {
+    TLoadTxnCommitRequest sanitized_request(request);
+    sanitized_request.__set_passwd(MASKED_CREDENTIAL);
+    if (sanitized_request.__isset.token) {
+        sanitized_request.__set_token(MASKED_CREDENTIAL);
+    }
+    sanitized_request.__isset.auth_code = false;
+    if (sanitized_request.__isset.auth_code_uuid) {
+        sanitized_request.__set_auth_code_uuid(MASKED_CREDENTIAL);
+    }
+    return sanitized_request;
+}
+
+} // namespace
 
 #ifdef BE_TEST
 TLoadTxnBeginResult k_stream_load_begin_result;
@@ -327,7 +347,8 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
     request.__set_tbls(ctx->table_list);
 
-    VLOG_DEBUG << "commit txn request:" << apache::thrift::ThriftDebugString(request);
+    VLOG_DEBUG << "commit txn request:"
+               << apache::thrift::ThriftDebugString(request_for_log(request));
 
     // set attachment if has
     TTxnCommitAttachment attachment;
