@@ -1911,12 +1911,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
-     * column must be an <em>identity</em> partition field of this (partitioned) table. Mirrors the legacy
-     * fe-resident {@code BindSink.validateStaticPartition} (now dead on the connector-driven path), but the
-     * iceberg {@link PartitionSpec} knowledge and the messages live in the connector. The lookup is keyed by
-     * partition <em>field</em> name (e.g. {@code category_bucket} for {@code bucket(4, category)}), matching
-     * legacy — so a source-column name that is not itself an identity field reads as "Unknown partition column".
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the name
+     * must be the SOURCE column of an <em>identity</em> partition field of this (partitioned) table.
+     *
+     * <p>That is the identifier Spark resolves for a static partition clause
+     * ({@code Analyzer.partitionColumnNames} takes the identity transform's field reference), the one
+     * {@code SHOW CREATE TABLE} renders ({@code PARTITION BY LIST (`id`)}), and the only one the engine can
+     * materialize: an identity partition value IS the column value, so the binder fills that column from the
+     * PARTITION literal ({@code PluginDrivenExternalTable#materializeStaticPartitionValues}).</p>
+     *
+     * <p>Consequently a partition FIELD name that was renamed away from its source column
+     * ({@code ADD PARTITION KEY id AS id_identity}) is rejected with the source name to use instead. The field
+     * name is not a table column, so no value could be written for it — accepting it is exactly the
+     * "PARTITION names a column the binder then cannot find" contradiction this replaces. Non-identity
+     * transforms stay rejected, and an unknown name lists the source columns that a static write can use.</p>
      */
     @Override
     public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
@@ -1932,23 +1940,60 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException(String.format(
                     "Table %s is not partitioned, cannot use static partition syntax", tableName));
         }
-        Map<String, PartitionField> partitionFieldMap = new HashMap<>();
-        for (PartitionField field : spec.fields()) {
-            partitionFieldMap.put(field.name(), field);
-        }
         for (String colName : staticPartitionColumnNames) {
-            PartitionField field = partitionFieldMap.get(colName);
-            if (field == null) {
-                throw new DorisConnectorException(String.format(
-                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                        colName, tableName, partitionFieldMap.keySet()));
+            validateStaticPartitionColumn(table.schema(), spec, colName, tableName);
+        }
+    }
+
+    /** The single-name rule of {@link #validateStaticPartitionColumns}. */
+    private static void validateStaticPartitionColumn(Schema schema, PartitionSpec spec, String colName,
+            String tableName) {
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField source = schema.findField(field.sourceId());
+            if (source == null || !source.name().equalsIgnoreCase(colName)) {
+                continue;
             }
-            if (!field.transform().isIdentity()) {
+            // The SOURCE column of a partition field: a legal static target only for an identity transform,
+            // because a transformed partition value is not the column value and cannot be written through it.
+            if (field.transform().isIdentity()) {
+                return;
+            }
+            throw new DorisConnectorException(String.format(
+                    "Cannot use static partition syntax for non-identity partition field '%s'"
+                            + " (transform: %s).", colName, field.transform().toString()));
+        }
+        for (PartitionField field : spec.fields()) {
+            if (!field.name().equalsIgnoreCase(colName)) {
+                continue;
+            }
+            if (field.transform().isIdentity()) {
+                // Renamed identity field (ADD PARTITION KEY ... AS ...): point at the source column that the
+                // engine can materialize, instead of accepting a name that no row column carries.
+                Types.NestedField source = schema.findField(field.sourceId());
                 throw new DorisConnectorException(String.format(
-                        "Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", colName, field.transform().toString()));
+                        "Static partition column '%s' in table '%s' is a partition field name, not a table"
+                                + " column; write the identity partition by its source column '%s' instead.",
+                        field.name(), tableName, source == null ? field.name() : source.name()));
+            }
+            throw new DorisConnectorException(String.format(
+                    "Cannot use static partition syntax for non-identity partition field '%s'"
+                            + " (transform: %s).", colName, field.transform().toString()));
+        }
+        throw new DorisConnectorException(String.format(
+                "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                colName, tableName, identityPartitionSourceColumns(schema, spec)));
+    }
+
+    /** The identity partitions' source columns — the names a static PARTITION clause may use. */
+    private static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> names = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField source = schema.findField(field.sourceId());
+            if (source != null && field.transform().isIdentity()) {
+                names.add(source.name());
             }
         }
+        return names;
     }
 
     // ========== Predicate pushdown ==========

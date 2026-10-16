@@ -793,19 +793,35 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
-        return new IcebergWriteContext(op, handle.isOverwrite(), staticPartitionSpec(handle),
+        return new IcebergWriteContext(op, handle.isOverwrite(), staticPartitionSpec(handle, schemaContext),
                 handle.getBranchName(), readSnapshotId, readSnapshotResolved,
                 schemaContext, handle.getBoundWriteMetadataIdentity());
     }
 
-    private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle) {
+    /**
+     * The static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION (col = val)}) in the shape both consumers
+     * need: partition FIELD names, with SQL NULL folded in.
+     *
+     * <p>The engine keys the spec by the identity partition's SOURCE column (what Spark resolves and what
+     * {@code SHOW CREATE TABLE} renders), while the BE sink matches {@code static_partition_values} against
+     * {@code PartitionField#name()} and the commit row filter resolves that field back to its source column. The
+     * rewrite happens here, once, so the wire contract and the commit filter stay field-keyed — a source-column
+     * key reaching either of them would silently make the write dynamic on BE and fail the commit validation.</p>
+     */
+    private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle,
+            IcebergWriteSchemaContext schemaContext) {
         Map<String, String> spec = handle.getStaticPartitionSpec();
-        if (handle.getStaticPartitionNullKeys().isEmpty()) {
-            return spec;
+        Map<String, String> normalized = spec;
+        if (!handle.getStaticPartitionNullKeys().isEmpty()) {
+            // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
+            normalized = new HashMap<>(spec);
+            normalized.replaceAll((key, value) ->
+                    handle.getStaticPartitionNullKeys().contains(key) ? null : value);
         }
-        // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
-        Map<String, String> normalized = new HashMap<>(spec);
-        normalized.replaceAll((key, value) -> handle.getStaticPartitionNullKeys().contains(key) ? null : value);
+        if (schemaContext != null) {
+            normalized = IcebergPartitionUtils.toPartitionFieldKeys(normalized, schemaContext.getSchema(),
+                    schemaContext.getPartitionSpec());
+        }
         return normalized;
     }
 
@@ -860,7 +876,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
-        Map<String, String> staticPartitionSpec = staticPartitionSpec(handle);
+        Map<String, String> staticPartitionSpec = staticPartitionSpec(handle, schemaContext);
         if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
             Map<String, String> values = new java.util.HashMap<>();
             java.util.Set<String> nullKeys = new java.util.HashSet<>();

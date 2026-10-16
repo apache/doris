@@ -315,21 +315,61 @@ public class IcebergConnectorMetadataTest {
 
     @Test
     public void validateStaticPartitionColumnsRejectsUnknownColumn() {
-        // WHY: a PARTITION(col=..) naming a column that is not a partition FIELD must fail loud at analysis time
-        // (byte-identical to legacy validateStaticPartition), else the unknown column is silently swallowed by the
-        // sink's materialize block and surfaces as an unrelated planning error ("Cannot find snapshot"). The lookup
-        // is keyed by partition FIELD name, so "id" (the bucket's SOURCE column, not a field) is also "unknown" —
-        // mirroring regression test_iceberg_static_partition_overwrite TC29 PARTITION(category) over bucket(category).
-        // MUTATION: dropping the containsKey/null check -> unknown column admitted -> red.
+        // WHY: a PARTITION(col=..) naming nothing the spec can write must fail loud at analysis time, else the name
+        // is silently swallowed by the sink's materialize block and surfaces as an unrelated planning error
+        // ("Cannot find snapshot"). The available list is the identity partitions' SOURCE columns — the names a
+        // static write can actually use — not the raw field-name set.
+        // MUTATION: dropping the last-resort throw -> unknown column admitted -> red.
         Schema schema = idNameSchema();
         IcebergConnectorMetadata md = metadataWithSpec(schema,
                 PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
-        for (String bad : new String[] {"invalid_col", "id"}) {
-            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> md.validateStaticPartitionColumns(
-                            null, new IcebergTableHandle("db1", "t1"), Collections.singletonList(bad)));
-            Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
-        }
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("invalid_col")));
+        Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("[name]"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsBucketSourceColumnAsNonIdentity() {
+        // WHY: "id" feeds bucket(8, id), so it cannot be written statically — but it is a real column, and it is the
+        // name a user reads off SHOW CREATE TABLE (`BUCKET(8, `id`)`). Reporting it as an unknown COLUMN would send
+        // them looking for a spelling mistake; the non-identity reason is the actionable one (Spark rejects the same
+        // name as "not a partition column"). Upstream #65991 case 5.5 / TC29 PARTITION(category) over bucket(category).
+        // MUTATION: matching only identity fields and skipping this branch -> wrong message -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(
+                e.getMessage().contains("Cannot use static partition syntax for non-identity partition field 'id'"),
+                e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsUsesTheIdentitySourceColumnNotTheRenamedField() {
+        // WHY: ADD PARTITION KEY id AS id_identity renames the partition FIELD away from its source column. A static
+        // partition value must then be written through the SOURCE column (Spark's contract: partitionColumnNames
+        // takes the identity transform's field reference, and the static value is materialized into that column),
+        // while the field name is not a table column at all — accepting it is what produced the binder's
+        // "Column has no default value, column=id". MUTATION: keying the lookup by field name -> 'id' reads as
+        // unknown (red) and 'id_identity' is admitted even though no row column can carry it (red).
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("id", "id_identity").build());
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        // Doris folds identifiers case-insensitively, so the same name in any case must resolve.
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("ID")));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id_identity")));
+        Assertions.assertTrue(e.getMessage().contains("is a partition field name, not a table column"),
+                e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("source column 'id'"), e.getMessage());
     }
 
     @Test
