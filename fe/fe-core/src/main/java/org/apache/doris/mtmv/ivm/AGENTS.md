@@ -6,6 +6,13 @@ An IVM MV is built as one of two models, settled once while it is created and re
 key model on every later statement: `IvmRewriteResult#keysType` while the statement is being built,
 `MTMV#isIvmAppendOnlyDupTable()` once the MV exists.
 
+Which model a query settles on follows from the query and its base tables, and a user can override that one
+way: `PROPERTIES ('ivm_force_mow' = 'true')` builds an MV of the unique-key model where the query would
+qualify for the detail one. It is read while the MV is created (`IvmNormalizeMTMV#judgeKeysType`), and, like
+`ivm_use_full_keys`, it is fixed there -- `ALTER MTMV ... SET` reports it instead of applying it, because an
+MV's key model cannot be altered. Both properties are read back from the MV's own properties, never cached
+in `IvmInfo`.
+
 - **Unique key + merge-on-write** (the default): the MV is maintained through a hidden row-id, its rows are
   updated and retracted through a delete sign and a sequence column, and the layout its refresh reads is
   pinned down by a plan signature. `IvmNormalizeUniqKeysMTMV` lays it out; `IvmDeltaRewriter` and the delta
@@ -137,13 +144,27 @@ metadata commands instead.
 Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name COMPLETE` to inspect the complete MTMV refresh plan
 through the same dry-run path used by normal complete refresh planning.
 
-Typed explain forms continue to work on both refresh modes, for example:
+Typed explain forms work the same way here as they do for `EXPLAIN <SELECT>`: `ANALYZED`, `LOGICAL`
+and `PHYSICAL` decide how much of the plan is shown, and the `PROCESS` variants print the rules that
+ran, one line each. On both refresh modes, for example:
 
 ```sql
 EXPLAIN ANALYZED PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
 EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH ALL STREAMS;
-EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
+EXPLAIN PHYSICAL PLAN REFRESH MATERIALIZED VIEW mv_name COMPLETE;
+EXPLAIN ANALYZED PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
 ```
+
+`EXPLAIN ANALYZED PLAN PROCESS REFRESH ...` is the form to reach for when a refresh plan is not what
+you expected: its rule timeline is where the IVM rules show themselves -- an incremental refresh
+lists `IVM_INCR_REFRESH_MTMV`, the rule that builds the delta plan -- so the log line a rule prints
+can be read next to the rule that produced it. Which IVM rules appear follows from the statement and
+its refresh mode; the timeline covers the statement's own planning, not every rule of the query the
+MV was created from.
+
+Like the plain forms, these go through the dry-run path: no stream offset is consumed and nothing is
+written to the MV, so a refresh that follows one still sees all of its pending delta. (`PHYSICAL PLAN`
+and `PROCESS` are not combinable — `EXPLAIN PHYSICAL PLAN PROCESS` prints nothing.)
 
 `EXPLAIN REFRESH` supports only `INCREMENTAL` and `COMPLETE`; partition-scoped refresh syntax is
 not supported by Explain Refresh. Partition-scoped refresh remains available through ordinary
@@ -184,6 +205,12 @@ where `getInsertedColumnNames()` includes business columns plus all IVM internal
 - `__DORIS_IVM_DML_FACTOR_COL__` — +1 (append/update) or −1 (delete)
 - `__DORIS_IVM_AGG_COUNT_COL__` — group-level aggregation count
 - Aggregation state columns (`__DORIS_IVM_AGG_{ordinal}_{stateType}_COL__`)
+
+The trailing sequence column and delete sign are the **unique-key model's**, which is the model that
+retracts and updates rows through them: `getInsertedColumnNames()` yields no IVM internal column for
+an append-only detail MV, and `makeDeleteSignProject` adds the two trailing columns to that model's
+sink output alone. A detail MV's dry run therefore returns the MV's own columns and nothing else —
+its delta plan has no place to carry a sign, which is what `IvmDupDeltaRewriter` builds.
 
 For an aggregate MV defined as `SELECT k1, COUNT(*) AS cnt, SUM(v1) FROM t GROUP BY k1`,
 a dry-run result row looks like:
