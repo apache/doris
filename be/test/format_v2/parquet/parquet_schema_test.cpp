@@ -337,7 +337,33 @@ TEST(ParquetSchemaTest, AppliesPaimonFallbackOnlyArrayWithRequiredValue) {
     EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
 }
 
-TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsidePaimonFallbackOnlyArray) {
+TEST(ParquetSchemaTest, AcceptsAnnotatedFallbackOnlyArrayWithRequiredValue) {
+    auto schema = shredded_array_variant_schema(true, false);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+}
+
+TEST(ParquetSchemaTest, AcceptsAnnotatedShreddedVariantWithOptionalMetadata) {
+    auto schema = shredded_object_variant_schema();
+    schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+}
+
+TEST(ParquetSchemaTest, AcceptsAnnotatedShreddedVariantWithOptionalWrappers) {
+    auto object_schema = shredded_object_variant_schema();
+    object_schema[5].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(object_schema).ok());
+
+    auto array_schema = shredded_array_variant_schema(true, false);
+    array_schema[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    array_schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    ASSERT_TRUE(descriptor.parse_from_thrift(array_schema).ok());
+}
+
+TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsideFallbackOnlyArray) {
     const auto expect_override_corruption = [](std::vector<tparquet::SchemaElement> schema) {
         NativeFieldDescriptor descriptor;
         ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
@@ -364,7 +390,7 @@ TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsidePaimonFallbackOnly
     paimon_array_with_typed_value[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     expect_override_corruption(std::move(paimon_array_with_typed_value));
 
-    auto annotated_array = shredded_array_variant_schema(true, false);
+    auto annotated_array = shredded_array_variant_schema(true, true);
     annotated_array[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     NativeFieldDescriptor descriptor;
     const auto annotated_status = descriptor.parse_from_thrift(annotated_array);
@@ -386,11 +412,11 @@ TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
     EXPECT_NE(status.to_string().find("unexpected child"), std::string::npos);
 }
 
-TEST(ParquetSchemaTest, RejectsOptionalMetadataOutsidePaimonShreddedOverride) {
-    auto annotated_shredded = shredded_object_variant_schema();
-    annotated_shredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+TEST(ParquetSchemaTest, RejectsOptionalMetadataForUnshreddedVariant) {
+    auto annotated_unshredded = unshredded_variant_schema();
+    annotated_unshredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
     NativeFieldDescriptor descriptor;
-    const auto annotated_status = descriptor.parse_from_thrift(annotated_shredded);
+    const auto annotated_status = descriptor.parse_from_thrift(annotated_unshredded);
     EXPECT_TRUE(annotated_status.is<ErrorCode::CORRUPTION>()) << annotated_status;
 
     auto unannotated_unshredded = unshredded_variant_schema();
@@ -510,8 +536,7 @@ TEST(ParquetSchemaTest, NativeVariantValidatesEveryShreddedWrapperAndScalar) {
 
     const auto optional_wrapper_status =
             descriptor.parse_from_thrift(shredded_object_variant_schema(true, false));
-    EXPECT_TRUE(optional_wrapper_status.is<ErrorCode::CORRUPTION>()) << optional_wrapper_status;
-    EXPECT_NE(optional_wrapper_status.to_string().find("wrapper"), std::string::npos);
+    EXPECT_TRUE(optional_wrapper_status.ok()) << optional_wrapper_status;
 }
 
 TEST(ParquetSchemaTest, NativeVariantRejectsDuplicateObjectFieldNames) {
