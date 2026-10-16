@@ -71,6 +71,13 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         assertEquals("learned", learnedShow[0][0].toString())
         assertEquals("500000", learnedShow[0][4].toString())
         assertEquals("-", learnedShow[0][5].toString())
+        // an entry without a struct info records no data state: the read side applies it without a
+        // freshness comparison and reports the state as unknown. A pinned entry cannot be stored that way:
+        // its lookup index is keyed by the relations of its struct info, so an entry without one would
+        // disable the pre filter of every group instead of being filtered by a relation (see the
+        // validation of HBO SET STATISTICS).
+        assertEquals("-", learnedShow[0][6].toString())
+        assertEquals("unknown", learnedShow[0][7].toString())
 
         // the learned entry is used: the read side reports it on the annotation line of the filter
         assertTrue(usedEntry(explainText()), explainText())

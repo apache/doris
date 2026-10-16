@@ -58,6 +58,12 @@ import java.util.regex.Pattern;
  * (see {@link org.apache.doris.nereids.stats.HboStructFreshness}). Copying
  * the {@code struct=} value of EXPLAIN therefore also records what the injected value was measured
  * on.
+ *
+ * <p>{@code STRUCT} is optional for the learned scope: an entry without it records no data state,
+ * so the read side applies it without comparing it with the data state of the query and reports its
+ * state as {@code unknown}. A pinned entry requires it, because the lookup index of the pinned
+ * entries is keyed by the relations of their struct info - an entry without one would make the pre
+ * filter of every group a no-op instead of being filtered by the relations it reads.
  */
 public class HboStatisticsCommand extends Command {
 
