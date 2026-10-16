@@ -1805,7 +1805,7 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
             }
         }
         writes_done = true;
-        // Destroying the part waits for the stuck uploads; the test releases them below.
+        // Aborting the part waits for the stuck uploads; the test releases them below.
         close_status = writer->close();
     });
     // Declared after writer_thread so that it runs before the join: an early ASSERT return
@@ -2040,8 +2040,8 @@ TEST_F(SpillFileS3Test, FailedRotationDoesNotFinishFile) {
 }
 
 // One upload fails while earlier buffers of the same part are still in flight: the writer
-// turns failed, the footer write is refused, the part is never closed and is drained through
-// destruction, and its multipart upload is aborted.
+// turns failed, the footer write is refused, the part is never closed, and aborting it drains
+// the uploads in flight before its multipart upload is aborted.
 TEST_F(SpillFileS3Test, LateUploadFailureAbortsPart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
