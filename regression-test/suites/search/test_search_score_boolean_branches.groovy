@@ -106,4 +106,28 @@ suite("test_search_score_boolean_branches", "p0") {
         """
         exception "Cannot score a compound predicate with incomplete index evaluation"
     }
+
+    // A failed scored child must remain an error even when its sibling adds no scores.
+    for (boolean wand : [false, true]) {
+        sql "set enable_inverted_index_wand_query = ${wand}"
+        for (String sibling : ["tags MATCH_ANY 'missing_token'", "id < 0"]) {
+            for (boolean reverseChildren : [false, true]) {
+                String incomplete = "(title MATCH_ANY 'apple' AND id > 0)"
+                String predicate = reverseChildren ? "${sibling} OR ${incomplete}"
+                                                   : "${incomplete} OR ${sibling}"
+                // Repeat the query to cover bitmap-cache reuse after the error.
+                for (int attempt = 0; attempt < 2; ++attempt) {
+                    test {
+                        sql """
+                            SELECT id, score() AS bm25_score
+                            FROM test_search_score_multi_column_mixed
+                            WHERE ${predicate}
+                            ORDER BY bm25_score DESC LIMIT 100
+                        """
+                        exception "Cannot score a compound predicate with incomplete index evaluation"
+                    }
+                }
+            }
+        }
+    }
 }

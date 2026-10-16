@@ -291,6 +291,12 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    // A scored child may have discarded its map before reporting this error.
+                    // Preserve the failure even when no sibling contributes scores.
+                    if (branch_similarity != nullptr &&
+                        st.code() == ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -320,6 +326,12 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    // A scored child may have discarded its map before reporting this error.
+                    // Preserve the failure even when no sibling contributes scores.
+                    if (branch_similarity != nullptr &&
+                        st.code() == ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }

@@ -218,5 +218,59 @@ TEST(VCompoundPredScoreTest, IncompleteScoredBranchReturnsErrorWithoutPublishing
     EXPECT_TRUE(parent_similarity->release_scores().empty());
 }
 
+TEST(VCompoundPredScoreTest, NestedIncompleteScoringErrorSurvivesEmptyOrUnindexedSiblings) {
+    for (auto op : {TExprOpcode::COMPOUND_OR, TExprOpcode::COMPOUND_AND}) {
+        for (bool unindexed_sibling : {false, true}) {
+            for (bool reverse_children : {false, true}) {
+                SCOPED_TRACE(::testing::Message()
+                             << "op=" << op << " unindexed=" << unindexed_sibling
+                             << " reversed=" << reverse_children);
+                auto incomplete = make_compound(TExprOpcode::COMPOUND_AND,
+                                                std::make_shared<ScoredBitmapExpr>(
+                                                        std::initializer_list<uint32_t> {1}, 1.0F),
+                                                std::make_shared<UnindexedExpr>());
+                VExprSPtr sibling;
+                if (unindexed_sibling) {
+                    sibling = std::make_shared<UnindexedExpr>();
+                } else if (op == TExprOpcode::COMPOUND_AND) {
+                    // An empty AND may short-circuit before the incomplete child is reached.
+                    sibling = std::make_shared<ScoredBitmapExpr>(
+                            std::initializer_list<uint32_t> {1}, 0.0F);
+                } else {
+                    sibling = std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {},
+                                                                 0.0F);
+                }
+                auto nested = reverse_children ? make_compound(op, sibling, incomplete)
+                                               : make_compound(op, incomplete, sibling);
+                // Exercise propagation across multiple compound levels, including NOT.
+                auto root = make_not(make_not(nested));
+
+                std::vector<ColumnId> col_ids;
+                std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
+                std::vector<IndexFieldNameAndTypePair> storage_types;
+                std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+                auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
+                auto index_context = std::make_shared<IndexExecContext>(
+                        col_ids, iterators, storage_types, status_map, score_runtime);
+                auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
+                auto parent_similarity = std::make_shared<CollectionSimilarity>();
+                parent_similarity->collect(0, 7.0F);
+                query_context->collection_similarity = parent_similarity;
+                index_context->set_index_query_context(query_context);
+                auto expr_context = VExprContext::create_shared(root);
+                expr_context->set_index_context(index_context);
+
+                auto status = root->evaluate_inverted_index(expr_context.get(), 2);
+                EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+                EXPECT_EQ(query_context->collection_similarity, parent_similarity);
+                EXPECT_FALSE(index_context->has_index_result_for_expr(root.get()));
+                auto scores = parent_similarity->release_scores();
+                ASSERT_EQ(scores.size(), 1);
+                EXPECT_FLOAT_EQ(scores.at(0), 7.0F);
+            }
+        }
+    }
+}
+
 } // namespace
 } // namespace doris
