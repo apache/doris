@@ -218,7 +218,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     // a condition key carries its literals: a join whose residual carries one is injectable from the very
     // line EXPLAIN prints, while the folded form of that line names a different condition and stays
     // rejected (the expansion path compares the literal carrying text, so `> c + 1` is not `> c + 2`)
-    def literalQuery = "select * from hbo_je_t1 join hbo_je_t2 on hbo_je_t1.a = hbo_je_t2.a"
+    def literalQuery = "select * from hbo_je_t1 join hbo_je_t2 on hbo_je_t1.a = hbo_je_t2.a" \
             + " and hbo_je_t1.b > hbo_je_t2.c + 1"
     def literalMatcher = (annotation(literalQuery) =~
             /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='([^']*)'/)
