@@ -479,8 +479,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult);
+            splitAssignment = createSplitAssignment(locationProperties, pathPartitionKeys, admissionResult);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -562,7 +561,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private TScanRangeLocations splitToScanRange(
+    protected TScanRangeLocations splitToScanRange(
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
@@ -878,13 +877,22 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
+    protected SplitAssignment createSplitAssignment(Map<String, String> properties,
+            List<String> partitionKeys, boolean admission) {
+        return new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                properties, partitionKeys, admission);
+    }
+
     @Override
     public void stop() {
         if (splitAssignment != null) {
-            splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
+            try {
+                splitAssignment.stop();
+            } finally {
+                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+                for (Long sourceId : splitAssignment.getSources()) {
+                    manager.removeSplitSource(sourceId);
+                }
             }
         }
     }
