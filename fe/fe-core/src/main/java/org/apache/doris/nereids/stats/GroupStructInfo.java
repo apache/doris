@@ -168,12 +168,18 @@ public class GroupStructInfo {
     private static final AtomicInteger materializedGroupCount = new AtomicInteger();
 
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
-    public static final GroupStructInfo INVALID =
-            new GroupStructInfo(false, "", Collections.emptyList(), INVALID_SCANS);
+    public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", null, INVALID_SCANS);
 
     private static final String SEP = ";";
 
-    /** The headers whose arguments the traversal writes in both literal modes. */
+    /**
+     * The headers whose arguments are part of the identity of their node, i.e. whose literals are written
+     * in both literal modes by {@link #appendNode} (a generator's delimiter, a top-n's ordering, a
+     * window's definition, the constants of a set operation, a limit bound). The fold of a pasted struct
+     * info has to copy those headers verbatim - folding one of their literals would make the sha256 of
+     * the text differ from the fingerprint EXPLAIN printed. The renderer is the authority for this set:
+     * a kind whose literals stop being identity has to leave the string below as well.
+     */
     private static final String PROTECTED_HEADERS = "GTWUIEL";
 
     private static final String NO_LOOKUP_PATH_REASON =
@@ -229,12 +235,12 @@ public class GroupStructInfo {
      */
     private final boolean valid;
     /**
-     * The rope of this description: the text fragments of its own layer (in both literal modes) and
-     * references to the descriptions of its child groups. A parent therefore records only its own
-     * layer and never rebuilds the canonical string of a child; the strings are materialized on the
-     * first request (see {@link #getCanonical(LiteralMode)}).
+     * The tree of this description: the information of its own group and the descriptions of the groups
+     * below it, all as objects. Nothing is rendered while it is built - {@link #render} is the one place
+     * which knows the grammar - and every node remembers the forms it has rendered, so a parent which is
+     * rendered later composes the text of a child instead of walking its sub tree again.
      */
-    private final List<Piece> pieces;
+    private final Node root;
     /** The scans of the sub tree, in the order their tokens appear in the canonical string. */
     private final List<HboScanDescriptor> scans;
     /** Why no struct info was built, when it was refused by a limit instead of being unsupported. */
@@ -248,22 +254,24 @@ public class GroupStructInfo {
     private String fingerprintWithLiteral;
     private String fingerprintNoLiteral;
 
-    private GroupStructInfo(boolean valid, String skipReason, List<Piece> pieces,
+    private GroupStructInfo(boolean valid, String skipReason, Node root,
             List<HboScanDescriptor> scans) {
         this.valid = valid;
         this.skipReason = skipReason;
-        this.pieces = pieces;
+        this.root = root;
         this.scans = scans;
     }
 
-    private static GroupStructInfo ofPieces(List<Piece> pieces, List<HboScanDescriptor> scans) {
-        return new GroupStructInfo(true, "", pieces, Collections.unmodifiableList(scans));
+    private static GroupStructInfo ofNode(Node root) {
+        List<HboScanDescriptor> scans = new ArrayList<>();
+        collectScans(root, scans);
+        return new GroupStructInfo(true, "", root, Collections.unmodifiableList(scans));
     }
 
     private static GroupStructInfo invalidStructInfo(String skipReason) {
         return skipReason.isEmpty()
                 ? INVALID
-                : new GroupStructInfo(false, skipReason, Collections.emptyList(), INVALID_SCANS);
+                : new GroupStructInfo(false, skipReason, null, INVALID_SCANS);
     }
 
     /** The reason the struct info was refused by a limit, or empty. Only for diagnostics. */
@@ -273,6 +281,11 @@ public class GroupStructInfo {
 
     public boolean isValid() {
         return valid;
+    }
+
+    /** The node this description is made of; null when the description is invalid. */
+    private Node root() {
+        return root;
     }
 
     /**
@@ -291,9 +304,7 @@ public class GroupStructInfo {
         if (materialized != null) {
             return materialized;
         }
-        StringBuilder sb = new StringBuilder(256);
-        appendTo(sb, mode, false);
-        materialized = sb.toString();
+        materialized = root == null ? "" : render(root, mode, false);
         if (noLiteral) {
             canonicalNoLiteral = materialized;
         } else {
@@ -303,9 +314,10 @@ public class GroupStructInfo {
     }
 
     /**
-     * The fingerprint input of one literal mode: the canonical string with the data state of every
-     * scan removed ({@code S{db.t}}). It is assembled from the rope and never parsed out of the
-     * canonical string, so no text inside a table name or a literal can be mistaken for a scan token.
+     * The fingerprint input of one literal mode: the canonical string with the data state of every scan
+     * removed ({@code S{db.t}}). It is rendered from the same tree as the canonical string, with the scan
+     * tokens reduced to their identity, and never parsed out of the text, so no text inside a table name
+     * or a literal can be mistaken for a scan token.
      */
     public String getShape(LiteralMode mode) {
         boolean noLiteral = mode == LiteralMode.NO_LITERAL;
@@ -313,9 +325,7 @@ public class GroupStructInfo {
         if (materialized != null) {
             return materialized;
         }
-        StringBuilder sb = new StringBuilder(256);
-        appendTo(sb, mode, true);
-        materialized = sb.toString();
+        materialized = root == null ? "" : render(root, mode, true);
         if (noLiteral) {
             shapeNoLiteral = materialized;
         } else {
@@ -338,24 +348,6 @@ public class GroupStructInfo {
             fingerprintWithLiteral = materialized;
         }
         return materialized;
-    }
-
-    /**
-     * Write one form of this description: the pieces of its own layer and, for a child whose same
-     * form is already materialized, that materialized string instead of walking the child again.
-     */
-    private void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-        materializedGroupCount.incrementAndGet();
-        for (Piece piece : pieces) {
-            piece.appendTo(out, mode, shape);
-        }
-    }
-
-    private String materialized(LiteralMode mode, boolean shape) {
-        if (shape) {
-            return mode == LiteralMode.NO_LITERAL ? shapeNoLiteral : shapeWithLiteral;
-        }
-        return mode == LiteralMode.NO_LITERAL ? canonicalNoLiteral : canonicalWithLiteral;
     }
 
     private static String sha256(String value) {
@@ -559,19 +551,19 @@ public class GroupStructInfo {
 
     /** Describe one expression of a group: the body of {@link #build} without the choice of it. */
     private static GroupStructInfo describeExpression(Group group, GroupExpression ge, Ctx ctx) {
-        Canonical out = new Canonical();
+        Node root;
         try {
-            appendPlan(ge.getPlan(), ge, out, ctx);
+            root = buildNode(ge.getPlan(), ge, ctx);
         } catch (RuntimeException e) {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
             return invalidStructInfo(ctx.reason);
         }
-        if (!ctx.valid) {
+        if (!ctx.valid || root == null) {
             return invalidStructInfo(ctx.reason);
         }
-        return ofPieces(out.getPieces(), out.getScans());
+        return ofNode(root);
     }
 
     /** The memo group a plan node belongs to: its back reference, or the post processed group id. */
@@ -592,148 +584,6 @@ public class GroupStructInfo {
     }
 
     /**
-     * Append the description of one node to the rope. Every branch is built in three steps:
-     * <ol>
-     *   <li>step 1 - {@link #describeChild} (or {@link #describeBranches}) describes the children: the
-     *       memoized description of a child group is composed, its sub tree is never walked again;</li>
-     *   <li>step 2 - the node's own information is built as the pair of both literal modes (a
-     *       {@link Text} piece, or the header of its node kind);</li>
-     *   <li>step 3 - the pieces are composed in the order the canonical string is printed: the node's
-     *       own text, its children with their separators, the closing text.</li>
-     * </ol>
-     * A node whose kind or arity is not supported calls {@link #invalid} and returns; the group is then
-     * {@link #isValid() invalid} and the read side falls back to the optimizer estimation instead of
-     * applying a key which may not be the one it computes.
-     */
-    private static void appendPlan(Plan plan, GroupExpression ge, Canonical out, Ctx ctx) {
-        if (!ctx.valid) {
-            return;
-        }
-        // the dispatch is written against the algebra interfaces, so that the description of a group can
-        // follow the expression which was chosen for the final plan (a physical one) as well as a logical
-        // expression while the plan choice has not been made yet
-        if (plan instanceof OlapScan) {
-            appendScan((OlapScan) plan, out, ctx);
-        } else if (plan instanceof Filter) {
-            // step 2: the node's own information (its conjuncts, sorted, in both literal modes)
-            Text own = filterText((Filter) plan);
-            // step 1: its child
-            GroupStructInfo child = describeChild(ge, 0, ctx);
-            if (child == null) {
-                return;
-            }
-            // step 3: assemble in the order the text is printed
-            out.add(own).append(child).same(")");
-        } else if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
-                || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
-            if (ge.arity() == 0 && plan instanceof PhysicalCTEConsumer) {
-                // the consumer references its producer by id, not by a memo edge: there is no sub tree
-                // to describe here until the producer group is resolved through that id
-                invalid(ctx, "unsupported=cte consumer without a memo edge");
-                return;
-            }
-            // a CTE consumer describes the sub tree it consumes and a producer the sub tree it
-            // materializes: both are transparent, and a consumer which is reached twice composes the
-            // description of that sub tree twice (see describeGroup)
-            if (ge.arity() == 1) {
-                appendChild(ge, 0, out, ctx);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor) {
-            // the value of an anchor is its consumer side: the producer is the first child and the plan
-            // which consumes it is the second one (LogicalCTEAnchor.computeOutput is right().getOutput(),
-            // and the translator executes child(0) and returns child(1))
-            if (ge.arity() >= 2) {
-                appendChild(ge, 1, out, ctx);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
-            // an external table (hive / iceberg / hudi) and a file table function are catalog relations
-            // whose data state the optimizer cannot read before the scan runs: they are described by the
-            // table they read, so a pinned row count stays applicable and the drift guard reports that it
-            // cannot compare their data state
-            appendFileScan(plan, out, ctx);
-        } else if (plan instanceof PhysicalStorageLayerAggregate) {
-            // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
-            // a catalog relation without children, and its identity is the aggregation together with the
-            // relation it reads. The argument expressions are referenced by expression id there, which is
-            // not stable across queries, so they are left out: they do not change the number of rows this
-            // node produces (one row, the query has no grouping).
-            PhysicalStorageLayerAggregate storageAggregate = (PhysicalStorageLayerAggregate) plan;
-            String header = "A{sl,op=" + storageAggregate.getAggOp() + "}(";
-            out.modes(header, header).modes(")", ")");
-            if (storageAggregate.getRelation() instanceof OlapScan) {
-                appendScan((OlapScan) storageAggregate.getRelation(), out, ctx);
-            }
-        } else if (plan instanceof TopN) {
-            // a top-n keeps its bound and its ordering out of the folding: the bound is written with the
-            // same text in both modes so that NO_LITERAL cannot fold the value away and let two different
-            // bounds share one entry, and the ordering is part of the identity because it decides *which*
-            // rows survive - two top-ns with the same bound but a different ordering can match a
-            // different number of partners in the join above them
-            if (ge.arity() == 1) {
-                // step 2: the node's own information, step 1: its child, step 3: assemble
-                Text own = topNText((TopN) plan);
-                GroupStructInfo child = describeChild(ge, 0, ctx);
-                if (child == null) {
-                    return;
-                }
-                out.add(own).append(child);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof Limit) {
-            if (ge.arity() == 1) {
-                // step 2: the node's own information, step 1: its child, step 3: assemble
-                Text own = limitText((Limit) plan);
-                GroupStructInfo child = describeChild(ge, 0, ctx);
-                if (child == null) {
-                    return;
-                }
-                out.add(own).append(child);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof Generate) {
-            appendGenerate((Generate) plan, ge, out, ctx);
-        } else if (plan instanceof Repeat) {
-            // a repeat is an aggregate with several grouping key sets; a constant inside a grouping key
-            // does not change the number of groups, so the normal folding is safe here
-            appendRepeat((Repeat<?>) plan, ge, out, ctx);
-        } else if (plan instanceof Union || plan instanceof Intersect || plan instanceof Except) {
-            appendSetOperation(plan, (SetOperation) plan, ge, out, ctx);
-        } else if (plan instanceof PhysicalDistribute || plan instanceof PhysicalAssertNumRows) {
-            // an enforcer does not change the number of rows and carries no identity of its own: the
-            // description of the group is the description of the plan below it
-            if (ge.arity() == 1) {
-                appendChild(ge, 0, out, ctx);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof Window) {
-            appendWindow((Window) plan, ge, out, ctx);
-        } else if (plan instanceof Project || plan instanceof Sort) {
-            // a project and a sort are transparent for structure matching: neither of them changes the
-            // number of rows, so the nodes above them are described by the shape below and they must not
-            // make the struct info of those nodes disappear
-            if (ge.arity() == 1) {
-                appendChild(ge, 0, out, ctx);
-            } else {
-                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
-            }
-        } else if (plan instanceof Join) {
-            appendJoin((Join) plan, ge, out, ctx);
-        } else if (plan instanceof Aggregate) {
-            appendAggregate((Aggregate<?>) plan, ge, out, ctx);
-        } else {
-            // unsupported head operator (topn/limit/union/intersect/except/cte/tvf/generate/...)
-            invalid(ctx, "unsupported=" + plan.getClass().getSimpleName());
-        }
-    }
-
-    /**
      * Step 1 of a node build: describe one child of this node. The child is described once per query -
      * its memoized description is returned - and a child which cannot be described invalidates this
      * node with the reason of the child, so that the first reason of the failing sub tree is the one
@@ -751,84 +601,6 @@ public class GroupStructInfo {
         return child;
     }
 
-    /** Step 3 of a node build: compose the description of a child into the rope (a {@link Child} piece). */
-    private static void appendChild(GroupExpression ge, int index, Canonical out, Ctx ctx) {
-        GroupStructInfo child = describeChild(ge, index, ctx);
-        if (child != null) {
-            out.append(child);
-        }
-    }
-
-    private static void appendJoin(Join join, GroupExpression ge, Canonical out, Ctx ctx) {
-        if (isFlattenableJoinType(join.getJoinType())) {
-            appendJoinChain(join, ge, out, ctx);
-            return;
-        }
-        // Outer / semi / anti / asof joins: the two sides are semantically different and the join
-        // cannot be reassociated, so the memo order of the children and the join type are kept.
-        out.same("J{" + join.getJoinType() + ",c:[");
-        TreeSet<String> conditions = new TreeSet<>();
-        TreeSet<String> conditionsNoLiteral = new TreeSet<>();
-        collectJoinConditions(join, conditions, conditionsNoLiteral);
-        out.modes(String.join(SEP, conditions), String.join(SEP, conditionsNoLiteral));
-        out.same("]}(");
-        appendChild(ge, 0, out, ctx);
-        out.same(SEP);
-        appendChild(ge, 1, out, ctx);
-        out.same(")");
-    }
-
-    /**
-     * Append the canonical form of a whole inner / cross join chain as a single node.
-     *
-     * <p>Inner and cross joins are associative and commutative, so the grouping of the chain is an
-     * artifact of the explored expression and must not be part of the fingerprint: the chain is
-     * emitted as {@code J{inner,c:[...]}(leaf;leaf;...)} with the conditions of every join of the
-     * chain merged into one sorted set and the leaves (scans, filters, aggregations, non
-     * flattenable joins) sorted by their canonical form. Every expression of a group therefore
-     * produces the same descriptor. Cross joins are merged with inner joins because a cross join is
-     * exactly an inner join without condition, and both have the same output row count.
-     */
-    private static void appendJoinChain(Join join, GroupExpression ge, Canonical out, Ctx ctx) {
-        TreeSet<String> conditions = new TreeSet<>();
-        TreeSet<String> conditionsNoLiteral = new TreeSet<>();
-        List<Leaf> leaves = new ArrayList<>();
-        // step 2a: the conditions of this node, merged with the conditions of the chains below it (a
-        // flattenable join contributes its own conditions, see buildChainInfo)
-        collectJoinConditions(join, conditions, conditionsNoLiteral);
-        // step 1: every child is either flattened into this node (a join below, a transparent operator)
-        // or described here as a leaf; its conditions are merged into the sets above
-        for (int i = 0; i < ge.arity(); i++) {
-            ChainInfo child = chainInfoOf(ge.child(i));
-            if (!child.valid) {
-                invalid(ctx, child.skipReason);
-                return;
-            }
-            conditions.addAll(child.conditions);
-            conditionsNoLiteral.addAll(child.conditionsNoLiteral);
-            if (!composeChain(child, leaves, ctx)) {
-                return;
-            }
-        }
-        if (!ctx.valid) {
-            return;
-        }
-        // step 3: assemble - the leaves are ordered by their fingerprint input (their own shape, i.e.
-        // without the data state of their scans, because the order is part of the fingerprint and must
-        // not depend on a data state), the conditions by their text
-        leaves.sort(Comparator.comparing(Leaf::sortKey));
-        out.same("J{inner,c:[");
-        out.modes(String.join(SEP, conditions), String.join(SEP, conditionsNoLiteral));
-        out.same("]}(");
-        for (int i = 0; i < leaves.size(); i++) {
-            if (i > 0) {
-                out.same(SEP);
-            }
-            out.append(leaves.get(i).getLeaf(), leaves.get(i).isRepeated());
-        }
-        out.same(")");
-    }
-
     /**
      * The conditions and the leaves of a join chain, memoized per group: a chain of n joins used to walk
      * its own sub tree once per member (O(n^2) condition renderings for the whole query), while the
@@ -836,8 +608,8 @@ public class GroupStructInfo {
      * tree which is reached more than once does, and that is done while composing the chain.
      */
     public static final class ChainInfo {
-        private final TreeSet<String> conditions;
-        private final TreeSet<String> conditionsNoLiteral;
+        /** the conditions of the chain, de-duplicated by their literal carrying text */
+        private final List<Expression> conditions;
         /** the groups the chain is made of, without its leaves: they detect a chain which is reused */
         private final List<Group> members;
         /** the groups which are not flattened into the chain, in traversal order */
@@ -845,24 +617,21 @@ public class GroupStructInfo {
         private final boolean valid;
         private final String skipReason;
 
-        private ChainInfo(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
-                List<Group> members, List<Group> leaves, boolean valid, String skipReason) {
+        private ChainInfo(List<Expression> conditions, List<Group> members, List<Group> leaves,
+                boolean valid, String skipReason) {
             this.conditions = conditions;
-            this.conditionsNoLiteral = conditionsNoLiteral;
             this.members = members;
             this.leaves = leaves;
             this.valid = valid;
             this.skipReason = skipReason;
         }
 
-        private static ChainInfo of(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
-                List<Group> members, List<Group> leaves) {
-            return new ChainInfo(conditions, conditionsNoLiteral, members, leaves, true, "");
+        private static ChainInfo of(List<Expression> conditions, List<Group> members, List<Group> leaves) {
+            return new ChainInfo(conditions, members, leaves, true, "");
         }
 
         private static ChainInfo failed(String skipReason) {
-            return new ChainInfo(new TreeSet<>(), new TreeSet<>(), new ArrayList<>(), new ArrayList<>(),
-                    false, skipReason);
+            return new ChainInfo(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), false, skipReason);
         }
     }
 
@@ -888,23 +657,20 @@ public class GroupStructInfo {
         }
         Plan plan = ge.getPlan();
         if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
-            TreeSet<String> conditions = new TreeSet<>();
-            TreeSet<String> conditionsNoLiteral = new TreeSet<>();
+            List<Expression> conditions = joinConditions((Join) plan);
             List<Group> members = new ArrayList<>();
             List<Group> leaves = new ArrayList<>();
             members.add(group);
-            collectJoinConditions((Join) plan, conditions, conditionsNoLiteral);
             for (int i = 0; i < ge.arity(); i++) {
                 ChainInfo child = chainInfoOf(ge.child(i));
                 if (!child.valid) {
                     return ChainInfo.failed(child.skipReason);
                 }
-                conditions.addAll(child.conditions);
-                conditionsNoLiteral.addAll(child.conditionsNoLiteral);
+                mergeConditions(conditions, child.conditions);
                 members.addAll(child.members);
                 leaves.addAll(child.leaves);
             }
-            return ChainInfo.of(conditions, conditionsNoLiteral, members, leaves);
+            return ChainInfo.of(conditions, members, leaves);
         }
         // a top-n must not be flattened into the chain although it is a sort: it keeps a bounded number
         // of rows, so it is a boundary of the chain like a limit, and the ordering it keeps them by is
@@ -920,11 +686,11 @@ public class GroupStructInfo {
             List<Group> members = new ArrayList<>();
             members.add(group);
             members.addAll(child.members);
-            return ChainInfo.of(child.conditions, child.conditionsNoLiteral, members, child.leaves);
+            return ChainInfo.of(child.conditions, members, child.leaves);
         }
         List<Group> leaves = new ArrayList<>();
         leaves.add(group);
-        return ChainInfo.of(new TreeSet<>(), new TreeSet<>(), new ArrayList<>(), leaves);
+        return ChainInfo.of(new ArrayList<>(), new ArrayList<>(), leaves);
     }
 
     /**
@@ -980,40 +746,721 @@ public class GroupStructInfo {
         }
     }
 
+    /**
+     * The conditions of a join as expressions, de-duplicated by their literal carrying text - the key the
+     * two per-mode string sets used. The rendering happens once per mode in
+     * {@link #conditions(List, LiteralMode)}, which sorts and de-duplicates each mode on its own, exactly
+     * like the two {@link TreeSet}s did.
+     */
+    private static List<Expression> joinConditions(Join join) {
+        List<Expression> conditions = new ArrayList<>();
+        addConditions(conditions, join.getHashJoinConjuncts());
+        addConditions(conditions, join.getOtherJoinConjuncts());
+        // a mark join carries its correlation condition in the mark conjuncts, and the translator turns
+        // them into the hash condition of the executed null aware join: they decide which rows the node
+        // keeps, so two mark joins which differ only in that condition must not share a key
+        addConditions(conditions, join.getMarkJoinConjuncts());
+        return conditions;
+    }
+
+    private static void addConditions(List<Expression> conditions, Collection<Expression> conjuncts) {
+        mergeConditions(conditions, new ArrayList<>(conjuncts));
+    }
+
+    /** Append the conditions which are not in {@code into} yet, keyed by their literal carrying text. */
+    private static void mergeConditions(List<Expression> into, List<Expression> from) {
+        Set<String> seen = new HashSet<>();
+        for (Expression condition : into) {
+            seen.add(identityText(condition));
+        }
+        for (Expression condition : from) {
+            if (seen.add(identityText(condition))) {
+                into.add(condition);
+            }
+        }
+    }
+
     /** Inner and cross joins may be reordered, reassociated and therefore flattened. */
     private static boolean isFlattenableJoinType(JoinType joinType) {
         return joinType == JoinType.INNER_JOIN || joinType == JoinType.CROSS_JOIN;
     }
 
-    private static void appendAggregate(Aggregate<?> agg, GroupExpression ge, Canonical out, Ctx ctx) {
-        // step 2: only the grouping keys and the child take part - the output row count of an
-        // aggregation is the number of groups, which the aggregate functions and the output
-        // expressions cannot change, so keeping them would only split one plan pattern into several
-        // cache entries
-        Text own = aggregateText(agg);
-        // step 1: its child
-        GroupStructInfo child = describeChild(ge, 0, ctx);
-        if (child == null) {
+    // ------------------------------------------------------------------------------------------
+    // the description of one group: a tree of nodes, and the one renderer of the grammar
+    // ------------------------------------------------------------------------------------------
+
+    /** What a node of a description is; {@link #appendNode} switches on it. */
+    private enum Kind {
+        SCAN, FILE_SCAN, STORAGE_AGGREGATE, FILTER, AGGREGATE, JOIN, TOPN, LIMIT, WINDOW, GENERATE, REPEAT,
+        SET_OPERATION, PASSTHROUGH
+    }
+
+    /**
+     * One node of a description: the information of the group itself, held as objects (an expression
+     * list, a bound, an ordering, a scan descriptor, ...), plus the children it composes. Nothing is
+     * rendered while a node is built: {@link #appendNode} is the only place which knows the grammar, and
+     * it renders the literals in the mode the caller asks for, which is why a node has no "with literal"
+     * and "no literal" variant of its own.
+     */
+    private static final class Node {
+        private final Kind kind;
+        /** FILTER / AGGREGATE / JOIN: the predicates, the grouping keys or the conjuncts. */
+        private List<Expression> conditions;
+        /** JOIN: a flattened inner / cross join chain is rendered as `inner`, like a cross join. */
+        private boolean flattenable;
+        /** JOIN: the type of a join which is not flattened. */
+        private JoinType joinType;
+        /** TOPN / LIMIT: the bound. */
+        private long limit;
+        private long offset;
+        /** TOPN: the ordering which decides which rows survive. */
+        private List<OrderKey> orderKeys;
+        /** WINDOW: the named expressions of the window (each child is the window expression). */
+        private List<NamedExpression> windowExpressions;
+        /** GENERATE: the table functions, whose arguments decide how many rows come out. */
+        private List<Expression> generators;
+        /** REPEAT: the grouping sets, in the order they were written. */
+        private List<List<Expression>> groupingSets;
+        /** SET_OPERATION: the plan node and the operation, which know the kind, the qualifier and more. */
+        private Plan setOperationPlan;
+        private SetOperation setOperation;
+        /** SCAN / FILE_SCAN / STORAGE_AGGREGATE: the token of the relation which is read. */
+        private HboScanDescriptor scan;
+        /** STORAGE_AGGREGATE: the pushed down aggregation. */
+        private PhysicalStorageLayerAggregate storageAggregate;
+        /** The children, in the order the canonical string prints them. */
+        private List<Child> children = new ArrayList<>();
+        /** The rendered forms of this node, filled on the first request of each of them. */
+        private String canonicalWithLiteral;
+        private String canonicalNoLiteral;
+        private String shapeWithLiteral;
+        private String shapeNoLiteral;
+
+        private Node(Kind kind) {
+            this.kind = kind;
+        }
+
+        private String materialized(LiteralMode mode, boolean shape) {
+            if (shape) {
+                return mode == LiteralMode.NO_LITERAL ? shapeNoLiteral : shapeWithLiteral;
+            }
+            return mode == LiteralMode.NO_LITERAL ? canonicalNoLiteral : canonicalWithLiteral;
+        }
+
+        private void setMaterialized(LiteralMode mode, boolean shape, String text) {
+            if (shape) {
+                if (mode == LiteralMode.NO_LITERAL) {
+                    shapeNoLiteral = text;
+                } else {
+                    shapeWithLiteral = text;
+                }
+                return;
+            }
+            if (mode == LiteralMode.NO_LITERAL) {
+                canonicalNoLiteral = text;
+            } else {
+                canonicalWithLiteral = text;
+            }
+        }
+    }
+
+    /**
+     * One child of a node: its description, and whether the sub tree is referenced by another child as
+     * well - such a child writes its canonical form again (a query which reuses a sub tree and a query
+     * which writes it twice share one entry) while its tables are read once, so its scan tokens are
+     * inherited by the first reference only.
+     */
+    private static final class Child {
+        private final Node node;
+        private final boolean repeated;
+
+        private Child(Node node, boolean repeated) {
+            this.node = node;
+            this.repeated = repeated;
+        }
+    }
+
+    // ---------------------------------------------------------------- build (memo level)
+
+    /**
+     * Build the description of one node. Every branch follows the same three steps: the node's own
+     * information is collected as objects, its children are described by {@link #describeChild} (the
+     * memoized description of a child group, never its sub tree again), and both are put into a
+     * {@link Node} - the rendering happens later and elsewhere.
+     */
+    private static Node buildNode(Plan plan, GroupExpression ge, Ctx ctx) {
+        if (!ctx.valid) {
+            return null;
+        }
+        // the order of the checks matters: a top-n is a sort and a window is neither a project nor a
+        // sort, so the boundaries of a join chain are recognised before the transparent operators
+        if (plan instanceof OlapScan) {
+            return scanNode((OlapScan) plan, null, ctx);
+        }
+        if (plan instanceof Filter) {
+            return conditionsNode(Kind.FILTER, ((Filter) plan).getConjuncts(), ge, ctx);
+        }
+        if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
+                || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
+            if (ge.arity() == 0 && plan instanceof PhysicalCTEConsumer) {
+                // the consumer references its producer by id, not by a memo edge: there is no sub tree
+                // to describe here until the producer group is resolved through that id
+                return invalidNode("unsupported=cte consumer without a memo edge", ctx);
+            }
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            // a consumer describes the sub tree it consumes and a producer the sub tree it materializes:
+            // both are transparent
+            return passthroughNode(ge, 0, ctx);
+        }
+        if (plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor) {
+            // the value of an anchor is its consumer side: the producer is the first child and the plan
+            // which consumes it is the second one (LogicalCTEAnchor.computeOutput is right().getOutput())
+            if (ge.arity() < 2) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            return passthroughNode(ge, 1, ctx);
+        }
+        if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
+            return scanNode(null, plan, ctx);
+        }
+        if (plan instanceof PhysicalStorageLayerAggregate) {
+            // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
+            // a catalog relation without children, and its identity is the aggregation together with the
+            // relation it reads. The argument expressions are referenced by expression id there, which is
+            // not stable across queries, so they are left out: they do not change the number of rows this
+            // node produces (one row, the query has no grouping).
+            PhysicalStorageLayerAggregate aggregate = (PhysicalStorageLayerAggregate) plan;
+            Node node = new Node(Kind.STORAGE_AGGREGATE);
+            node.storageAggregate = aggregate;
+            if (aggregate.getRelation() instanceof OlapScan) {
+                node.scan = scanDescriptor((OlapScan) aggregate.getRelation(), ctx);
+                if (node.scan == null) {
+                    return null;
+                }
+            }
+            return node;
+        }
+        if (plan instanceof TopN) {
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            // a top-n keeps its bound and its ordering out of the folding: the bound is written in both
+            // modes so that the constant agnostic form cannot fold two different bounds into one entry,
+            // and the ordering is part of the identity because it decides *which* rows survive
+            TopN topN = (TopN) plan;
+            Node node = new Node(Kind.TOPN);
+            node.limit = topN.getLimit();
+            node.offset = topN.getOffset();
+            node.orderKeys = new ArrayList<>(topN.getOrderKeys());
+            node.children = children(ge, ctx, 0);
+            return node.children == null ? null : node;
+        }
+        if (plan instanceof Limit) {
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            Limit limit = (Limit) plan;
+            Node node = new Node(Kind.LIMIT);
+            node.limit = limit.getLimit();
+            node.offset = limit.getOffset();
+            node.children = children(ge, ctx, 0);
+            return node.children == null ? null : node;
+        }
+        if (plan instanceof Generate) {
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            // a generate expands a row into the rows of its table functions, so its identity is the
+            // identity of those functions: the function and its arguments decide how many rows come out,
+            // and the arguments are rendered with their literals (see identityText)
+            Node node = new Node(Kind.GENERATE);
+            node.generators = new ArrayList<>(((Generate) plan).getGenerators());
+            node.children = children(ge, ctx, 0);
+            return node.children == null ? null : node;
+        }
+        if (plan instanceof Repeat) {
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            // a repeat produces the rows of several grouping sets, so its identity is the list of those
+            // sets; the order of the sets is part of the identity (the grouping id values depend on it)
+            // and is kept as written, while the expressions of one set are sorted (their order does not
+            // change the groups)
+            Node node = new Node(Kind.REPEAT);
+            node.groupingSets = new ArrayList<>();
+            for (List<Expression> set : ((Repeat<?>) plan).getGroupingSets()) {
+                node.groupingSets.add(new ArrayList<>(set));
+            }
+            node.children = children(ge, ctx, 0);
+            return node.children == null ? null : node;
+        }
+        if (plan instanceof Union || plan instanceof Intersect || plan instanceof Except) {
+            return setOperationNode(plan, (SetOperation) plan, ge, ctx);
+        }
+        if (plan instanceof PhysicalDistribute || plan instanceof PhysicalAssertNumRows
+                || plan instanceof Project || plan instanceof Sort) {
+            // an enforcer, a project and a sort are transparent for structure matching: none of them
+            // changes the number of rows, so the nodes above them are described by the shape below and
+            // they must not make the struct info of those nodes disappear
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            return passthroughNode(ge, 0, ctx);
+        }
+        if (plan instanceof Window) {
+            if (ge.arity() != 1) {
+                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+            }
+            // a window computes its columns from the rows of its partition, so its definition decides the
+            // values a node above it reads and is part of the identity; the window itself adds no rows
+            Node node = new Node(Kind.WINDOW);
+            node.windowExpressions = new ArrayList<>(((Window) plan).getWindowExpressions());
+            node.children = children(ge, ctx, 0);
+            return node.children == null ? null : node;
+        }
+        if (plan instanceof Join) {
+            return joinNode((Join) plan, ge, ctx);
+        }
+        if (plan instanceof Aggregate) {
+            // only the grouping keys take part: the output row count of an aggregation is the number of
+            // groups, which the aggregate functions and the output expressions cannot change, so keeping
+            // them would only split one plan pattern into several cache entries
+            return conditionsNode(Kind.AGGREGATE, ((Aggregate<?>) plan).getGroupByExpressions(), ge, ctx);
+        }
+        return invalidNode("unsupported=" + plan.getClass().getSimpleName(), ctx);
+    }
+
+    /** A filter or an aggregation: a header made of its conditions, then its single child. */
+    private static Node conditionsNode(Kind kind, Collection<Expression> conditions, GroupExpression ge,
+            Ctx ctx) {
+        if (ge.arity() != 1) {
+            return invalidNode("arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName(), ctx);
+        }
+        Node node = new Node(kind);
+        node.conditions = new ArrayList<>(conditions);
+        node.children = children(ge, ctx, 0);
+        return node.children == null ? null : node;
+    }
+
+    /**
+     * A join. An inner or cross join is flattened together with every flattenable join below it into one
+     * node whose conditions are the merged conditions of the chain and whose children are the leaves of
+     * the chain (the first sub tree which is not part of it), while an outer / semi / anti / asof join
+     * keeps its type and the memo order of its two sides, because it cannot be reassociated.
+     */
+    private static Node joinNode(Join join, GroupExpression ge, Ctx ctx) {
+        if (!isFlattenableJoinType(join.getJoinType())) {
+            Node node = new Node(Kind.JOIN);
+            node.joinType = join.getJoinType();
+            node.conditions = joinConditions(join);
+            node.children = children(ge, ctx, 0);
+            if (node.children == null) {
+                return null;
+            }
+            for (int i = 1; i < ge.arity(); i++) {
+                List<Child> more = children(ge, ctx, i);
+                if (more == null) {
+                    return null;
+                }
+                node.children.addAll(more);
+            }
+            return node;
+        }
+        return joinChainNode(join, ge, ctx);
+    }
+
+    /**
+     * A whole inner / cross join chain as one node: inner and cross joins are associative and
+     * commutative, so the grouping of the chain is an artifact of the explored expression and must not be
+     * part of the fingerprint. The conditions of every join of the chain are merged (de-duplicated by
+     * their literal carrying text) and the leaves are sorted by their own identity - an order which is
+     * part of the fingerprint and must therefore not depend on a data state.
+     */
+    private static Node joinChainNode(Join join, GroupExpression ge, Ctx ctx) {
+        List<Expression> conditions = joinConditions(join);
+        List<Leaf> leaves = new ArrayList<>();
+        for (int i = 0; i < ge.arity(); i++) {
+            ChainInfo child = chainInfoOf(ge.child(i));
+            if (!child.valid) {
+                return invalidNode(child.skipReason, ctx);
+            }
+            mergeConditions(conditions, child.conditions);
+            if (!composeChain(child, leaves, ctx)) {
+                return null;
+            }
+        }
+        if (!ctx.valid) {
+            return null;
+        }
+        leaves.sort(Comparator.comparing(Leaf::sortKey));
+        Node node = new Node(Kind.JOIN);
+        node.flattenable = true;
+        node.conditions = conditions;
+        for (Leaf leaf : leaves) {
+            node.children.add(new Child(leaf.getLeaf().root(), leaf.isRepeated()));
+        }
+        return node;
+    }
+
+    /** A set operation: its header carries the kind, the qualifier and the compared columns. */
+    private static Node setOperationNode(Plan plan, SetOperation setOperation, GroupExpression ge, Ctx ctx) {
+        Node node = new Node(Kind.SET_OPERATION);
+        node.setOperationPlan = plan;
+        node.setOperation = setOperation;
+        List<GroupStructInfo> branches = describeBranches(ge, ctx);
+        if (branches == null) {
+            return null;
+        }
+        if (plan instanceof Except) {
+            // the first branch is the minuend: it keeps its position, the subtrahends are sorted below
+            node.children.add(new Child(branches.get(0).root(), false));
+            List<GroupStructInfo> subtrahends = new ArrayList<>(branches.subList(1, branches.size()));
+            subtrahends.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
+            for (GroupStructInfo subtrahend : subtrahends) {
+                node.children.add(new Child(subtrahend.root(), false));
+            }
+            return node;
+        }
+        // the branches are sorted because the memo may reorder them
+        List<GroupStructInfo> sorted = new ArrayList<>(branches);
+        sorted.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
+        for (GroupStructInfo branch : sorted) {
+            node.children.add(new Child(branch.root(), false));
+        }
+        return node;
+    }
+
+    /** A node which only composes the child at {@code index} (an enforcer, a project, a CTE edge). */
+    private static Node passthroughNode(GroupExpression ge, int index, Ctx ctx) {
+        Node node = new Node(Kind.PASSTHROUGH);
+        node.children = children(ge, ctx, index);
+        return node.children == null ? null : node;
+    }
+
+    private static Node scanNode(OlapScan olapScan, Plan fileScan, Ctx ctx) {
+        if (olapScan != null) {
+            HboScanDescriptor descriptor = scanDescriptor(olapScan, ctx);
+            if (descriptor == null) {
+                return null;
+            }
+            Node node = new Node(Kind.SCAN);
+            node.scan = descriptor;
+            return node;
+        }
+        TableIf table = fileScan instanceof LogicalFileScan
+                ? ((LogicalFileScan) fileScan).getTable()
+                : ((PhysicalFileScan) fileScan).getTable();
+        String name = HboScanDescriptor.qualifiedNameOf(table);
+        if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
+            // the token delimiters cannot appear in a table name: the printed struct info could not be
+            // read back, and a pasted one could resolve to another table
+            return invalidNode("delimiter in table name " + name, ctx);
+        }
+        Node node = new Node(Kind.FILE_SCAN);
+        node.scan = HboScanDescriptor.ofUnreadableState(table);
+        return node;
+    }
+
+    /** The token of an olap scan, or null when its data state cannot be read. */
+    private static HboScanDescriptor scanDescriptor(OlapScan scan, Ctx ctx) {
+        if (scan instanceof LogicalOlapScan && ((LogicalOlapScan) scan).getTableSample().isPresent()) {
+            // a table sample reads a random subset of the table, and a different one on every execution:
+            // no row count recorded for such a scan can be reused, and a node above it inherits that
+            invalid(ctx, "tablesample of " + scan.getTable().getNameWithFullQualifiers());
+            return null;
+        }
+        try {
+            HboScanDescriptor descriptor = HboScanDescriptor.of(scan);
+            if (descriptor.getTable().indexOf(',') >= 0 || descriptor.getTable().indexOf('}') >= 0) {
+                LOG.debug("scan table {} contains a struct info delimiter, hbo is disabled for it",
+                        descriptor.getTable());
+                invalid(ctx, "delimiter in table name " + descriptor.getTable());
+                return null;
+            }
+            return descriptor;
+        } catch (org.apache.doris.rpc.RpcException e) {
+            // the data state of the table cannot be read (a cloud rpc failure, an external table whose
+            // metadata is not available): the sub tree is not described
+            LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
+            invalid(ctx, "no data state for " + scan.getTable().getNameWithFullQualifiers()
+                    + " (" + e.getMessage() + ")");
+            return null;
+        }
+    }
+
+    /** The children at the given indexes, or null when one of them invalidates this node. */
+    private static List<Child> children(GroupExpression ge, Ctx ctx, int... indexes) {
+        List<Child> children = new ArrayList<>(indexes.length);
+        for (int index : indexes) {
+            GroupStructInfo child = describeChild(ge, index, ctx);
+            if (child == null) {
+                return null;
+            }
+            children.add(new Child(child.root(), false));
+        }
+        return children;
+    }
+
+    private static Node invalidNode(String reason, Ctx ctx) {
+        invalid(ctx, reason);
+        return null;
+    }
+
+    // ---------------------------------------------------------------- render
+
+    /**
+     * Render one form of a description: the canonical string, or its fingerprint input. A node which was
+     * rendered in that form before returns its materialized text, so the sub tree of such a node is not
+     * walked again - a form of a whole query is therefore assembled in time linear in its nodes.
+     */
+    private static String render(Node node, LiteralMode mode, boolean shape) {
+        String materialized = node.materialized(mode, shape);
+        if (materialized != null) {
+            return materialized;
+        }
+        materializedGroupCount.incrementAndGet();
+        StringBuilder out = new StringBuilder(256);
+        appendNode(out, node, mode, shape);
+        String rendered = out.toString();
+        node.setMaterialized(mode, shape, rendered);
+        return rendered;
+    }
+
+    /** The one place which knows the grammar of the canonical string. */
+    private static void appendNode(StringBuilder out, Node node, LiteralMode mode, boolean shape) {
+        switch (node.kind) {
+            case SCAN:
+            case FILE_SCAN:
+                appendScanToken(out, node.scan, shape);
+                return;
+            case STORAGE_AGGREGATE:
+                out.append("A{sl,op=").append(node.storageAggregate.getAggOp()).append("}(");
+                if (node.scan != null) {
+                    appendScanToken(out, node.scan, shape);
+                }
+                out.append(')');
+                return;
+            case FILTER:
+                out.append("F{").append(conditions(node.conditions, mode)).append("}(");
+                appendChildren(out, node, mode, shape);
+                out.append(')');
+                return;
+            case AGGREGATE:
+                out.append("A{gb:").append(conditions(node.conditions, mode)).append("}(");
+                appendChildren(out, node, mode, shape);
+                out.append(')');
+                return;
+            case JOIN:
+                out.append("J{").append(node.flattenable ? "inner" : String.valueOf(node.joinType))
+                        .append(",c:[").append(conditions(node.conditions, mode)).append("]}(");
+                appendChildren(out, node, mode, shape);
+                out.append(')');
+                return;
+            case TOPN:
+                appendTopNHeader(out, node, mode);
+                appendChildren(out, node, mode, shape);
+                return;
+            case LIMIT:
+                out.append(bound("L", node.limit, node.offset));
+                appendChildren(out, node, mode, shape);
+                return;
+            case WINDOW:
+                appendWindowHeader(out, node, mode);
+                appendChildren(out, node, mode, shape);
+                out.append(')');
+                return;
+            case GENERATE:
+                appendGenerateHeader(out, node);
+                appendChildren(out, node, mode, shape);
+                return;
+            case REPEAT:
+                appendRepeatHeader(out, node, mode);
+                appendChildren(out, node, mode, shape);
+                return;
+            case SET_OPERATION:
+                appendSetOperation(out, node, mode, shape);
+                return;
+            case PASSTHROUGH:
+                appendChildren(out, node, mode, shape);
+                return;
+            default:
+                throw new IllegalStateException("unknown node kind " + node.kind);
+        }
+    }
+
+    private static void appendChildren(StringBuilder out, Node node, LiteralMode mode, boolean shape) {
+        for (int i = 0; i < node.children.size(); i++) {
+            if (i > 0) {
+                out.append(SEP);
+            }
+            // a child which was rendered in this form before contributes its materialized text
+            out.append(render(node.children.get(i).node, mode, shape));
+        }
+    }
+
+    private static void appendScanToken(StringBuilder out, HboScanDescriptor descriptor, boolean shape) {
+        out.append("S{").append(shape ? descriptor.getShapeIdentity() : descriptor.render()).append('}');
+    }
+
+    /**
+     * The conditions of a node in one mode: each of them is rendered in that mode, and the rendered texts
+     * are sorted and de-duplicated. Every mode therefore has its own order and its own de-duplication,
+     * which is what the two string sets of the previous implementation did - the literal carrying form of
+     * two conditions can differ while their constant agnostic forms are the same text, and vice versa.
+     */
+    private static String conditions(List<Expression> conditions, LiteralMode mode) {
+        TreeSet<String> rendered = new TreeSet<>();
+        for (Expression condition : conditions) {
+            StringBuilder sb = new StringBuilder();
+            if (mode == LiteralMode.NO_LITERAL) {
+                appendNormalizedExpression(condition, new StringBuilder(), sb);
+            } else {
+                appendNormalizedExpression(condition, sb, new StringBuilder());
+            }
+            rendered.add(sb.toString());
+        }
+        return String.join(SEP, rendered);
+    }
+
+    private static void appendTopNHeader(StringBuilder out, Node node, LiteralMode mode) {
+        out.append("T{").append(node.limit).append(',').append(node.offset).append(";ord:[");
+        boolean first = true;
+        for (OrderKey orderKey : node.orderKeys) {
+            if (!first) {
+                out.append(',');
+            }
+            first = false;
+            appendNormalizedExpression(orderKey.getExpr(), mode, out);
+            out.append(orderKey.isAsc() ? ":asc" : ":desc")
+                    .append(orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
+        }
+        out.append("]}");
+    }
+
+    private static void appendWindowHeader(StringBuilder out, Node node, LiteralMode mode) {
+        out.append("W{");
+        boolean firstExpression = true;
+        for (NamedExpression namedExpression : node.windowExpressions) {
+            // the algebra interface exposes the named expressions; each of them is the alias which gives
+            // the computed column its name, and the window expression is its child
+            WindowExpression windowExpression = (WindowExpression) namedExpression.child(0);
+            if (!firstExpression) {
+                out.append(';');
+            }
+            firstExpression = false;
+            appendNormalizedExpression(windowExpression.getFunction(), mode, out);
+            out.append(";part:[");
+            appendNormalizedList(windowExpression.getPartitionKeys(), mode, out);
+            out.append("];ord:[");
+            boolean firstKey = true;
+            for (OrderExpression orderExpression : windowExpression.getOrderKeys()) {
+                if (!firstKey) {
+                    out.append(',');
+                }
+                firstKey = false;
+                OrderKey orderKey = orderExpression.getOrderKey();
+                appendNormalizedExpression(orderKey.getExpr(), mode, out);
+                out.append(orderKey.isAsc() ? ":asc" : ":desc")
+                        .append(orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
+            }
+            // a frame boundary is a number of rows, so its text does not depend on the mode: folding it
+            // would let a bounded frame share a key with an unbounded one
+            out.append("];frame:[").append(windowExpression.getWindowFrame().map(Object::toString).orElse(""))
+                    .append("]}");
+        }
+        out.append("}(");
+    }
+
+    private static void appendGenerateHeader(StringBuilder out, Node node) {
+        out.append("G{tf:[");
+        for (int i = 0; i < node.generators.size(); i++) {
+            if (i > 0) {
+                out.append(';');
+            }
+            out.append(identityText(node.generators.get(i)));
+        }
+        out.append("]}");
+    }
+
+    private static void appendRepeatHeader(StringBuilder out, Node node, LiteralMode mode) {
+        out.append("R{gs:[");
+        for (int i = 0; i < node.groupingSets.size(); i++) {
+            if (i > 0) {
+                out.append(';');
+            }
+            out.append('[');
+            appendNormalizedSorted(node.groupingSets.get(i), mode, out);
+            out.append(']');
+        }
+        out.append("]}");
+    }
+
+    /**
+     * A set operation: its kind, its qualifier and the columns which decide whether two rows are the
+     * same. The qualifier decides whether the rows are de-duplicated, which changes the row count, so it
+     * is part of the identity; the constant branches the memo moved out of the children are carried by
+     * the header as well, with their literals, because two distinct unions which differ only in their
+     * constants keep a different number of rows.
+     */
+    private static void appendSetOperation(StringBuilder out, Node node, LiteralMode mode, boolean shape) {
+        SetOperation setOperation = node.setOperation;
+        Plan plan = node.setOperationPlan;
+        StringBuilder columns = new StringBuilder();
+        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+            if (i > 0) {
+                columns.append(';');
+            }
+            columns.append(identityText(setOperation.getOutputs().get(i)));
+        }
+        String kind = plan instanceof Union ? "U" : plan instanceof Intersect ? "I" : "E";
+        String qualifier = String.valueOf(setOperation.getQualifier()).toLowerCase();
+        StringBuilder constants = new StringBuilder();
+        if (setOperation instanceof Union) {
+            List<List<NamedExpression>> constantExprsList = ((Union) setOperation).getConstantExprsList();
+            if (!constantExprsList.isEmpty()) {
+                constants.append(",const:[");
+                for (int branch = 0; branch < constantExprsList.size(); branch++) {
+                    if (branch > 0) {
+                        constants.append(';');
+                    }
+                    List<NamedExpression> branchExpressions = constantExprsList.get(branch);
+                    for (int i = 0; i < branchExpressions.size(); i++) {
+                        if (i > 0) {
+                            constants.append(',');
+                        }
+                        constants.append(identityText(branchExpressions.get(i)));
+                    }
+                    constants.append(']');
+                }
+            }
+        }
+        out.append(kind).append('{').append(qualifier).append(",cols:[").append(columns).append(']')
+                .append(constants).append("}(");
+        appendChildren(out, node, mode, shape);
+        out.append(')');
+    }
+
+    /** The scan tokens of a sub tree, in the order their tokens appear in the canonical string. */
+    private static void collectScans(Node node, List<HboScanDescriptor> scans) {
+        if (node.kind == Kind.SCAN || node.kind == Kind.FILE_SCAN) {
+            scans.add(node.scan);
             return;
         }
-        // step 3: assemble in the order the text is printed
-        out.add(own).append(child).same(")");
-    }
-
-    /** The header of an aggregation: its grouping keys, sorted, in both literal modes. */
-    private static Text aggregateText(Aggregate<?> agg) {
-        StringBuilder withLiteral = new StringBuilder("A{gb:");
-        StringBuilder noLiteral = new StringBuilder("A{gb:");
-        appendNormalizedSorted(agg.getGroupByExpressions(), withLiteral, noLiteral);
-        return new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
-    }
-
-    /** The header of a filter: its conjuncts, sorted, in both literal modes. */
-    private static Text filterText(Filter filter) {
-        StringBuilder withLiteral = new StringBuilder("F{");
-        StringBuilder noLiteral = new StringBuilder("F{");
-        appendNormalizedSorted(filter.getConjuncts(), withLiteral, noLiteral);
-        return new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
+        if (node.kind == Kind.STORAGE_AGGREGATE) {
+            if (node.scan != null) {
+                scans.add(node.scan);
+            }
+            return;
+        }
+        for (Child child : node.children) {
+            if (!child.repeated) {
+                // a child which is referenced more than once writes its text again but its tables are
+                // read once, so only the first reference contributes scan tokens
+                collectScans(child.node, scans);
+            }
+        }
     }
 
     /** Mark the description invalid, remembering why (the first reason is the one reported). */
@@ -1024,93 +1471,14 @@ public class GroupStructInfo {
         }
     }
 
-    /**
-     * The header of a top-n: its bound, and the ordering which decides the rows it keeps. The ordering is
-     * rendered in both literal modes like a predicate, with the direction and the null order of every key,
-     * because {@code a asc} and {@code a desc} are not interchangeable for the nodes above (a literal
-     * inside an ordering key changes nothing about the number of rows of the top-n itself, but it can
-     * change which rows reach the node above).
-     */
-    private static void appendTopNHeader(TopN topN, StringBuilder withLiteral, StringBuilder noLiteral) {
-        String head = "T{" + topN.getLimit() + "," + topN.getOffset() + ";ord:[";
-        withLiteral.append(head);
-        noLiteral.append(head);
-        boolean first = true;
-        for (OrderKey orderKey : topN.getOrderKeys()) {
-            if (!first) {
-                withLiteral.append(',');
-                noLiteral.append(',');
-            }
-            first = false;
-            appendNormalizedExpression(orderKey.getExpr(), withLiteral, noLiteral);
-            String direction = (orderKey.isAsc() ? ":asc" : ":desc")
-                    + (orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
-            withLiteral.append(direction);
-            noLiteral.append(direction);
+    /** The same list rendering, for the one mode a node of a description is rendered in. */
+    private static void appendNormalizedList(List<? extends Expression> expressions, LiteralMode mode,
+            StringBuilder out) {
+        if (mode == LiteralMode.NO_LITERAL) {
+            appendNormalizedList(expressions, new StringBuilder(), out);
+        } else {
+            appendNormalizedList(expressions, out, new StringBuilder());
         }
-        withLiteral.append("]}");
-        noLiteral.append("]}");
-    }
-
-    /**
-     * A window computes its columns from the rows of its partition, so its definition decides the values a
-     * node above it reads: `row_number() OVER (PARTITION BY b ORDER BY a) AS rn` and the same expression
-     * partitioned by another column produce the same column name with different values, and a predicate
-     * above them (`rn % 2 = 0`) therefore keeps a different number of rows. The definition is part of the
-     * identity for that reason, while the window itself adds no rows - which is also why it is not a leaf
-     * of a join chain, and why a chain below it is described as its child.
-     */
-    private static void appendWindow(Window window, GroupExpression ge, Canonical out, Ctx ctx) {
-        if (ge.arity() != 1) {
-            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
-            return;
-        }
-        StringBuilder withLiteral = new StringBuilder("W{");
-        StringBuilder noLiteral = new StringBuilder("W{");
-        boolean firstExpression = true;
-        for (NamedExpression namedExpression : window.getWindowExpressions()) {
-            // the algebra interface exposes the named expressions; each of them is the alias which gives
-            // the computed column its name, and the window expression is its child (the same shape
-            // LogicalWindow#getActualWindowExpressions reads)
-            WindowExpression windowExpression = (WindowExpression) namedExpression.child(0);
-            if (!firstExpression) {
-                withLiteral.append(';');
-                noLiteral.append(';');
-            }
-            firstExpression = false;
-            appendNormalizedExpression(windowExpression.getFunction(), withLiteral, noLiteral);
-            withLiteral.append(";part:[");
-            noLiteral.append(";part:[");
-            appendNormalizedList(windowExpression.getPartitionKeys(), withLiteral, noLiteral);
-            withLiteral.append("];ord:[");
-            noLiteral.append("];ord:[");
-            boolean firstKey = true;
-            for (OrderExpression orderExpression : windowExpression.getOrderKeys()) {
-                if (!firstKey) {
-                    withLiteral.append(',');
-                    noLiteral.append(',');
-                }
-                firstKey = false;
-                OrderKey orderKey = orderExpression.getOrderKey();
-                appendNormalizedExpression(orderKey.getExpr(), withLiteral, noLiteral);
-                String direction = (orderKey.isAsc() ? ":asc" : ":desc")
-                        + (orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
-                withLiteral.append(direction);
-                noLiteral.append(direction);
-            }
-            // a frame boundary is a number of rows, so its text is the same in both modes: folding it
-            // would let a bounded frame share a key with an unbounded one
-            String frame = windowExpression.getWindowFrame().map(Object::toString).orElse("");
-            withLiteral.append("];frame:[").append(frame).append("]}");
-            noLiteral.append("];frame:[").append(frame).append("]}");
-        }
-        // step 2: the node's own information, step 1: its child, step 3: assemble
-        Text own = new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
-        GroupStructInfo child = describeChild(ge, 0, ctx);
-        if (child == null) {
-            return;
-        }
-        out.add(own).append(child).same(")");
     }
 
     /** Append a comma separated list of normalized expressions (both literal modes). */
@@ -1125,20 +1493,6 @@ public class GroupStructInfo {
             first = false;
             appendNormalizedExpression(expression, withLiteral, noLiteral);
         }
-    }
-
-    /** The header of a top-n: its bound and the ordering which decides the rows it keeps. */
-    private static Text topNText(TopN topN) {
-        StringBuilder withLiteral = new StringBuilder();
-        StringBuilder noLiteral = new StringBuilder();
-        appendTopNHeader(topN, withLiteral, noLiteral);
-        return new Text(withLiteral.toString(), noLiteral.toString());
-    }
-
-    /** The bound of a limit: the same text in both modes, a bound is never folded. */
-    private static Text limitText(Limit limit) {
-        String text = bound("L", limit.getLimit(), limit.getOffset());
-        return new Text(text, text);
     }
 
     /**
@@ -1164,146 +1518,6 @@ public class GroupStructInfo {
     }
 
     /**
-     * A generate expands a row into the rows of its table functions, so its identity is the identity of
-     * those functions: the function and its arguments decide how many rows come out. A literal inside an
-     * argument does change that number (`split(x, ',')` is not `split(x, ';')`), so the arguments are
-     * rendered in both modes with their literal, and the `_outer` variants are distinguished by the
-     * function name itself.
-     */
-    private static void appendGenerate(Generate generate, GroupExpression ge, Canonical out, Ctx ctx) {
-        if (ge.arity() != 1) {
-            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
-            return;
-        }
-        StringBuilder functions = new StringBuilder();
-        for (int i = 0; i < generate.getGenerators().size(); i++) {
-            if (i > 0) {
-                functions.append(';');
-            }
-            functions.append(identityText(generate.getGenerators().get(i)));
-        }
-        // step 2: the node's own information (the same text in both modes, see the javadoc above)
-        Text own = new Text("G{tf:[" + functions + "]}", "G{tf:[" + functions + "]}");
-        // step 1: its child
-        GroupStructInfo child = describeChild(ge, 0, ctx);
-        if (child == null) {
-            return;
-        }
-        // step 3: assemble in the order the text is printed
-        out.add(own).append(child);
-    }
-
-    /**
-     * A repeat produces the rows of several grouping sets, so its identity is the list of those sets.
-     * The order of the sets is part of the identity (the grouping id values depend on it) and is kept as
-     * written; the expressions of one set are sorted, because their order does not change the groups.
-     */
-    private static void appendRepeat(Repeat<?> repeat, GroupExpression ge, Canonical out, Ctx ctx) {
-        if (ge.arity() != 1) {
-            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
-            return;
-        }
-        StringBuilder withLiteral = new StringBuilder("R{gs:[");
-        StringBuilder noLiteral = new StringBuilder("R{gs:[");
-        List<List<Expression>> groupingSets = repeat.getGroupingSets();
-        for (int i = 0; i < groupingSets.size(); i++) {
-            if (i > 0) {
-                withLiteral.append(';');
-                noLiteral.append(';');
-            }
-            withLiteral.append('[');
-            noLiteral.append('[');
-            appendNormalizedSorted(groupingSets.get(i), withLiteral, noLiteral);
-            withLiteral.append(']');
-            noLiteral.append(']');
-        }
-        // step 2: the node's own information, step 1: its child, step 3: assemble
-        Text own = new Text(withLiteral.append("]}").toString(), noLiteral.append("]}").toString());
-        GroupStructInfo child = describeChild(ge, 0, ctx);
-        if (child == null) {
-            return;
-        }
-        out.add(own).append(child);
-    }
-
-    /**
-     * The identity of a set operation is its kind, its qualifier and the columns which decide whether two
-     * rows are the same (the outputs): a project is transparent, so two plans which differ only in the
-     * columns they compare would otherwise share an entry although their row counts differ. The branches
-     * are sorted, because the memo may reorder them; an except keeps its first branch (the minuend),
-     * the other ones are the subtrahends and therefore order insensitive.
-     */
-    private static void appendSetOperation(Plan plan, SetOperation setOperation, GroupExpression ge,
-            Canonical out, Ctx ctx) {
-        StringBuilder columns = new StringBuilder();
-        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
-            if (i > 0) {
-                columns.append(';');
-            }
-            columns.append(identityText(setOperation.getOutputs().get(i)));
-        }
-        String kind = plan instanceof Union ? "U" : plan instanceof Intersect ? "I" : "E";
-        // the qualifier decides whether the rows of the operation are deduplicated, which changes the
-        // row count, so it is part of the identity (an all and a distinct operation never share an entry)
-        String qualifier = String.valueOf(setOperation.getQualifier()).toLowerCase();
-        // MergeOneRowRelationIntoUnion moves the constant SELECT branches out of the children: they are not
-        // in the memo any more, and this header is the only place which can carry them. They belong to the
-        // identity - two distinct unions which differ only in their constants keep a different number of
-        // rows - so their values are written in both modes: folding them would let the two share a key.
-        StringBuilder constants = new StringBuilder();
-        if (setOperation instanceof Union) {
-            List<List<NamedExpression>> constantExprsList = ((Union) setOperation).getConstantExprsList();
-            if (!constantExprsList.isEmpty()) {
-                constants.append(",const:[");
-                for (int branch = 0; branch < constantExprsList.size(); branch++) {
-                    if (branch > 0) {
-                        constants.append(';');
-                    }
-                    List<NamedExpression> branchExpressions = constantExprsList.get(branch);
-                    for (int i = 0; i < branchExpressions.size(); i++) {
-                        if (i > 0) {
-                            constants.append(',');
-                        }
-                        StringBuilder withLiteral = new StringBuilder();
-                        StringBuilder noLiteral = new StringBuilder();
-                        appendNormalizedExpression(branchExpressions.get(i), withLiteral, noLiteral);
-                        constants.append(withLiteral);
-                    }
-                    constants.append(']');
-                }
-            }
-        }
-        String header = kind + "{" + qualifier + ",cols:[" + columns + "]" + constants + "}";
-        // step 1: describe every branch (the header above is this node's own information)
-        List<GroupStructInfo> branches = describeBranches(ge, ctx);
-        if (branches == null) {
-            return;
-        }
-        out.addText(header, header);
-        out.addText("(", "(");
-        if (plan instanceof Except) {
-            // the first branch is the minuend: it keeps its position, the subtrahends are sorted below
-            out.append(branches.get(0));
-            List<GroupStructInfo> subtrahends = new ArrayList<>(branches.subList(1, branches.size()));
-            subtrahends.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
-            for (GroupStructInfo subtrahend : subtrahends) {
-                out.addText(";", ";");
-                out.append(subtrahend);
-            }
-        } else {
-            List<GroupStructInfo> sorted = new ArrayList<>(branches);
-            sorted.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
-            for (int i = 0; i < sorted.size(); i++) {
-                if (i > 0) {
-                    out.addText(";", ";");
-                }
-                out.append(sorted.get(i));
-            }
-        }
-        out.addText(")", ")");
-    }
-
-    /**
      * Render an expression for the identity of an operator whose row count depends on its literals (a
      * table function argument, the compared columns of a set operation): the WITH_LITERAL rendering is
      * written into both modes, so that the NO_LITERAL folding cannot merge two different values into one
@@ -1313,53 +1527,6 @@ public class GroupStructInfo {
         StringBuilder withLiteral = new StringBuilder();
         appendNormalizedExpression(expression, withLiteral, new StringBuilder());
         return withLiteral.toString();
-    }
-
-    /** Describe a scan of an external table: its token carries the table name and no data state. */
-    private static void appendFileScan(Plan plan, Canonical out, Ctx ctx) {
-        TableIf table = plan instanceof LogicalFileScan
-                ? ((LogicalFileScan) plan).getTable()
-                : ((PhysicalFileScan) plan).getTable();
-        String name = HboScanDescriptor.qualifiedNameOf(table);
-        if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
-            // the token delimiters cannot appear in a table name: the printed struct info could not be
-            // read back, and a pasted one could resolve to another table
-            invalid(ctx, "delimiter in table name " + name);
-            return;
-        }
-        out.scan(HboScanDescriptor.ofUnreadableState(table));
-    }
-
-    private static void appendScan(OlapScan scan, Canonical out, Ctx ctx) {
-        if (scan instanceof LogicalOlapScan && ((LogicalOlapScan) scan).getTableSample().isPresent()) {
-            // a table sample reads a random subset of the table, and a different one on every execution:
-            // no row count recorded for such a scan can be reused, and a node above it inherits that
-            invalid(ctx, "tablesample of " + scan.getTable().getNameWithFullQualifiers());
-            return;
-        }
-        try {
-            // the scan token is the table plus the data state of the scan (baseline). Its shape form
-            // is the table alone and is written by this very call, so the fingerprint input is never
-            // derived by parsing the canonical string: no table name and no literal value can be
-            // mistaken for a scan token.
-            HboScanDescriptor descriptor = HboScanDescriptor.of(scan);
-            if (descriptor.getTable().indexOf(',') >= 0 || descriptor.getTable().indexOf('}') >= 0) {
-                // the token delimiters cannot appear in a table name: the printed struct info could
-                // not be read back, and a pasted one could resolve to another table
-                LOG.debug("scan table {} contains a struct info delimiter, hbo is disabled for it",
-                        descriptor.getTable());
-                invalid(ctx, "delimiter in table name " + descriptor.getTable());
-                return;
-            }
-            out.scan(descriptor);
-        } catch (org.apache.doris.rpc.RpcException e) {
-            // the data state of the table cannot be read (a cloud rpc failure, an external table whose
-            // metadata is not available): the sub tree is not described, and the entry of a node above it
-            // is not applied
-            LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
-            invalid(ctx, "no data state for " + scan.getTable().getNameWithFullQualifiers()
-                    + " (" + e.getMessage() + ")");
-        }
     }
 
     /**
@@ -1422,27 +1589,22 @@ public class GroupStructInfo {
         noLiteral.append(String.join(SEP, noLiteralParts));
     }
 
+    /** The same sorted rendering, for the one mode a node of a description is rendered in. */
+    private static void appendNormalizedSorted(Collection<Expression> conjuncts, LiteralMode mode,
+            StringBuilder out) {
+        if (mode == LiteralMode.NO_LITERAL) {
+            appendNormalizedSorted(conjuncts, new StringBuilder(), out);
+        } else {
+            appendNormalizedSorted(conjuncts, out, new StringBuilder());
+        }
+    }
+
     /**
      * Collect both forms of the conditions of one join node (hash and other conjuncts) as sorted, de
      * duplicated sets, normalizing every conjunct once: whether a given conjunct is classified as a
      * hash conjunct or as an other conjunct depends on the grouping of the chain, so that
      * classification cannot be part of a canonical form that has to be insensitive to the grouping.
      */
-    private static void collectJoinConditions(Join join,
-            Set<String> conditions, Set<String> conditionsNoLiteral) {
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            addCondition(conjunct, conditions, conditionsNoLiteral);
-        }
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            addCondition(conjunct, conditions, conditionsNoLiteral);
-        }
-        // a mark join carries its correlation condition in the mark conjuncts, and the translator turns
-        // them into the hash condition of the executed null aware join: they decide which rows the node
-        // keeps, so two mark joins which differ only in that condition must not share a key
-        for (Expression conjunct : join.getMarkJoinConjuncts()) {
-            addCondition(conjunct, conditions, conditionsNoLiteral);
-        }
-    }
 
     private static void addCondition(Expression conjunct,
             Set<String> conditions, Set<String> conditionsNoLiteral) {
@@ -1669,6 +1831,15 @@ public class GroupStructInfo {
         }
     }
 
+    /** The same rendering, for the one mode a node of a description is rendered in. */
+    private static void appendNormalizedExpression(Expression expression, LiteralMode mode, StringBuilder out) {
+        if (mode == LiteralMode.NO_LITERAL) {
+            appendNormalizedExpression(expression, new StringBuilder(), out);
+        } else {
+            appendNormalizedExpression(expression, out, new StringBuilder());
+        }
+    }
+
     /**
      * Equal-to (including its null safe form) and boolean and/or are commutative; everything else
      * keeps its operand order.
@@ -1885,164 +2056,4 @@ public class GroupStructInfo {
         private final Set<Group> visited = new HashSet<>();
     }
 
-    /**
-     * The rope of one group: a text fragment (its two literal forms) or a reference to the
-     * description of a child. Materializing a form walks the pieces and copies the strings, it never
-     * parses them, and it takes the materialized string of a child when that child already has it.
-     */
-    private interface Piece {
-        void appendTo(StringBuilder out, LiteralMode mode, boolean shape);
-    }
-
-    /** A fragment of text: the same structure in both forms, the literals differ per mode. */
-    private static final class Text implements Piece {
-        private final String withLiteral;
-        private final String noLiteral;
-
-        Text(String withLiteral, String noLiteral) {
-            this.withLiteral = withLiteral;
-            this.noLiteral = noLiteral;
-        }
-
-        String getWithLiteral() {
-            return withLiteral;
-        }
-
-        String getNoLiteral() {
-            return noLiteral;
-        }
-
-        @Override
-        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-            out.append(mode == LiteralMode.NO_LITERAL ? noLiteral : withLiteral);
-        }
-    }
-
-    /** The scan token of a scan group: the only piece which differs between the two forms. */
-    private static final class ScanToken implements Piece {
-        private final HboScanDescriptor descriptor;
-
-        ScanToken(HboScanDescriptor descriptor) {
-            this.descriptor = descriptor;
-        }
-
-        HboScanDescriptor getDescriptor() {
-            return descriptor;
-        }
-
-        @Override
-        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-            // the identity of a scan is the table plus the partitions it selects: two explicit
-            // partition selections of one table read different data and must not share a key
-            out.append("S{").append(shape ? descriptor.getShapeIdentity() : descriptor.render()).append('}');
-        }
-    }
-
-    /** A child sub tree. */
-    private static final class Child implements Piece {
-        private final GroupStructInfo child;
-        private final boolean repeated;
-
-        Child(GroupStructInfo child, boolean repeated) {
-            this.child = child;
-            this.repeated = repeated;
-        }
-
-        GroupStructInfo getChild() {
-            return child;
-        }
-
-        @Override
-        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-            String materialized = child.materialized(mode, shape);
-            if (materialized != null) {
-                // the child is already materialized in this form: copy it instead of walking its own
-                // pieces again (and therefore without touching its grand children)
-                out.append(materialized);
-                return;
-            }
-            child.appendTo(out, mode, shape);
-        }
-    }
-
-    /**
-     * The rope a build assembles: the pieces of one group, plus the scans of its whole sub tree in
-     * the order their tokens appear (a caller which compares them with the scans of another struct
-     * info has to see the same order the printed struct info has, which is not always the build order
-     * because a join chain prints its leaves sorted).
-     */
-    private static class Canonical {
-        private final List<Piece> pieces = new ArrayList<>();
-        private final List<HboScanDescriptor> scans = new ArrayList<>();
-
-        /** A fragment which is the same in every form (structure, separator). */
-        Canonical same(String text) {
-            return addText(text, text);
-        }
-
-        /** A fragment which differs between the literal modes (a literal carrying expression). */
-        Canonical modes(String withLiteral, String noLiteral) {
-            return addText(withLiteral, noLiteral);
-        }
-
-        /** The information of one node of the traversal, as the pair both literal modes need. */
-        Canonical add(Text text) {
-            return addText(text.getWithLiteral(), text.getNoLiteral());
-        }
-
-        /** The scan token of a scan group. */
-        Canonical scan(HboScanDescriptor descriptor) {
-            pieces.add(new ScanToken(descriptor));
-            scans.add(descriptor);
-            return this;
-        }
-
-        /**
-         * Compose the description of a child (or of a join chain leaf): the rope only records the
-         * reference, and the scans of the child are inherited in token order.
-         */
-        Canonical append(GroupStructInfo child) {
-            return append(child, false);
-        }
-
-        /**
-         * Compose a child which is referenced more than once: its canonical form is written again (so
-         * that a query which reuses a sub tree and a query which writes it twice share one entry), but
-         * its tables are read once, so its scans are inherited by the first reference only.
-         */
-        Canonical append(GroupStructInfo child, boolean repeated) {
-            if (child.isValid()) {
-                pieces.add(new Child(child, repeated));
-                if (!repeated) {
-                    scans.addAll(child.getScans());
-                }
-            }
-            return this;
-        }
-
-        private Canonical addText(String withLiteral, String noLiteral) {
-            if (withLiteral.isEmpty() && noLiteral.isEmpty()) {
-                return this;
-            }
-            Piece last = pieces.isEmpty() ? null : pieces.get(pieces.size() - 1);
-            if (last instanceof Text) {
-                // merge neighbouring text, so that a layer of structure does not become a long list
-                // of one character pieces
-                Text previous = (Text) last;
-                pieces.set(pieces.size() - 1, new Text(previous.getWithLiteral() + withLiteral,
-                        previous.getNoLiteral() + noLiteral));
-                return this;
-            }
-            pieces.add(new Text(withLiteral, noLiteral));
-            return this;
-        }
-
-        List<Piece> getPieces() {
-            return pieces;
-        }
-
-        List<HboScanDescriptor> getScans() {
-            return scans;
-        }
-    }
 }
