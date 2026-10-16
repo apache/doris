@@ -24,8 +24,35 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
+
+    @Test
+    public void testInvertedIndexPhraseDefaultsFollowTokenization() {
+        Index exact = new Index(1, "exact", List.of("col"), IndexType.INVERTED, Map.of(), "");
+        Assertions.assertFalse(exact.getProperties().containsKey("support_phrase"));
+
+        Index keyword = new Index(2, "keyword", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "none"), "");
+        Assertions.assertFalse(keyword.getProperties().containsKey("support_phrase"));
+
+        Index normalized = new Index(3, "normalized", List.of("col"), IndexType.INVERTED,
+                Map.of("normalizer", "lowercase"), "");
+        Assertions.assertFalse(normalized.getProperties().containsKey("support_phrase"));
+
+        Index parsed = new Index(4, "parsed", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        Assertions.assertEquals("true", parsed.getProperties().get("support_phrase"));
+
+        Index analyzed = new Index(5, "analyzed", List.of("col"), IndexType.INVERTED,
+                Map.of("analyzer", "english"), "");
+        Assertions.assertEquals("true", analyzed.getProperties().get("support_phrase"));
+
+        Index disabled = new Index(6, "disabled", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "english", "support_phrase", "false"), "");
+        Assertions.assertEquals("false", disabled.getProperties().get("support_phrase"));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {
