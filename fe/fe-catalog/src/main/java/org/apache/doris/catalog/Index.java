@@ -74,7 +74,11 @@ public class Index implements Writable {
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
         if (indexType == IndexType.INVERTED) {
-            this.properties.putIfAbsent(InvertedIndexProperties.INVERTED_INDEX_SUPPORT_PHRASE_KEY, "true");
+            boolean analyzed = !InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE
+                    .equalsIgnoreCase(getInvertedIndexParser())
+                    || !InvertedIndexProperties.getPreferredAnalyzer(this.properties).isEmpty();
+            this.properties.putIfAbsent(InvertedIndexProperties.INVERTED_INDEX_SUPPORT_PHRASE_KEY,
+                    Boolean.toString(analyzed));
             if (this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY)
                     || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
                 String lowerCaseKey = InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY;

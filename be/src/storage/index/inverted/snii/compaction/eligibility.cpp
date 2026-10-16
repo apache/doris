@@ -133,8 +133,9 @@ Status resolve_destination_analyzer(const TabletIndex& destination_index,
 Status validate_destination_policy(const TabletIndex& destination_index,
                                    const AnalyzerProviderFactory& analyzer_provider_factory) {
     const auto& properties = destination_index.properties();
-    if (get_parser_phrase_support_string_from_properties(properties) !=
-        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+    if (properties.contains(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) &&
+        get_parser_phrase_support_string_from_properties(properties) !=
+                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
         return reject("destination does not request phrase positions");
     }
     if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)) {

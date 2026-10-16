@@ -121,7 +121,9 @@ std::string get_parser_phrase_support_string_from_properties(
         it != properties.end()) {
         return it->second;
     }
-    return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)
+                   ? INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
+                   : INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
 }
 
 bool should_write_index_norms(const TabletIndex& index_meta) {
