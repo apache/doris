@@ -23,9 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
-import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -103,7 +101,7 @@ class IvmDeltaRewriteState {
             LogicalOlapScan scan = (LogicalOlapScan) node;
             OlapTable table = (OlapTable) scan.getTable();
             planTables.add(table);
-            if (isExcludedTriggerTable(scan, excludedTriggerTables)) {
+            if (IvmUtil.isExcludedTriggerTable(excludedTriggerTables, scan)) {
                 return;
             }
             streams.put(table, IvmUtil.getIvmStream(ctx.getMtmv(), table));
@@ -193,17 +191,6 @@ class IvmDeltaRewriteState {
             readablePartitionIds.sort(Long::compareTo);
             windowPartitionIdsByTable.put(table, readablePartitionIds);
         }
-    }
-
-    private static boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
-        if (excludedTriggerTables == null || excludedTriggerTables.isEmpty()) {
-            return false;
-        }
-        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(scan.getTable());
-        if (tableNameInfo == null) {
-            return false;
-        }
-        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
     }
 
     /**
