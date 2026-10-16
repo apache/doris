@@ -83,15 +83,31 @@ public final class NereidsToConnectorExpressionConverter {
     /** Convert a Nereids predicate to a neutral {@link ConnectorExpression}, or {@code null} if not
      * representable in the legacy iceberg conflict matrix (a safe over-approximation). */
     public static ConnectorExpression convert(Expression expr) {
+        return convert(expr, false);
+    }
+
+    /**
+     * Strict variant of {@link #convert}: it refuses to <i>drop</i> anything. The loose variant is a safe
+     * over-approximation for its consumers (a dropped {@code AND} arm only widens a conflict-detection filter),
+     * but the whole-file "metadata delete" fast path consumes the result as the <i>exact</i> statement predicate:
+     * a dropped conjunct would widen the delete and drop data files that still hold live rows. Strict mode
+     * therefore collapses the whole expression to {@code null} — "not usable" — as soon as any node outside the
+     * matrix is met, so the caller falls back to the row-level path instead of guessing.
+     */
+    public static ConnectorExpression convertStrict(Expression expr) {
+        return convert(expr, true);
+    }
+
+    private static ConnectorExpression convert(Expression expr, boolean strict) {
         if (expr == null) {
             return null;
         }
         if (expr instanceof And) {
-            return convertAnd((And) expr);
+            return convertAnd((And) expr, strict);
         } else if (expr instanceof Or) {
-            return convertOr((Or) expr);
+            return convertOr((Or) expr, strict);
         } else if (expr instanceof Not) {
-            ConnectorExpression child = convert(((Not) expr).child());
+            ConnectorExpression child = convert(((Not) expr).child(), strict);
             return child == null ? null : new ConnectorNot(child);
         } else if (expr instanceof EqualTo) {
             return convertComparison(expr, ConnectorComparison.Operator.EQ);
@@ -114,9 +130,12 @@ public final class NereidsToConnectorExpressionConverter {
         return null;
     }
 
-    private static ConnectorExpression convertAnd(And and) {
+    private static ConnectorExpression convertAnd(And and, boolean strict) {
         List<ConnectorExpression> conjuncts = new ArrayList<>();
-        flattenAnd(and, conjuncts);
+        boolean complete = flattenAnd(and, conjuncts, strict);
+        if (!complete) {
+            return null;
+        }
         conjuncts.removeIf(c -> c == null);
         if (conjuncts.isEmpty()) {
             return null;
@@ -124,34 +143,42 @@ public final class NereidsToConnectorExpressionConverter {
         return conjuncts.size() == 1 ? conjuncts.get(0) : new ConnectorAnd(conjuncts);
     }
 
-    private static void flattenAnd(Expression expr, List<ConnectorExpression> out) {
+    private static boolean flattenAnd(Expression expr, List<ConnectorExpression> out, boolean strict) {
         if (expr instanceof And) {
             for (Expression child : expr.children()) {
-                flattenAnd(child, out);
+                if (!flattenAnd(child, out, strict)) {
+                    return false;
+                }
             }
+            return true;
         } else {
-            out.add(convert(expr));
+            ConnectorExpression converted = convert(expr, strict);
+            if (converted == null && strict) {
+                return false;
+            }
+            out.add(converted);
+            return true;
         }
     }
 
-    private static ConnectorExpression convertOr(Or or) {
+    private static ConnectorExpression convertOr(Or or, boolean strict) {
         List<ConnectorExpression> disjuncts = new ArrayList<>();
-        if (!flattenOr(or, disjuncts) || disjuncts.isEmpty()) {
+        if (!flattenOr(or, disjuncts, strict) || disjuncts.isEmpty()) {
             return null;
         }
         return disjuncts.size() == 1 ? disjuncts.get(0) : new ConnectorOr(disjuncts);
     }
 
-    private static boolean flattenOr(Expression expr, List<ConnectorExpression> out) {
+    private static boolean flattenOr(Expression expr, List<ConnectorExpression> out, boolean strict) {
         if (expr instanceof Or) {
             for (Expression child : expr.children()) {
-                if (!flattenOr(child, out)) {
+                if (!flattenOr(child, out, strict)) {
                     return false;
                 }
             }
             return true;
         }
-        ConnectorExpression c = convert(expr);
+        ConnectorExpression c = convert(expr, strict);
         if (c == null) {
             return false;
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
@@ -34,7 +35,10 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.OptionalLong;
 import java.util.concurrent.Callable;
 
 /**
@@ -52,6 +56,8 @@ import java.util.concurrent.Callable;
  * own (those stay on the dispatching commands, preserving their per-op differences).</p>
  */
 public class RowLevelDmlCommand {
+
+    private static final Logger LOG = LogManager.getLogger(RowLevelDmlCommand.class);
 
     private final RowLevelDmlTransform transform;
     private final RowLevelDmlArgs args;
@@ -83,6 +89,19 @@ public class RowLevelDmlCommand {
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
                 stmtExecutor.setPlanner(planner);
                 stmtExecutor.checkBlockRules();
+
+                // Whole-file metadata delete (Spark/StarRocks-style): when the connector can satisfy the DELETE
+                // by dropping whole data files, it commits that remote metadata operation here and the
+                // row-level scan/sink never runs. Skipped for a PARTITION(...) scope, whose row restriction is
+                // carried by the scan rather than by the statement predicate the connector receives.
+                if (op == RowLevelDmlOp.DELETE && args.getPartitions().isEmpty() && !args.isTempPart()) {
+                    OptionalLong metadataDeletedRows =
+                            transform.deleteUsingMetadata(ctx, args, planner.getAnalyzedPlan());
+                    if (metadataDeletedRows.isPresent()) {
+                        reportMetadataDelete(ctx, table, metadataDeletedRows.getAsLong());
+                        return null;
+                    }
+                }
 
                 PhysicalSink<?> physicalSink = transform.requirePhysicalSink(planner, op);
                 PlanFragment fragment = planner.getFragments().get(0);
@@ -179,5 +198,24 @@ public class RowLevelDmlCommand {
     private static boolean childIsEmptyRelation(PhysicalSink<?> sink) {
         return sink.children() != null && sink.children().size() == 1
                 && sink.child(0) instanceof PhysicalEmptyRelation;
+    }
+
+    /**
+     * Publishes the result of a whole-file metadata delete. The connector has already committed the remote
+     * delete as one atomic metadata operation, so no coordinator or connector transaction is involved here:
+     * mirror the surfaces the row-level path's {@code afterExec} feeds — {@link org.apache.doris.qe.QueryState}
+     * for the client's "Query OK, N rows affected" and the fe.audit.log return-rows counter — plus its
+     * post-commit refresh, which a remote commit needs so later queries do not read a stale cached snapshot.
+     */
+    private static void reportMetadataDelete(ConnectContext ctx, TableIf table, long deletedRows) {
+        ctx.getState().setOk(deletedRows, 0, "{'status':'COMMITTED'}");
+        ctx.updateReturnRows((int) deletedRows);
+        try {
+            Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation((ExternalTable) table);
+        } catch (Exception e) {
+            // The remote delete is already durable: a refresh failure must not make the client retry it.
+            LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                    table.getName(), e);
+        }
     }
 }
