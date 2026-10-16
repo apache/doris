@@ -32,6 +32,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 //import org.apache.commons.lang3.StringUtils;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -87,8 +88,13 @@ public class AlterComputeGroupCommand extends AlterCommand {
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        // MS replaces the whole property map, so send current (timeout rule already applied
+        // by validate) overlaid with the user input, not just the changed keys
+        Map<String, String> merged = new LinkedHashMap<>(
+                cloudSys.getComputeGroupByName(computeGroupName).getProperties());
+        merged.putAll(properties);
         // send rpc to ms
-        cloudSys.alterComputeGroupProperties(computeGroupName, properties);
+        cloudSys.alterComputeGroupProperties(computeGroupName, merged);
     }
 
     @Override

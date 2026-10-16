@@ -42,7 +42,6 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
-import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -398,6 +397,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table's connector carries stable field ids down its column tree, so
+     * {@code SlotTypeReplacer} may rewrite nested access paths from names to those ids. Separate from
+     * {@link #supportsNestedColumnPrune()} because the two answers differ: paimon and fluss honour a pruned
+     * nested type but have no field ids, and rewriting their paths would produce {@code "-1"} segments BE
+     * matches against nothing.
+     */
+    public boolean usesFieldIdAccessPath() {
+        return hasCapability(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH);
+    }
+
+    /**
      * Returns whether THIS table supports {@code ALTER TABLE} column schema-change DDL (including dotted
      * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op
      * validation consults this (in place of the legacy exact-class {@code IcebergExternalTable} gate) to admit
@@ -462,7 +472,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /** The connector-declared per-table capability set, from the cached schema; empty on any miss. */
-    private Set<ConnectorCapability> tableCapabilities() {
+    protected Set<ConnectorCapability> tableCapabilities() {
         makeSureInitialized();
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableCapabilities())
@@ -538,28 +548,35 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .orElse(false);
     }
 
-    /** Returns this table's connector-owned write distribution, or empty for generic planning. */
-    public Optional<ConnectorWriteDistribution> getConnectorWriteDistribution() {
+    /** Resolves all objects and traits used to plan one physical connector write in one metadata view. */
+    public ConnectorWritePlanContext resolveWritePlanContext() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return Optional.empty();
+            throw new DorisConnectorException("Write target is not backed by a plugin-driven catalog: "
+                    + getName());
         }
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         if (connector == null) {
-            return Optional.empty();
+            throw new DorisConnectorException("Connector is unavailable for write target " + getName());
         }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
-        if (!handle.isPresent()) {
-            return Optional.empty();
-        }
-        ConnectorWritePlanProvider provider = writePlanProvider(connector, handle.get());
-        if (provider == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(withPluginContextClassLoader(provider,
-                () -> provider.getWriteDistribution(session, handle.get())));
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve connector table handle for write target " + getName()));
+            ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+            if (provider == null) {
+                throw new DorisConnectorException(
+                        "Connector does not provide a write plan for target " + getName());
+            }
+            return withPluginContextClassLoader(provider, () -> new ConnectorWritePlanContext(
+                    session, metadata, handle, provider,
+                    provider.getWriteDistribution(session, handle), provider.requiresParallelWrite(),
+                    provider.requiresPartitionLocalSort(), provider.requiresPartitionHashWrite(),
+                    provider.requiresFullSchemaWriteOrder(),
+                    ConnectContext.get().getStatementContext().getBeExecVersion()));
+        });
     }
 
     /**
@@ -633,7 +650,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorSession session = buildSchemaSession(pluginCatalog);
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
             String dbName = db != null ? db.getRemoteName() : "";
@@ -657,8 +674,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
             return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
         } finally {
-            session.getStatementScope().closeAll();
+            closeSchemaSession(session);
         }
+    }
+
+    /**
+     * The session used while binding this table's schema. Persisted base tables fill a cross-statement
+     * schema cache, so their default is an operation-local scope. Transient system relations override
+     * this to borrow the live SQL statement scope that their later hidden-column and scan paths also use.
+     */
+    protected ConnectorSession buildSchemaSession(PluginDrivenExternalCatalog pluginCatalog) {
+        return pluginCatalog.buildCrossStatementSession();
+    }
+
+    /** Releases the operation-local schema scope; a borrower overrides this with a no-op. */
+    protected void closeSchemaSession(ConnectorSession session) {
+        session.getStatementScope().closeAll();
     }
 
     /**

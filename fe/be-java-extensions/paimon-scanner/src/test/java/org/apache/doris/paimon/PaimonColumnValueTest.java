@@ -29,6 +29,7 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
@@ -39,6 +40,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +97,19 @@ public class PaimonColumnValueTest {
         Assertions.assertEquals(10, values.get(0).getInt());
         Assertions.assertEquals("x", values.get(1).getString());
         Assertions.assertEquals(100L, values.get(2).getLong());
+    }
+
+    @Test
+    public void testGetVariantEncodedBytes() {
+        GenericVariant variant = GenericVariant.fromJson("{\"a\":[1,null]}");
+        PaimonColumnValue columnValue = new PaimonColumnValue(
+                GenericRow.of(variant), 0, ColumnType.parseType("v", "variant"), new VariantType(), "UTC");
+
+        Assertions.assertArrayEquals(variant.metadata(), columnValue.getVariantMetadata());
+        Assertions.assertArrayEquals(variant.value(), columnValue.getVariantValue());
+        Assertions.assertEquals(
+                ColumnType.Type.VARIANT,
+                PaimonTypeUtils.fromPaimonType("v", new VariantType()).getType());
     }
 
     @Test
@@ -352,4 +367,31 @@ public class PaimonColumnValueTest {
         result.put(key2, value2);
         return result;
     }
+
+    @Test
+    public void testJniUtcYearBounds() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(Timestamp.fromInstant(instant)),
+                    0, columnType, new LocalZonedTimestampType(6), "America/Los_Angeles");
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                // Doris accepts year zero; only the UTC instant outside years 0..9999 is invalid.
+                if (text.startsWith("0000")) {
+                    column.appendValue(value);
+                    Assertions.assertEquals(java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC),
+                            column.getTimeStampTzColumn(0, 1)[0]);
+                } else {
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                }
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

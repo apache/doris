@@ -29,7 +29,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -160,8 +160,8 @@ private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
-    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;

@@ -20,6 +20,7 @@ package org.apache.doris.paimon;
 import org.apache.doris.jni.spi.DorisPlugin;
 import org.apache.doris.jni.spi.JniScanner;
 import org.apache.doris.jni.spi.JniScannerFactory;
+import org.apache.doris.jni.spi.JniWriterFactory;
 import org.apache.doris.jni.spi.utils.OffHeap;
 
 import org.apache.hadoop.conf.Configuration;
@@ -108,10 +109,21 @@ public class PaimonPluginTest {
         Assertions.assertEquals(Collections.singletonList("reader"), names);
     }
 
-    /** A plugin declares only the kinds it provides; the rest stay empty rather than throwing. */
+    /** "writer", like "reader", names the factory's job inside the Paimon plugin. */
     @Test
-    public void providesNeitherWritersNorUdfs() {
-        Assertions.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
+    public void publishesItsWriterUnderThePublishedName() {
+        List<String> names = new ArrayList<>();
+        for (JniWriterFactory factory : loadPlugin().getWriterFactories()) {
+            names.add(factory.getName());
+        }
+        Assertions.assertEquals(Collections.singletonList("writer"), names);
+        Assertions.assertTrue(loadPlugin().getWriterFactories().iterator().next().create(
+                1024, Collections.emptyMap()) instanceof PaimonJniWriter);
+    }
+
+    /** Paimon does not publish a UDF implementation. */
+    @Test
+    public void providesNoUdfs() {
         Assertions.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
     }
 

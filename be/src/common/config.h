@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -156,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
+
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -1351,6 +1355,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
@@ -1498,21 +1503,20 @@ DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
 // reclaims ONLY the posting arena -- the persistent vocab / pair-map
 // structures survive it -- so honoring below a real floor degenerates into a
 // storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run then costs a file, a sort and a merge-fd for
+// persistent bytes (each run still adds framing, sorting and merge work for
 // near-zero memory relief). THIS FLOOR, not any judgement about whether the
 // overage is reachable, is what bounds forced spilling: it caps the cost at one
 // >= floor-sized run per floor of arena growth per writer. Forced spilling
 // therefore reclaims SPILLABLE memory only, never persistent memory.
 // Default 64 MiB.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
-// on the next spill past the cap, the existing runs are merge-compacted into
-// a single run first (term stream unchanged). Bounds the final k-way merge's
-// fan-in and, decisively, its simultaneously-open file descriptors -- every
-// run of a buffer is reopened and held open for the whole merge, so unbounded
-// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
-// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+// Historical run-file cap, now an additional limit on active inputs per merge
+// group (minimum two). Ingestion runs share one append-only spool. Zero leaves
+// fan-in bounded by the postings workspace and fd limits. Default 64.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared hard posting-workspace budget, captured by new ingestion/compaction
+// reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 // The kuromoji (Japanese) analyzer
@@ -1616,6 +1620,9 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);

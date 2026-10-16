@@ -87,6 +87,28 @@ unset CMAKE_TOOLCHAIN_FILE \
     VCPKG_DEFAULT_TRIPLET \
     CONDA_PREFIX
 
+# The macOS third-party libraries stay on LLVM 20 while env.sh gives the BE LLVM 22 (the
+# first compiler-rt whose ASAN runtime survives macOS 26.4+). clang 22 turns
+# -Wincompatible-pointer-types into an error and stops at unixODBC 2.3.7
+# (SQLBrowseConnectW.c passes SQLSMALLINT* where int* is expected), and no package after it
+# has been built with clang 22. Every macOS third-party build comes through here - the
+# rebuild build.sh starts on its own, a manual run, the pull request check and the
+# apache/doris-thirdparty job that publishes doris-thirdparty-prebuilt-darwin-*.tar.xz - so
+# this is the one place that decides their compiler. Like the unset above, it has to come
+# after env.sh: custom_env.sh may point DORIS_CLANG_HOME at another LLVM for the BE. CC/CXX
+# carry the compiler and PATH the rest of the LLVM tools, as when env.sh named llvm@20.
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
+    if [[ ! -x "${DORIS_CLANG_HOME}/bin/clang" ]]; then
+        echo "The macOS third-party build needs LLVM 20 (${DORIS_CLANG_HOME}/bin/clang is missing): brew install llvm@20" >&2
+        exit 1
+    fi
+    export DORIS_CLANG_HOME
+    export CC="${DORIS_CLANG_HOME}/bin/clang"
+    export CXX="${DORIS_CLANG_HOME}/bin/clang++"
+    export PATH="${DORIS_CLANG_HOME}/bin:${PATH}"
+fi
+
 # Check args
 usage() {
     echo "
@@ -2390,6 +2412,29 @@ install_rust_archive() {
     )
 }
 
+install_paimon_rust() {
+    (
+        set -e
+        local archive="$1"
+        local header="$2"
+        local destination="${TP_INSTALL_DIR}/include/paimon_rust/paimon.h"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.paimon-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${header}" "${staged}"
+        test -s "${staged}"
+        test -s "${archive}"
+        # The two renames cannot be atomic together. Keep this recovery marker until
+        # both succeed so build.sh never reuses a mixed pair after interruption.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        mv -f "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2585,11 +2630,7 @@ EOF
         --config "${cbindgen_toml}" \
         --output "${BUILD_DIR}/release/paimon.h"
 
-    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
-    rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
-    mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
-    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
-    install_rust_archive "${BUILD_DIR}/release/libpaimon_c.a"
+    install_paimon_rust "${BUILD_DIR}/release/libpaimon_c.a" "${BUILD_DIR}/release/paimon.h"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then

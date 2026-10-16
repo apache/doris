@@ -77,6 +77,34 @@ static double quantile(const double q, const std::vector<double>& values) {
     return q1;
 }
 
+TEST_F(TDigestTest, CopyPreservesValuesWithoutSpareCapacity) {
+    const auto allocated_bytes = [](const TDigest& digest) {
+        return (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+               digest._cumulative.capacity() * sizeof(Weight);
+    };
+    TDigest source(10000);
+    for (int i = 0; i < 300; ++i) {
+        source.add(i);
+    }
+    source.compress();
+    TDigest processed_copy(source);
+    EXPECT_EQ(0, processed_copy.unprocessed().capacity());
+    EXPECT_LT(allocated_bytes(processed_copy), 16 * 1024);
+    source.add(1000);
+    TDigest copy(source);
+    EXPECT_EQ(301, copy.total_weight());
+    EXPECT_LT(allocated_bytes(copy), 16 * 1024);
+    // Continued writes may grow the copy's buffers, without changing the source.
+    for (int i = 0; i < 1000; ++i) {
+        copy.add(2000);
+    }
+    EXPECT_EQ(1301, copy.total_weight());
+    EXPECT_EQ(0, copy.quantile(0));
+    EXPECT_EQ(2000, copy.quantile(1));
+    EXPECT_EQ(1000, source.quantile(1));
+    EXPECT_EQ(299, processed_copy.quantile(1));
+}
+
 TEST_F(TDigestTest, CrashAfterMerge) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);

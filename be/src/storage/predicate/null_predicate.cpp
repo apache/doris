@@ -24,7 +24,7 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/value/vdatetime_value.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 using namespace doris;

@@ -325,7 +325,7 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() {
+    private boolean isEffectiveRowBinlogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         BinlogConfig binlogConfig = db == null
                 ? BinlogConfig.fromProperties(properties)

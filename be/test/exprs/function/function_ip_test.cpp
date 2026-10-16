@@ -17,6 +17,8 @@
 
 #include "exprs/function/function_ip.h"
 
+#include <initializer_list>
+
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/data_type_number.h"
@@ -27,6 +29,12 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
+
+static ColumnUInt8::MutablePtr make_null_map(std::initializer_list<UInt8> values) {
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data() = values;
+    return null_map;
+}
 
 TEST(FunctionIpTest, IPAddressVariantTypeTest) {
     IPAddressVariant ipv4_zero("0.0.0.0");
@@ -292,6 +300,157 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
             {{ipv6, (int8_t)15, (int8_t)0}, std::string("2000::")}};
     static_cast<void>(
             check_function<DataTypeString, true>(func_name, input_types, odd_bytes_data_set));
+}
+
+TEST(FunctionIpTest, NullablePayloadsAreIgnoredByRangeAndCutFunctions) {
+    const auto ipv4_type = std::make_shared<DataTypeIPv4>();
+    const auto ipv6_type = std::make_shared<DataTypeIPv6>();
+    const auto int16_type = std::make_shared<DataTypeInt16>();
+    const auto int8_type = std::make_shared<DataTypeInt8>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    {
+        auto ip = ColumnIPv4::create();
+        ip->get_data() = {0x7f000001, 0xffffffff, 0x7f000001};
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {24, -16706, 24};
+        auto nullable_ip = ColumnNullable::create(std::move(ip), make_null_map({0, 0, 1}));
+        auto nullable_cidr = ColumnNullable::create(std::move(cidr), make_null_map({0, 1, 0}));
+        auto nullable_ipv4_type = make_nullable(ipv4_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv4CIDRToRange function;
+        DataTypes argument_types {nullable_ipv4_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_ip), nullable_ipv4_type, "ip"});
+        block.insert({std::move(nullable_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnIPv6::create();
+        addr->get_data() = {static_cast<IPv6>(1), ~static_cast<IPv6>(0), static_cast<IPv6>(1)};
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {128, 8, -16706};
+        auto nullable_addr = ColumnNullable::create(std::move(addr), make_null_map({0, 1, 0}));
+        auto nullable_cidr = ColumnNullable::create(std::move(cidr), make_null_map({0, 0, 1}));
+        auto nullable_ipv6_type = make_nullable(ipv6_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv6CIDRToRange function;
+        DataTypes argument_types {nullable_ipv6_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_addr), nullable_ipv6_type, "addr"});
+        block.insert({std::move(nullable_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnString::create();
+        addr->insert_data("2001:db8::1", 11);
+        addr->insert_data("", 0);
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {64, 8};
+        auto nullable_addr = ColumnNullable::create(std::move(addr), make_null_map({0, 1}));
+        auto nullable_addr_type = make_nullable(string_type);
+        FunctionIPv6CIDRToRange function;
+        DataTypes argument_types {nullable_addr_type, int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_addr), nullable_addr_type, "addr"});
+        block.insert({std::move(cidr), int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 2).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
+
+    {
+        auto ip = ColumnIPv4::create(3, 0xffffffff);
+        auto nullable_ip = ColumnNullable::create(std::move(ip), ColumnUInt8::create(3, 0));
+        auto const_cidr_data =
+                ColumnNullable::create(ColumnInt16::create(1, -16706), ColumnUInt8::create(1, 1));
+        auto const_cidr = ColumnConst::create(std::move(const_cidr_data), 3);
+        auto nullable_ipv4_type = make_nullable(ipv4_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv4CIDRToRange function;
+        DataTypes argument_types {nullable_ipv4_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_ip), nullable_ipv4_type, "ip"});
+        block.insert({std::move(const_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnIPv6::create();
+        addr->get_data() = {~static_cast<IPv6>(0), static_cast<IPv6>(1)};
+        auto ipv6_null_map = make_null_map({1, 0});
+        auto ipv6_column = ColumnNullable::create(std::move(addr), std::move(ipv6_null_map));
+        auto ipv6_count = ColumnInt8::create();
+        ipv6_count->get_data() = {127, 0};
+        auto ipv4_count = ColumnInt8::create();
+        ipv4_count->get_data() = {0, 127};
+        auto ipv6_count_null_map = make_null_map({0, 0});
+        auto ipv4_count_null_map = make_null_map({0, 1});
+        auto nullable_ipv6 = make_nullable(ipv6_type);
+        auto nullable_int8 = make_nullable(int8_type);
+        auto nullable_ipv6_count =
+                ColumnNullable::create(std::move(ipv6_count), std::move(ipv6_count_null_map));
+        auto nullable_ipv4_count =
+                ColumnNullable::create(std::move(ipv4_count), std::move(ipv4_count_null_map));
+        FunctionCutIPv6 function;
+        DataTypes argument_types {nullable_ipv6, nullable_int8, nullable_int8};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(ipv6_column), nullable_ipv6, "addr"});
+        block.insert({std::move(nullable_ipv6_count), nullable_int8, "ipv6_count"});
+        block.insert({std::move(nullable_ipv4_count), nullable_int8, "ipv4_count"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1, 2}, 3, 2).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(3).column);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
+}
+
+TEST(FunctionIpTest, IPv6CIDRToRangeStillRejectsInvalidNonNullString) {
+    auto addr = ColumnString::create();
+    addr->insert_data("abc", 3);
+    auto nullable_addr_type = make_nullable(std::make_shared<DataTypeString>());
+    auto nullable_addr = ColumnNullable::create(std::move(addr), ColumnUInt8::create(1, 0));
+    auto cidr = ColumnInt16::create(1, 64);
+    auto cidr_type = std::make_shared<DataTypeInt16>();
+    FunctionIPv6CIDRToRange function;
+    DataTypes argument_types {nullable_addr_type, cidr_type};
+    auto result_type = function.get_return_type_impl(argument_types);
+    Block block;
+    block.insert({std::move(nullable_addr), nullable_addr_type, "addr"});
+    block.insert({std::move(cidr), cidr_type, "cidr"});
+    block.insert({nullptr, result_type, "result"});
+
+    EXPECT_THROW(static_cast<void>(function.execute_impl(nullptr, block, {0, 1}, 2, 1)), Exception);
 }
 
 class MockIndexReader : public segment_v2::InvertedIndexReader {

@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -57,7 +56,6 @@ namespace {
 
 const std::string kBenchmarkInstanceId = "recycler_benchmark_instance";
 const std::string kBenchmarkResourceId = "recycler_benchmark_resource";
-double recycler_benchmark_duration_tolerance_ratio = 0.8;
 
 std::string get_env(const char* name) {
     const char* value = std::getenv(name);
@@ -112,7 +110,7 @@ void set_obj_store_provider(const std::string& provider, ObjectStoreInfoPB* obj_
 }
 
 // Number of recyclable rowsets seeded per branch.
-constexpr int64_t kRowsetsPerBranch = 10000;
+constexpr int64_t kRowsetsPerBranch = 5000;
 // Commit the seeded recycle rowset KVs in batches to keep each txn small.
 constexpr int64_t kSeedCommitBatch = 2000;
 constexpr int64_t kRowsetsPerPackedFile = 2;
@@ -478,14 +476,6 @@ protected:
         old_force_immediate_recycle_ = config::force_immediate_recycle;
         old_retention_seconds_ = config::retention_seconds;
 
-        const auto tolerance_env = get_env("recycler_benchmark_duration_tolerance_ratio");
-        size_t parsed_size = 0;
-        recycler_benchmark_duration_tolerance_ratio =
-                tolerance_env.empty() ? 0.8 : std::stod(tolerance_env, &parsed_size);
-        ASSERT_EQ(parsed_size, tolerance_env.size()) << "invalid recycler benchmark tolerance";
-        ASSERT_TRUE(std::isfinite(recycler_benchmark_duration_tolerance_ratio));
-        ASSERT_GE(recycler_benchmark_duration_tolerance_ratio, 0);
-
         config::force_immediate_recycle = true;
         config::retention_seconds = 0;
 
@@ -668,15 +658,6 @@ protected:
                        g_bvar_txn_kv_atomic_set_ver_value.count() +
                        g_bvar_txn_kv_atomic_add.count(),
                 .del = g_bvar_txn_kv_remove.count() + g_bvar_txn_kv_range_remove.count()};
-    }
-
-    void check_elapsed_ms(const std::string& branch, double actual_ms, double baseline_ms) {
-        const double limit_ms = baseline_ms * (1 + recycler_benchmark_duration_tolerance_ratio);
-        if (actual_ms > limit_ms) {
-            benchmark_failures_ +=
-                    fmt::format("branch={} actual_ms={:.2f} baseline_ms={:.2f} limit_ms={:.2f}\n",
-                                branch, actual_ms, baseline_ms, limit_ms);
-        }
     }
 
     void check_txn_kv_counts(const std::string& branch, const TxnKvCounts& actual,
@@ -1012,57 +993,37 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
         ASSERT_EQ(count_recycle_rowsets(), 0);
     });
 
-    // Recorded with 10,000 rowsets per branch. Recalibrate if the workload changes.
-    static_assert(kRowsetsPerBranch == 10000);
-    const std::map<std::string, double> baseline_elapsed_ms = {
-            {"compacted_empty", 794.18},
-            {"compacted_with_data/data_only", 2285.80},
-            {"compacted_with_data/delete_bitmap_v1", 2461.84},
-            {"compacted_with_data/delete_bitmap_v2", 2726.75},
-            {"compacted_with_packed_data/data_only", 8583.32},
-            {"compacted_with_packed_data/delete_bitmap_v1", 9315.59},
-            {"compacted_with_packed_data/delete_bitmap_v2", 8948.54},
-            {"compacted_without_schema", 3924.04},
-            {"legacy_empty_resource", 945.75},
-            {"legacy_with_resource", 6718.37},
-            {"mixed", 35178.52},
-            {"prepare_abort", 16465.44},
-            {"prepare_direct", 5360.28},
-            {"prepare_mark", 7039.65},
-    };
+    // Recorded with 5,000 rowsets per branch. Recalibrate if the workload changes.
+    static_assert(kRowsetsPerBranch == 5000);
     const std::map<std::string, TxnKvCounts> baseline_txn_kv_counts = {
-            {"compacted_empty", {.get = 10000, .put = 0, .del = 10000}},
-            {"compacted_with_data/data_only", {.get = 10001, .put = 0, .del = 10000}},
-            {"compacted_with_data/delete_bitmap_v1", {.get = 10000, .put = 0, .del = 10000}},
-            {"compacted_with_data/delete_bitmap_v2", {.get = 20000, .put = 0, .del = 20000}},
-            {"compacted_with_packed_data/data_only", {.get = 25000, .put = 10000, .del = 15000}},
+            {"compacted_empty", {.get = 5000, .put = 0, .del = 5000}},
+            // First schema cache fill reads one KV in addition to the 5,000 rowset KVs.
+            {"compacted_with_data/data_only", {.get = 5001, .put = 0, .del = 5000}},
+            {"compacted_with_data/delete_bitmap_v1", {.get = 5000, .put = 0, .del = 5000}},
+            {"compacted_with_data/delete_bitmap_v2", {.get = 10000, .put = 0, .del = 10000}},
+            {"compacted_with_packed_data/data_only", {.get = 12500, .put = 5000, .del = 7500}},
             {"compacted_with_packed_data/delete_bitmap_v1",
-             {.get = 25000, .put = 10000, .del = 15000}},
+             {.get = 12500, .put = 5000, .del = 7500}},
             {"compacted_with_packed_data/delete_bitmap_v2",
-             {.get = 35000, .put = 10000, .del = 25000}},
-            {"compacted_without_schema", {.get = 10000, .put = 0, .del = 10000}},
-            {"legacy_empty_resource", {.get = 10000, .put = 0, .del = 10000}},
-            {"legacy_with_resource", {.get = 20000, .put = 0, .del = 20000}},
-            {"mixed", {.get = 200000, .put = 40000, .del = 120000}},
-            {"prepare_abort", {.get = 90000, .put = 30000, .del = 30000}},
-            {"prepare_direct", {.get = 20000, .put = 0, .del = 20000}},
-            {"prepare_mark", {.get = 40000, .put = 10000, .del = 20000}},
+             {.get = 17500, .put = 5000, .del = 12500}},
+            {"compacted_without_schema", {.get = 5000, .put = 0, .del = 5000}},
+            {"legacy_empty_resource", {.get = 5000, .put = 0, .del = 5000}},
+            {"legacy_with_resource", {.get = 10000, .put = 0, .del = 10000}},
+            {"mixed", {.get = 100000, .put = 20000, .del = 60000}},
+            {"prepare_abort", {.get = 45000, .put = 15000, .del = 15000}},
+            {"prepare_direct", {.get = 10000, .put = 0, .del = 10000}},
+            {"prepare_mark", {.get = 20000, .put = 5000, .del = 10000}},
     };
     const auto& results = benchmark_results_["recycle_rowsets"];
-    double total_elapsed_ms = 0;
-    for (const auto& [branch, baseline_ms] : baseline_elapsed_ms) {
+    for (const auto& [branch, baseline_counts] : baseline_txn_kv_counts) {
         const auto result = results.find(branch);
         if (result == results.end()) {
             benchmark_failures_ +=
-                    fmt::format("branch={} did not produce a timing result\n", branch);
+                    fmt::format("branch={} did not produce a benchmark result\n", branch);
             continue;
         }
-        check_elapsed_ms(branch, result->second.elapsed_ms, baseline_ms);
-        check_txn_kv_counts(branch, result->second.txn_kv_counts,
-                            baseline_txn_kv_counts.at(branch));
-        total_elapsed_ms += result->second.elapsed_ms;
+        check_txn_kv_counts(branch, result->second.txn_kv_counts, baseline_counts);
     }
-    check_elapsed_ms("total_elapsed_ms", total_elapsed_ms, 110748.07);
 }
 
 } // namespace

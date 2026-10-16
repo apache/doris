@@ -113,6 +113,10 @@ DEFINE_Int32(brpc_num_threads, "256");
 // the default value is set to -1, which means never close idle connection.
 DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+// brpc 1.4 defaults this flag to 0, which disables all MultiDimension metrics.
+DEFINE_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -1224,7 +1228,7 @@ DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
@@ -1296,7 +1300,10 @@ DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
-DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+// Disabled by default. The restored LRU order can be worse than no order at all: restored blocks
+// are put at the cold end while blocks missing from the dump are appended to the hot end, and the
+// restore itself can overflow the bounded LRU log queue and drop the hottest part of the dump.
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "0");
 DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
@@ -1463,10 +1470,17 @@ DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
 // Default 64 MiB.
 DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
-// Max spill-run files one SNII writer accumulates before its runs are
-// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
-// every run is held open for the whole merge). 0 = uncapped. Default 64.
+// Historical run-file cap: spill ranges now share one append-only spool, so
+// ingestion does not accumulate one physical file per run. This knob additionally
+// limits active inputs per final/intermediate merge group (minimum two). Workspace
+// and fd limits also constrain fan-in; 0 uses those bounds without an extra cap.
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
+// Hard budget shared by a logical writer's posting spill, merge, and encoding
+// buffers. Captured when an ingestion writer or compaction reporter is created.
+// High ZSTD levels may require a larger budget for the compression context.
+DEFINE_mInt64(snii_postings_workspace_bytes, "33554432");
+DEFINE_Validator(snii_postings_workspace_bytes,
+                 [](const int64_t value) -> bool { return value > 0; });
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // The kuromoji (Japanese) analyzer
@@ -1559,6 +1573,19 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 // default max to 2048 connections
 DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DEFINE_mInt32(lookup_connection_cache_block_pool_size, "1");
+DEFINE_Validator(lookup_connection_cache_block_pool_size,
+                 [](int32_t value) -> bool { return value >= 1 && value <= 32; });
+static std::atomic<size_t> atomic_lookup_connection_cache_block_pool_size {1};
+DEFINE_ON_UPDATE(lookup_connection_cache_block_pool_size, [](int32_t, int32_t value) {
+    atomic_lookup_connection_cache_block_pool_size.store(static_cast<size_t>(value),
+                                                         std::memory_order_relaxed);
+});
+
+size_t get_lookup_connection_cache_block_pool_size() {
+    return atomic_lookup_connection_cache_block_pool_size.load(std::memory_order_relaxed);
+}
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -2397,6 +2424,9 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     }
     published_inverted_index_candidate_pushdown_ratio.store(
             inverted_index_candidate_pushdown_ratio);
+    atomic_lookup_connection_cache_block_pool_size.store(
+            static_cast<size_t>(lookup_connection_cache_block_pool_size),
+            std::memory_order_relaxed);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)

@@ -157,6 +157,12 @@ public class IcebergScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        // JNI metadata tasks share a dummy path; native ranges retain their actual file identity.
+        return serializedSplit != null ? serializedSplit : ConnectorScanRange.super.getSplitIdentity();
+    }
+
+    @Override
     public Optional<String> getPath() {
         return Optional.ofNullable(path);
     }

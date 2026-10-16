@@ -412,4 +412,30 @@ suite("test_map_lambda", "p0") {
         """
         exception "must return a non-nullable struct with exactly two fields"
     }
+
+    sql "drop table if exists test_map_lambda_null_container"
+    sql """
+        create table test_map_lambda_null_container (
+            id int,
+            m map<int, string>
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into test_map_lambda_null_container values
+            (1, map(1, 'bad-number')),
+            (2, map(1, '10'))
+    """
+    sql "set enable_strict_cast = true"
+    sql "set short_circuit_evaluation = false"
+    order_qt_transform_values_null_container """
+        select id,
+               transform_values(
+                   (k, v) -> cast(v as int) + id,
+                   if(id = 1, cast(null as map<int, string>), m))
+        from test_map_lambda_null_container
+        order by id
+    """
 }
