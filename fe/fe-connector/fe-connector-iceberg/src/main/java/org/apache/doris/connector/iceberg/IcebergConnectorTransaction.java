@@ -101,9 +101,12 @@ import java.util.Set;
  *
  * <p><b>Op selection (P6.3-T04).</b> Unlike the legacy class (which split {@code finishInsert} from
  * {@code commit}), the unified {@link ConnectorTransaction} SPI exposes only {@link #commit()} — so the
- * manifest build happens there (mirroring maxcompute): INSERT &rarr; AppendFiles; OVERWRITE dynamic &rarr;
- * ReplacePartitions; OVERWRITE empty/unpartitioned &rarr; OverwriteFiles (clears the table); OVERWRITE static
- * &rarr; OverwriteFiles.overwriteByRowFilter; DELETE &rarr; RowDelta (deletes); UPDATE/MERGE &rarr; RowDelta
+ * manifest build happens there (mirroring maxcompute): INSERT &rarr; AppendFiles; a bare OVERWRITE in
+ * {@code static} mode ({@code iceberg_partition_overwrite_mode}, the default) &rarr;
+ * OverwriteFiles.overwriteByRowFilter(alwaysTrue) (clears the whole table, including data from older
+ * partition specs); a bare OVERWRITE in {@code dynamic} mode &rarr; ReplacePartitions; OVERWRITE ...
+ * PARTITION(col=val) &rarr; OverwriteFiles.overwriteByRowFilter; OVERWRITE empty/unpartitioned &rarr;
+ * OverwriteFiles (clears the table); DELETE &rarr; RowDelta (deletes); UPDATE/MERGE &rarr; RowDelta
  * (rows + deletes). The {@code IcebergWriterHelper} equivalents (DataFile / DeleteFile / Metrics /
  * PartitionData) live in {@link IcebergWriterHelper}.</p>
  *
@@ -127,6 +130,12 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
     private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
     private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
+    // Scope of a bare INSERT OVERWRITE (no PARTITION clause). Key + values are byte-identical to the fe-core
+    // SessionVariable constants (the connector cannot import fe-core); the value reaches the commit through
+    // ConnectorSession.getProperty, which reads the session-variable registry by name.
+    private static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    private static final String PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    private static final String PARTITION_OVERWRITE_MODE_STATIC = "static";
 
     private final long transactionId;
     private final IcebergCatalogOps catalogOps;
@@ -157,6 +166,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // beginWrite publishes these plain writes to the commit thread).
     private WriteOperation writeOperation = WriteOperation.INSERT;
     private boolean staticPartitionOverwrite;
+    // True when iceberg_partition_overwrite_mode = 'static': a bare INSERT OVERWRITE clears the whole table
+    // (every partition spec) instead of replacing only the partitions the new data lands in. Captured at begin
+    // time from the session variable, whose default is 'static'; an absent variable also means 'static'.
+    private boolean wholeTableOverwrite;
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
@@ -239,6 +252,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
         this.writeOperation = ctx.getWriteOperation();
         this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
+        String overwriteMode = session.getProperty(ICEBERG_PARTITION_OVERWRITE_MODE, String.class);
+        this.wholeTableOverwrite = PARTITION_OVERWRITE_MODE_STATIC.equalsIgnoreCase(
+                overwriteMode == null ? PARTITION_OVERWRITE_MODE_STATIC : overwriteMode);
         this.staticPartitionValues = ctx.getStaticPartitionValues();
         this.writeSchemaContext = ctx.getWriteSchemaContext();
         this.zone = IcebergTimeUtils.resolveSessionZone(session);
@@ -708,6 +724,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             case OVERWRITE:
                 if (staticPartitionOverwrite) {
                     commitStaticPartitionOverwrite(buildDataWriteResults());
+                } else if (wholeTableOverwrite) {
+                    commitWholeTableOverwrite(buildDataWriteResults());
                 } else {
                     commitReplaceTxn(buildDataWriteResults());
                 }
@@ -796,6 +814,31 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+    }
+
+    /**
+     * {@code iceberg_partition_overwrite_mode = static}: a bare {@code INSERT OVERWRITE TABLE t} (no PARTITION
+     * clause) clears the whole table and then adds the new files, whatever partition spec the existing files
+     * were written with. Mirrors Iceberg Spark's default ({@code partitionOverwriteMode=static}), which maps an
+     * always-true overwrite to {@link OverwriteFiles#overwriteByRowFilter} with {@code alwaysTrue}. Unlike
+     * {@link ReplacePartitions} - which only drops files whose own {@code (specId, partition)} tuple matches -
+     * a row filter is spec-agnostic, so data written before a partition-spec evolution is removed as well. With
+     * no written data at all this simply empties the table, matching Spark's static mode.
+     */
+    private void commitWholeTableOverwrite(List<WriteResult> pendingResults) {
+        OverwriteFiles overwriteFiles = transaction.newOverwrite();
+        if (branchName != null) {
+            overwriteFiles = overwriteFiles.toBranch(branchName);
+        }
+        overwriteFiles = overwriteFiles.overwriteByRowFilter(Expressions.alwaysTrue());
+        // Clearing a table must fail if any data or delete landed after the statement's base snapshot.
+        overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files for a whole-table overwrite.");
+            Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
+        }
+        overwriteFiles.commit();
     }
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {
