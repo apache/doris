@@ -173,14 +173,13 @@ public class GroupStructInfo {
     private static final String SEP = ";";
 
     /**
-     * The headers whose arguments are part of the identity of their node, i.e. whose literals are written
-     * in both literal modes by {@link #appendNode} (a generator's delimiter, a top-n's ordering, a
-     * window's definition, the constants of a set operation, a limit bound). The fold of a pasted struct
-     * info has to copy those headers verbatim - folding one of their literals would make the sha256 of
-     * the text differ from the fingerprint EXPLAIN printed. The renderer is the authority for this set:
-     * a kind whose literals stop being identity has to leave the string below as well.
+     * The header letters whose arguments are part of the identity of their node (see
+     * {@link Kind#literalsAreIdentity()}): the fold of a pasted struct info copies those headers verbatim,
+     * because folding one of their literals would make the sha256 of the text differ from the fingerprint
+     * EXPLAIN printed. The set is derived from the kinds which render the text, so a kind whose literals
+     * stop being identity cannot be forgotten here.
      */
-    private static final String PROTECTED_HEADERS = "GTWUIEL";
+    private static final String PROTECTED_HEADERS = protectedHeaders();
 
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
@@ -272,6 +271,16 @@ public class GroupStructInfo {
         return skipReason.isEmpty()
                 ? INVALID
                 : new GroupStructInfo(false, skipReason, null, INVALID_SCANS);
+    }
+
+    private static String protectedHeaders() {
+        StringBuilder letters = new StringBuilder();
+        for (Kind kind : Kind.values()) {
+            if (kind.literalsAreIdentity()) {
+                letters.append(kind.headerLetters());
+            }
+        }
+        return letters.toString();
     }
 
     /** The reason the struct info was refused by a limit, or empty. Only for diagnostics. */
@@ -791,8 +800,42 @@ public class GroupStructInfo {
 
     /** What a node of a description is; {@link #appendNode} switches on it. */
     private enum Kind {
-        SCAN, FILE_SCAN, STORAGE_AGGREGATE, FILTER, AGGREGATE, JOIN, TOPN, LIMIT, WINDOW, GENERATE, REPEAT,
-        SET_OPERATION, PASSTHROUGH
+        SCAN("", false),
+        FILE_SCAN("", false),
+        STORAGE_AGGREGATE("A", false),
+        FILTER("F", false),
+        AGGREGATE("A", false),
+        JOIN("J", false),
+        TOPN("T", true),
+        LIMIT("L", true),
+        WINDOW("W", true),
+        GENERATE("G", true),
+        REPEAT("R", false),
+        SET_OPERATION("UIE", true),
+        PASSTHROUGH("", false);
+
+        /** The letters the renderer writes in front of the header of this kind (a set operation has three). */
+        private final String headerLetters;
+        /**
+         * Whether the literals inside the header of this kind are part of its identity, which means the
+         * renderer writes them in both literal modes: a generator's delimiter decides how many rows a row
+         * expands into, a top-n's ordering and a window's definition decide which rows reach the node
+         * above, a set operation's constant and a limit bound decide the rows of the operation itself.
+         */
+        private final boolean literalsAreIdentity;
+
+        Kind(String headerLetters, boolean literalsAreIdentity) {
+            this.headerLetters = headerLetters;
+            this.literalsAreIdentity = literalsAreIdentity;
+        }
+
+        private String headerLetters() {
+            return headerLetters;
+        }
+
+        private boolean literalsAreIdentity() {
+            return literalsAreIdentity;
+        }
     }
 
     /**
@@ -1666,11 +1709,15 @@ public class GroupStructInfo {
         return sb.toString();
     }
 
-    /** The start of the next protected header at or after {@code from}, or -1. */
+    /**
+     * The start of the next protected header at or after {@code from}, or -1. The rule is the one every
+     * reader of the canonical string uses ({@link HboScanDescriptor#nextTokenStart}), so a text which
+     * merely looks like a header - an escaped name, a literal value - is not taken for one.
+     */
     private static int nextProtectedHeaderStart(String text, int from) {
         int best = -1;
         for (int i = 0; i < PROTECTED_HEADERS.length(); i++) {
-            int at = text.indexOf(PROTECTED_HEADERS.charAt(i) + "{", from);
+            int at = HboScanDescriptor.nextTokenStart(text, PROTECTED_HEADERS.charAt(i) + "{", from);
             if (at >= 0 && (best < 0 || at < best)) {
                 best = at;
             }

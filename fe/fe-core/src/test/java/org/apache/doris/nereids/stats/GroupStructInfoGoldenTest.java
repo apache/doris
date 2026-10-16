@@ -443,6 +443,16 @@ public class GroupStructInfoGoldenTest {
                 }
             }
             for (String struct : structs.values()) {
+                // the boundary rule every reader of a canonical string uses finds exactly the tokens the
+                // parser reads, so a text which merely looks like a token is never counted
+                int tokenStarts = 0;
+                for (int at = HboScanDescriptor.nextScanTokenStart(struct, 0); at >= 0;
+                        at = HboScanDescriptor.nextScanTokenStart(struct, at + 2)) {
+                    tokenStarts++;
+                }
+                Assertions.assertEquals(tokenStarts, HboScanDescriptor.parseAll(struct).size(),
+                        caseName + ": the boundary rule and the parser disagree about the scan tokens of "
+                                + struct);
                 for (HboScanDescriptor descriptor : HboScanDescriptor.parseAll(struct)) {
                     String rendered = descriptor.render();
                     Assertions.assertEquals(rendered, HboScanDescriptor.parse(rendered).render(),
