@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -909,7 +910,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyIterator();
         }
         String normalizedPath = normalizeNativeUri(filePath);
-        long splitSize = splittable && targetSplitSize > 0 ? targetSplitSize : fileSize;
+        // Native text/CSV readers cannot restart compressed streams at nonzero offsets, even for
+        // codecs Hadoop considers splittable. Use the same inference as the codec sent to BE;
+        // columnar readers handle range boundaries independently of filename compression suffixes.
+        boolean compressedText = (fileFormat == HiveFileFormat.TEXT || fileFormat == HiveFileFormat.CSV)
+                && FileCompression.fromPath(normalizedPath) != FileCompression.PLAIN;
+        long splitSize = splittable && !compressedText && targetSplitSize > 0 ? targetSplitSize : fileSize;
         return new Iterator<ConnectorScanRange>() {
             private long offset;
 
