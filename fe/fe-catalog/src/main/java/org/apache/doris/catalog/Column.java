@@ -143,6 +143,8 @@ public class Column implements GsonPostProcessable {
 
     @SerializedName(value = "name")
     private String name;
+    // Runtime-only spelling preserved for external schema descriptors; the persisted type owns the same value.
+    private transient String originalName;
     @SerializedName(value = "type")
     private Type type;
     // column is key: aggregate type is null
@@ -397,6 +399,7 @@ public class Column implements GsonPostProcessable {
 
     public Column(Column column) {
         this.name = column.getName();
+        this.originalName = column.originalName;
         this.type = column.type;
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
@@ -441,6 +444,7 @@ public class Column implements GsonPostProcessable {
             ArrayList<StructField> fields = ((StructType) type).getFields();
             for (StructField field : fields) {
                 Column c = new Column(field.getName(), field.getType());
+                c.originalName = field.getOriginalName();
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
@@ -487,6 +491,10 @@ public class Column implements GsonPostProcessable {
 
     public String getName() {
         return this.name;
+    }
+
+    public String getOriginalName() {
+        return originalName == null ? name : originalName;
     }
 
     public String getNonShadowName() {
@@ -895,18 +903,25 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
-        return toSql(isUniqueTable, isCompatible, false);
+        return toSql(isUniqueTable, isCompatible, false, false);
     }
 
-    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
-    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
+    /**
+     * Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis.
+     * Pass the SQL mode the statement will be parsed under, a comment is escaped differently under
+     * NO_BACKSLASH_ESCAPES.
+     */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder,
+            boolean noBackslashEscapes) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            // isToSql = true, showNestedComment = true
+            // SHOW CREATE TABLE and CREATE TABLE LIKE need the nested comment.
+            sb.append(type.hideVersionForVersionColumn(true, true, noBackslashEscapes));
         } else {
             sb.append(typeStr);
         }
@@ -1116,8 +1131,28 @@ public class Column implements GsonPostProcessable {
         if (CollectionUtils.isEmpty(children)) {
             children = null;
         }
+        restoreOriginalNames(type, children);
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();
+        }
+    }
+
+    private static void restoreOriginalNames(Type type, List<Column> children) {
+        if (type == null || CollectionUtils.isEmpty(children)) {
+            return;
+        }
+        if (type.isStructType()) {
+            List<StructField> fields = ((StructType) type).getFields();
+            for (int i = 0; i < Math.min(fields.size(), children.size()); i++) {
+                Column child = children.get(i);
+                child.originalName = fields.get(i).getOriginalName();
+                restoreOriginalNames(fields.get(i).getType(), child.children);
+            }
+        } else if (type.isArrayType()) {
+            restoreOriginalNames(((ArrayType) type).getItemType(), children.get(0).children);
+        } else if (type.isMapType() && children.size() >= 2) {
+            restoreOriginalNames(((MapType) type).getKeyType(), children.get(0).children);
+            restoreOriginalNames(((MapType) type).getValueType(), children.get(1).children);
         }
     }
 

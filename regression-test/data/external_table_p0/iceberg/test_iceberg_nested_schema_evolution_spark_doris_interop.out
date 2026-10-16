@@ -5,9 +5,9 @@
 
 -- !spark_driven_schema --
 id	int(11)
-info	struct<string,bigint(20),string,string,string>
-events	array<struct<int(11),bigint(20),int(11),int(11)>>
-attrs	map<string,struct<int(11),bigint(20),int(11),int(11)>>
+info	struct<spark_first:string,metric:bigint(20),spark_after_metric:string,label:string,spark_renamed:string>
+events	array<struct<spark_first_score:int(11),score:bigint(20),spark_after_score:int(11),spark_score_renamed:int(11)>>
+attrs	map<string,struct<spark_first_code:int(11),code:bigint(20),spark_after_code:int(11),spark_code_renamed:int(11)>>
 
 -- !spark_driven_rows_before_write --
 1	\N	10	\N	spark_before	\N	\N	100	\N	\N	\N	1000	\N	\N
@@ -25,3 +25,4 @@ attrs	map<string,struct<int(11),bigint(20),int(11),int(11)>>
 -- !deep_nested_rows --
 1	last-old	middle-old	first-old	old-note	1.5	12.34
 2	last-new	middle-new	first-new	new-note	2.5	56.78
+

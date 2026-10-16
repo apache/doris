@@ -17,6 +17,7 @@
 
 #include "information_schema/schema_columns_scanner.h"
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
@@ -27,6 +28,17 @@
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris {
+
+namespace {
+
+TColumnDesc make_desc(const std::string& name, TPrimitiveType::type type) {
+    TColumnDesc desc;
+    desc.__set_columnName(name);
+    desc.__set_columnType(type);
+    return desc;
+}
+
+} // namespace
 
 TEST(SchemaColumnsScannerTest, time_metadata_in_block) {
     struct TestCase {
@@ -93,6 +105,90 @@ TEST(SchemaColumnsScannerTest, time_metadata_in_block) {
             }
         }
     }
+}
+
+// COLUMN_TYPE is the text information_schema clients read a schema back from, so a
+// STRUCT has to name its fields there. The names arrive lower cased from the FE, while
+// SHOW CREATE TABLE keeps the spelling the user wrote.
+class SchemaColumnsScannerTest : public testing::Test {
+protected:
+    std::string type_to_string(TColumnDesc& desc) { return _scanner._type_to_string(desc); }
+
+private:
+    SchemaColumnsScanner _scanner;
+};
+
+TEST_F(SchemaColumnsScannerTest, struct_type_string_carries_field_names) {
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    TColumnDesc original_case = make_desc("metric", TPrimitiveType::INT);
+    original_case.__set_originalName("Metric");
+    original_case.__set_sqlName("Metric");
+    TColumnDesc f2 = make_desc("f2", TPrimitiveType::STRING);
+    f2.__set_sqlName("f2");
+    desc.__set_children({original_case, f2});
+
+    EXPECT_EQ("struct<Metric:int(11),f2:string>", type_to_string(desc));
+}
+
+TEST_F(SchemaColumnsScannerTest, nested_struct_type_string_carries_field_names) {
+    TColumnDesc element = make_desc("item", TPrimitiveType::STRUCT);
+    TColumnDesc deep = make_desc("deep", TPrimitiveType::INT);
+    deep.__set_sqlName("deep");
+    element.__set_children({deep});
+
+    // An array element has no name of its own, only the struct fields are named.
+    TColumnDesc arr = make_desc("arr", TPrimitiveType::ARRAY);
+    arr.__set_sqlName("arr");
+    arr.__set_children({element});
+
+    TColumnDesc outer = make_desc("outer", TPrimitiveType::STRUCT);
+    outer.__set_children({arr});
+
+    EXPECT_EQ("struct<arr:array<struct<deep:int(11)>>>", type_to_string(outer));
+}
+
+TEST_F(SchemaColumnsScannerTest, struct_field_name_holding_a_separator_is_quoted) {
+    // These names are legal, they are declared with back quotes. Printed raw they would make
+    // the text impossible to split back into fields.
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    desc.__set_children(
+            {make_desc("a,b", TPrimitiveType::INT), make_desc("c:d", TPrimitiveType::INT),
+             make_desc("e<f>", TPrimitiveType::INT), make_desc("g`h", TPrimitiveType::INT)});
+
+    EXPECT_EQ("struct<`a,b`:int(11),`c:d`:int(11),`e<f>`:int(11),`g``h`:int(11)>",
+              type_to_string(desc));
+}
+
+TEST_F(SchemaColumnsScannerTest, struct_field_name_needing_quoting) {
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    TColumnDesc reserved = make_desc("order", TPrimitiveType::INT);
+    reserved.__set_sqlName("`order`");
+    desc.__set_children(
+            {make_desc("a-b", TPrimitiveType::INT), make_desc("f 2", TPrimitiveType::INT), reserved,
+             make_desc("hash#name", TPrimitiveType::INT), make_desc("地区 名", TPrimitiveType::INT),
+             make_desc("a.b", TPrimitiveType::INT)});
+
+    EXPECT_EQ(
+            "struct<`a-b`:int(11),`f 2`:int(11),`order`:int(11),`hash#name`:int(11),"
+            "`地区 名`:int(11),`a.b`:int(11)>",
+            type_to_string(desc));
+}
+
+TEST_F(SchemaColumnsScannerTest, empty_struct_type_string) {
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    EXPECT_EQ("struct<>", type_to_string(desc));
+}
+
+// Array and map keep printing types only, they have no field names to carry.
+TEST_F(SchemaColumnsScannerTest, array_and_map_type_string_unchanged) {
+    TColumnDesc arr = make_desc("arr", TPrimitiveType::ARRAY);
+    arr.__set_children({make_desc("item", TPrimitiveType::INT)});
+    EXPECT_EQ("array<int(11)>", type_to_string(arr));
+
+    TColumnDesc mp = make_desc("mp", TPrimitiveType::MAP);
+    mp.__set_children(
+            {make_desc("key", TPrimitiveType::STRING), make_desc("value", TPrimitiveType::INT)});
+    EXPECT_EQ("map<string,int(11)>", type_to_string(mp));
 }
 
 } // namespace doris
