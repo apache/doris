@@ -81,6 +81,10 @@ Status validate_source_shape(const reader::LogicalIndexReader& source, size_t so
         return reject(
                 fmt::format("source {} position shape differs from destination", source_ordinal));
     }
+    // Gram indexes may omit common postings and need their scheme retained on output.
+    if (!has_positions && source.gram_scheme().has_value()) {
+        return reject(fmt::format("source {} carries a gram scheme", source_ordinal));
+    }
     const auto& stats = source.stats();
     if (stats.indexed_doc_count > stats.doc_count ||
         stats.null_count != stats.doc_count - stats.indexed_doc_count) {
