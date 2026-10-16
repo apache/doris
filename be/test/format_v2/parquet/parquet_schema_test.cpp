@@ -829,7 +829,7 @@ TEST(ParquetSchemaTest, NativeMetadataAcceptsRequiredRootWithoutColumns) {
     thrift_metadata.__set_version(1);
     thrift_metadata.__set_schema({root});
     thrift_metadata.__set_num_rows(0);
-    NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    NativeParquetMetadata metadata(std::move(thrift_metadata));
     // An empty physical tree remains useful for metadata-only COUNT(*); rejecting it here changes
     // the compatibility contract before request planning can select that path.
     EXPECT_TRUE(metadata.init_schema(false, false).ok());
@@ -1057,7 +1057,7 @@ TEST(ParquetSchemaTest, NativeFlatLeafValueCountMustMatchRowCount) {
     thrift_metadata.__set_num_rows(1);
     thrift_metadata.__set_row_groups({row_group});
 
-    NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    NativeParquetMetadata metadata(std::move(thrift_metadata));
     const auto status = metadata.init_schema(false, false);
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
@@ -1471,7 +1471,7 @@ TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingM
     };
 
     {
-        NativeParquetMetadata metadata(make_metadata(), 0);
+        NativeParquetMetadata metadata(make_metadata());
         EXPECT_FALSE(metadata.init_schema(true, false).ok());
     }
     {
@@ -1480,7 +1480,7 @@ TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingM
         tparquet::ColumnMetaData first_meta;
         first_meta.__set_type(tparquet::Type::INT32);
         thrift.row_groups[0].columns[0].__set_meta_data(first_meta);
-        NativeParquetMetadata metadata(std::move(thrift), 0);
+        NativeParquetMetadata metadata(std::move(thrift));
         EXPECT_FALSE(metadata.init_schema(true, false).ok());
     }
 }
