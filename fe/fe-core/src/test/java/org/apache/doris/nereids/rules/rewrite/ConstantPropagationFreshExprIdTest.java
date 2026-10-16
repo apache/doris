@@ -72,6 +72,11 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY v, k)"
             + " SELECT l.v, l.x, l.cnt, r.v, r.x, r.cnt FROM c l CROSS JOIN c r";
 
+    private static final String SQL_MATERIALIZED_CTE_REPEATED_SLOT
+            = "WITH c AS (SELECT k, v, v, count(*) AS cnt, v + 1 AS z"
+            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY k, v)"
+            + " SELECT l.*, r.* FROM c l CROSS JOIN c r";
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -175,6 +180,19 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         Assertions.assertNotEquals(analyzedProducerOutputIds, rewrittenProducerOutputIds, plan.treeString());
         // the query has to stay plannable
         PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
+    }
+
+    @Test
+    void testMaterializedCteWithRepeatedOutputSlot() {
+        // a CTE may expose the same slot more than once (LogicalCTEConsumer is multimap based), and the lookup of
+        // the producer slots must tolerate that instead of failing on the duplicated exprId
+        Set<ExprId> analyzedProducerOutputIds = cteProducerOutputIds(
+                PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE_REPEATED_SLOT).getPlan());
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(SQL_MATERIALIZED_CTE_REPEATED_SLOT).rewrite().getPlan();
+        assertCteConsumerMapsStayValid(plan);
+        Assertions.assertEquals(analyzedProducerOutputIds.size(), cteProducerOutputIds(plan).size(), plan.treeString());
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE_REPEATED_SLOT);
     }
 
     private static Set<ExprId> cteProducerOutputIds(Plan plan) {

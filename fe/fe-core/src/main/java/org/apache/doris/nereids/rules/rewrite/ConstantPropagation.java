@@ -428,19 +428,9 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             return expr;
         }
 
-        Expression newExpr = replaceConstants(expr, false, context, equalSet, constants);
-        if (newExpr instanceof NamedExpression) {
-            return (NamedExpression) newExpr;
-        }
-        if (newExpr.equals(expr.child(0))) {
-            return expr;
-        }
-        // the project item is replaced by a constant (or another expression), which describes another value than
-        // the original alias: give it a fresh exprId and refresh the references above, see the comment of
-        // replacedExprIds
-        ExprId freshExprId = StatementScopeIdGenerator.newExprId();
-        replacedExprIds.put(expr.getExprId(), freshExprId);
-        return new Alias(freshExprId, newExpr, expr.getName());
+        // the item is an Alias which is not a plain slot and not a cast of one: replacing the constants of an
+        // Alias always yields an Alias again, so only its expression may change and it keeps its exprId
+        return (NamedExpression) replaceConstants(expr, false, context, equalSet, constants);
     }
 
     private Expression replaceConstants(Expression expression, boolean useInnerInfer, ExpressionRewriteContext context,

@@ -196,7 +196,8 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     // The exprIds which a rule renamed while it rewrote the body of a CTE producer, keyed by the previous exprId.
     // The consumers of that CTE map their slots to the outputs of the producer by exprId and are rewritten before
-    // the producer subtree, so they have to be refreshed with these mappings, see RewriteCteChildren.
+    // the producer subtree, so every rule which renames an output of a producer body has to publish it here, and
+    // RewriteCteChildren refreshes the consumer maps with it. ConstantPropagation is currently the only publisher.
     private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;

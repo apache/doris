@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -47,9 +48,23 @@ public class ExprIdRewriter extends ExpressionRewrite {
     private final JobContext jobContext;
 
     public ExprIdRewriter(ReplaceRule replaceRule, JobContext jobContext) {
-        super(new ExpressionRuleExecutor(ImmutableList.of(bottomUp(replaceRule))));
+        super(new ExpressionRuleExecutor(ImmutableList.of(new ReplaceExprIds(replaceRule))));
         rules = buildRules();
         this.jobContext = jobContext;
+    }
+
+    /** Replace the exprIds of one expression structurally, see ReplaceRule#replaceExprIds. */
+    private static class ReplaceExprIds implements ExpressionRewriteRule<ExpressionRewriteContext> {
+        private final ReplaceRule replaceRule;
+
+        ReplaceExprIds(ReplaceRule replaceRule) {
+            this.replaceRule = replaceRule;
+        }
+
+        @Override
+        public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+            return replaceRule.replaceExprIds(expression);
+        }
     }
 
     /**
@@ -163,6 +178,27 @@ public class ExprIdRewriter extends ExpressionRewrite {
 
         public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
             this(replaceMap, false);
+        }
+
+        /**
+         * Replace the exprIds of the slots (and of the aliases, when this rule was created for them) in one
+         * expression. Unlike the bottom up expression rewriter this enters every branch, including the branches
+         * which require short circuit evaluation, e.g. the assignments of MERGE INTO: replacing an exprId only
+         * rebuilds the expression and never evaluates it, and a reference which keeps an old exprId would point to
+         * a slot which the rewritten child does not output any more.
+         */
+        public Expression replaceExprIds(Expression expression) {
+            // children first: the id replacement of a node must not stop the traversal, e.g. an Alias keeps its own
+            // exprId while a slot of the expression below it is renamed
+            DefaultExpressionRewriter<Map<ExprId, ExprId>> structuralReplacer =
+                    new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                        @Override
+                        public Expression visit(Expression expr, Map<ExprId, ExprId> replaceMap) {
+                            Expression withRewrittenChildren = rewriteChildren(this, expr, replaceMap);
+                            return withRewrittenChildren.accept(replacer, replaceMap);
+                        }
+                    };
+            return expression.accept(structuralReplacer, replaceMap);
         }
 
         @Override

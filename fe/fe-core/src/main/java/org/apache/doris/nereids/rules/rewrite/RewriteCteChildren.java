@@ -49,6 +49,7 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +58,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -111,15 +111,20 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             return outer;
         }
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
-        // A rule of the producer body may have renamed the exprIds of the producer outputs, while the consumers,
-        // which are rewritten before the producer, still map to the previous exprIds: refresh both maps of every
-        // consumer of this CTE with the new producer slots. The rules publish what they renamed, and a rule may
-        // rename more than once, so follow the chain to its end.
+        // ConstantPropagation is currently the only rule which renames the exprIds of a producer output, and it
+        // publishes what it renamed (see StatementContext#addProducerExprIdRemap); a rule which renames an output
+        // of a producer body has to do the same, otherwise the consumers, which are rewritten before the producer,
+        // keep mapping to an exprId which the producer does not output any more. A rule may rename more than once,
+        // so the chain is followed to its end.
         Map<ExprId, ExprId> producerExprIdRemap = cascadesContext.getStatementContext()
                 .getProducerExprIdRemap(cteAnchor.getCteId());
         if (!producerExprIdRemap.isEmpty()) {
-            Map<ExprId, Slot> producerOutputSlots = producer.getOutput().stream()
-                    .collect(Collectors.toMap(Slot::getExprId, Function.identity()));
+            Map<ExprId, Slot> producerOutputSlots = new HashMap<>();
+            for (Slot producerOutputSlot : producer.getOutput()) {
+                // a CTE may expose the same slot more than once, e.g. `SELECT k, k FROM t`: both positions are the
+                // same producer slot, so the first one is enough for the lookup
+                producerOutputSlots.putIfAbsent(producerOutputSlot.getExprId(), producerOutputSlot);
+            }
             outer = (LogicalPlan) outer.<Plan, Void>accept(new CteConsumerOutputsRefresher(cteAnchor.getCteId(),
                     producerExprIdRemap, producerOutputSlots), null);
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
@@ -181,8 +186,9 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             if (lastExprId.equals(producerSlot.getExprId())) {
                 return producerSlot;
             }
-            // the column may be pruned by the rewrite of the producer body after it was renamed, then there is
-            // nothing to map for it any more
+            // the column may be pruned by the rewrite of the producer body after it was renamed, e.g. by
+            // ColumnPruning when the plan above the consumer stopped reading it; such a column has no counterpart
+            // in the producer output, so its entry stays as it is
             Slot newProducerSlot = producerOutputSlots.get(lastExprId);
             return newProducerSlot != null ? newProducerSlot : producerSlot;
         }
