@@ -325,15 +325,22 @@ public final class VariantWritePlanValidator {
     private static Set<ExprId> traceCteConsumer(
             LogicalCTEConsumer consumer, Set<ExprId> requiredExprIds,
             String targetColumn, TraceContext context) {
-        Set<ExprId> producerExprIds = new HashSet<>();
+        // A producer shared by several consumers is traced once per output, whichever sets of its outputs
+        // the consumers request, so the work stays proportional to the plan rather than to the number of
+        // paths through it or of the sets of outputs requested along them.
+        Set<ExprId> externalExprIds = new HashSet<>();
         for (Map.Entry<Slot, Slot> mapping : consumer.getConsumerToProducerOutputMap().entrySet()) {
             if (requiredExprIds.contains(mapping.getKey().getExprId())) {
-                producerExprIds.add(mapping.getValue().getExprId());
+                externalExprIds.addAll(traceCteOutput(
+                        consumer, mapping.getValue().getExprId(), targetColumn, context));
             }
         }
-        // A producer shared by several consumers is traced once per set of requested outputs, so the
-        // work stays proportional to the plan rather than to the number of paths through it.
-        Pair<CTEId, Set<ExprId>> traceKey = Pair.of(consumer.getCteId(), ImmutableSet.copyOf(producerExprIds));
+        return externalExprIds;
+    }
+
+    private static Set<ExprId> traceCteOutput(
+            LogicalCTEConsumer consumer, ExprId producerExprId, String targetColumn, TraceContext context) {
+        Pair<CTEId, ExprId> traceKey = Pair.of(consumer.getCteId(), producerExprId);
         Set<ExprId> completedTrace = context.completedCteTraces.get(traceKey);
         if (completedTrace != null) {
             return completedTrace;
@@ -352,8 +359,8 @@ public final class VariantWritePlanValidator {
             return Collections.emptySet();
         }
         try {
-            Set<ExprId> externalExprIds = ImmutableSet.copyOf(
-                    traceOutputLineage(producerPlan.get(), producerExprIds, targetColumn, context));
+            Set<ExprId> externalExprIds = ImmutableSet.copyOf(traceOutputLineage(
+                    producerPlan.get(), Collections.singleton(producerExprId), targetColumn, context));
             context.completedCteTraces.put(traceKey, externalExprIds);
             return externalExprIds;
         } finally {
@@ -492,8 +499,8 @@ public final class VariantWritePlanValidator {
     private static final class TraceContext {
         private final Map<CTEId, LogicalCTEProducer<?>> cteProducers = new HashMap<>();
         private final Set<CTEId> activeCteIds = new HashSet<>();
-        // Completed producer traces, keyed by CTE and requested producer outputs, with the ExprIds they return.
-        private final Map<Pair<CTEId, Set<ExprId>>, Set<ExprId>> completedCteTraces = new HashMap<>();
+        // Completed traces of producer outputs, keyed by CTE and output, with the ExprIds they return.
+        private final Map<Pair<CTEId, ExprId>, Set<ExprId>> completedCteTraces = new HashMap<>();
         private final Optional<CTEContext> analyzerCteContext;
 
         private TraceContext(Plan sourcePlan, Optional<CTEContext> analyzerCteContext) {

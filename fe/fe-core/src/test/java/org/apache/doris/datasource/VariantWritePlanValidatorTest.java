@@ -286,6 +286,25 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testCteOutputsRequestedInManySetsAreTracedOnceEach() {
+        // c(i) reads c(i - 1) twice, for v0 alone and for v0 together with v(i), so the sets of outputs requested
+        // from c(24 - k) double with k: a cache keyed by the set of requested outputs would trace c0 2^24 times.
+        // Each output is traced once, and a loss carried by one of them only is still found. MUTATION: caching
+        // the traces per set of requested outputs -> times out or runs out of memory.
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        Plan lossless = PlanChecker.from(connectContext)
+                .analyze(cteChainRequestingDoublingSets(24, "parse_to_variant('{\"k\":1}')")).getPlan();
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(30),
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), lossless));
+
+        Plan lossy = PlanChecker.from(connectContext).analyze(cteChainRequestingDoublingSets(
+                24, "CAST(IF(TRUE, parse_to_variant('{\"lost\":true}'), 1) AS VARIANT)")).getPlan();
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), lossy));
+        Assertions.assertTrue(exception.getMessage().contains("input column 'payload'"), exception.getMessage());
+    }
+
+    @Test
     public void testWindowAndAggregateOrderingKeysAreNotWrittenValues() {
         // The partition and order keys of a window and the ORDER BY of GROUP_CONCAT only arrange the rows whose
         // values are used, so a lossy cast there, or in a column read only by such a key, writes nothing. A lossy
@@ -529,6 +548,29 @@ public class VariantWritePlanValidatorTest {
                 ImmutableList.of(anchor, recursive));
         return new LogicalProject<>(ImmutableList.of(
                 new Alias(new IntegerLiteral(1), "id"), union.getOutput().get(1)), union);
+    }
+
+    /**
+     * WITH c0 (v0 ... v{levels}), then c(i) = SELECT COALESCE(v0, v(i)) AS v0, v1 ... FROM c(i - 1) UNION ALL
+     * SELECT v0, v1 ... FROM c(i - 1), and SELECT 1, v0 FROM c{levels}. The last column of c0 is {@code lastValue}
+     * and the others a Variant literal.
+     */
+    private static String cteChainRequestingDoublingSets(int levels, String lastValue) {
+        StringBuilder columns = new StringBuilder();
+        for (int column = 1; column <= levels; column++) {
+            columns.append(", v").append(column);
+        }
+        StringBuilder sql = new StringBuilder("WITH c0 AS (SELECT ");
+        for (int column = 0; column < levels; column++) {
+            sql.append("parse_to_variant('{\"k\":1}') AS v").append(column).append(", ");
+        }
+        sql.append(lastValue).append(" AS v").append(levels).append(')');
+        for (int level = 1; level <= levels; level++) {
+            sql.append(String.format(
+                    ", c%d AS (SELECT COALESCE(v0, v%d) AS v0%s FROM c%d UNION ALL SELECT v0%s FROM c%d)",
+                    level, level, columns, level - 1, columns, level - 1));
+        }
+        return sql.append(" SELECT 1, v0 FROM c").append(levels).toString();
     }
 
     private static List<SlotReference> slotReferences(Plan plan) {
