@@ -38,7 +38,6 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/large_int_value.h"
 #include "exec/operator/result_sink_operator.h"
-#include "exec/sink/writer/result_file_name.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/vexpr.h"
@@ -163,8 +162,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
 Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
     std::string suffix =
             _file_opts->file_suffix.empty() ? _file_format_to_name() : _file_opts->file_suffix;
-    *file_name = build_result_file_name(_file_opts->file_path, print_id(_fragment_instance_id),
-                                        _file_idx++, _file_opts->file_name_padding, suffix);
+    // Padding is a minimum width: larger indices must retain every digit.
+    const int padding = _file_opts->file_name_padding;
+    *file_name =
+            fmt::format("{}{}_{:0{}}.{}", _file_opts->file_path, print_id(_fragment_instance_id),
+                        _file_idx++, padding < 0 ? 0 : padding, suffix);
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
         // Here we do a simple security verification by checking whether the file exists.
