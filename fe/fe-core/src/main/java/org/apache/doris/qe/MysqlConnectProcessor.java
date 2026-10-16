@@ -28,6 +28,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
@@ -439,6 +440,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
     // Process a MySQL request
     public void processOnce() throws IOException {
+        // The connection retains its last query ID for diagnostics; a new command does not own it.
+        QueryLogContext.clear();
         // set status of query to OK.
         ctx.getState().reset();
         ctx.setGroupCommit(false);

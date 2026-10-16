@@ -47,6 +47,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -659,8 +660,10 @@ public class StmtExecutor {
     public void execute() throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
-            LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+            try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+                LOG.info("begin to execute query{} {}",
+                        QueryLogContext.queryIdSuffix(queryId), getStmtForLoggingBeforeParse());
+            }
         }
         queryRetry(queryId);
     }
@@ -751,7 +754,7 @@ public class StmtExecutor {
             LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
                     SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
                     SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
-                    context.getQueryIdentifier());
+                    context.getQueryLogIdentifier());
             execute(queryId);
         } finally {
             sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
@@ -768,6 +771,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        context.setQueryId(queryId);
         profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
@@ -785,10 +789,10 @@ public class StmtExecutor {
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
-                            context.getQueryIdentifier(), e);
+                            context.getQueryLogIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                LOG.warn("Analyze failed. {}", context.getQueryLogIdentifier(), e);
                 // Planning wraps the window rejection in NereidsException/AnalysisException.
                 // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
                 Throwable cause = e instanceof NereidsException
@@ -801,7 +805,7 @@ public class StmtExecutor {
                 }
                 return;
             } catch (Exception e) {
-                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
+                LOG.warn("Nereids execute failed. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 throw e;
             }
@@ -826,7 +830,7 @@ public class StmtExecutor {
                     changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
                 } catch (Throwable t) {
                     LOG.warn("failed to snapshot changed session variables for audit. {}",
-                            context.getQueryIdentifier(), t);
+                            context.getQueryLogIdentifier(), t);
                 }
             }
             // Record this attempt before restoring SET_VAR.
@@ -839,7 +843,7 @@ public class StmtExecutor {
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
             } catch (DdlException e) {
-                LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
+                LOG.warn("failed to revert Session value. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             } finally {
                 sessionVariable.setIsSingleSetVar(false);
@@ -899,7 +903,6 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
-        context.setQueryId(queryId);
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
@@ -1301,7 +1304,7 @@ public class StmtExecutor {
                 }
                 profile.getSummaryProfile().startQueryAttempt(context.queryId(), TimeUtils.getStartTimeMs());
                 handleQueryStmt();
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query{} finished", QueryLogContext.queryIdSuffix(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
@@ -1357,9 +1360,9 @@ public class StmtExecutor {
                     // query the ranges are the endpoints of), or reading them consumed it (an ADBC
                     // partition, a result stream the failed attempt may have drained). Dispatched again,
                     // the plan would read nothing, or only what the failed attempt left, and succeed.
-                    LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
+                    LOG.warn("not retrying query{} with the same plan: a scan node's ranges cannot be read"
                             + " again by the backend. stmt: {}",
-                            DebugUtil.printId(context.queryId()), originStmt.originStmt);
+                            QueryLogContext.queryIdSuffix(context.queryId()), parsedStmt.getOrigStmt().originStmt);
                     throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
@@ -1379,7 +1382,7 @@ public class StmtExecutor {
                 } else if (context.isReturnResultFromLocal()) {
                     finalizeQuery(willRetry);
                 }
-                LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
+                LOG.debug("Finalize query{}", QueryLogContext.queryIdSuffix(context.queryId()));
             }
         }
     }
@@ -1670,8 +1673,8 @@ public class StmtExecutor {
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Handling query {} with query id {}",
-                    originStmt.originStmt, DebugUtil.printId(context.queryId));
+            LOG.debug("Handling query{}: {}",
+                    QueryLogContext.queryIdSuffix(context.queryId), originStmt.originStmt);
         }
 
         ResultSender sender = context.getResultSender();
@@ -2285,7 +2288,7 @@ public class StmtExecutor {
                 context.updateReturnRows(batch.getBatch().getRows().size());
                 resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
             }
-            LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
+            LOG.info("Result rows for query{} is {}", QueryLogContext.queryIdSuffix(queryId), resultRows.size());
             return resultRows;
         } catch (Exception e) {
             if (context.getState().getStateType() != MysqlStateType.ERR) {
@@ -2337,7 +2340,7 @@ public class StmtExecutor {
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
-        LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
+        LOG.info("generate stream load plan{}", QueryLogContext.queryIdSuffix(queryId));
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -2407,7 +2410,7 @@ public class StmtExecutor {
                             originStmt.originStmt, e.getMessage(), e);
                 }
                 if (e instanceof NereidsException) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    LOG.warn("Analyze failed. {}", context.getQueryLogIdentifier(), e);
                 }
                 throw e;
             } catch (Exception e) {
@@ -2418,7 +2421,7 @@ public class StmtExecutor {
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
             } catch (DdlException e) {
-                LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
+                LOG.warn("failed to revert Session value. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             } finally {
                 sessionVariable.setIsSingleSetVar(false);

@@ -48,7 +48,8 @@ public class FlightResultSender implements ResultSender {
 
     @Override
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, boolean binaryRows) {
-        adapter.getChannel().addResult(DebugUtil.printId(ctx.queryId()), adapter.getRunningQuery(), resultSet);
+        adapter.getChannel().addResult(DebugUtil.printId(ctx.queryId()), adapter.getRunningQuery(), resultSet,
+                ctx.queryId());
     }
 
     @Override

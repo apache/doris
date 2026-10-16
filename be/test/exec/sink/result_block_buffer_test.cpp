@@ -27,6 +27,8 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
+#include "common/query_log_context.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -320,6 +322,110 @@ TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
         EXPECT_FALSE(close);
         EXPECT_FALSE(fail);
     }
+}
+
+class MysqlResultQueryLogContextTest : public MysqlResultBlockBufferTest {
+protected:
+    void SetUp() override {
+        _saved_enabled = config::sys_log_enable_query_id;
+        config::sys_log_enable_query_id = true;
+        init_query_log_context();
+        _scope.reset(QueryLogIdentity {});
+    }
+
+    void TearDown() override { config::sys_log_enable_query_id = _saved_enabled; }
+
+    static TUniqueId id(int64_t hi, int64_t lo) {
+        TUniqueId result;
+        result.hi = hi;
+        result.lo = lo;
+        return result;
+    }
+
+    static void expect_identity(const TUniqueId& query, const TUniqueId& instance = {}) {
+        const auto actual = current_query_log_identity();
+        EXPECT_EQ(query.hi, actual.query_hi);
+        EXPECT_EQ(query.lo, actual.query_lo);
+        EXPECT_EQ(instance.hi, actual.instance_hi);
+        EXPECT_EQ(instance.lo, actual.instance_lo);
+    }
+
+private:
+    bool _saved_enabled = false;
+    ScopedQueryLogContext _scope;
+};
+
+TEST_F(MysqlResultQueryLogContextTest, FetchAndCloseKeepQueryIdentityAfterStateDestruction) {
+    const auto query = id(1, 2);
+    const auto instance = id(1, 3);
+    const auto caller = id(5, 6);
+    // Both parallel (query-keyed) and non-parallel (instance-keyed) buffers need the real query ID.
+    for (const auto& buffer_id : {query, instance}) {
+        auto state = std::make_unique<MockRuntimeState>();
+        state->_query_id = query;
+        state->_fragment_instance_id = instance;
+        MySQLResultBlockBuffer buffer(buffer_id, state.get(), 16);
+        buffer.set_dependency(instance, Dependency::create_shared(0, 0, "QueryLog", true));
+        auto batch = std::make_shared<TFetchDataResult>();
+        batch->result_batch.rows.emplace_back("row");
+        ASSERT_TRUE(buffer.add_batch(state.get(), batch).ok());
+        state.reset();
+        EXPECT_EQ(query, buffer.query_id());
+        EXPECT_EQ(buffer_id, buffer.buffer_id());
+
+        int data_calls = 0;
+        int close_calls = 0;
+        auto ctx =
+                MockGetResultBatchCtx::create_shared([] { ADD_FAILURE() << "Unexpected failure"; },
+                                                     [&] {
+                                                         expect_identity(query, instance);
+                                                         ++close_calls;
+                                                     },
+                                                     [&] {
+                                                         expect_identity(query);
+                                                         ++data_calls;
+                                                     });
+        ScopedQueryLogContext unrelated {QueryLogIdentity(caller)};
+        ASSERT_TRUE(buffer.get_batch(ctx).ok());
+        EXPECT_EQ(1, data_calls);
+        expect_identity(caller);
+        // Queue a fetch so close invokes its callback with this instance's identity.
+        ASSERT_TRUE(buffer.get_batch(ctx).ok());
+        bool fully_closed = false;
+        ASSERT_TRUE(buffer.close(instance, Status::OK(), 1, fully_closed).ok());
+        EXPECT_TRUE(fully_closed);
+        EXPECT_EQ(1, close_calls);
+        expect_identity(caller);
+    }
+}
+
+TEST_F(MysqlResultQueryLogContextTest, CancellationAndFailedFetchRestoreCallerIdentity) {
+    const auto query = id(1, 2);
+    const auto instance = id(1, 3);
+    const auto caller = id(5, 6);
+    MockRuntimeState state;
+    state._query_id = query;
+    state._fragment_instance_id = instance;
+    MySQLResultBlockBuffer buffer(instance, &state, 16);
+    buffer.set_dependency(instance, Dependency::create_shared(0, 0, "QueryLog", true));
+    int failures = 0;
+    auto ctx = MockGetResultBatchCtx::create_shared(
+            [&] {
+                expect_identity(query);
+                ++failures;
+            },
+            [] { ADD_FAILURE() << "Unexpected close"; },
+            [] { ADD_FAILURE() << "Unexpected data"; });
+    ScopedQueryLogContext unrelated {QueryLogIdentity(caller)};
+    ASSERT_TRUE(buffer.get_batch(ctx).ok());
+    expect_identity(caller);
+    const auto error = Status::InternalError("query log cancellation");
+    buffer.cancel(error);
+    EXPECT_EQ(1, failures);
+    expect_identity(caller);
+    EXPECT_EQ(error.code(), buffer.get_batch(ctx).code());
+    EXPECT_EQ(2, failures);
+    expect_identity(caller);
 }
 
 } // namespace doris

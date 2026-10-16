@@ -258,7 +258,6 @@ public class StreamingJobUtils {
         ctx.getState().reset();
         ctx.getState().setInternal(true);
         ctx.getState().setNereids(true);
-        ctx.setThreadLocalInfo();
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         ctx.setQueryId(queryId);

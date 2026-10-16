@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.interceptor;
 
+import org.apache.doris.qe.ConnectContext;
+
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -44,15 +46,21 @@ public class ServletTraceIterceptor implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        HttpServletRequest httpRequest = (HttpServletRequest) request;
-        HttpServletResponse httpResponse = (HttpServletResponse) response;
-        if ("TRACE".equalsIgnoreCase(httpRequest.getMethod())) {
-            httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            LOG.warn("Trace method is not allowed to be called, has been intercepted, IP address:"
-                    + request.getRemoteAddr());
-            return;
+        // Servlet workers are reused across authenticated, anonymous and failed requests.
+        ConnectContext.remove();
+        try {
+            HttpServletRequest httpRequest = (HttpServletRequest) request;
+            HttpServletResponse httpResponse = (HttpServletResponse) response;
+            if ("TRACE".equalsIgnoreCase(httpRequest.getMethod())) {
+                httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                LOG.warn("Trace method is not allowed to be called, has been intercepted, IP address:"
+                        + request.getRemoteAddr());
+                return;
+            }
+            chain.doFilter(request, response);
+        } finally {
+            ConnectContext.remove();
         }
-        chain.doFilter(request, response);
     }
 
     @Override

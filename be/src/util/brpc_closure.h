@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/query_log_context.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h" // IWYU pragma: keep
@@ -118,7 +119,9 @@ class AutoReleaseClosure : public google::protobuf::Closure {
 
 public:
     AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
-            : request_(std::move(req)), callback_(callback) {
+            : request_(std::move(req)),
+              callback_(callback),
+              query_log_identity_(current_query_log_identity()) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
     }
@@ -127,6 +130,7 @@ public:
 
     // Releases per-RPC resources, invokes the callback if it is still alive, and then deletes itself.
     void Run() override {
+        ScopedQueryLogContext query_log_scope(query_log_identity_);
         Defer defer {[&]() { delete this; }};
 
         // The request attachment is no longer needed after brpc finishes the RPC. It can contain a
@@ -156,6 +160,7 @@ public:
 
 private:
     std::weak_ptr<Callback> callback_;
+    const QueryLogIdentity query_log_identity_;
 };
 
 } // namespace doris
