@@ -150,7 +150,8 @@ TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
                 argument_types.push_back(std::make_shared<DataTypeInt32>());
             }
             auto function = AggregateFunctionSimpleFactory::instance().get(
-                    "collect_list", argument_types, nullptr, false, SUPPORT_FILE_VERSION);
+                    "collect_list", argument_types, nullptr, false,
+                    BeExecVersionManager::get_newest_version());
             ASSERT_NE(function, nullptr);
             AggregateFunctionGuard partial(function.get());
             AggregateFunctionGuard restored(function.get());
@@ -209,8 +210,8 @@ TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
 TEST(FileAggregateTest, ReaderReplaceRetainsInlineAfterSourceColumnReuse) {
     const auto file = std::make_shared<DataTypeFile>();
     for (const auto& name : {"replace_reader", "replace_if_not_null_reader"}) {
-        auto function = AggregateFunctionSimpleFactory::instance().get(name, {file}, nullptr, false,
-                                                                       SUPPORT_FILE_VERSION);
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, {file}, nullptr, false, BeExecVersionManager::get_newest_version());
         ASSERT_NE(function.get(), nullptr);
         AggregateFunctionGuard state(function.get());
         Arena arena;
@@ -233,8 +234,8 @@ TEST(FileAggregateTest, CountReadsOnlyTheOuterNullMask) {
     source->insert(file_aggregate_value(1));
     source->insert_default();
     source->insert(file_aggregate_value(2));
-    auto function = AggregateFunctionSimpleFactory::instance().get("count", {type}, nullptr, false,
-                                                                   SUPPORT_FILE_VERSION);
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "count", {type}, nullptr, false, BeExecVersionManager::get_newest_version());
     ASSERT_NE(function, nullptr);
     AggregateFunctionGuard state(function.get());
     Arena arena;

@@ -77,8 +77,7 @@ Status DataGenSourceOperatorX::get_block_impl(RuntimeState* state, Block* block,
         local_state.num_rows_returned() >= _limit) {
         if (!block->mem_reuse()) {
             for (const auto* slot : _tuple_desc->slots()) {
-                block->insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                               slot->col_name()});
+                block->insert({slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
             }
         }
         *eos = true;

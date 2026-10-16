@@ -106,7 +106,7 @@ protected:
     void check_projection(const std::vector<size_t>& positions) {
         std::vector<DataTypePtr> types;
         for (const auto position : positions) {
-            types.push_back(descriptor->tuple_desc_map[0]->slots()[position]->get_data_type_ptr());
+            types.push_back(descriptor->tuple_desc_map[0]->slots()[position]->type());
         }
         MockRowDescriptor projected(types, &pool);
         for (size_t i = 0; i < positions.size(); ++i) {
