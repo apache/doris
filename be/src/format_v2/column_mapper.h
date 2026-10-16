@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +64,9 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Paimon Default blob storage: FILE values materialized from managed .blob files
+    // after physical columns and before table predicates.
+    PAIMON_BLOB = 4,
 };
 
 enum class FilterConversionType {
@@ -164,6 +168,9 @@ struct TableColumnMapperOptions {
     bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
+    // Projected Paimon managed BLOB columns materialized as FILE by PaimonBlobMaterializer.
+    // They have no source in the anchor and must bypass constants and file predicate pushdown.
+    std::set<std::string> paimon_blob_columns {};
 
     std::string debug_string() const;
 };

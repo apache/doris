@@ -40,6 +40,7 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
@@ -155,6 +156,8 @@ public class PaimonJniScanner extends JniScanner {
                 "Missing required Paimon scanner parameter: serialized_table_cache_key");
         timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
+        columnValue.setBlobMaxSize(Long.parseLong(params.getOrDefault("paimon_blob_max_size",
+                Long.toString(PaimonColumnValue.DEFAULT_BLOB_MAX_SIZE))));
         this.variantAccessPathsByColumn = variantAccessPathsByColumn(params, requiredFields.length);
         initTableInfo(columnTypes, requiredFields, batchSize);
         hadoopOptionParams = params.entrySet().stream()
@@ -195,10 +198,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initReader() throws IOException {
-        // Read the same effective option that the SDK uses, including table-cache hits and
-        // relation-level overrides carried in serialized_table.
+        // Preserve the requested output mode, including table-cache hits and relation overrides.
         columnValue.setBlobAsDescriptor(new Options(table.options()).get(CoreOptions.BLOB_AS_DESCRIPTOR));
-        ReadBuilder readBuilder = table.newReadBuilder();
         if (this.fields.length > this.paimonAllFieldNames.size()) {
             throw new IOException(
                     String.format(
@@ -230,6 +231,18 @@ public class PaimonJniScanner extends JniScanner {
                         projection.readType().copy(tableField.type().isNullable())));
             }
         }
+        Table readTable = table;
+        if (readFields.stream().anyMatch(field -> field.type() instanceof BlobType)) {
+            // The SDK otherwise allocates each managed BLOB before returning its row. Request
+            // references so PaimonColumnValue can enforce the size limit before reading inline.
+            // Keep this copy scanner-local: cached table options still describe the output mode.
+            Map<String, String> blobReadOptions = Collections.singletonMap(
+                    CoreOptions.BLOB_AS_DESCRIPTOR.key(), "true");
+            readTable = table instanceof FileStoreTable
+                    ? ((FileStoreTable) table).copyWithoutTimeTravel(blobReadOptions)
+                    : table.copy(blobReadOptions);
+        }
+        ReadBuilder readBuilder = readTable.newReadBuilder();
         if (hasReadTypeProjection) {
             // For static complex types, the recursively pruned read type tells Paimon which nested
             // ROW/ARRAY/MAP fields to read. For Variant, Paimon recognizes a metadata-marked RowType

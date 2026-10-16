@@ -57,6 +57,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPaimonBlobFileDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
@@ -71,7 +72,9 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.format.OrcOptions;
+import org.apache.paimon.format.blob.BlobFileFormat;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.operation.DataEvolutionSplitRead;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.rest.RESTTokenFileIO;
@@ -90,6 +93,7 @@ import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
@@ -256,6 +260,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        if (!sessionVariable.enableFileScannerV2 && hasProjectedFileColumn()) {
+            throw new UserException("Paimon BLOB columns require enable_file_scanner_v2=true"
+                    + " for both native and JNI readers");
+        }
         checkVariantV2Enabled(desc);
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (desc.getTable() instanceof PaimonExternalTable
@@ -284,6 +292,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
+        // Use the same effective table as serialized_table, including relation/catalog overrides
+        // and Paimon's default, so native readers and the JNI scanner receive one read mode.
+        backendPaimonOptions.put(CoreOptions.BLOB_AS_DESCRIPTOR.key(),
+                String.valueOf(new Options(processedTable.options()).get(CoreOptions.BLOB_AS_DESCRIPTOR)));
         OptionalInt manifestCap;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
             manifestCap = source.runtimeSafeManifestParallelism(getScanParams());
@@ -1107,6 +1119,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             putHistorySchemaInfo(paimonSplit.getSchemaId());
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
         }
+        if (paimonSplit.getBlobFiles() != null) {
+            // The reader remains PAIMON_NATIVE/PARQUET. These are companion column files,
+            // materialized by PaimonReader using the anchor's original file row positions.
+            fileDesc.setBlobFiles(paimonSplit.getBlobFiles());
+            fileDesc.setAnchorFirstRowId(paimonSplit.getAnchorFirstRowId());
+            fileDesc.setAnchorRowCount(paimonSplit.getAnchorRowCount());
+        }
         fileDesc.setFileFormat(fileFormat);
         // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
         // no need to set it for each split to avoid redundant configuration
@@ -1157,15 +1176,21 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        // BLOB columns are materialized as FILE by the JNI adapter. Keep their logical
-        // Paimon splits intact instead of converting them to independent raw-file reads.
-        boolean forceJniScanner = sessionVariable.isForceJniScanner() || hasProjectedFileColumn();
+        // BLOB columns need either the companion-file plan below or a logical JNI split.
+        // Ordinary raw-file conversion cannot reconstruct their FILE values.
+        boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        boolean hasProjectedFile = hasProjectedFileColumn();
         // Paimon system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
         // - audit_log: rowkind / sequence-number projection
         // TODO: Allow native reader after Doris native parquet/orc reader can materialize
         // these system-table rows consistently with Paimon system-table semantics.
         boolean forceJniForSystemTable = shouldForceJniForSystemTable();
+        boolean materializeBlobColumns = !forceJniScanner && !forceJniForSystemTable
+                && needsNativeBlobMaterialization(hasProjectedFile);
+        Set<String> projectedNames = materializeBlobColumns ? desc.getSlots().stream()
+                .map(slot -> slot.getColumn().getName().toLowerCase(Locale.ROOT)).collect(Collectors.toSet())
+                : Collections.emptySet();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
@@ -1228,6 +1253,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             // must not pay the planning cost of merging Paimon manifest statistics.
             OptionalLong mergedRowCount = applyCountPushdown
                     ? dataSplit.mergedRowCount() : OptionalLong.empty();
+            Optional<List<Split>> blobSplits = Optional.empty();
+            if (!mergedRowCount.isPresent() && materializeBlobColumns
+                    && canUseNativeBlobSplit(dataSplit, projectedNames)) {
+                if (!hasDeterminedTargetFileSplitSize) {
+                    targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                    hasDeterminedTargetFileSplitSize = true;
+                }
+                blobSplits = createNativeBlobSplits(
+                        dataSplit, partitionInfoMap, targetFileSplitSize, projectedNames);
+            }
             if (applyCountPushdown && mergedRowCount.isPresent()) {
                 long count = mergedRowCount.getAsLong();
                 splitStat.setMergedRowCount(count);
@@ -1238,7 +1273,15 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += count;
-            } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
+            } else if (blobSplits.isPresent()) {
+                if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
+                    continue;
+                }
+                splits.addAll(blobSplits.get());
+                rawFileSplitNum += blobSplits.get().size();
+                splitStat.setType(SplitReadType.NATIVE);
+            } else if (!forceJniScanner && !forceJniForSystemTable && !hasProjectedFile
+                    && supportNativeReader(optRawFiles)) {
                 // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
                 // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
                 // may require merge/delete semantics and cannot reuse independent file statistics.
@@ -1319,6 +1362,174 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    private boolean needsNativeBlobMaterialization(boolean hasProjectedFile) {
+        if (!hasProjectedFile || !sessionVariable.enableFileScannerV2
+                || !(processedTable instanceof FileStoreTable)
+                || processedTable instanceof FallbackReadFileStoreTable) {
+            return false;
+        }
+        FileStoreTable table = (FileStoreTable) processedTable;
+        if (!table.coreOptions().dataEvolutionEnabled() || table.coreOptions().queryAuthEnabled()) {
+            return false;
+        }
+        // Nested FILE values still use JNI. Only top-level managed BLOBs can be joined to
+        // an anchor by its original row positions.
+        return desc.getSlots().stream()
+                .noneMatch(slot -> !slot.getType().isFileType() && slot.getType().typeContainsFile());
+    }
+
+    private boolean canUseNativeBlobSplit(DataSplit dataSplit, Set<String> projectedNames) throws UserException {
+        FileStoreTable table = (FileStoreTable) processedTable;
+        if (dataSplit instanceof FallbackReadFileStoreTable.FallbackSplit
+                || !table.primaryKeys().isEmpty() || dataSplit.isStreaming()) {
+            return false;
+        }
+        // TODO: If Paimon enables deletion vectors for data-evolution tables, propagate each
+        // anchor's deletion file to its native splits and preserve original row positions
+        // when materializing BLOBs. Paimon 1.4.2 currently rejects this option combination.
+        if (dataSplit.deletionFiles().orElse(Collections.emptyList()).stream().anyMatch(Objects::nonNull)) {
+            return false;
+        }
+        if (table.coreOptions().blobDescriptorField().stream()
+                .anyMatch(name -> projectedNames.contains(name.toLowerCase(Locale.ROOT)))) {
+            return false;
+        }
+        for (DataFileMeta file : dataSplit.dataFiles()) {
+            // Companion files must use the same backend configuration as the anchor.
+            if (file.externalPath().isPresent() || file.externalPathDir().isPresent()) {
+                return false;
+            }
+            if (file.firstRowId() == null || file.firstRowId() < 0 || file.rowCount() <= 0
+                    || file.firstRowId() > Long.MAX_VALUE - file.rowCount()) {
+                throw new UserException("Missing or invalid Paimon data-evolution row range for " + file.fileName());
+            }
+            if (BlobFileFormat.isBlobFile(file.fileName())
+                    && (file.writeCols() == null || file.writeCols().size() != 1)) {
+                throw new UserException("Managed Paimon BLOB files must contain exactly one column");
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Plans native reads only for projected BLOB columns using Paimon's Default blob storage:
+     * payloads live in managed .blob files and are joined to ordinary columns by row ID.
+     * Descriptor-only and external-storage descriptor modes fall back to JNI.
+     * The blob-as-descriptor read option is independent of the storage mode; native reads
+     * support both inline payload and descriptor output for Default blob storage.
+     * Returns Optional.empty() when the file layout requires JNI.
+     */
+    private Optional<List<Split>> createNativeBlobSplits(DataSplit dataSplit, Map<String, String> partitionValues,
+            long targetSplitSize, Set<String> projectedNames) throws UserException {
+        Set<Integer> projectedBlobIds = processedTable.rowType().getFields().stream()
+                .filter(field -> field.type().getTypeRoot() == DataTypeRoot.BLOB
+                        && projectedNames.contains(field.name().toLowerCase(Locale.ROOT)))
+                .map(DataField::id).collect(Collectors.toSet());
+        List<Split> result = new ArrayList<>();
+        try {
+            // Reuse the SDK's overlap grouping and latest-version selection. Flattening the
+            // DataSplit would duplicate rows, and selecting every .blob file would read obsolete
+            // versions after compaction.
+            for (List<DataFileMeta> group : DataEvolutionSplitRead.mergeRangesAndSort(dataSplit.dataFiles())) {
+                DataFileMeta anchor = findBlobParquetAnchor(group, projectedBlobIds);
+                if (anchor == null) {
+                    return Optional.empty();
+                }
+                List<DataEvolutionSplitRead.FieldBunch> bunches = DataEvolutionSplitRead.splitFieldBunches(
+                        group, file -> getHistoryTableSchema(file.schemaId()).logicalRowType());
+                List<TPaimonBlobFileDesc> blobFiles = new ArrayList<>();
+                for (DataEvolutionSplitRead.FieldBunch bunch : bunches) {
+                    DataFileMeta first = bunch.files().get(0);
+                    if (!BlobFileFormat.isBlobFile(first.fileName())) {
+                        continue;
+                    }
+                    DataField field = getHistoryTableSchema(first.schemaId()).logicalRowType()
+                            .getField(first.writeCols().get(0));
+                    if (!projectedBlobIds.contains(field.id())) {
+                        continue;
+                    }
+                    if (bunch.rowCount() != anchor.rowCount()
+                            || first.nonNullFirstRowId() != anchor.nonNullFirstRowId()) {
+                        return Optional.empty();
+                    }
+                    for (DataFileMeta blob : bunch.files()) {
+                        blobFiles.add(createBlobFileDescriptor(dataSplit, blob));
+                    }
+                }
+                String path = paimonDataFilePath(dataSplit, anchor);
+                List<Split> physicalSplits = fileSplitter.splitFile(
+                        LocationPath.of(path, storagePropertiesMap),
+                        selectFeSplitSizeForRawFile(path, targetSplitSize, true),
+                        null, anchor.fileSize(), -1, true, Collections.emptyList(),
+                        PaimonSplit.PaimonSplitCreator.DEFAULT);
+                for (Split physicalSplit : physicalSplits) {
+                    PaimonSplit split = (PaimonSplit) physicalSplit;
+                    split.setSchemaId(anchor.schemaId());
+                    split.setPaimonPartitionValues(partitionValues);
+                    // Preserve the complete anchor's row origin even when its bytes are split.
+                    split.setBlobFiles(blobFiles, anchor.nonNullFirstRowId(), anchor.rowCount());
+                }
+                result.addAll(physicalSplits);
+            }
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            throw new UserException("Failed to plan native Paimon BLOB files: " + e.getMessage(), e);
+        }
+        return Optional.of(result);
+    }
+
+    /**
+     * Selects the single ordinary Parquet file that supplies columns and original row positions
+     * for joining managed .blob files. Multiple ordinary files require column merging, which
+     * this native path does not support. Returns null for layouts that must fall back to JNI.
+     */
+    private DataFileMeta findBlobParquetAnchor(List<DataFileMeta> group, Set<Integer> projectedBlobIds)
+            throws UserException {
+        DataFileMeta anchor = null;
+        for (DataFileMeta file : group) {
+            if (BlobFileFormat.isBlobFile(file.fileName())) {
+                continue;
+            }
+            // Multiple ordinary column files require a column-merge reader. Choosing one of them
+            // could omit newer ordinary values, even when all their row ranges match.
+            if (anchor != null || !"parquet".equals(file.fileFormat())) {
+                return null;
+            }
+            anchor = file;
+        }
+        if (anchor == null) {
+            return null;
+        }
+        // Descriptor-only and external-storage descriptor modes store descriptors in Parquet,
+        // rather than payloads in managed .blob files; projected columns in these modes use JNI.
+        for (DataField field : getHistoryTableSchema(anchor.schemaId()).logicalRowType().getFields()) {
+            if (field.type().getTypeRoot() == DataTypeRoot.BLOB
+                    && projectedBlobIds.contains(field.id())
+                    && (anchor.writeCols() == null || anchor.writeCols().contains(field.name()))) {
+                return null;
+            }
+        }
+        return anchor;
+    }
+
+    private TPaimonBlobFileDesc createBlobFileDescriptor(DataSplit split, DataFileMeta file) throws UserException {
+        DataField field = getHistoryTableSchema(file.schemaId()).logicalRowType().getField(file.writeCols().get(0));
+        if (field.type().getTypeRoot() != DataTypeRoot.BLOB) {
+            throw new UserException("Managed Paimon BLOB file has a non-BLOB field: " + field.name());
+        }
+        TPaimonBlobFileDesc descriptor = new TPaimonBlobFileDesc();
+        descriptor.setPath(LocationPath.of(paimonDataFilePath(split, file), storagePropertiesMap)
+                .toStorageLocation().toString());
+        descriptor.setFileSize(file.fileSize());
+        descriptor.setFirstRowId(file.nonNullFirstRowId());
+        descriptor.setRowCount(file.rowCount());
+        descriptor.setFieldId(field.id());
+        return descriptor;
+    }
+
+    private static String paimonDataFilePath(DataSplit split, DataFileMeta file) {
+        return file.externalPath().orElse(split.bucketPath() + "/" + file.fileName());
     }
 
     @VisibleForTesting

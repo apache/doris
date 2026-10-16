@@ -197,6 +197,8 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::PAIMON_BLOB:
+        return "PAIMON_BLOB";
     }
     return "UNKNOWN";
 }
@@ -2270,6 +2272,13 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    if (_options.paimon_blob_columns.contains(table_column.name)) {
+        // Managed BLOBs live outside the Parquet anchor. Wait for PaimonBlobMaterializer
+        // before evaluating their predicates; do not synthesize missing-column constants.
+        mapping->virtual_column_type = TableVirtualColumnType::PAIMON_BLOB;
+        mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
+        return Status::OK();
+    }
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
