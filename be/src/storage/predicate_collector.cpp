@@ -382,27 +382,40 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         return Status::OK();
     }
 
+    if (!column.is_extracted_column()) {
+        // Plain fields must use the same reader for statistics and SEARCH execution.
+        // Variant paths retain the branch-specific binding resolution.
+        auto query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+        if (clause_type == "EXACT") {
+            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        } else if (clause_type == "PHRASE") {
+            query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+        } else if (clause_type == "ALL") {
+            query_type = InvertedIndexQueryType::MATCH_ALL_QUERY;
+        }
+        const auto* selected =
+                DORIS_TRY(select_index_meta(index_metas, column.type(), query_type, "", ""));
+        index_metas = {selected};
+    }
+
     ClauseTypeCategory category = get_clause_type_category(clause_type);
     for (const auto* index_meta : index_metas) {
+        if (infer_inverted_index_reader_type(column.type(), index_meta->properties()) ==
+            InvertedIndexReaderType::BKD) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "Index statistics collection failed: BM25 scoring does not support numeric BKD "
+                    "search field={}",
+                    field_name);
+        }
         std::set<TermInfo, TermInfoComparer> term_infos;
-
-        if (category == ClauseTypeCategory::TOKENIZED) {
-            if (InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
-                auto analyzed_terms =
-                        DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
-                term_infos.insert(analyzed_terms.begin(), analyzed_terms.end());
-            } else {
-                term_infos.insert(TermInfo(value));
-            }
-        } else if (category == ClauseTypeCategory::NON_TOKENIZED) {
-            if (clause_type == "TERM" &&
-                InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
-                auto analyzed_terms =
-                        DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
-                term_infos.insert(analyzed_terms.begin(), analyzed_terms.end());
-            } else {
-                term_infos.insert(TermInfo(value));
-            }
+        if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
+            clause_type == "MATCH" ||
+            (category == ClauseTypeCategory::NON_TOKENIZED && clause_type != "TERM")) {
+            // Keyword indexes store the whole value, including whitespace and case.
+            term_infos.insert(TermInfo(value));
+        } else {
+            auto analyzed_terms = DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
+            term_infos.insert(analyzed_terms.begin(), analyzed_terms.end());
         }
 
         std::string lucene_field_name =
