@@ -57,8 +57,8 @@
 #include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
@@ -555,7 +555,12 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
-    bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
+    // The condition cache key covers the file identity plus the table-level predicate/session
+    // digest only. A table format whose file-column binding can change without changing that digest
+    // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
+    // this to false: a stale all-false granule would silently drop matching rows, because the
+    // cached verdict was produced by a different physical binding.
+    virtual bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
@@ -1357,7 +1362,7 @@ protected:
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        auto cast_expr = Cast::create_shared(cast_type);
+        auto cast_expr = EvolutionCast::create_shared(cast_type);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;

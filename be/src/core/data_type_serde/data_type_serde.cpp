@@ -129,7 +129,7 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(slots.size());
     for (const SlotDescriptor* slot : slots) {
-        serdes.push_back(slot->get_data_type_ptr()->get_serde());
+        serdes.push_back(slot->type()->get_serde());
     }
     return serdes;
 }

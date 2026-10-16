@@ -22,8 +22,8 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_compound_reader.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 

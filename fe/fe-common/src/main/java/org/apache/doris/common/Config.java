@@ -2032,9 +2032,11 @@ public class Config extends ConfigBase {
             = ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
     // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
     public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
+    // Older backends reject the iceberg_transform external sink partition function.
+    public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

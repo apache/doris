@@ -19,10 +19,12 @@ package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.aliyun.odps.NoSuchObjectException;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
 import com.aliyun.odps.Project;
+import com.aliyun.odps.ReloadException;
 import com.aliyun.odps.Schema;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.TableSchema;
@@ -104,7 +106,16 @@ public interface McStructureHelper {
             Iterator<Schema> iterator =
                     mcClient.schemas().iterator(defaultProjectName);
             while (iterator.hasNext()) {
-                result.add(iterator.next().getName());
+                Schema schema = iterator.next();
+                try {
+                    result.add(schema.getName());
+                } catch (ReloadException e) {
+                    // getName reloads the listed schema, which may have been concurrently dropped.
+                    // Only skip that entry; listing failures and other reload errors must propagate.
+                    if (!(e.getCause() instanceof NoSuchObjectException)) {
+                        throw e;
+                    }
+                }
             }
             return result;
         }

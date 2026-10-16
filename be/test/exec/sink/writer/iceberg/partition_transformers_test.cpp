@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -146,17 +147,24 @@ TEST_F(PartitionTransformersTest, binary_truncate_counts_bytes_and_preserves_typ
 
 TEST_F(PartitionTransformersTest, timestamp_transforms_use_utc_calendar_and_microseconds) {
     for (const auto& type : std::vector<DataTypePtr> {std::make_shared<DataTypeDateTimeV2>(6),
-                                                      std::make_shared<DataTypeTimeStampTz>(6)}) {
+                                                      std::make_shared<DataTypeTimeStampTz>(6),
+                                                      std::make_shared<DataTypeTimeStampNs>()}) {
         auto column = type->create_column();
         // The first two UTC values represent the repeated New York 01:30 with different offsets.
         const std::vector<std::array<int, 7>> fields = {{2021, 11, 7, 5, 30, 0, 123456},
                                                         {2021, 11, 7, 6, 30, 0, 123456},
                                                         {1969, 12, 31, 23, 59, 59, 999999}};
         const std::vector<Int64> micros = {1636263000123456, 1636266600123456, -1};
+        size_t index = 0;
         for (const auto& f : fields) {
             DateV2Value<DateTimeV2ValueType> dt;
             ASSERT_TRUE(dt.check_range_and_set_time(f[0], f[1], f[2], f[3], f[4], f[5], f[6]));
             auto packed = dt.to_date_int_val();
+            if (type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                // All sub-microsecond fractions must bucket using the floor microsecond.
+                packed = static_cast<uint64_t>(micros[index] * 1000 + 999);
+            }
+            ++index;
             column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
         }
         column->insert_default();

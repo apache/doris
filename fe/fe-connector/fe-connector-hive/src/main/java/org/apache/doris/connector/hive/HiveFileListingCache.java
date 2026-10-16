@@ -187,6 +187,12 @@ public class HiveFileListingCache {
                         cache.isEnabled() && cache.isWeightBounded())).files;
     }
 
+    /** Returns a cheap batch-planning hint, or -1 when listing would require I/O. */
+    long cachedFileCount(String dbName, String tableName, String location, List<String> partitionValues) {
+        FileListingValue value = cache.getIfPresent(new FileListingKey(dbName, tableName, location, partitionValues));
+        return value == null ? -1 : value.files.size();
+    }
+
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
     public void invalidateTable(String dbName, String tableName) {
         owner.invalidateTable(dbName, tableName);
