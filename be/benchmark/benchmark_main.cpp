@@ -30,6 +30,7 @@
 #include "benchmark_character_encoding.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
+#include "benchmark_exchange_broadcast.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
 #include "benchmark_gram_extractor.hpp"
