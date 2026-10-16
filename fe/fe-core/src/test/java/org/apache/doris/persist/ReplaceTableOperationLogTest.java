@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.BinlogConfig;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +36,10 @@ public class ReplaceTableOperationLogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, "old", 3, "new", true, true);
+        BinlogConfig binlogConfig = new BinlogConfig(true, 10L, 20L, 30L,
+                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, "old", 3, "new", true, true,
+                binlogConfig);
         log.write(dos);
 
         dos.flush();
@@ -50,9 +55,17 @@ public class ReplaceTableOperationLogTest {
         Assertions.assertTrue(readLog.isSwapTable() == log.isSwapTable());
         Assertions.assertTrue(readLog.getOrigTblName().equals(log.getOrigTblName()));
         Assertions.assertTrue(readLog.getNewTblName().equals(log.getNewTblName()));
+        Assertions.assertEquals(binlogConfig, readLog.getOrigTblBinlogConfig());
 
         // 3. delete files
         dis.close();
         file.delete();
+    }
+
+    @Test
+    public void testLegacySerializationWithoutBinlogConfig() {
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, "old", 3, "new", false, true);
+        ReplaceTableOperationLog readLog = ReplaceTableOperationLog.fromJson(log.toJson());
+        Assertions.assertNull(readLog.getOrigTblBinlogConfig());
     }
 }
