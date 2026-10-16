@@ -27,14 +27,20 @@ namespace doris {
 EngineIndexChangeTask::EngineIndexChangeTask(
         StorageEngine& engine, const TAlterInvertedIndexReq& alter_inverted_index_request)
         : _engine(engine), _alter_inverted_index_req(alter_inverted_index_request) {
+    _engine.notify_build_index_task_begin();
+    int64_t mem_limit = _engine.memory_limitation_bytes_for_build_index();
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineIndexChangeTask#tabletId={}",
                         std::to_string(_alter_inverted_index_req.tablet_id)),
-            engine.memory_limitation_bytes_per_thread_for_schema_change());
+            mem_limit);
+    LOG(INFO) << "build index task created, tablet_id=" << _alter_inverted_index_req.tablet_id
+              << ", mem_limit=" << mem_limit;
 }
 
-EngineIndexChangeTask::~EngineIndexChangeTask() = default;
+EngineIndexChangeTask::~EngineIndexChangeTask() {
+    _engine.notify_build_index_task_end();
+}
 
 Status EngineIndexChangeTask::execute() {
     DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
