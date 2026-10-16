@@ -87,8 +87,9 @@ public:
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
-    void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
-                                       std::lock_guard<std::mutex>& cache_lock) override;
+    void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                            int64_t tablet_id,
+                                            std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 
