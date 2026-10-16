@@ -97,6 +97,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SchemaChangeJobV2Test {
 
@@ -758,10 +762,8 @@ public class SchemaChangeJobV2Test {
         return shadowSchema;
     }
 
-    // A schema-change job cancelled while the table is still WAITING_STABLE (it never became
-    // stable, so it was never promoted to SCHEMA_CHANGE) must reset the table back to NORMAL.
-    // Otherwise the table is permanently stuck in WAITING_STABLE with no live job, and every
-    // subsequent ALTER / TRUNCATE / DROP PARTITION / RENAME / CANCEL is rejected (deadlock).
+    // A job cancelled while the table is still WAITING_STABLE must reset the table back to NORMAL,
+    // otherwise the table is stuck with no live job and all following DDLs are rejected.
     @Test
     public void testCancelSchemaChangeWhileWaitingStable() throws Exception {
         if (fakeEnv != null) {
@@ -794,17 +796,15 @@ public class SchemaChangeJobV2Test {
         Assertions.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
         Assertions.assertEquals(OlapTableState.WAITING_STABLE, olapTable.getState());
 
-        // cancel while WAITING_STABLE: the table must return to NORMAL (before the fix it stayed
-        // stuck in WAITING_STABLE because changeTableState() only reset from SCHEMA_CHANGE).
+        // cancel while WAITING_STABLE: the table must return to NORMAL
         boolean cancelled = schemaChangeJob.cancel("test cancel while waiting stable");
         Assertions.assertTrue(cancelled);
         Assertions.assertEquals(JobState.CANCELLED, schemaChangeJob.getJobState());
         Assertions.assertEquals(OlapTableState.NORMAL, olapTable.getState());
     }
 
-    // A table left in WAITING_STABLE with no backing schema-change job (an orphaned state that older
-    // binaries could produce) must be self-healed by CANCEL ALTER TABLE: the table is reset to NORMAL
-    // instead of throwing "could not find related job" (which previously left DROP TABLE as the only escape).
+    // A table left in WAITING_STABLE with no backing job must be self-healed by CANCEL ALTER TABLE:
+    // reset to NORMAL instead of throwing "could not find related job".
     @Test
     public void testCancelColumnJobSelfHealsOrphanedState() throws Exception {
         if (fakeEnv != null) {
@@ -833,9 +833,8 @@ public class SchemaChangeJobV2Test {
         Assertions.assertEquals(OlapTableState.NORMAL, olapTable.getState());
     }
 
-    // A table flagged SCHEMA_CHANGE with no backing job is not a known-reachable state and a silent reset
-    // could abandon still-present shadow indexes; CANCEL must fail loudly and leave the state untouched
-    // (only WAITING_STABLE is self-healed).
+    // A table flagged SCHEMA_CHANGE with no backing job is not a known-reachable state; CANCEL must
+    // fail loudly and leave the state untouched (only WAITING_STABLE is self-healed).
     @Test
     public void testCancelColumnJobRejectsOrphanedSchemaChangeState() throws Exception {
         if (fakeEnv != null) {
@@ -864,6 +863,147 @@ public class SchemaChangeJobV2Test {
         Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         // restore state so it does not leak into other tests sharing the catalog fixture
+        olapTable.setState(OlapTableState.NORMAL);
+    }
+
+    // CANCEL ALTER TABLE COLUMN must not self-heal a table backed by a live PENDING rollup job
+    // (WAITING_STABLE is shared by schema-change and rollup jobs); the rollup job must be
+    // cancelled first.
+    @Test
+    public void testCancelColumnJobRejectsHealWhileRollupJobWaiting() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+
+        // the table is WAITING_STABLE backed by a live rollup job, with no schema-change job
+        olapTable.setState(OlapTableState.WAITING_STABLE);
+        Assertions.assertTrue(schemaChangeHandler.getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+
+        long rollupJobId = 20001L;
+        // a freshly constructed RollupJobV2 starts in the PENDING state, which counts as unfinished
+        RollupJobV2 rollupJob = new RollupJobV2("", rollupJobId, CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1, olapTable.getName(), 60000L, olapTable.getBaseIndexId(),
+                30001L, "base", "r1", new ArrayList<>(olapTable.getBaseSchema()), null,
+                0, 0, olapTable.getKeysType(), (short) 1, null, null);
+        materializedViewHandler.addAlterJobV2(rollupJob);
+        try {
+            Assertions.assertFalse(materializedViewHandler
+                    .getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+
+            TableNameInfo tableNameInfo = new TableNameInfo(db.getName(), olapTable.getName());
+            CancelAlterTableCommand cancelCommand = new CancelAlterTableCommand(
+                    tableNameInfo, CancelAlterTableCommand.AlterType.COLUMN, Lists.newArrayList());
+            DdlException e = Assertions.assertThrows(DdlException.class,
+                    () -> schemaChangeHandler.cancel(cancelCommand));
+            Assertions.assertTrue(e.getMessage().contains("waiting for an unfinished rollup job"),
+                    "unexpected message: " + e.getMessage());
+            // the table must NOT be self-healed while the rollup job is still running
+            Assertions.assertEquals(OlapTableState.WAITING_STABLE, olapTable.getState());
+        } finally {
+            // remove the injected rollup job so it does not leak into other tests sharing this handler
+            materializedViewHandler.getAlterJobsV2().remove(rollupJobId);
+            olapTable.setState(OlapTableState.NORMAL);
+        }
+    }
+
+    // Concurrent CANCELs on an orphaned table must heal it exactly once: the validation and the
+    // reset run in one critical section, so exactly one caller heals and the others are rejected.
+    @Test
+    public void testConcurrentCancelHealsOrphanedWaitingStableExactlyOnce() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+
+        // simulate the orphaned state: table flagged WAITING_STABLE but no alter job backs it
+        olapTable.setState(OlapTableState.WAITING_STABLE);
+        Assertions.assertTrue(schemaChangeHandler.getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+        Assertions.assertTrue(Env.getCurrentEnv().getMaterializedViewHandler()
+                .getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(db.getName(), olapTable.getName());
+        CancelAlterTableCommand cancelCommand = new CancelAlterTableCommand(
+                tableNameInfo, CancelAlterTableCommand.AlterType.COLUMN, Lists.newArrayList());
+
+        final int threadCount = 4;
+        CyclicBarrier barrier = new CyclicBarrier(threadCount);
+        AtomicInteger healedCount = new AtomicInteger(0);
+        AtomicInteger rejectedCount = new AtomicInteger(0);
+        List<String> unexpectedErrors = new CopyOnWriteArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < threadCount; i++) {
+            Thread thread = new Thread(() -> {
+                // Mockito static mocks are registered per thread; each thread registers its own Env stub.
+                try (MockedStatic<Env> threadEnvMock = Mockito.mockStatic(Env.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+                    threadEnvMock.when(Env::getCurrentEnv).thenAnswer(inv -> masterEnv);
+                    barrier.await(30, TimeUnit.SECONDS);
+                    schemaChangeHandler.cancel(cancelCommand);
+                    healedCount.incrementAndGet();
+                } catch (DdlException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("is not under SCHEMA_CHANGE")) {
+                        rejectedCount.incrementAndGet();
+                    } else {
+                        unexpectedErrors.add("DdlException: " + e.getMessage());
+                    }
+                } catch (Exception e) {
+                    unexpectedErrors.add(String.valueOf(e));
+                }
+            });
+            thread.start();
+            threads.add(thread);
+        }
+        for (Thread thread : threads) {
+            // generous timeout so a stuck cancel thread can never hang the UT run
+            thread.join(60000);
+            Assertions.assertFalse(thread.isAlive(), "cancel thread did not finish in time");
+        }
+        Assertions.assertEquals(1, healedCount.get(), "exactly one cancel should heal the orphaned table");
+        Assertions.assertEquals(threadCount - 1, rejectedCount.get(),
+                "the other cancels should be rejected with 'is not under SCHEMA_CHANGE'");
+        Assertions.assertTrue(unexpectedErrors.isEmpty(), "unexpected errors: " + unexpectedErrors);
+        Assertions.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+
+        // the healed table is fully usable: a newly submitted job parks in WAITING_STABLE and is
+        // not clobbered by the racing heals
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Replica replica1 = baseIndex.getTablets().get(0).getReplicas().get(0);
+        replica1.setState(Replica.ReplicaState.DECOMMISSION);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
+        Assertions.assertEquals(OlapTableState.WAITING_STABLE, olapTable.getState());
+
+        // clean up so the job and the replica state do not leak into other tests sharing this fixture
+        schemaChangeHandler.getAlterJobsV2().remove(schemaChangeJob.getJobId());
+        replica1.setState(Replica.ReplicaState.NORMAL);
         olapTable.setState(OlapTableState.NORMAL);
     }
 }

@@ -3180,7 +3180,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         AlterJobV2 schemaChangeJobV2 = null;
-        boolean healOrphanedWaitingStable = false;
 
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
@@ -3196,39 +3195,37 @@ public class SchemaChangeHandler extends AlterHandler {
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null
                     : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
-                if (olapTable.getState() == OlapTableState.WAITING_STABLE) {
-                    // WAITING_STABLE but no live job: an orphaned state produced by an old binary that
-                    // cancelled a still-WAITING_STABLE job without resetting the table (the job's
-                    // cancelInternal already dropped the shadow indexes, only the table state was left
-                    // stuck). Self-heal by resetting to NORMAL so the table is usable again instead of
-                    // leaving DROP TABLE as the only escape. The reset is done durably via
-                    // setTableStatusInternal (edit log + follower replay), so we only flag it here and
-                    // perform it after releasing the table lock.
-                    healOrphanedWaitingStable = true;
-                } else {
-                    // SCHEMA_CHANGE with no backing job is not a known-reachable state; a silent reset
-                    // could abandon still-present shadow indexes/tablets. Keep failing loudly so it is
-                    // investigated rather than masked.
+                if (olapTable.getState() != OlapTableState.WAITING_STABLE) {
+                    // SCHEMA_CHANGE with no backing job is not a known-reachable state, keep failing
+                    // loudly rather than silently masking it.
                     throw new DdlException("Table[" + tableName + "] is under SCHEMA_CHANGE"
                             + " but could not find related job");
                 }
+                // WAITING_STABLE is shared with rollup jobs, so the table may be backed by a live
+                // rollup job in MaterializedViewHandler instead of being orphaned.
+                List<AlterJobV2> rollupJobV2List = Env.getCurrentEnv().getMaterializedViewHandler()
+                        .getUnfinishedAlterJobV2ByTableId(olapTable.getId());
+                if (!rollupJobV2List.isEmpty()) {
+                    throw new DdlException("Table[" + tableName + "] is waiting for an unfinished rollup job, "
+                            + "please use 'CANCEL ALTER TABLE ROLLUP' to cancel it first");
+                }
+                // Orphaned WAITING_STABLE with no backing job: self-heal to NORMAL. The validation and
+                // the reset run in the same critical section so the heal is atomic against concurrent
+                // cancels and newly-submitted jobs; the table lock is reentrant, so
+                // setTableStatusInternal can safely re-acquire it below.
+                LOG.warn("table[{}] is in orphaned WAITING_STABLE state, reset it to NORMAL", tableName);
+                try {
+                    Env.getCurrentEnv().setTableStatusInternal(dbName, tableName, OlapTableState.NORMAL, false);
+                } catch (MetaNotFoundException e) {
+                    throw new DdlException(e.getMessage());
+                }
+                return;
             }
         } finally {
             olapTable.writeUnlock();
         }
 
-        if (healOrphanedWaitingStable) {
-            LOG.warn("table[{}] is in state WAITING_STABLE but has no related schema change job, "
-                    + "reset table state to NORMAL", tableName);
-            try {
-                Env.getCurrentEnv().setTableStatusInternal(dbName, tableName, OlapTableState.NORMAL, false);
-            } catch (MetaNotFoundException e) {
-                throw new DdlException(e.getMessage());
-            }
-            return;
-        }
-
-        // alter job v2's cancel must be called outside the database lock
+        // alter job v2's cancel must be called outside the table lock
         if (schemaChangeJobV2 != null) {
             if (!schemaChangeJobV2.cancel("user cancelled")) {
                 throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
