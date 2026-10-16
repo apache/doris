@@ -231,10 +231,10 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DATEV2);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DATETIMEV2);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_TIMESTAMP_NS);
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATETIME, VecDateTimeValue(0, 3, 0, 0, 0, 2020, 1, 1),
-                             VecDateTimeValue(0, 3, 0, 0, 0, 2020, 1, 2));
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATE, VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 1),
-                             VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 2));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATETIME, VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2020, 1, 1),
+                             VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2020, 1, 2));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATE, VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2020, 1, 1),
+                             VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2020, 1, 2));
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMALV2, DecimalV2Value(1, 1), DecimalV2Value(1, 2));
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL32);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL64);
@@ -311,10 +311,10 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DATEV2);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DATETIMEV2);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_TIMESTAMP_NS);
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATETIME, VecDateTimeValue(0, 3, 0, 0, 0, 2020, 1, 1),
-                             VecDateTimeValue(0, 3, 0, 0, 0, 2020, 1, 2));
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATE, VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 1),
-                             VecDateTimeValue(0, 2, 0, 0, 0, 2020, 1, 2));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATETIME, VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2020, 1, 1),
+                             VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2020, 1, 2));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DATE, VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2020, 1, 1),
+                             VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2020, 1, 2));
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMALV2, DecimalV2Value(1, 1), DecimalV2Value(1, 2));
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL32);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL64);
