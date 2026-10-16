@@ -59,6 +59,8 @@ suite("test_segment_limit_condition_cache", "nonConcurrent") {
     sql "SET enable_segment_limit_pushdown = true"
     // Disable TopN runtime filters so the queries exercise storage TopN and condition cache.
     sql "SET topn_filter_ratio = 0"
+    // Keep each segment on the merge path that requests EOF after its local LIMIT.
+    sql "SET enable_parallel_scan = false"
     explain {
         sql "SELECT k, v FROM ${tbl} WHERE abs(v) > 0 ORDER BY k LIMIT 1"
         contains "SORT LIMIT: 1"

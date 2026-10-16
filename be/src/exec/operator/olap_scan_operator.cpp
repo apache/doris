@@ -511,11 +511,8 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
         })) {
         return Status::InvalidArgument(
                 "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates that "
-                "reference columns. "
-                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
-                "otherwise the query may return incorrect results. "
-                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
-                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "reference columns. Residual predicates must be evaluated before COUNT_ON_INDEX "
+                "counts rows; otherwise the query may return incorrect results. Set "
                 "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
     }
     return Status::OK();
