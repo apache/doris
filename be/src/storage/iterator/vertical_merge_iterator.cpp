@@ -669,9 +669,9 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                  cur_order++) {
                 auto& next_iter = _origin_iters[cur_order];
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
-                        new VerticalMergeIteratorContext(
-                                std::move(next_iter), cur_order, _seq_col_idx, _context_stats,
-                                _opts->use_insert_order_when_same));
+                        new VerticalMergeIteratorContext(std::move(next_iter), cur_order,
+                                                         _seq_col_idx, _context_stats,
+                                                         _opts->use_insert_order_when_same));
                 RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
