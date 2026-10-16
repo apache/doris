@@ -991,6 +991,8 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_DATETIMEV2: {
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
     }
+    case TYPE_TIMESTAMP_NS:
+        return assert_cast<const ColumnTimeStampNs&>(*col_ptr).get_data()[position];
     case TYPE_TIMESTAMPTZ: {
         // Keep the UTC carrier typed through identity routing and FE commit serialization.
         return assert_cast<const ColumnTimeStampTz&>(*col_ptr).get_data()[position];

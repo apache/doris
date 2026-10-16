@@ -53,6 +53,7 @@ import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTimestampUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
@@ -1916,13 +1917,14 @@ public class IcebergScanNode extends FileQueryScanNode {
             scan = DorisDataTableScan.wrap(scan);
         }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // set filter
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
             // Ref/snapshot selection can change field IDs and names, so every pruning expression
             // must be bound against the schema selected by this scan rather than the current table.
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -2407,11 +2409,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
         Expression filterExpr = conjuncts.stream()
-                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema))
+                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields))
                 .filter(Objects::nonNull)
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
@@ -2801,6 +2804,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             case UUID:
             case DATE:
             case TIME:
+            case TIMESTAMP_NANO:
             case TIMESTAMP:
                 return partitionValue;
             default:
@@ -2926,10 +2930,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         Schema scanSchema = scan.schema();
+        Set<Integer> unsafeNanosFields = IcebergTimestampUtils.unsafeNanosFields(icebergTable, scanSchema);
 
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema, unsafeNanosFields);
             if (expression != null) {
                 expressions.add(expression);
             }

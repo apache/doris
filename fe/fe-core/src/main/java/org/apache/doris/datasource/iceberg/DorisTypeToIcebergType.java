@@ -132,6 +132,8 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
         } else if (primitiveType.equals(PrimitiveType.DATETIME)
                 || primitiveType.equals(PrimitiveType.DATETIMEV2)) {
             return Types.TimestampType.withoutZone();
+        } else if (primitiveType.equals(PrimitiveType.TIMESTAMP_NS)) {
+            return Types.TimestampNanoType.withoutZone();
         } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
             return Types.TimestampType.withZone();
         } else if (primitiveType.equals(PrimitiveType.VARIANT)) {

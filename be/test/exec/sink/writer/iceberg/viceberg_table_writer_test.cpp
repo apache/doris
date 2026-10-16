@@ -66,7 +66,7 @@ public:
 
 TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     std::vector<iceberg::NestedField> fields;
-    fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampType>(true),
+    fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampTzType>(),
                         std::nullopt);
     auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
     auto spec = iceberg::PartitionSpecParser::from_json(

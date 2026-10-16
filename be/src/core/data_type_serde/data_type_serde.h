@@ -119,13 +119,15 @@ struct FieldInfo {
     int precision = 0;
 };
 
+struct OrcTimestampDecodeContext;
+
 struct OrcDecodedColumnView {
     const orc::Type* file_type = nullptr;
     const orc::Type* selected_type = nullptr;
     const orc::ColumnVectorBatch* batch = nullptr;
     size_t rows = 0;
     const std::vector<size_t>* selected_rows = nullptr;
-    const cctz::time_zone* timezone = nullptr;
+    const OrcTimestampDecodeContext* timestamp_context = nullptr;
     bool enable_mapping_timestamp_tz = false;
 };
 

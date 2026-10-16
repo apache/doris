@@ -76,9 +76,9 @@
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/orc/vorc_reader.h"
-#include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#include "format_v2/column_data.h"
+#include "format_v2/schema_reader.h"
 #include "format_v2/table/lance_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
@@ -883,13 +883,19 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                                                file_slots, fetch_schema_batch_size, io_ctx.get());
             break;
         }
-        case TFileFormatType::FORMAT_PARQUET: {
-            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
-            break;
-        }
+        case TFileFormatType::FORMAT_PARQUET:
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
-            break;
+            std::vector<format::ColumnDefinition> schema;
+            st = format::fetch_file_schema(params, range, io_ctx, profile.get(), &schema);
+            if (st.ok()) {
+                result->set_column_nums(schema.size());
+                for (const auto& column : schema) {
+                    result->add_column_names(column.name);
+                    column.type->to_protobuf(result->add_column_types());
+                }
+            }
+            st.to_protobuf(result->mutable_status());
+            return;
         }
         case TFileFormatType::FORMAT_JSON: {
             reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,

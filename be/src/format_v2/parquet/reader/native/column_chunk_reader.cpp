@@ -587,6 +587,8 @@ bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
     VISIT_COLUMN(ColumnUUID)
     VISIT_COLUMN(ColumnTimeV2)
     VISIT_COLUMN(ColumnTimeStampTz)
+    // Nanos columns also support in-place NULL expansion; do not decode once per null run.
+    VISIT_COLUMN(ColumnTimeStampNs)
     VISIT_COLUMN(ColumnOffset32)
     VISIT_COLUMN(ColumnOffset64)
     VISIT_COLUMN(ColumnDecimal32)

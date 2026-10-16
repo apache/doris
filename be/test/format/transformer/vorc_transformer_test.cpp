@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -54,6 +55,8 @@ namespace doris {
 class VOrcTransformerTest : public testing::Test {
 protected:
     void SetUp() override {
+        // Writers use the startup timezone cache; each test must work without another suite initializing it.
+        TimezoneUtils::load_timezones_to_cache();
         _file_path = "./vorc_transformer_" + UniqueId::gen_uid().to_string() + ".orc";
         _fs = io::global_local_filesystem();
     }
@@ -89,6 +92,51 @@ TEST_F(VOrcTransformerTest, RejectsLossyPreEpochFractions) {
     }
 }
 
+TEST_F(VOrcTransformerTest, NanosecondBoundsUseUtcWallClockCarrier) {
+    auto type = std::make_shared<DataTypeTimeStampNs>();
+    auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json =
+            R"({"type":"struct","fields":[{"id":1,"name":"ts","required":true,"type":"timestamp_ns"}]})";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    VOrcTransformer writer(&state, file_writer.get(), exprs, "", {"ts"}, false,
+                           TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(writer.open().ok());
+    const std::vector<int64_t> nanos = {
+            std::numeric_limits<int64_t>::min(), -1000000001, 0, 1, 123456789,
+            std::numeric_limits<int64_t>::max()};
+    auto column = type->create_column();
+    for (auto value : nanos) {
+        column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value)));
+    }
+    const auto write_status = writer.write(Block({{std::move(column), type, "ts"}}));
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    ASSERT_TRUE(writer.close().ok());
+    TIcebergColumnStats stats;
+    ASSERT_TRUE(writer.collect_file_statistics_after_close(&stats).ok());
+    EXPECT_FALSE(stats.lower_bounds.contains(1));
+    EXPECT_FALSE(stats.upper_bounds.contains(1));
+    auto reader = orc::createReader(orc::readLocalFile(_file_path), orc::ReaderOptions());
+    EXPECT_TRUE(orc_serde_utils::has_nanosecond_timestamp(reader->getType()));
+    orc::RowReaderOptions options;
+    options.setTimezoneName("GMT");
+    auto rows = reader->createRowReader(options);
+    auto batch = rows->createRowBatch(nanos.size());
+    ASSERT_TRUE(rows->next(*batch));
+    const auto& values = assert_cast<const orc::TimestampVectorBatch&>(
+            *assert_cast<const orc::StructVectorBatch&>(*batch).fields[0]);
+    ASSERT_EQ(nanos.size(), batch->numElements);
+    for (size_t row = 0; row < nanos.size(); ++row) {
+        const __int128 actual =
+                static_cast<__int128>(values.data[row]) * 1000000000 + values.nanoseconds[row];
+        EXPECT_EQ(static_cast<__int128>(nanos[row]), actual);
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): assertions cover the timezone/type matrix.
 TEST_F(VOrcTransformerTest, TimestampBoundsRetainMicroseconds) {
     TimezoneUtils::load_timezones_to_cache();
     // UTC aliases must share ORC's UTC encoding, including names without a zoneinfo file.
