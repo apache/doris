@@ -207,7 +207,8 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
     return analyzer;
 }
 
-AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
+AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config,
+                                                   bool allow_builtin_case_variant) {
     DCHECK(config != nullptr);
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
         const InvertedIndexParserType parser_type =
@@ -223,7 +224,8 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name, config);
+    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name,
+                                                  allow_builtin_case_variant ? config : nullptr);
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(

@@ -31,6 +31,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -355,6 +356,44 @@ TEST_F(FunctionTokenizeTest, ExactPolicyTakesPrecedenceOverBuiltinCaseVariant) {
 
     policy_mgr.apply_policy_changes({}, {policy.id});
     EXPECT_EQ(execute_tokenize(input, "analyzer='STANDARD'"), builtin_result);
+}
+
+TEST_F(FunctionTokenizeTest, MissingStoredPolicyDoesNotUseBuiltinCaseVariant) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->_index_policy_mgr;
+    exec_env->_index_policy_mgr = &policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    const std::vector<std::string> input = {"Apache Doris"};
+    const auto builtin_result = execute_tokenize(input, "parser='standard'");
+    EXPECT_EQ(execute_tokenize(input, "analyzer='STANDARD'"), builtin_result);
+
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = "STANDARD";
+    try {
+        segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+        FAIL() << "Stored index analyzer must fail before its policy arrives";
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find("Policy not found with name: STANDARD"),
+                  std::string::npos);
+    }
+
+    TIndexPolicy policy;
+    policy.id = 1;
+    policy.name = "STANDARD";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    auto analyzer = segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    reader->init(input[0].data(), static_cast<int32_t>(input[0].size()), true);
+    const auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            reader, analyzer.get());
+    ASSERT_EQ(terms.size(), 1);
+    ASSERT_TRUE(terms[0].is_single_term());
+    EXPECT_EQ(terms[0].get_single_term(), input[0]);
 }
 
 TEST_F(FunctionTokenizeTest, CustomAnalyzerNamesKeepPolicyLookup) {

@@ -54,7 +54,8 @@ public:
                                                const std::string& parser_mode,
                                                const std::string& lower_case,
                                                const std::string& stop_words);
-    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
+    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config,
+                                       bool allow_builtin_case_variant = false);
     static AnalyzerProviderPtr create_analyzer_provider(const InvertedIndexAnalyzerConfig* config,
                                                         std::string* resolved_name = nullptr,
                                                         std::string* legacy_name = nullptr);

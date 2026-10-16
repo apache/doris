@@ -249,9 +249,10 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
             std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
             try {
+                // Ad hoc tokenization can resolve a built-in case variant without an index policy.
                 analyzer_holder =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                                &config);
+                                &config, true);
             } catch (CLuceneError& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
