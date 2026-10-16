@@ -35,6 +35,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Partitioning;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -136,6 +137,46 @@ final class IcebergPartitionUtils {
             }
         }
         return new ArrayList<>(partitionColumns);
+    }
+
+    /**
+     * Rewrites a static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION (col = val)}) so every key is the
+     * matching partition FIELD name, the identifier both downstream consumers address: the BE sink matches
+     * {@code static_partition_values} against {@code PartitionField#name()}, and the commit row filter resolves
+     * the field to its source column.
+     *
+     * <p>The engine's PARTITION clause names the identity partition's SOURCE column instead — the identifier Spark
+     * resolves for a static partition clause ({@code Analyzer.partitionColumnNames} takes the identity transform's
+     * field reference) and the one {@code SHOW CREATE TABLE} renders — so the two spellings must be bridged once,
+     * here, before either consumer sees the spec. A key that matches no field of the current spec is kept verbatim
+     * and left to the callers' fail-loud guards.</p>
+     */
+    static Map<String, String> toPartitionFieldKeys(Map<String, String> staticPartitions, Schema schema,
+            PartitionSpec spec) {
+        if (staticPartitions == null || staticPartitions.isEmpty() || spec == null) {
+            return staticPartitions;
+        }
+        Map<String, String> canonical = new HashMap<>(staticPartitions.size());
+        for (Map.Entry<String, String> entry : staticPartitions.entrySet()) {
+            canonical.put(toPartitionFieldName(schema, spec, entry.getKey()), entry.getValue());
+        }
+        return canonical;
+    }
+
+    /**
+     * The partition field a static-partition name addresses: its SOURCE column name, or the field name itself.
+     * Iceberg refuses to name a partition field after a column other than its own source
+     * ({@code PartitionSpec.Builder#checkAndAddPartitionName}), so the two lookups cannot disagree.
+     */
+    private static String toPartitionFieldName(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            NestedField source = schema.findField(field.sourceId());
+            if ((source != null && source.name().equalsIgnoreCase(name))
+                    || field.name().equalsIgnoreCase(name)) {
+                return field.name();
+            }
+        }
+        return name;
     }
 
     /**

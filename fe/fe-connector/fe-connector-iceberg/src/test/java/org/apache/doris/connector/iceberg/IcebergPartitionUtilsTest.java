@@ -291,6 +291,43 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
     }
 
+    // ---- toPartitionFieldKeys ----
+
+    @Test
+    public void staticPartitionKeysResolveTheSourceColumnToThePartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine's PARTITION clause names the SOURCE column "id", while
+        // the BE sink matches static_partition_values against the partition FIELD name and the commit row filter
+        // resolves that field to its source column. Both consumers therefore need the field-keyed spec.
+        // MUTATION: passing the engine's spelling through -> BE sees no static column (write silently becomes
+        // dynamic) and the commit filter stops matching -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("id", "id_identity")
+                .identity("region")
+                .build();
+
+        Map<String, String> canonical = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("id", "7")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), canonical);
+
+        // A field name (the un-renamed spelling, and the bucket-style field name a caller may already hold) is
+        // canonicalized to itself, and the lookup folds case like every Doris identifier.
+        Map<String, String> mixed = new HashMap<>();
+        mixed.put("REGION", "us");
+        mixed.put("ID_IDENTITY", "8");
+        Map<String, String> expected = new HashMap<>();
+        expected.put("region", "us");
+        expected.put("id_identity", "8");
+        Assertions.assertEquals(expected, IcebergPartitionUtils.toPartitionFieldKeys(mixed, schema, spec));
+
+        // A name the current spec does not know is kept verbatim: the callers own the fail-loud guard for it.
+        Map<String, String> unknown = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("ghost", "1")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("ghost", "1"), unknown);
+    }
+
     // ---- getIdentityPartitionInfoMap ----
 
     @Test
