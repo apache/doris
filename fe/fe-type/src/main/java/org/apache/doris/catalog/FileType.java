@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonPreProcessable;
 import org.apache.doris.thrift.TColumnType;
@@ -98,19 +97,6 @@ public final class FileType extends Type implements GsonPostProcessable, GsonPre
         }
     }
 
-    public static void checkExecutionVersion() {
-        Preconditions.checkState(Config.be_exec_version >= Config.FILE_MIN_BE_EXEC_VERSION,
-                "FILE requires execution version %s or newer; current be_exec_version is %s",
-                Config.FILE_MIN_BE_EXEC_VERSION, Config.be_exec_version);
-    }
-
-    /** Check creation/execution only; metadata inspection and replay do not require a new BE. */
-    public static void checkExecutionVersion(Type type) {
-        if (type.typeContainsFile()) {
-            checkExecutionVersion();
-        }
-    }
-
     @Override
     public void gsonPostProcess() {
         validateFields(fields);
@@ -174,7 +160,6 @@ public final class FileType extends Type implements GsonPostProcessable, GsonPre
 
     @Override
     public void toThrift(TTypeDesc container) {
-        checkExecutionVersion();
         validateFields(fields);
         TTypeNode node = new TTypeNode(TTypeNodeType.FILE);
         node.setStructFields(new ArrayList<>());
