@@ -590,6 +590,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
+    public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+
+    public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -2596,6 +2600,22 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
     public int numFilesInBatchMode = 1024;
+
+    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
+            description = "Maximum number of splits in a producer batch.")
+    public int splitBatchSize = 128;
+
+    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
+            description = "Maximum number of queued split batches per backend.")
+    public int splitQueueCapacity = 32;
+
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
@@ -4929,6 +4949,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getNumFilesInBatchMode() {
         return numFilesInBatchMode;
+    }
+
+    public int getSplitBatchSize() {
+        return splitBatchSize;
+    }
+
+    public int getSplitQueueCapacity() {
+        return splitQueueCapacity;
     }
 
     public long getFetchSplitsMaxWaitTime() {
