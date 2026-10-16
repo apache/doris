@@ -24,8 +24,22 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
+
+    @Test
+    public void testInvertedIndexPersistsDefaultPhraseSupport() {
+        Index exact = new Index(1, "exact", List.of("col"), IndexType.INVERTED, Map.of(), "");
+        Assertions.assertEquals("true", exact.getProperties().get("support_phrase"));
+
+        Index disabled = new Index(2, "disabled", List.of("col"), IndexType.INVERTED,
+                Map.of("support_phrase", "false"), "");
+        Assertions.assertEquals("false", disabled.getProperties().get("support_phrase"));
+
+        Index bitmap = new Index(3, "bitmap", List.of("col"), IndexType.BITMAP, Map.of(), "");
+        Assertions.assertFalse(bitmap.getProperties().containsKey("support_phrase"));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {
