@@ -83,7 +83,6 @@ import software.amazon.awssdk.services.sts.model.Credentials;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.net.URI;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
@@ -116,12 +115,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public S3Client getClient() {
         if (client == null) {
-            String endpointStr = s3Properties.getEndpoint();
-            if (!endpointStr.contains("://")) {
-                endpointStr = "http://" + endpointStr;
-            }
-            URI endpoint = URI.create(endpointStr);
-            client = S3Util.buildS3Client(endpoint, s3Properties.getRegion(),
+            client = S3Util.buildS3Client(s3Properties.getEndpoint(), s3Properties.getRegion(),
                     isUsePathStyle, s3Properties.getAwsCredentialsProvider());
         }
         return client;
