@@ -8564,7 +8564,8 @@ int InstanceRecycler::classify_rowset_task_by_ref_count(
         }
 
         if (ref_count > 1) {
-            // ref_count > 1: decrement count, remove recycle keys, don't add to batch delete
+            // Remove the versioned metadata in the same transaction as the decrement so
+            // retrying tablet recycling cannot release the same reference again.
             txn->atomic_add(rowset_ref_count_key, -1);
             LOG_INFO("decrease rowset data ref count in classification phase")
                     .tag("instance_id", instance_id_)
@@ -8573,6 +8574,12 @@ int InstanceRecycler::classify_rowset_task_by_ref_count(
                     .tag("ref_count", ref_count - 1)
                     .tag("ref_count_key", hex(rowset_ref_count_key));
 
+            if (!task.versioned_rowset_key.empty()) {
+                versioned::document_remove<RowsetMetaCloudPB>(txn.get(), task.versioned_rowset_key,
+                                                              task.versionstamp);
+                LOG_INFO("remove versioned meta rowset key in classification phase")
+                        .tag("key", hex(task.versioned_rowset_key));
+            }
             if (!task.recycle_rowset_key.empty()) {
                 txn->remove(task.recycle_rowset_key);
                 LOG_INFO("remove recycle rowset key in classification phase")
