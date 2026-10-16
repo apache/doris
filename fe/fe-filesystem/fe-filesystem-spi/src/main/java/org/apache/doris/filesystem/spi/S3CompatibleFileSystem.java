@@ -210,8 +210,12 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         } while (continuationToken != null);
     }
 
-    /** Parses {@code uri} respecting the underlying client's path-style configuration. */
-    private ObjectStorageUri parseUri(String uri) {
+    /**
+     * Parses {@code uri} respecting the underlying client's path-style configuration.
+     * Providers must apply the same bucket parsing here and in object requests, since batch
+     * deletion extracts bucket names here before calling the native client.
+     */
+    protected ObjectStorageUri parseUri(String uri) {
         return ObjectStorageUri.parse(uri, usePathStyle, supportedSchemes);
     }
 
