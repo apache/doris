@@ -946,8 +946,7 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            RowLocation location(_rowset_id, _segment_id,
-                                 cast_set<uint32_t>(_current_rowid + i));
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(_current_rowid + i));
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
         }
         _current_rowid += *n;

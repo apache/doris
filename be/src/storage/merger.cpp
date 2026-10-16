@@ -212,10 +212,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         if (convert_rowids) {
             Block output_block =
                     prepare_compaction_output_block(block, rowid_ordinal, &row_locations);
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    dst_rowset_writer->add_block(&output_block),
-                    "failed to write block when merging rowsets of tablet " +
-                            std::to_string(tablet->tablet_id()));
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&output_block),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet->tablet_id()));
 
             if (block.rows() > 0) {
                 std::vector<uint32_t> segment_num_rows;
@@ -224,10 +223,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                         stats_output->rowid_conversion->add(row_locations, segment_num_rows));
             }
         } else {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    dst_rowset_writer->add_block(&block),
-                    "failed to write block when merging rowsets of tablet " +
-                            std::to_string(tablet->tablet_id()));
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&block),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet->tablet_id()));
         }
 
         output_rows += block.rows();
@@ -505,10 +503,9 @@ Status Merger::vertical_compact_one_group(
                             std::to_string(tablet_id));
             rowid_conversion->add(row_locations);
         } else {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    dst_segment_writer.append_block(&block, 0, block.rows()),
-                    "failed to write block when merging rowsets of tablet " +
-                            std::to_string(tablet_id));
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet_id));
         }
         output_rows += block.rows();
         block.clear_column_data();
