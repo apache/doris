@@ -264,17 +264,17 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
     // slightly larger than any real string that shares the same 512-byte prefix, ensuring no false negatives —
     // the zone map will never incorrectly skip a page that contains matching data.
     //
+    // A string column holds arbitrary bytes, so the last byte can be 0xff. Adding one to it wraps
+    // to 0x00 and leaves a max below the data, so carry into the byte before it.
     if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
         auto& str = zone_map.max_value.get<Type>();
         if (str.size() == MAX_ZONE_MAP_INDEX_SIZE) {
-            if (static_cast<unsigned char>(str.back()) == 0xff) {
-                // Adding one here wraps to 0x00 and leaves a max below the real value, which then
-                // rules out rows that should be kept. A string column stores arbitrary bytes, so
-                // 0xff is reachable even though valid UTF-8 never ends a character with it. Give
-                // up the range for this zone rather than store a max that lies about it.
-                zone_map.pass_all = true;
-            } else {
-                str.back() += 1;
+            for (size_t i = str.size(); i > 0; --i) {
+                auto byte = static_cast<uint8_t>(str[i - 1]) + 1;
+                str[i - 1] = static_cast<char>(byte);
+                if (static_cast<uint8_t>(byte) != 0) {
+                    break;
+                }
             }
         }
     }

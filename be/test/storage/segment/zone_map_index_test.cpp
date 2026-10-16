@@ -1731,8 +1731,9 @@ TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
     test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
 }
 
-// The writer raises the last byte of every cut max unless that byte is 0xff. In that case the
-// range is discarded because no representable max can remain above the truncated prefix.
+// The writer raises the last byte of every cut max, including one that wraps. Storing the bound
+// anyway keeps it available to a reader that only needs an approximation, and the read side is
+// where the wrap is caught.
 TEST_F(ColumnZoneMapTest, WriterRaisesEveryCutMax) {
     auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true, 0, 0, -1);
     TabletColumnPtr tab_col = create_string_key(0);
@@ -1752,16 +1753,20 @@ TEST_F(ColumnZoneMapTest, WriterRaisesEveryCutMax) {
         return Raised {zone_map.max_value.get<TYPE_STRING>(), zone_map.pass_all};
     };
 
-    // 511 'a' then 0xff: adding one would wrap, so the range is discarded.
+    // 511 'a' then 0xff: adding one to the last byte wraps it, so the carry goes into the byte
+    // before it and the max still stands above the value it covers.
     std::string trailing_ff(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
     trailing_ff.push_back(static_cast<char>(0xff));
-    const auto trailing = raise_max(trailing_ff);
-    EXPECT_TRUE(trailing.pass_all);
-    EXPECT_EQ(trailing_ff, trailing.max);
+    const auto carried = raise_max(trailing_ff);
+    EXPECT_FALSE(carried.pass_all);
+    EXPECT_EQ(std::string(MAX_ZONE_MAP_INDEX_SIZE - 2, 'a') + "b" + '\0', carried.max);
+    EXPECT_GT(carried.max, trailing_ff) << "max must stay above the value it covers";
 
-    // Same for a max that is 0xff all the way down.
+    // A max that is 0xff all the way down carries past its first byte, so every byte ends at
+    // 0x00. The read side spots that the same way it spots an old wrap.
     const auto all_ff = raise_max(std::string(MAX_ZONE_MAP_INDEX_SIZE, static_cast<char>(0xff)));
-    EXPECT_TRUE(all_ff.pass_all);
+    EXPECT_FALSE(all_ff.pass_all);
+    EXPECT_EQ(std::string(MAX_ZONE_MAP_INDEX_SIZE, '\0'), all_ff.max);
 
     // A plain max gets the plain raise.
     const std::string plain(MAX_ZONE_MAP_INDEX_SIZE, 'x');
