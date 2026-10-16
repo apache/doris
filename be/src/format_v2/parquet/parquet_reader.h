@@ -50,7 +50,8 @@ public:
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::shared_ptr<const FileContext> file_context = nullptr,
                   int64_t format_split_id = -1, int64_t format_split_id_end = -1,
-                  std::optional<std::string> hive_parquet_time_zone = std::nullopt);
+                  std::optional<std::string> hive_parquet_time_zone = std::nullopt,
+                  bool preserve_binary_uuid = false);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -107,6 +108,7 @@ private:
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;
+    bool _preserve_binary_uuid = false; // retain the 16-byte carrier for table compatibility
     // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
     std::optional<std::string> _hive_parquet_time_zone;
 };

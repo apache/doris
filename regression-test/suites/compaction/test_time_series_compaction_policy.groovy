@@ -31,7 +31,8 @@ suite("test_time_series_compaction_polciy", "p0") {
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
-            rowsetCount +=((List<String>) tabletJson.rowsets).size()
+            tablet.ObservedRowsetCount = ((List<String>) tabletJson.rowsets).size()
+            rowsetCount += tablet.ObservedRowsetCount
         }
         return rowsetCount
     }
@@ -39,8 +40,11 @@ suite("test_time_series_compaction_polciy", "p0") {
     // Manually POST cumulative compaction to every tablet. Fire-and-forget;
     // per-tablet errors (e.g. CUMULATIVE_NO_SUITABLE_VERSION on a tablet with
     // nothing to merge) are expected and surface via the polling assertion.
-    def trigger_cumulative_all = { tabletsList ->
+    def trigger_cumulative_all = { tabletsList, perTabletTarget = -1 ->
         for (def tablet in tabletsList) {
+            if (tablet.ObservedRowsetCount != null && tablet.ObservedRowsetCount <= perTabletTarget) {
+                continue
+            }
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
             def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
             curl("POST", "http://${be_host}:${be_port}/api/compaction/run?tablet_id=${tablet.TabletId}&compact_type=cumulative")
@@ -59,6 +63,11 @@ suite("test_time_series_compaction_polciy", "p0") {
             if (last <= target) {
                 return last
             }
+            // Compaction only selects versions already synchronized from FE. A manual
+            // trigger may see no suitable versions until the next tablet report; retry
+            // tablets still above the target instead of waiting for an unqueued task.
+            // Do not recompact tablets that already reached this phase's target.
+            trigger_cumulative_all.call(tabletsList, target / tabletsList.size())
             Thread.sleep(1000)
         }
         return last
@@ -165,14 +174,14 @@ suite("test_time_series_compaction_polciy", "p0") {
     // 5 consecutive empty versions are merged into one empty version
     // 34 - 2*4 = 26
     trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 26 * replicaNum, 60)
+    rowsetCount = wait_rowset_count_le.call(tablets, 26 * replicaNum, 180)
     assert (rowsetCount == 26 * replicaNum) : "expected ${26 * replicaNum} rowsets, got ${rowsetCount}"
 
     // trigger cumulative compactions for all tablets in ${tableName}
     // after cumulative compaction, there is only 22 rowset.
     // 26 - 4 = 22
     trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 22 * replicaNum, 60)
+    rowsetCount = wait_rowset_count_le.call(tablets, 22 * replicaNum, 180)
     assert (rowsetCount == 22 * replicaNum) : "expected ${22 * replicaNum} rowsets, got ${rowsetCount}"
 
     qt_sql_2 """ select count() from ${tableName}"""
@@ -184,7 +193,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     // trigger cumulative compactions for all tablets in ${tableName}
     // after cumulative compaction, there is only 11 rowset.
     trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 11 * replicaNum, 60)
+    rowsetCount = wait_rowset_count_le.call(tablets, 11 * replicaNum, 180)
     assert (rowsetCount == 11 * replicaNum) : "expected ${11 * replicaNum} rowsets, got ${rowsetCount}"
     qt_sql_3 """ select count() from ${tableName}"""
 

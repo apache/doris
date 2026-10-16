@@ -23,6 +23,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.foundation.util.ByteBufferUtil;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -218,7 +219,8 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new NullLiteral(targetType);
         }
         // TODO support string to complex
-        String desc = getStringValue();
+        String desc = dataType.isComplexType() && targetType.isStringLikeType()
+                ? toLegacyLiteral().getStringValueForQuery(FormatOptions.getDefault()) : getStringValue();
         // convert boolean to byte string value to support cast boolean to numeric in FE.
         if (this.equals(BooleanLiteral.TRUE)) {
             desc = "1";
@@ -543,6 +545,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case UUID: return new UuidLiteral(literalExpr.getStringValue());
             case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()

@@ -19,6 +19,7 @@
 
 #include <arrow/buffer.h>
 #include <arrow/extension/parquet_variant.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -100,6 +101,9 @@ Status DorisArrowSchemaConvertor::convert_to_arrow_type(
         break;
     case TYPE_IPV6:
         *result = arrow::utf8();
+        break;
+    case TYPE_UUID:
+        *result = arrow::extension::uuid();
         break;
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
@@ -209,6 +213,9 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         break;
     case TYPE_IPV6:
         type_name = "IPV6";
+        break;
+    case TYPE_UUID:
+        type_name = "UUID";
         break;
     case TYPE_LARGEINT:
         type_name = "LARGEINT";

@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Abstract class describing an Impala data type (scalar/complex type).
@@ -65,6 +66,7 @@ public abstract class Type {
     public static final ScalarType DOUBLE = new ScalarType(PrimitiveType.DOUBLE);
     public static final ScalarType IPV4 = new ScalarType(PrimitiveType.IPV4);
     public static final ScalarType IPV6 = new ScalarType(PrimitiveType.IPV6);
+    public static final ScalarType UUID = new ScalarType(PrimitiveType.UUID);
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
@@ -183,6 +185,7 @@ public abstract class Type {
         trivialTypes.add(TIMESTAMP_NS);
         trivialTypes.add(IPV4);
         trivialTypes.add(IPV6);
+        trivialTypes.add(UUID);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
         trivialTypes.add(VARIANT);
@@ -209,6 +212,7 @@ public abstract class Type {
         arraySubTypes.add(TIMESTAMP_TZ);
         arraySubTypes.add(IPV4);
         arraySubTypes.add(IPV6);
+        arraySubTypes.add(UUID);
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
@@ -240,6 +244,7 @@ public abstract class Type {
         mapSubTypes.add(TIMESTAMP_TZ);
         mapSubTypes.add(IPV4);
         mapSubTypes.add(IPV6);
+        mapSubTypes.add(UUID);
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
@@ -267,6 +272,7 @@ public abstract class Type {
         structSubTypes.add(TIMESTAMP_TZ);
         structSubTypes.add(IPV4);
         structSubTypes.add(IPV6);
+        structSubTypes.add(UUID);
         structSubTypes.add(CHAR);
         structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
@@ -297,6 +303,7 @@ public abstract class Type {
         // function type is defined, so tables that already declare a TIMESTAMPTZ path keep working.
         variantSubTypes.add(IPV4);
         variantSubTypes.add(IPV6);
+        variantSubTypes.add(UUID);
         variantSubTypes.add(STRING);
         variantSubTypes.add(NULL);
     }
@@ -319,6 +326,7 @@ public abstract class Type {
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.IPV4, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.IPV6, Sets.newHashSet(InetAddress.class))
+                    .put(PrimitiveType.UUID, Sets.newHashSet(UUID.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARBINARY, Sets.newHashSet(Byte[].class, byte[].class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
@@ -771,6 +779,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.IPV6);
     }
 
+    public boolean isUuid() {
+        return isScalarType(PrimitiveType.UUID);
+    }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -891,6 +903,8 @@ public abstract class Type {
                 return Type.IPV4;
             case IPV6:
                 return Type.IPV6;
+            case UUID:
+                return Type.UUID;
             case DATE:
                 return Type.DATE;
             case DATETIME:
