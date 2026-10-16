@@ -101,6 +101,9 @@ public:
     // Range query all BlockMeta for specified tablet_id
     std::unique_ptr<BlockMetaIterator> range_get(int64_t tablet_id);
 
+    // Range query all BlockMeta for a file in the specified tablet.
+    std::unique_ptr<BlockMetaIterator> range_get(int64_t tablet_id, const UInt128Wrapper& hash);
+
     // Get iterator for all BlockMeta records
     std::unique_ptr<BlockMetaIterator> get_all();
 
@@ -127,6 +130,7 @@ public:
 
 private:
     void async_write_worker();
+    std::unique_ptr<BlockMetaIterator> range_get_by_prefix(const std::string& prefix);
 
     std::string _db_path;
     std::unique_ptr<rocksdb::DB> _db;

@@ -224,7 +224,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
     if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
         std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
-            return contains_variant_type(slot->get_data_type_ptr());
+            return contains_variant_type(slot->type());
         })) {
         // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
         // legacy scanner will emit metadata counts without decoding a Variant carrier.

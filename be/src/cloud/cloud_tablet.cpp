@@ -52,7 +52,7 @@
 #include "io/cache/tablet_cache_policy_registry.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"

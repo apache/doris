@@ -76,9 +76,10 @@ public:
                                  butil::IOBuf* out, size_t* bytes_read) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
-    // use when lazy load cache
-    virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
-                                               std::lock_guard<std::mutex>& cache_lock) {}
+    // Restore a file while lazy loading, with its hash absent from the cache.
+    virtual void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                                    int64_t tablet_id,
+                                                    std::lock_guard<std::mutex>& cache_lock) {}
     // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
     virtual FileCacheStorageType get_type() = 0;

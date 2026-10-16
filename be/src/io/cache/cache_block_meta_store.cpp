@@ -38,6 +38,26 @@
 #include "util/threadpool.h"
 
 namespace doris::io {
+namespace {
+
+std::string serialize_key_prefix(int64_t tablet_id) {
+    std::string prefix;
+    prefix.push_back(0x1); // version byte
+    get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT)->full_encode_ascending(&tablet_id, &prefix);
+    return prefix;
+}
+
+std::string serialize_key_prefix(int64_t tablet_id, const UInt128Wrapper& hash) {
+    auto prefix = serialize_key_prefix(tablet_id);
+    const auto* coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    uint64_t hash_high = hash.high();
+    uint64_t hash_low = hash.low();
+    coder->full_encode_ascending(&hash_high, &prefix);
+    coder->full_encode_ascending(&hash_low, &prefix);
+    return prefix;
+}
+
+} // namespace
 
 const std::string FILE_CACHE_META_COLUMN_FAMILY = "file_cache_meta";
 
@@ -178,12 +198,16 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
 }
 
 std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet_id) {
-    // Generate prefix using new serialization format
-    std::string prefix;
-    prefix.push_back(0x1); // version byte
-    auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
-    tablet_id_coder->full_encode_ascending(&tablet_id, &prefix);
+    return range_get_by_prefix(serialize_key_prefix(tablet_id));
+}
 
+std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet_id,
+                                                                  const UInt128Wrapper& hash) {
+    return range_get_by_prefix(serialize_key_prefix(tablet_id, hash));
+}
+
+std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get_by_prefix(
+        const std::string& prefix) {
     class RocksDBIterator : public BlockMetaIterator {
     public:
         RocksDBIterator(rocksdb::Iterator* iter, const std::string& prefix)
@@ -511,22 +535,8 @@ void CacheBlockMetaStore::async_write_worker() {
 }
 
 std::string serialize_key(const BlockMetaKey& key) {
-    std::string result;
-    // Add version byte
-    result.push_back(0x1);
-
-    // Encode tablet_id using KeyCoderTraits
-    auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
-    tablet_id_coder->full_encode_ascending(&key.tablet_id, &result);
-
-    // Encode hash high and low parts
-    uint64_t hash_high = key.hash.high();
-    uint64_t hash_low = key.hash.low();
-    tablet_id_coder->full_encode_ascending(&hash_high, &result);
-    tablet_id_coder->full_encode_ascending(&hash_low, &result);
-
-    // Encode offset
-    tablet_id_coder->full_encode_ascending(&key.offset, &result);
+    auto result = serialize_key_prefix(key.tablet_id, key.hash);
+    get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT)->full_encode_ascending(&key.offset, &result);
 
     return result;
 }

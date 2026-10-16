@@ -36,6 +36,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -378,15 +380,15 @@ public class FederationBackendPolicyTest {
         });
     }
 
-    @Test
-    public void testGenerateRandomly() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testGenerateRandomly(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -424,7 +426,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();
@@ -488,15 +491,15 @@ public class FederationBackendPolicyTest {
         }
     }
 
-    @Test
-    public void testNonAliveNodes() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testNonAliveNodes(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -540,7 +543,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();

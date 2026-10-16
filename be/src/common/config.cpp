@@ -1304,7 +1304,10 @@ DEFINE_mInt64(file_cache_ttl_relocate_batch_blocks, "256");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
-DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+// Disabled by default. The restored LRU order can be worse than no order at all: restored blocks
+// are put at the cold end while blocks missing from the dump are appended to the hot end, and the
+// restore itself can overflow the bounded LRU log queue and drop the hottest part of the dump.
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "0");
 DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");

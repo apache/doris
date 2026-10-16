@@ -85,8 +85,9 @@ public:
     Status read_to_iobuf(const FileCacheKey& key, size_t value_offset, size_t bytes_req,
                          butil::IOBuf* out, size_t* bytes_read) override;
     Status remove(const FileCacheKey& key) override;
-    void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
-                                       std::lock_guard<std::mutex>& cache_lock) override;
+    void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                            int64_t tablet_id,
+                                            std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 

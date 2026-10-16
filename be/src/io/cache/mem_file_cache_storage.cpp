@@ -100,9 +100,9 @@ Status MemFileCacheStorage::remove(const FileCacheKey& key) {
     return _shard_cache_map[shard_num]->remove(key);
 }
 
-void MemFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* _mgr,
-                                                        const FileCacheKey& key,
-                                                        std::lock_guard<std::mutex>& cache_lock) {
+void MemFileCacheStorage::load_file_blocks_directly_unlocked(
+        BlockFileCache* mgr, const UInt128Wrapper& hash, int64_t tablet_id,
+        std::lock_guard<std::mutex>& cache_lock) {
     // load nothing for in memory cache coz nothing is persisted
 }
 

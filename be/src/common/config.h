@@ -1369,6 +1369,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);

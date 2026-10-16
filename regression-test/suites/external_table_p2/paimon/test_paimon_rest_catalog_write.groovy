@@ -73,6 +73,11 @@ suite("test_paimon_rest_catalog_write", "p2,external") {
         ORDER BY id
     """
 
+    // REST reloads reconstruct schema metadata; an unchanged table must keep the same readable rows.
+    def appendRows = sql """SELECT id, name, score, region FROM `${appendTable}` ORDER BY id"""
+    sql """REFRESH TABLE `${appendTable}`"""
+    assertEquals(appendRows, sql("""SELECT id, name, score, region FROM `${appendTable}` ORDER BY id"""))
+
     sql """
         CREATE TABLE `${primaryKeyTable}` (
             user_id INT NOT NULL,
