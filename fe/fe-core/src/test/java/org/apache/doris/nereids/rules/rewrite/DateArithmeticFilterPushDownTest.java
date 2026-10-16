@@ -22,29 +22,41 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -68,6 +80,64 @@ class DateArithmeticFilterPushDownTest {
                 new SecondCeil(datetime.toSlot(), new IntegerLiteral(5)),
                 new YearCeil(datetime.toSlot(), new IntegerLiteral(5)),
                 new DaysAdd(datetime.toSlot(), new IntegerLiteral(5)));
+    }
+
+    @Test
+    void protectRejectingSetOperations() {
+        Alias rightDatetime = new Alias(new DateTimeV2Literal("2020-01-01 00:00:00"), "right_dt");
+        Alias rightId = new Alias(new IntegerLiteral(1), "right_id");
+        LogicalOneRowRelation right = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of(rightDatetime, rightId));
+        List<Plan> children = ImmutableList.of(relation, right);
+        List<NamedExpression> setOutputs = ImmutableList.of(datetime.toSlot(), id.toSlot());
+        List<List<SlotReference>> outputs = ImmutableList.of(
+                ImmutableList.of((SlotReference) datetime.toSlot(), (SlotReference) id.toSlot()),
+                ImmutableList.of((SlotReference) rightDatetime.toSlot(), (SlotReference) rightId.toSlot()));
+        LogicalExcept except = new LogicalExcept(Qualifier.DISTINCT, setOutputs, outputs, children);
+        LogicalIntersect intersect = new LogicalIntersect(Qualifier.DISTINCT,
+                setOutputs, outputs, children);
+        PhysicalOneRowRelation source = new PhysicalOneRowRelation(relation.getRelationId(),
+                relation.getProjects(), relation.getLogicalProperties());
+        PhysicalOneRowRelation physicalRight = new PhysicalOneRowRelation(right.getRelationId(),
+                right.getProjects(), right.getLogicalProperties());
+        List<Plan> physicalChildren = ImmutableList.of(source, physicalRight);
+        assertRejectingBoundary(except, new PhysicalExcept(Qualifier.DISTINCT,
+                setOutputs, outputs, except.getLogicalProperties(), physicalChildren));
+        assertRejectingBoundary(intersect, new PhysicalIntersect(Qualifier.DISTINCT,
+                setOutputs, outputs, intersect.getLogicalProperties(), physicalChildren));
+    }
+
+    @Test
+    void protectGenerate() {
+        Explode explode = new Explode(new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1))));
+        SlotReference item = new SlotReference("item", IntegerType.INSTANCE);
+        LogicalGenerate<?> generate = new LogicalGenerate<>(ImmutableList.of(explode),
+                ImmutableList.of(item), relation);
+        PhysicalOneRowRelation source = new PhysicalOneRowRelation(relation.getRelationId(),
+                relation.getProjects(), relation.getLogicalProperties());
+        assertRejectingBoundary(generate, new PhysicalGenerate<>(ImmutableList.of(explode),
+                ImmutableList.of(item), ImmutableList.of(), generate.getLogicalProperties(), source));
+    }
+
+    private void assertRejectingBoundary(Plan logicalInput, Plan physicalInput) {
+        for (int offset : new int[] {0, 5}) {
+            Alias result = new Alias(new Cast(new WeeksAdd(datetime.toSlot(), new IntegerLiteral(offset)),
+                    DateTimeV2Type.of(0)), "result");
+            Expression predicate = new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-02-05 00:00:00"));
+            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result), logicalInput);
+            LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(predicate), project);
+            Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                    .applyTopDown(new PushDownFilterThroughProject()).getPlan();
+            Assertions.assertEquals(offset == 0 ? LogicalProject.class : LogicalFilter.class, rewritten.getClass());
+            PhysicalProject<?> physicalProject = new PhysicalProject<>(ImmutableList.of(result),
+                    project.getLogicalProperties(), physicalInput);
+            PhysicalFilter<?> physicalFilter = new PhysicalFilter<>(ImmutableSet.of(predicate),
+                    physicalProject.getLogicalProperties(), physicalProject);
+            Plan physicalRewritten = physicalFilter.accept(
+                    new org.apache.doris.nereids.processor.post.PushDownFilterThroughProject(), null);
+            Assertions.assertEquals(offset == 0 ? PhysicalProject.class : PhysicalFilter.class,
+                    physicalRewritten.getClass());
+        }
     }
 
     @Test

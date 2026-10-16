@@ -93,7 +93,10 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Except;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Intersect;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -150,12 +153,14 @@ public class ExpressionUtils {
 
     /**
      * Date arithmetic can throw for values outside its valid range. Keep it above a lower
-     * condition, join, limit, or CTE consumer so that those operators can reject rows first.
+     * condition, join, limit, rejecting set operation, generate, or CTE consumer so rejected
+     * rows are not evaluated early.
      * A date add/subtract with literal zero is an identity and remains safe to push through.
      */
     public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
         return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
                 && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof Except || plan instanceof Intersect || plan instanceof Generate
                         || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
     }
 
