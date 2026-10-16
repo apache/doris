@@ -35,6 +35,8 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,9 +44,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -58,10 +62,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -359,5 +366,91 @@ public class PositionDeleteRowLevelDmlTransformTest {
         RowLevelDmlCommand.applyWriteConstraintIfPresent(t, executor, analyzedPlan, table);
 
         Mockito.verify(t, Mockito.never()).extractWriteConstraint(Mockito.any(), Mockito.any());
+    }
+
+    // ─────────────── whole-file metadata-delete fast path ───────────────
+
+    /** A minimal concrete target-table scan: the leaf an analyzed single-table DELETE filters over. */
+    private static final class TargetScan extends LogicalCatalogRelation {
+        private final List<SlotReference> output;
+
+        TargetScan(TableIf table, List<SlotReference> output) {
+            super(new RelationId(0), PlanType.LOGICAL_FILE_SCAN, table, ImmutableList.of("db1"));
+            this.output = ImmutableList.copyOf(output);
+        }
+
+        @Override
+        public List<org.apache.doris.nereids.trees.expressions.Slot> computeOutput() {
+            return ImmutableList.copyOf(output);
+        }
+
+        @Override
+        public LogicalCatalogRelation withRelationId(RelationId relationId) {
+            return this;
+        }
+
+        @Override
+        public LogicalCatalogRelation withTableAlias(String tableAlias) {
+            return this;
+        }
+
+        @Override
+        public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+            return this;
+        }
+
+        @Override
+        public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+            return this;
+        }
+    }
+
+    private RowLevelDmlArgs deleteArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(table, ImmutableList.of("db1", "t1"), null, false,
+                ImmutableList.of(), null);
+    }
+
+    @Test
+    public void deleteUsingMetadataForwardsTheCompletePredicateToTheConnector() {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
+        Mockito.when(metadata.deleteUsingMetadata(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
+                .thenReturn(OptionalLong.of(3L));
+        PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
+        SlotReference slot = slot(table, "id");
+        Plan plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(slot, new IntegerLiteral(1))),
+                new TargetScan(table, ImmutableList.of(slot)));
+
+        OptionalLong deleted = transform.deleteUsingMetadata(
+                Mockito.mock(ConnectContext.class), deleteArgs(table), plan);
+
+        Assertions.assertEquals(OptionalLong.of(3L), deleted);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Optional<org.apache.doris.connector.spi.pushdown.ConnectorExpression>> captor =
+                ArgumentCaptor.forClass(Optional.class);
+        Mockito.verify(metadata).deleteUsingMetadata(Mockito.eq(session), Mockito.eq(handle), captor.capture());
+        Assertions.assertTrue(captor.getValue().isPresent(), "the statement predicate must reach the connector");
+        Assertions.assertInstanceOf(org.apache.doris.connector.spi.pushdown.ConnectorComparison.class,
+                captor.getValue().get());
+    }
+
+    @Test
+    public void deleteUsingMetadataStaysOutWhenThePredicateIsNotProvablyComplete() {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
+        PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
+
+        // The leaf is not the target catalog relation, so completeness cannot be proven.
+        OptionalLong deleted = transform.deleteUsingMetadata(
+                Mockito.mock(ConnectContext.class), deleteArgs(table), filterOver(table, "id"));
+
+        Assertions.assertEquals(OptionalLong.empty(), deleted);
+        Mockito.verify(metadata, Mockito.never())
+                .deleteUsingMetadata(Mockito.any(), Mockito.any(), Mockito.any());
     }
 }

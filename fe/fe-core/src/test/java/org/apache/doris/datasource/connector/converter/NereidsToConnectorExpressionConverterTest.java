@@ -295,4 +295,38 @@ public class NereidsToConnectorExpressionConverterTest {
     public void nullInputReturnsNull() {
         Assertions.assertNull(NereidsToConnectorExpressionConverter.convert(null));
     }
+
+    // ---- strict variant: never drops an arm (the whole-file metadata-delete predicate) ----
+
+    @Test
+    public void strictConversionRefusesToDropAnAndArm() {
+        // The loose variant drops the column-to-column arm, which is safe only for a consumer that treats the
+        // result as an over-approximation (a conflict-detection filter). The whole-file delete fast path consumes
+        // the result as the exact statement predicate instead, so the strict variant must refuse the whole AND.
+        SlotReference a = slot("a", ScalarType.INT);
+        SlotReference b = slot("b", ScalarType.INT);
+        SlotReference c = slot("c", ScalarType.INT);
+        And and = new And(new EqualTo(a, new IntegerLiteral(1)), new EqualTo(b, c));
+
+        ConnectorExpression loose = NereidsToConnectorExpressionConverter.convert(and);
+        Assertions.assertInstanceOf(ConnectorComparison.class, loose, "the loose variant keeps the arm it can");
+
+        Assertions.assertNull(NereidsToConnectorExpressionConverter.convertStrict(and),
+                "the strict variant must not widen an exact predicate");
+    }
+
+    @Test
+    public void strictConversionKeepsFullyRepresentablePredicates() {
+        SlotReference a = slot("a", ScalarType.INT);
+        SlotReference b = slot("b", ScalarType.INT);
+
+        ConnectorExpression strict = NereidsToConnectorExpressionConverter.convertStrict(
+                new And(new EqualTo(a, new IntegerLiteral(1)), new GreaterThan(b, new IntegerLiteral(2))));
+
+        Assertions.assertInstanceOf(ConnectorAnd.class, strict);
+        Assertions.assertEquals(2, ((ConnectorAnd) strict).getConjuncts().size());
+        Assertions.assertEquals(NereidsToConnectorExpressionConverter.convert(
+                        new And(new EqualTo(a, new IntegerLiteral(1)), new GreaterThan(b, new IntegerLiteral(2)))),
+                strict, "with nothing to drop, strict and loose agree");
+    }
 }

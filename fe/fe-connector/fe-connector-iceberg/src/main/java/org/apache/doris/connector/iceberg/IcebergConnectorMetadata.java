@@ -46,7 +46,9 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -54,6 +56,9 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFiles;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
@@ -62,12 +67,22 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.expressions.Evaluator;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.ExpressionUtil;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Projections;
+import org.apache.iceberg.expressions.StrictMetricsEvaluator;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
@@ -77,6 +92,8 @@ import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -86,6 +103,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -1887,6 +1905,153 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             + "Set table property '%s' to 'merge-on-read'.",
                     operationLabel, modeProperty));
         }
+    }
+
+    /**
+     * Whole-file metadata delete for {@code DELETE} (the engine's fast path): commit the delete as one atomic
+     * metadata operation that removes every matching data file, instead of scanning rows and writing position
+     * delete files / deletion vectors. This is what Spark, StarRocks and Trino do for whole-partition and
+     * whole-file predicates, and it is the only way to get rid of a data file whose rows are all gone: a
+     * row-level Doris DELETE keeps the file (plus a redundant deletion vector) in the snapshot, and every later
+     * scan still opens and reads it.
+     *
+     * <p>The predicate is lowered with {@link IcebergPredicateConverter.Mode#REWRITE} — the strictly
+     * all-or-nothing matrix, because a dropped conjunct would widen the delete — and then every candidate data
+     * file must be proven matched <i>in full</i> (strict partition projection or file metrics), exactly the
+     * check Spark's {@code SparkTable.canDeleteUsingMetadata} and StarRocks's
+     * {@code IcebergMetadata.canDeleteUsingMetadata} perform. Only then is the delete committed: without that
+     * proof iceberg's {@code deleteFromRowFilter} would fail the statement with "Cannot delete file where some,
+     * but not all, rows match filter".</p>
+     *
+     * <p>Anything that cannot be proven returns empty and the engine runs the ordinary row-level delete; a
+     * {@link ValidationException} raised at commit (the table moved between the check and the commit, so a
+     * candidate file is no longer fully matched) does the same, because nothing was committed.</p>
+     *
+     * <p>The returned row count is iceberg's {@code deleted-records} summary minus the rows that the delete
+     * files removed with those data files had already hidden (mirroring Trino's {@code executeDelete}), i.e. the
+     * rows this statement deleted. As in the engines above, the commit applies the predicate to the table's
+     * current state: rows concurrently appended into a deleted partition are deleted as well, whereas a
+     * row-level Doris DELETE would only delete the rows it scanned.</p>
+     */
+    @Override
+    public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> predicate) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        String qualifiedName = iceHandle.getDbName() + "." + iceHandle.getTableName();
+        try {
+            return executeAuthenticated(() -> {
+                // Load fresh rather than through the read-side caches: the delete commits against the current
+                // metadata, never a possibly stale cached snapshot.
+                Table table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                Expression deleteExpr = predicate.isPresent()
+                        ? wholeFileDeleteExpression(table, session, predicate.get())
+                        : Expressions.alwaysTrue();
+                if (deleteExpr == null || !matchesWholeFilesOnly(table, deleteExpr)) {
+                    return OptionalLong.empty();
+                }
+                DeleteFiles deleteFiles = table.newDelete().deleteFromRowFilter(deleteExpr);
+                deleteFiles.commit();
+                return OptionalLong.of(deletedRowCount(table.currentSnapshot()));
+            });
+        } catch (ValidationException e) {
+            // A racing writer turned a candidate file into a partial match (or another delete removed it):
+            // nothing was committed, so the row-level path still produces the right result.
+            LOG.info("Metadata delete of {} is no longer whole-file ({}); falling back to the row-level delete.",
+                    qualifiedName, e.getMessage());
+            return OptionalLong.empty();
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to metadata-delete Iceberg table " + qualifiedName
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Lowers the statement predicate to an iceberg expression with the strictly all-or-nothing
+     * {@link IcebergPredicateConverter.Mode#REWRITE} matrix, or {@code null} when it is not fully representable
+     * (the caller then falls back to the row-level delete). A bare {@code true} — an unfiltered
+     * {@code DELETE FROM t} — is {@link Expressions#alwaysTrue()}; the rewrite matrix rejects bare literals, so
+     * that case is handled here.
+     */
+    private Expression wholeFileDeleteExpression(Table table, ConnectorSession session,
+            ConnectorExpression predicate) {
+        if (predicate instanceof ConnectorLiteral) {
+            return Boolean.TRUE.equals(((ConnectorLiteral) predicate).getValue())
+                    ? Expressions.alwaysTrue() : null;
+        }
+        ZoneId zone = IcebergTimeUtils.resolveSessionZone(session);
+        List<Expression> predicates = new IcebergPredicateConverter(
+                table.schema(), zone, IcebergPredicateConverter.Mode.REWRITE).convert(predicate);
+        // Same guard as RewriteDataFilePlanner: that matrix drops an unconvertible top-level conjunct instead of
+        // failing, and a dropped conjunct would widen the delete here.
+        if (predicates.isEmpty() || predicates.size() < countTopLevelConjuncts(predicate)) {
+            return null;
+        }
+        Expression combined = null;
+        for (Expression converted : predicates) {
+            combined = combined == null ? converted : Expressions.and(combined, converted);
+        }
+        return combined;
+    }
+
+    /** Number of top-level conjuncts of a neutral predicate (a top-level AND's arity, else 1). */
+    private static int countTopLevelConjuncts(ConnectorExpression predicate) {
+        return predicate instanceof ConnectorAnd
+                ? ((ConnectorAnd) predicate).getConjuncts().size() : 1;
+    }
+
+    /**
+     * Whether every candidate data file of {@code deleteExpr} is matched in full, so that iceberg's
+     * {@link DeleteFiles#deleteFromRowFilter} drops files instead of rejecting a partially matched one. Whole
+     * partitions short-circuit ({@link ExpressionUtil#selectsPartitions} holds for every spec, so partition
+     * evolution is covered); otherwise each candidate file — as enumerated by the very scan the engine would
+     * run — must satisfy its own spec's strict partition projection or the strict metrics evaluator.
+     */
+    private static boolean matchesWholeFilesOnly(Table table, Expression deleteExpr) {
+        boolean caseSensitive = false;
+        if (ExpressionUtil.selectsPartitions(deleteExpr, table, caseSensitive)) {
+            return true;
+        }
+        TableScan scan = table.newScan()
+                .filter(deleteExpr)
+                .caseSensitive(caseSensitive)
+                .includeColumnStats()
+                .ignoreResiduals();
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            Map<Integer, Evaluator> evaluators = new HashMap<>();
+            StrictMetricsEvaluator metricsEvaluator =
+                    new StrictMetricsEvaluator(table.schema(), deleteExpr, caseSensitive);
+            for (FileScanTask task : tasks) {
+                DataFile file = task.file();
+                PartitionSpec spec = task.spec();
+                Evaluator evaluator = evaluators.computeIfAbsent(spec.specId(), specId -> new Evaluator(
+                        spec.partitionType(), Projections.strict(spec, caseSensitive).project(deleteExpr)));
+                if (!evaluator.eval(file.partition()) && !metricsEvaluator.eval(file)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IOException e) {
+            LOG.warn("Failed to evaluate whole-file delete candidates for {}: {}",
+                    table.name(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Rows deleted by a metadata delete: the removed data files' records minus the records of the delete files
+     * removed with them (rows that were already deleted). Mirrors Trino's {@code executeDelete} accounting.
+     */
+    private static long deletedRowCount(Snapshot snapshot) {
+        if (snapshot == null || snapshot.summary() == null) {
+            return 0L;
+        }
+        Map<String, String> summary = snapshot.summary();
+        long deletedRecords = Long.parseLong(summary.getOrDefault(SnapshotSummary.DELETED_RECORDS_PROP, "0"));
+        long removedPosDeletes =
+                Long.parseLong(summary.getOrDefault(SnapshotSummary.REMOVED_POS_DELETES_PROP, "0"));
+        long removedEqDeletes =
+                Long.parseLong(summary.getOrDefault(SnapshotSummary.REMOVED_EQ_DELETES_PROP, "0"));
+        return Math.max(0L, deletedRecords - removedPosDeletes - removedEqDeletes);
     }
 
     /**
