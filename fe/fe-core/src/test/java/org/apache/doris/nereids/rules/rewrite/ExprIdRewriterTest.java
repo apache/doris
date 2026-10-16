@@ -26,9 +26,9 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
@@ -68,8 +68,9 @@ public class ExprIdRewriterTest {
         ExprId newExprId = new ExprId(2);
         SlotReference guardedSlot = slot(oldExprId, "k");
         SlotReference conditionSlot = slot(new ExprId(3), "v");
+        // MergeUtils.selectBranch is what MergeIntoCommand builds every assignment with
         NamedExpression assignment = new Alias(new ExprId(9),
-                new ShortCircuitIf(new EqualTo(conditionSlot, new IntegerLiteral(1)),
+                MergeUtils.selectBranch(new EqualTo(conditionSlot, new IntegerLiteral(1)),
                         new Add(guardedSlot, new IntegerLiteral(1)), guardedSlot), "value");
 
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),

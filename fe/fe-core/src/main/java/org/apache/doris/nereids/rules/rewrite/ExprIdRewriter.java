@@ -20,18 +20,14 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -131,7 +127,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
      * e.g. replaceMap:{0:3, 1:6, 6:7}
      * SlotReference:a#0 -> a#3, a#1 -> a#7
      * */
-    public static class ReplaceRule implements ExpressionPatternRuleFactory {
+    public static class ReplaceRule {
         private static final DefaultExpressionRewriter<Map<ExprId, ExprId>> SLOT_REPLACER =
                 new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
                     @Override
@@ -176,12 +172,17 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 replacer = SLOT_REPLACER;
             }
             // children first: the id replacement of a node must not stop the traversal, e.g. an Alias keeps its own
-            // exprId while a slot of the expression below it is renamed
+            // exprId while a slot of the expression below it is renamed. The replacer is applied to the node itself
+            // only, its children are already rewritten here, so the whole expression is visited once.
             this.structuralReplacer = new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
                 @Override
                 public Expression visit(Expression expr, Map<ExprId, ExprId> replaceMap) {
                     Expression withRewrittenChildren = rewriteChildren(this, expr, replaceMap);
-                    return withRewrittenChildren.accept(replacer, replaceMap);
+                    if (withRewrittenChildren instanceof SlotReference
+                            || (rewriteAlias && withRewrittenChildren instanceof Alias)) {
+                        return withRewrittenChildren.accept(replacer, replaceMap);
+                    }
+                    return withRewrittenChildren;
                 }
             };
         }
@@ -201,18 +202,5 @@ public class ExprIdRewriter extends ExpressionRewrite {
             return expression.accept(structuralReplacer, replaceMap);
         }
 
-        @Override
-        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-            return ImmutableList.of(
-                    matchesType(SlotReference.class).thenApply(ctx -> {
-                        Slot slot = ctx.expr;
-                        return slot.accept(replacer, replaceMap);
-                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
-                    matchesType(Alias.class).thenApply(ctx -> {
-                        Alias alias = ctx.expr;
-                        return alias.accept(replacer, replaceMap);
-                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
-            );
-        }
     }
 }

@@ -158,8 +158,10 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
 
     @Test
     void testRqgCase11000258898() {
-        // before the fix this query tripped the AdjustNullable check with
-        // "AdjustNullable convert slot 2004-04-28#xx from not-nullable to nullable"
+        // the RQG case this PR was reported from: it tripped "AdjustNullable convert slot 2004-04-28#xx from
+        // not-nullable to nullable" on the base the report was made against. On this base the constant project is
+        // removed later in the rewrite, so the query no longer trips that check; the assertion below keeps the plan
+        // free of a project which reuses an exprId of its child with another definition
         PlanChecker checker = PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite();
         assertNoShadowProject(checker.getPlan());
     }
