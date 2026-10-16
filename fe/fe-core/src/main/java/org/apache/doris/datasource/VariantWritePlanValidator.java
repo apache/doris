@@ -26,10 +26,12 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
@@ -74,7 +76,9 @@ public final class VariantWritePlanValidator {
      * intentional user conversion and are not rejected. Only the expressions whose values can reach
      * the target are inspected: the condition of an IF or of a CASE branch only chooses a value, so a
      * Variant path compared with a scalar there loses nothing that is written. Likewise the later
-     * inputs of EXCEPT and INTERSECT only decide which rows of the first input stay.</p>
+     * inputs of EXCEPT and INTERSECT only decide which rows of the first input stay, and the partition
+     * and order keys of a window and the ORDER BY of an aggregate function only arrange the rows whose
+     * values are used.</p>
      */
     public static void validateNoLossyCoercion(List<Column> targetColumns, Plan sourcePlan) {
         validateNoLossyCoercion(targetColumns, sourcePlan, Optional.empty());
@@ -399,7 +403,9 @@ public final class VariantWritePlanValidator {
 
     /**
      * The nodes of {@code expression} whose values can reach its result, in pre-order: every node
-     * except those under the condition of an IF or of a CASE branch, which only chooses a value.
+     * except those under the condition of an IF or of a CASE branch, which only chooses a value, and
+     * those under the partition and order keys of a window or the ORDER BY of an aggregate function
+     * such as GROUP_CONCAT, which only arrange the rows whose values are used.
      */
     private static List<Expression> valueNodes(Expression expression) {
         List<Expression> nodes = new ArrayList<>();
@@ -414,9 +420,13 @@ public final class VariantWritePlanValidator {
             collectValueNodes(((If) expression).getFalseValue(), nodes);
         } else if (expression instanceof WhenClause) {
             collectValueNodes(((WhenClause) expression).getResult(), nodes);
+        } else if (expression instanceof WindowExpression) {
+            collectValueNodes(((WindowExpression) expression).getFunction(), nodes);
         } else {
             for (Expression child : expression.children()) {
-                collectValueNodes(child, nodes);
+                if (!(child instanceof OrderExpression)) {
+                    collectValueNodes(child, nodes);
+                }
             }
         }
     }

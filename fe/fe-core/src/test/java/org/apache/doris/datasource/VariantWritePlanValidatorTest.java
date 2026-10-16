@@ -286,6 +286,41 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testWindowAndAggregateOrderingKeysAreNotWrittenValues() {
+        // The partition and order keys of a window and the ORDER BY of GROUP_CONCAT only arrange the rows whose
+        // values are used, so a lossy cast there, or in a column read only by such a key, writes nothing. A lossy
+        // cast in an argument of the function is written and still rejected. MUTATION: tracing the keys of a
+        // window, or the ORDER BY of an aggregate function -> rejected.
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        String source = "(SELECT 1 AS id, parse_to_variant('{\"k\":1}') AS v) source";
+        List<String> keyedOnly = ImmutableList.of(
+                "SELECT 1, ROW_NUMBER() OVER (ORDER BY IF(TRUE, v, 1)) FROM " + source,
+                "SELECT 1, COUNT(*) OVER (PARTITION BY IF(TRUE, v, 1)) FROM " + source,
+                "SELECT 1, GROUP_CONCAT('x' ORDER BY IF(TRUE, v, 1)) FROM " + source,
+                "SELECT 1, ROW_NUMBER() OVER (ORDER BY k) FROM (SELECT IF(TRUE, v, 1) AS k FROM " + source
+                        + ") keyed");
+        for (String sql : keyedOnly) {
+            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+            Assertions.assertDoesNotThrow(
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), analyzedPlan),
+                    sql);
+        }
+
+        List<String> written = ImmutableList.of(
+                "SELECT 1, FIRST_VALUE(IF(TRUE, v, 1)) OVER (ORDER BY id) FROM " + source,
+                "SELECT 1, GROUP_CONCAT(CAST(IF(TRUE, v, 1) AS STRING) ORDER BY id) FROM " + source);
+        for (String sql : written) {
+            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), analyzedPlan),
+                    sql);
+            Assertions.assertTrue(exception.getMessage().contains("input column 'payload'"),
+                    exception.getMessage());
+        }
+    }
+
+    @Test
     public void testPrimitiveSourceAndExplicitVariantCastAreAccepted() {
         LogicalOneRowRelation primitiveSource = oneRow(
                 new Alias(new IntegerLiteral(1), "payload"));
