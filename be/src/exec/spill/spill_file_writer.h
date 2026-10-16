@@ -78,9 +78,9 @@ private:
     /// Open the next part file (spill_dir/{_current_part_index}).
     Status _open_next_part(const std::shared_ptr<SpillFile>& spill_file);
 
-    /// Close the current part: write the footer, close the file writer synchronously
-    /// (draining in-flight uploads on failure), account its remote statistics, register
-    /// the part with the SpillFile (or abort its multipart upload on failure), and advance
+    /// Close the current part: write the footer, close the file writer synchronously,
+    /// account its remote statistics, register the part with the SpillFile (or, on failure,
+    /// abort it, which drains its in-flight uploads first), and advance
     /// to the next part index. Statistics are accounted whether it succeeds or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
 
@@ -115,15 +115,8 @@ private:
     /// Serialize and write a single block to the current part.
     Status _write_internal(const Block& block, const std::shared_ptr<SpillFile>& spill_file);
 
-    struct MultipartUploadId {
-        std::string path;
-        std::string bucket;
-        std::string key;
-        std::string upload_id;
-    };
-    /// Identity of the multipart upload of `writer`, if it started one.
-    static MultipartUploadId _multipart_upload_id(doris::io::FileWriter* writer);
-    void _abort_multipart_upload(const MultipartUploadId& upload);
+    /// Give up the remote part `writer` without publishing it; see S3FileWriter::abort().
+    void _abort_remote_part(doris::io::FileWriter* writer);
 
     // ── Back-reference ──
     std::weak_ptr<SpillFile> _spill_file_wptr; // weak ref; use lock() in close()

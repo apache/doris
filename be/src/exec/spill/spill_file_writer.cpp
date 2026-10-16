@@ -29,7 +29,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
-#include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -99,16 +98,15 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
     if (!_file_writer) {
         return;
     }
-    // The part is dropped without a footer and without close(): destroying an unclosed
-    // writer waits for its in-flight uploads and publishes nothing, so no object can appear
-    // after the SpillFile deleted its prefix.
+    // The part is dropped without a footer and without close(): an unclosed writer publishes
+    // nothing, and aborting waits for its in-flight uploads, so no object can appear after the
+    // SpillFile deleted its prefix.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
-    MultipartUploadId upload = _multipart_upload_id(writer.get());
     if (_data_dir->is_remote()) {
         _account_remote_part(writer.get(), /*closed=*/false);
+        _abort_remote_part(writer.get());
     }
     writer.reset();
-    _abort_multipart_upload(upload);
     _advance_part();
 }
 
@@ -185,7 +183,6 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     // tail of the uploads plus one CompleteMultipartUpload) is negligible against the part
     // itself, so overlapping it with the next part is not worth an async close pipeline.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
-    MultipartUploadId upload = _multipart_upload_id(writer.get());
     if (status.ok()) {
         MonotonicStopWatch close_watch;
         close_watch.start();
@@ -200,14 +197,16 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     if (!status.ok()) {
         // A part that failed before close() (an append failed or the query was cancelled) must
         // not be published, so it is not closed; close() itself may also fail before its
-        // uploads are done. Destroying the writer waits for every in-flight upload in both
-        // cases, so nothing is uploaded after the multipart upload is aborted below.
+        // uploads are done. Aborting waits for every in-flight upload in both cases, so
+        // nothing is uploaded after the multipart upload is aborted.
+        if (_data_dir->is_remote()) {
+            _abort_remote_part(writer.get());
+        }
         writer.reset();
     }
 
     if (!status.ok()) {
         LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
-        _abort_multipart_upload(upload);
         // A failed append or close can still leave an object in S3. The writer has drained
         // in-flight uploads above, so list the prefix after accounting a conservative upper
         // bound rather than relying on the close status to prove whether PUT committed.
@@ -317,33 +316,17 @@ void SpillFileWriter::_advance_part() {
     _part_append_status = Status::OK();
 }
 
-SpillFileWriter::MultipartUploadId SpillFileWriter::_multipart_upload_id(io::FileWriter* writer) {
+void SpillFileWriter::_abort_remote_part(io::FileWriter* writer) {
     auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer);
-    if (s3_writer == nullptr || s3_writer->upload_id().empty()) {
-        return {};
+    DORIS_CHECK(s3_writer != nullptr)
+            << "remote spill part is not an S3 file: " << _current_part_path;
+    // A spill part is never completed by anyone else, and deleting the prefix does not remove
+    // the parts of an unfinished multipart upload, which stay billed until the bucket's
+    // lifecycle rule drops them.
+    auto status = s3_writer->abort();
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to abort spill part " << _current_part_path << ": " << status;
     }
-    return {.path = s3_writer->path().native(),
-            .bucket = s3_writer->bucket(),
-            .key = s3_writer->key(),
-            .upload_id = s3_writer->upload_id()};
-}
-
-void SpillFileWriter::_abort_multipart_upload(const MultipartUploadId& upload) {
-    if (upload.upload_id.empty()) {
-        return;
-    }
-    auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(_fs);
-    if (s3_fs == nullptr) {
-        return;
-    }
-    auto client = s3_fs->client_holder()->get();
-    if (client == nullptr) {
-        return;
-    }
-    auto resp = client->abort_multipart_upload(
-            {.path = upload.path, .bucket = upload.bucket, .key = upload.key}, upload.upload_id);
-    LOG(INFO) << "abort multipart upload of failed spill part " << upload.path
-              << ", upload_id=" << upload.upload_id << ", status=" << resp.status.msg;
 }
 
 Status SpillFileWriter::_rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file) {

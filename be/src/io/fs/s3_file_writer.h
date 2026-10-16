@@ -69,6 +69,14 @@ public:
     Status close(bool non_block = false) override;
     Status try_finish_close() override;
 
+    // Gives up the file instead of publishing it: the buffers not uploaded yet are skipped, the
+    // running uploads are waited for, and then the multipart upload, if one was started, is
+    // aborted, so no part is left behind. Only for a writer that is open or whose close()
+    // failed, and only when no one else will complete the upload (unlike the uploads of the S3
+    // committer, completed by FE). Destroying a writer never aborts. Only the destructor may
+    // follow.
+    Status abort();
+
 private:
     Status _close_impl();
     [[nodiscard]] std::string _dump_completed_part() const;
