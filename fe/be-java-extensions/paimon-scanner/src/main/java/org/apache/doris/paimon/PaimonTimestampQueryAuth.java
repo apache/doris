@@ -30,6 +30,9 @@ import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateVisitor;
 import org.apache.paimon.predicate.Transform;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.FallbackReadFileStoreTable.FallbackSplitImpl;
+import org.apache.paimon.table.source.QueryAuthSplit;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -67,6 +70,23 @@ final class PaimonTimestampQueryAuth extends TableQueryAuthResult {
     @Override
     public Map<String, Transform> extractColumnMasking() {
         return original.extractColumnMasking();
+    }
+
+    static QueryAuthSplit findAuthSplit(Split split) {
+        // FallbackDataSplit is a leaf whose wrapped() returns itself, not a split container.
+        if (split instanceof FallbackSplitImpl) {
+            return findAuthSplit(((FallbackSplitImpl) split).wrapped());
+        }
+        return split instanceof QueryAuthSplit ? (QueryAuthSplit) split : null;
+    }
+
+    static Split repairPolicy(Split split, RowType currentReadType) {
+        if (split instanceof FallbackSplitImpl) {
+            FallbackSplitImpl fallback = (FallbackSplitImpl) split;
+            return new FallbackSplitImpl(repairPolicy(fallback.wrapped(), currentReadType), fallback.isFallback());
+        }
+        QueryAuthSplit auth = (QueryAuthSplit) split;
+        return new QueryAuthSplit(auth.split(), new PaimonTimestampQueryAuth(auth.authResult(), currentReadType));
     }
 
     static void addPolicyFields(TableQueryAuthResult auth, RowType tableType,
@@ -127,10 +147,12 @@ final class PaimonTimestampQueryAuth extends TableQueryAuthResult {
     @Override
     public RecordReader<InternalRow> doAuth(RecordReader<InternalRow> reader, RowType readType) {
         // Delegate the policy itself to Paimon; neither filters nor masks are dropped or rewritten.
-        if (readType.equals(currentReadType)) {
+        // System-table readers synthesize fields such as rowkind only after this inner callback.
+        RowType currentDataType = currentReadType.project(readType.getFieldNames());
+        if (readType.equals(currentDataType)) {
             return original.doAuth(reader, readType);
         }
-        return original.doAuth(reader.transform(row -> repairRow(row, readType, currentReadType)), currentReadType);
+        return original.doAuth(reader.transform(row -> repairRow(row, readType, currentDataType)), currentDataType);
     }
 
     static InternalRow repairRow(InternalRow row, RowType readType, RowType currentType) {

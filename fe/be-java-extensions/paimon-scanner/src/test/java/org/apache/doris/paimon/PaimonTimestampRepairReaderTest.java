@@ -33,6 +33,8 @@ import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.predicate.Transform;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
@@ -83,6 +85,87 @@ public class PaimonTimestampRepairReaderTest {
     public void auditLogHistoricalProjectionRetainsNegativeEpoch() throws Exception {
         checkReader("audit_log", new Object[] {LocalDateTime.of(1969, 12, 31, 23, 59, 59),
                 LocalDateTime.of(2025, 1, 1, 0, 0, 1), LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void auditLogSystemColumnAndSerializedIntegerPolicyRetainPrecision() throws Exception {
+        checkReader("audit_log_policy", new Object[] {LocalDateTime.of(1969, 12, 31, 23, 59, 59),
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void fallbackTimestampPolicyRunsAfterPrecisionRepair() throws Exception {
+        checkReader("fallback_policy", new Object[] {LocalDateTime.of(2025, 1, 1, 0, 0, 1),
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void fallbackDataSplitWithoutPolicyRemainsAReaderLeaf() throws Exception {
+        checkReader("fallback_plain", new Object[] {LocalDateTime.of(1969, 12, 31, 23, 59, 59),
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void nanosecondOutputsRetainLogicalPrecisionWithDatetimeSibling() throws Exception {
+        for (int precision : new int[] {7, 8}) {
+            checkNanosecondReader(precision, false);
+            checkNanosecondReader(precision, true);
+        }
+    }
+
+    private void checkNanosecondReader(int precision, boolean withSibling) throws Exception {
+        OffHeap.setTesting();
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", true);
+            Identifier id = Identifier.create("db", "nano_" + precision + "_" + withSibling);
+            catalog.createTable(id, Schema.newBuilder().column("ts", DataTypes.TIMESTAMP(9))
+                    .column("nested", RowType.builder().field("ts", DataTypes.TIMESTAMP(9)).build())
+                    .column("plain_ts", DataTypes.TIMESTAMP(6)).option("file.format", "parquet").build(), false);
+            Table table = catalog.getTable(id);
+            LocalDateTime value = LocalDateTime.of(2025, 1, 1, 0, 0, 1, 123456789);
+            Timestamp timestamp = Timestamp.fromLocalDateTime(value);
+            BatchWriteBuilder writer = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = writer.newWrite()) {
+                write.write(GenericRow.of(timestamp, GenericRow.of(timestamp),
+                        Timestamp.fromLocalDateTime(value.withNano(123456000))));
+                try (BatchTableCommit commit = writer.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            catalog.alterTable(id, Arrays.asList(
+                    SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(precision), true),
+                    SchemaChange.updateColumnType(new String[] {"nested", "ts"},
+                            DataTypes.TIMESTAMP(precision), true)), false);
+            table = catalog.getTable(id);
+            Map<String, String> params = new HashMap<>();
+            params.put("required_fields", withSibling ? "ts,nested,plain_ts" : "ts");
+            params.put("columns_types", withSibling
+                    ? "timestamp_ns#struct<ts:timestamp_ns>#datetimev2(6)" : "timestamp_ns");
+            params.put("time_zone", "UTC");
+            params.put("serialized_table_cache_key", "nano-reader-" + id + warehouse);
+            params.put("serialized_table", encode(table));
+            params.put("paimon_split", encode(table.newReadBuilder().newScan().plan().splits().get(0)));
+            params.put("paimon_predicate", encode(Collections.emptyList()));
+            params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, "true");
+            PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+            try {
+                scanner.open();
+                Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                Assertions.assertEquals(1, scanner.getTable().getNumRows());
+                LocalDateTime expected = value.withNano(precision == 7 ? 123456700 : 123456780);
+                Assertions.assertEquals(expected, scanner.getTable().getColumn(0).getObjectColumn(0, 1)[0]);
+                if (withSibling) {
+                    Assertions.assertEquals(Collections.singletonMap("ts", expected),
+                            scanner.getTable().getColumn(1).getObjectColumn(0, 1)[0]);
+                    Assertions.assertEquals(value.withNano(123456000),
+                            scanner.getTable().getColumn(2).getObjectColumn(0, 1)[0]);
+                }
+            } finally {
+                scanner.close();
+                PaimonTableCache.clearForTest();
+            }
+        }
     }
 
     @Test
@@ -159,7 +242,7 @@ public class PaimonTimestampRepairReaderTest {
             }
             catalog.alterTable(id, changes, false);
             table = catalog.getTable(id);
-            if (mode.equals("audit_log")) {
+            if (mode.startsWith("audit_log")) {
                 table = org.apache.paimon.table.system.SystemTableLoader.load("audit_log",
                         (org.apache.paimon.table.FileStoreTable) table);
             }
@@ -175,7 +258,10 @@ public class PaimonTimestampRepairReaderTest {
             params.put("time_zone", "UTC");
             params.put("serialized_table_cache_key", "repair-reader-" + warehouse);
             params.put("serialized_table", encode(table));
-            if (mode.equals("hidden_timestamp_policy")) {
+            if (mode.equals("audit_log_policy")) {
+                params.put("required_fields", "rowkind,ts");
+                params.put("columns_types", "string#datetimev2(0)");
+            } else if (mode.equals("hidden_timestamp_policy")) {
                 params.put("required_fields", "id");
                 params.put("columns_types", "int");
             } else if (nested) {
@@ -187,8 +273,9 @@ public class PaimonTimestampRepairReaderTest {
                 params.put("columns_types", "int#datetimev2(0)");
                 params.put("paimon_predicate", encode(
                         Collections.singletonList(PredicateBuilder.and(integer, timestamp))));
-            } else if (!mode.equals("audit_log")) {
+            } else if (!mode.equals("audit_log") && !mode.equals("fallback_plain")) {
                 Predicate policy = mode.equals("timestamp_policy") || mode.equals("hidden_timestamp_policy")
+                        || mode.equals("fallback_policy")
                         ? timestamp : integer;
                 if (nested) {
                     policy = builder.equal(new HiddenTimestamp(Collections.singletonList(new FieldRef(
@@ -196,7 +283,8 @@ public class PaimonTimestampRepairReaderTest {
                             table.rowType().getTypeAt(builder.indexOf("payload"))))),
                             Timestamp.fromLocalDateTime(LocalDateTime.of(1969, 12, 31, 23, 59, 59)));
                 }
-                TableQueryAuthResult auth = mode.equals("integer_policy") ? new TableQueryAuthResult(
+                TableQueryAuthResult auth = mode.equals("integer_policy") || mode.equals("audit_log_policy")
+                        ? new TableQueryAuthResult(
                         Collections.singletonList(JsonSerdeUtil.toJson(policy)), Collections.emptyMap())
                         : new TypedPolicyAuth(policy, mode.equals("masking_policy")
                                 ? Collections.singletonMap("ts", new TimestampMask(Collections.singletonList(
@@ -207,6 +295,15 @@ public class PaimonTimestampRepairReaderTest {
             } else {
                 params.put("paimon_predicate", encode(Collections.emptyList()));
                 params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, "true");
+            }
+            if (mode.startsWith("fallback_")) {
+                split = FallbackReadFileStoreTable.toFallbackSplit(split, true);
+                Identifier mainId = Identifier.create("db", "main_events");
+                catalog.createTable(mainId, Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("ts", DataTypes.TIMESTAMP(0)).option("file.format", "parquet").build(), false);
+                table = new FallbackReadFileStoreTable((FileStoreTable) catalog.getTable(mainId),
+                        (FileStoreTable) table, true);
+                params.put("serialized_table", encode(table));
             }
             params.put("paimon_split", encode(split));
             PaimonJniScanner scanner = new PaimonJniScanner(16, params);
@@ -219,7 +316,12 @@ public class PaimonTimestampRepairReaderTest {
                 }
                 Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
                 Assertions.assertEquals(expected.length, scanner.getTable().getNumRows());
-                Object[] actual = scanner.getTable().getColumn(mode.equals("legacy") ? 1 : 0)
+                if (mode.equals("audit_log_policy")) {
+                    Assertions.assertArrayEquals(new Object[] {"+I", "+I"},
+                            scanner.getTable().getColumn(0).getObjectColumn(0, expected.length));
+                }
+                Object[] actual = scanner.getTable().getColumn(
+                        mode.equals("legacy") || mode.equals("audit_log_policy") ? 1 : 0)
                         .getObjectColumn(0, expected.length);
                 Arrays.sort(actual);
                 Assertions.assertArrayEquals(expected, actual, mode);

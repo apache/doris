@@ -47,6 +47,7 @@ import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeChecks;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -205,7 +206,7 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initReader() throws IOException {
         Split split = getSplit();
-        QueryAuthSplit authSplit = split instanceof QueryAuthSplit ? (QueryAuthSplit) split : null;
+        QueryAuthSplit authSplit = PaimonTimestampQueryAuth.findAuthSplit(split);
         if (authSplit != null && authSplit.authResult() != null
                 && Boolean.parseBoolean(params.getOrDefault(
                         PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"))
@@ -244,6 +245,8 @@ public class PaimonJniScanner extends JniScanner {
             if (variantProjection == null) {
                 DataType projectedType =
                         PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+                // ColumnType retains the logical precision, independently of the widened physical read type.
+                resetTimestampPrecision(types[outputIndex], projectedType);
                 currentFields.add(tableField.newType(projectedType));
                 if (requiresDatetimeV2PrecisionRepair) {
                     projectedType = createSafeTimestampReadType(projectedType);
@@ -267,8 +270,7 @@ public class PaimonJniScanner extends JniScanner {
         if (repairPolicy) {
             PaimonTimestampQueryAuth.addPolicyFields(
                     authSplit.authResult(), table.rowType(), readFields, currentFields);
-            split = new QueryAuthSplit(authSplit.split(),
-                    new PaimonTimestampQueryAuth(authSplit.authResult(), new RowType(currentFields)));
+            split = PaimonTimestampQueryAuth.repairPolicy(split, new RowType(currentFields));
             hasReadTypeProjection = true;
         }
         if (hasReadTypeProjection) {
@@ -463,32 +465,36 @@ public class PaimonJniScanner extends JniScanner {
         return split;
     }
 
-    private void resetDatetimeV2Precision() {
+    private void initTimestampPrecisionRepair() {
         boolean repairHistoricalPrecision = Boolean.parseBoolean(
                 params.getOrDefault(PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"));
-        for (int i = 0; i < types.length; i++) {
-            if (repairHistoricalPrecision && containsTimestampType(types[i])) {
+        for (ColumnType type : types) {
+            if (repairHistoricalPrecision && containsTimestampType(type)) {
                 requiresDatetimeV2PrecisionRepair = true;
             }
-            if (types[i].isDateTimeV2() || types[i].getType() == ColumnType.Type.TIMESTAMPTZ) {
-                // paimon support precision > 6, but it has been reset as 6 in FE
-                // try to get the right precision for datetimev2
-                int index = getFieldIndex(paimonAllFieldNames, fields[i]);
-                if (index != -1) {
-                    DataType dataType = table.rowType().getTypeAt(index);
-                    if (dataType instanceof TimestampType || dataType instanceof LocalZonedTimestampType) {
-                        int paimonPrecision = dataType instanceof TimestampType
-                                ? ((TimestampType) dataType).getPrecision()
-                                : ((LocalZonedTimestampType) dataType).getPrecision();
-                        types[i].setPrecision(paimonPrecision);
-                    }
-                }
+        }
+    }
+
+    static void resetTimestampPrecision(ColumnType outputType, DataType currentType) {
+        if (currentType instanceof TimestampType || currentType instanceof LocalZonedTimestampType) {
+            outputType.setPrecision(DataTypeChecks.getPrecision(currentType));
+        } else if (currentType instanceof ArrayType) {
+            resetTimestampPrecision(outputType.getChildTypes().get(0), ((ArrayType) currentType).getElementType());
+        } else if (currentType instanceof MapType) {
+            MapType map = (MapType) currentType;
+            resetTimestampPrecision(outputType.getChildTypes().get(0), map.getKeyType());
+            resetTimestampPrecision(outputType.getChildTypes().get(1), map.getValueType());
+        } else if (currentType instanceof RowType) {
+            RowType row = (RowType) currentType;
+            for (int i = 0; i < row.getFieldCount(); i++) {
+                resetTimestampPrecision(outputType.getChildTypes().get(i), row.getTypeAt(i));
             }
         }
     }
 
     static boolean containsTimestampType(ColumnType type) {
-        if (type.isDateTimeV2() || type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+        if (type.isDateTimeV2() || type.getType() == ColumnType.Type.TIMESTAMPTZ
+                || type.getType() == ColumnType.Type.TIMESTAMP_NS) {
             return true;
         }
         List<ColumnType> children = type.getChildTypes();
@@ -1096,12 +1102,12 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initTableAndReader() throws IOException {
         if (initTableFromCache()) {
-            resetDatetimeV2Precision();
+            initTimestampPrecisionRepair();
             initReader();
             return;
         }
         initTable();
-        resetDatetimeV2Precision();
+        initTimestampPrecisionRepair();
         initReader();
         PaimonTableCache.TableCacheEntry candidate =
                 new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);

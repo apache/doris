@@ -229,6 +229,40 @@ public class PaimonColumnValueTest {
     }
 
     @Test
+    public void testNanosecondPrecisionInNestedOutputLeaves() {
+        for (int precision : new int[] {7, 8}) {
+            TimestampType timestampType = new TimestampType(precision);
+            RowType current = RowType.of(new DataType[] {
+                    new ArrayType(timestampType), new MapType(new IntType(), timestampType),
+                    RowType.of(new DataType[] {timestampType}, new String[] {"ts"})},
+                    new String[] {"array", "map", "nested"});
+            ColumnType output = ColumnType.parseType("root", "struct<array:array<timestamp_ns>,"
+                    + "map:map<int,timestamp_ns>,nested:struct<ts:timestamp_ns>>");
+            PaimonJniScanner.resetTimestampPrecision(output, current);
+            LocalDateTime value = LocalDateTime.of(2025, 1, 1, 0, 0, 1, 123456789);
+            Timestamp timestamp = Timestamp.fromLocalDateTime(value);
+            GenericRow row = GenericRow.of(new GenericArray(new Object[] {timestamp}),
+                    new GenericMap(Collections.singletonMap(7, timestamp)), GenericRow.of(timestamp));
+            PaimonColumnValue root = new PaimonColumnValue(GenericRow.of(row), 0, output,
+                    PaimonJniScanner.createSafeTimestampReadType(current), "UTC");
+            List<ColumnValue> fields = new ArrayList<>();
+            root.unpackStruct(Arrays.asList(0, 1, 2), fields);
+            List<ColumnValue> array = new ArrayList<>();
+            fields.get(0).unpackArray(array);
+            List<ColumnValue> keys = new ArrayList<>();
+            List<ColumnValue> values = new ArrayList<>();
+            fields.get(1).unpackMap(keys, values);
+            List<ColumnValue> nested = new ArrayList<>();
+            fields.get(2).unpackStruct(Collections.singletonList(0), nested);
+            LocalDateTime expected = value.withNano(precision == 7 ? 123456700 : 123456780);
+            Assertions.assertEquals(expected, array.get(0).getDateTime());
+            Assertions.assertEquals(7, keys.get(0).getInt());
+            Assertions.assertEquals(expected, values.get(0).getDateTime());
+            Assertions.assertEquals(expected, nested.get(0).getDateTime());
+        }
+    }
+
+    @Test
     public void testAlignedTimestampReusesOriginalValue() {
         for (int precision : new int[] {0, 4, 6, 9}) {
             int nano = precision == 0 ? 0 : 123_400_000;
