@@ -51,6 +51,8 @@ public class VectorColumn {
 
     //add a new flag for const column
     private boolean isConst = false;
+    // BE VARBINARY buffers use StringView; Java-written buffers use [length, pointer].
+    private boolean varbinaryUsesStringView = false;
 
     // NullMap column address
     private long nullMap;
@@ -73,7 +75,7 @@ public class VectorColumn {
 
     private int appendIndex;
 
-    // For nested column type: String / Array/ Map / Struct
+    // For nested column type: String / Array / Map / Struct / File
     private VectorColumn[] childColumns;
     private VectorColumnVariant variantColumn;
 
@@ -149,6 +151,7 @@ public class VectorColumn {
 
     // Create readable column, and maybe pass by const column in Readable column
     private VectorColumn(ColumnType columnType, int numRows, long columnMetaAddress) {
+        this.varbinaryUsesStringView = true;
         if (columnType.isUnsupported()) {
             throw new RuntimeException("Unsupported type for column: " + columnType.getName());
         }
@@ -183,8 +186,8 @@ public class VectorColumn {
 
         if (columnType.isComplexType()) {
             isComplexType = true;
-            int childRows = numRows;
-            if (!columnType.isStruct()) {
+            int childRows = columnType.isFile() ? realRows : numRows;
+            if (!columnType.isStruct() && !columnType.isFile()) {
                 this.offsets = OffHeap.getLong(null, address);
                 address += 8;
                 childRows = getArrayEndOffset(realRows - 1);
@@ -363,7 +366,7 @@ public class VectorColumn {
             this.data = OffHeap.reallocateMemory(data, oldCapacity * 16L, newCapacity * 16L);
         } else if (columnType.isVariantType()) {
             variantColumn.reserveRows(newCapacity);
-        } else if (!columnType.isStruct()) {
+        } else if (!columnType.isStruct() && !columnType.isFile()) {
             throw new RuntimeException("Unhandled type: " + columnType.getName());
         }
         if (!"#stringBytes".equals(columnType.getName())) {
@@ -469,6 +472,11 @@ public class VectorColumn {
                 return appendArray(Collections.emptyList());
             case MAP:
                 return appendMap(Collections.emptyList(), Collections.emptyList());
+            case FILE:
+                for (VectorColumn child : childColumns) {
+                    child.appendValue(null);
+                }
+                return appendIndex++;
             case STRUCT:
                 return appendStruct(structFieldIndex, null);
             case BINARY:
@@ -1535,6 +1543,100 @@ public class VectorColumn {
         return result;
     }
 
+    /** Append FILE's canonical six children. Payload bytes are copied into off-heap storage. */
+    public int appendFile(FileValue file) {
+        if (file == null) {
+            return appendNull(Type.FILE);
+        }
+        reserve(appendIndex + 1);
+        VectorColumn uriColumn = childColumns[FileValue.URI_FIELD_INDEX];
+        if (file.getUri() == null) {
+            uriColumn.appendNull(Type.STRING);
+        } else {
+            uriColumn.appendStringAndOffset(file.getUri());
+        }
+
+        VectorColumn offsetColumn = childColumns[FileValue.OFFSET_FIELD_INDEX];
+        if (file.getOffset() == null) {
+            offsetColumn.appendNull(Type.BIGINT);
+        } else {
+            offsetColumn.appendLong(file.getOffset());
+        }
+
+        VectorColumn sizeColumn = childColumns[FileValue.SIZE_FIELD_INDEX];
+        if (file.getSize() == null) {
+            sizeColumn.appendNull(Type.BIGINT);
+        } else {
+            sizeColumn.appendLong(file.getSize());
+        }
+
+        VectorColumn contentTypeColumn = childColumns[FileValue.CONTENT_TYPE_FIELD_INDEX];
+        if (file.getContentType() == null) {
+            contentTypeColumn.appendNull(Type.STRING);
+        } else {
+            contentTypeColumn.appendStringAndOffset(file.getContentType());
+        }
+
+        VectorColumn checksumColumn = childColumns[FileValue.CHECKSUM_FIELD_INDEX];
+        if (file.getChecksum() == null) {
+            checksumColumn.appendNull(Type.STRING);
+        } else {
+            checksumColumn.appendStringAndOffset(file.getChecksum());
+        }
+
+        VectorColumn inlineColumn = childColumns[FileValue.INLINE_FIELD_INDEX];
+        if (file.getInline() == null) {
+            inlineColumn.appendNull(Type.VARBINARY);
+        } else {
+            inlineColumn.appendVarbinary(file.getInline());
+        }
+        return appendIndex++;
+    }
+
+    public FileValue getFile(int rowId) {
+        rowId = isConst() ? 0 : rowId;
+        if (isNullAt(rowId)) {
+            return null;
+        }
+
+        VectorColumn uriColumn = childColumns[FileValue.URI_FIELD_INDEX];
+        String uri = null;
+        if (!uriColumn.isNullAt(rowId)) {
+            uri = uriColumn.getStringWithOffset(rowId);
+        }
+
+        VectorColumn offsetColumn = childColumns[FileValue.OFFSET_FIELD_INDEX];
+        Long offset = null;
+        if (!offsetColumn.isNullAt(rowId)) {
+            offset = offsetColumn.getLong(rowId);
+        }
+
+        VectorColumn sizeColumn = childColumns[FileValue.SIZE_FIELD_INDEX];
+        Long size = null;
+        if (!sizeColumn.isNullAt(rowId)) {
+            size = sizeColumn.getLong(rowId);
+        }
+
+        VectorColumn contentTypeColumn = childColumns[FileValue.CONTENT_TYPE_FIELD_INDEX];
+        String contentType = null;
+        if (!contentTypeColumn.isNullAt(rowId)) {
+            contentType = contentTypeColumn.getStringWithOffset(rowId);
+        }
+
+        VectorColumn checksumColumn = childColumns[FileValue.CHECKSUM_FIELD_INDEX];
+        String checksum = null;
+        if (!checksumColumn.isNullAt(rowId)) {
+            checksum = checksumColumn.getStringWithOffset(rowId);
+        }
+
+        VectorColumn inlineColumn = childColumns[FileValue.INLINE_FIELD_INDEX];
+        byte[] inline = null;
+        if (!inlineColumn.isNullAt(rowId)) {
+            inline = inlineColumn.getBytesVarbinary(rowId);
+        }
+        return new FileValue(uri, offset, size, contentType, checksum, inline);
+    }
+
     public int appendVarbinary(byte[] src) {
         long addr = OffHeap.allocateMemory(src.length);
         OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET, null, addr, src.length);
@@ -1607,6 +1709,20 @@ public class VectorColumn {
     }
 
     public byte[] getBytesVarbinary(int rowId) {
+        return varbinaryUsesStringView
+                ? getBytesVarbinaryFromStringView(rowId)
+                : getBytesVarbinaryFromLengthAndPointer(rowId);
+    }
+
+    // Java -> BE: each entry stores an int64 length followed by the payload address.
+    private byte[] getBytesVarbinaryFromLengthAndPointer(int rowId) {
+        long entry = data + 16L * rowId;
+        int size = Math.toIntExact(OffHeap.getLong(null, entry));
+        return size == 0 ? new byte[0] : OffHeap.getByte(null, OffHeap.getLong(null, entry + 8), size);
+    }
+
+    // BE -> Java: decode C++ StringView, including its short-value inline storage.
+    private byte[] getBytesVarbinaryFromStringView(int rowId) {
         // Each row is a 16-byte StringView struct at data + 16*rowId
         // layout:
         //   [0..3]  uint32 size
@@ -1719,6 +1835,8 @@ public class VectorColumn {
             case VARCHAR:
             case STRING:
                 return new String[size];
+            case FILE:
+                return new FileValue[size];
             case ARRAY:
                 return new ArrayList[size];
             case MAP:
@@ -1794,6 +1912,14 @@ public class VectorColumn {
             case MAP:
                 appendMap((Map<Object, Object>[]) batch, isNullable);
                 break;
+            case FILE:
+                if (!isNullable) {
+                    checkNullable(batch, batch.length);
+                }
+                for (Object value : batch) {
+                    appendFile((FileValue) value);
+                }
+                break;
             case STRUCT:
                 appendStruct((Map<String, Object>[]) batch, isNullable);
                 break;
@@ -1853,6 +1979,12 @@ public class VectorColumn {
                 return getArrayColumn(start, end);
             case MAP:
                 return getMapColumn(start, end);
+            case FILE:
+                FileValue[] files = new FileValue[end - start];
+                for (int i = start; i < end; ++i) {
+                    files[i - start] = getFile(i);
+                }
+                return files;
             case STRUCT:
                 return getStructColumn(start, end);
             case BINARY:
@@ -1947,6 +2079,9 @@ public class VectorColumn {
                 appendMap(keys, values);
                 break;
             }
+            case FILE:
+                appendFile(o.getFile());
+                break;
             case STRUCT: {
                 List<ColumnValue> values = new ArrayList<>();
                 o.unpackStruct(structFieldIndex, values);
@@ -2074,6 +2209,7 @@ public class VectorColumn {
                 sb.append("}");
                 break;
             }
+            case FILE:
             case STRUCT: {
                 sb.append("{");
                 for (int fieldIndex = 0; fieldIndex < childColumns.length; ++fieldIndex) {

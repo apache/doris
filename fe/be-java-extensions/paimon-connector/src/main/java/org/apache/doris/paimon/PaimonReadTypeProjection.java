@@ -41,8 +41,8 @@ final class PaimonReadTypeProjection {
     }
 
     static DataType project(DataType tableType, ColumnType requiredType) {
-        // FILE uses STRUCT on the JNI wire, but its six metadata children are constructed
-        // after reading BLOB. Asking Paimon to project those children would change its schema.
+        // FILE children are constructed by the JNI adapter after reading BLOB.
+        // Keep the logical Paimon BLOB type intact for the SDK reader.
         if (tableType instanceof BlobType) {
             return tableType;
         }

@@ -19,22 +19,19 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.FileValue;
 
-import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Blob;
 import org.apache.paimon.data.BlobDescriptor;
 import org.apache.paimon.data.BlobRef;
 import org.apache.paimon.data.DataGetters;
-import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
-import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataType;
-import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -56,15 +53,6 @@ public class PaimonColumnValue implements ColumnValue {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
     static final long DEFAULT_BLOB_MAX_SIZE = 10L * 1024 * 1024;
     private static final Map<String, String> DORIS_TIME_ZONE_ALIASES;
-    // JNI transports Doris FILE as a six-child STRUCT. This is only the adapter's
-    // child schema; the Paimon reader must continue to read the logical BLOB type.
-    private static final RowType FILE_ROW_TYPE = DataTypes.ROW(
-            DataTypes.FIELD(0, "uri", DataTypes.STRING()),
-            DataTypes.FIELD(1, "offset", DataTypes.BIGINT()),
-            DataTypes.FIELD(2, "size", DataTypes.BIGINT()),
-            DataTypes.FIELD(3, "content_type", DataTypes.STRING()),
-            DataTypes.FIELD(4, "checksum", DataTypes.STRING()),
-            DataTypes.FIELD(5, "inline", DataTypes.BYTES()));
 
     static {
         Map<String, String> aliases = new HashMap<>(ZoneId.SHORT_IDS);
@@ -88,7 +76,6 @@ public class PaimonColumnValue implements ColumnValue {
     private Variant materializedVariant;
     private boolean blobAsDescriptor;
     private long blobMaxSize = DEFAULT_BLOB_MAX_SIZE;
-    private GenericRow materializedBlob;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -120,7 +107,6 @@ public class PaimonColumnValue implements ColumnValue {
             ColumnType dorisType,
             DataType dataType,
             PaimonVariantProjection variantProjection) {
-        clearMaterializedBlob();
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
@@ -129,7 +115,6 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setOffsetRow(InternalRow record) {
-        clearMaterializedBlob();
         this.record = record;
         this.materializedVariant = null;
     }
@@ -309,16 +294,9 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-        RowType rowType;
-        InternalRow row;
-        if (dataType instanceof BlobType) {
-            rowType = FILE_ROW_TYPE;
-            row = getBlobFileRow();
-        } else {
-            rowType = (RowType) dataType;
-            // Projection entries are original child indexes, so keep the full RowType arity.
-            row = record.getRow(idx, rowType.getFieldCount());
-        }
+        RowType rowType = (RowType) dataType;
+        // Projection entries are original child indexes, so keep the full RowType arity.
+        InternalRow row = record.getRow(idx, rowType.getFieldCount());
         if (structValues == null) {
             structValues = new ArrayList<>();
         }
@@ -328,22 +306,16 @@ public class PaimonColumnValue implements ColumnValue {
         }
     }
 
-    private InternalRow getBlobFileRow() {
-        if (materializedBlob == null) {
-            materializedBlob = new GenericRow(FILE_ROW_TYPE.getFieldCount());
-        }
+    @Override
+    public FileValue getFile() {
         Blob blob = record.getBlob(idx);
         if (blobAsDescriptor) {
-            // Use the SDK's typed descriptor API. Payload bytes are never inspected to guess
-            // whether they contain a descriptor, and this path does not read the payload.
+            // Use the SDK's typed descriptor API without reading the payload.
             BlobDescriptor descriptor = blob.toDescriptor();
-            materializedBlob.setField(0, BinaryString.fromString(descriptor.uri()));
-            materializedBlob.setField(1, descriptor.offset());
-            materializedBlob.setField(2, descriptor.length() < 0 ? null : descriptor.length());
-        } else {
-            materializedBlob.setField(5, readBlobPayload(blob));
+            return new FileValue(descriptor.uri(), descriptor.offset(),
+                    descriptor.length() < 0 ? null : descriptor.length(), null, null, null);
         }
-        return materializedBlob;
+        return new FileValue(null, null, null, null, null, readBlobPayload(blob));
     }
 
     private byte[] readBlobPayload(Blob blob) {
@@ -365,16 +337,6 @@ public class PaimonColumnValue implements ColumnValue {
                     + "' inline size " + size + " bytes exceeds paimon_blob_max_size=" + blobMaxSize
                     + " bytes. Increase paimon_blob_max_size "
                     + "or use blob-as-descriptor=true");
-        }
-    }
-
-    private void clearMaterializedBlob() {
-        if (materializedBlob != null) {
-            // VectorColumn consumes children synchronously. Drop the prior payload as soon as
-            // this wrapper advances, rather than retaining a large byte array across columns.
-            for (int i = 0; i < FILE_ROW_TYPE.getFieldCount(); i++) {
-                materializedBlob.setField(i, null);
-            }
         }
     }
 
@@ -400,7 +362,6 @@ public class PaimonColumnValue implements ColumnValue {
 
     private void reset(
             DataGetters record, int idx, ColumnType dorisType, DataType dataType, ZoneId timeZone) {
-        clearMaterializedBlob();
         this.record = record;
         this.idx = idx;
         this.dorisType = dorisType;
@@ -426,6 +387,5 @@ public class PaimonColumnValue implements ColumnValue {
         mapKeys = null;
         mapValues = null;
         structValues = null;
-        materializedBlob = null;
     }
 }

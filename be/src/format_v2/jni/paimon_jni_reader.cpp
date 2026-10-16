@@ -88,7 +88,6 @@ std::string PaimonJniReader::connector_class() const {
 Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
-    DORIS_CHECK(_runtime_state != nullptr);
     params->clear();
 
     const auto& paimon_params = _current_range.table_format_params.paimon_params;
@@ -103,8 +102,9 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
                             !_scan_params->serialized_table_cache_key.empty()
                     ? _scan_params->serialized_table_cache_key
                     : generate_uuid_string();
-    (*params)["paimon_blob_max_size"] =
-            std::to_string(_runtime_state->query_options().paimon_blob_max_size);
+    (*params)["paimon_blob_max_size"] = std::to_string(
+            _runtime_state != nullptr ? _runtime_state->query_options().paimon_blob_max_size
+                                      : TQueryOptions().paimon_blob_max_size);
 
     if (_scan_params->__isset.paimon_options && !_scan_params->paimon_options.empty()) {
         for (const auto& kv : _scan_params->paimon_options) {
@@ -123,6 +123,7 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     auto enable_io_manager_it = params->find(enable_io_manager_key);
     if (enable_io_manager_it != params->end() && iequal(enable_io_manager_it->second, "true") &&
         params->find(io_manager_tmp_dir_key) == params->end()) {
+        DORIS_CHECK(_runtime_state != nullptr);
         // Keep Format V2 consistent with the legacy JNI path. Paimon creates and
         // removes its own paimon-* child directory under these Doris storage-root scoped
         // parent directories.
