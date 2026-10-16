@@ -105,9 +105,8 @@ private:
     std::unordered_map<std::string, NativeFieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
-    // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
-    bool _enable_mapping_varbinary = false;
     bool _enable_mapping_timestamp_tz = false;
+    bool _enable_mapping_varbinary = false; // Only overrides the UUID logical annotation.
     bool _preserve_binary_uuid = false;
 
 private:
@@ -189,6 +188,7 @@ public:
     void assign_ids();
 
     const NativeFieldSchema* find_column_by_id(uint64_t column_id) const;
+    // Ordinary binary leaves ignore this option; UUID retains its explicit binary override.
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
     void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
     void set_preserve_binary_uuid(bool preserve) { _preserve_binary_uuid = preserve; }

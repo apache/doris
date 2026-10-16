@@ -62,6 +62,31 @@ TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
     }
 }
 
+TEST(ParquetSchemaTest, BinaryMappingDoesNotDependOnLegacyFlag) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(3);
+    tparquet::SchemaElement binary;
+    binary.__set_name("bytes");
+    binary.__set_type(tparquet::Type::BYTE_ARRAY);
+    binary.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    auto text = binary;
+    text.__set_name("text");
+    text.__set_converted_type(tparquet::ConvertedType::UTF8);
+    auto fixed = binary;
+    fixed.__set_name("fixed");
+    fixed.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    fixed.__set_type_length(4);
+    for (bool flag : {false, true}) {
+        NativeFieldDescriptor descriptor;
+        descriptor.set_enable_mapping_varbinary(flag);
+        ASSERT_TRUE(descriptor.parse_from_thrift({root, binary, text, fixed}).ok());
+        EXPECT_EQ(descriptor.get_column(0)->data_type->get_primitive_type(), TYPE_VARBINARY);
+        EXPECT_EQ(descriptor.get_column(1)->data_type->get_primitive_type(), TYPE_STRING);
+        EXPECT_EQ(descriptor.get_column(2)->data_type->get_primitive_type(), TYPE_VARBINARY);
+    }
+}
+
 namespace {
 
 std::vector<tparquet::SchemaElement> unshredded_variant_schema(
@@ -814,7 +839,7 @@ TEST(ParquetSchemaTest, NativeUnknownLogicalTypeRetainsPhysicalFallback) {
     ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
     ASSERT_EQ(fields.size(), 1);
     EXPECT_TRUE(fields[0]->type_descriptor.unsupported_reason.empty());
-    EXPECT_EQ(fields[0]->type_descriptor.doris_type->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(fields[0]->type_descriptor.doris_type->get_primitive_type(), TYPE_VARBINARY);
 }
 
 TEST(ParquetSchemaTest, NativeGroupPrimitiveLogicalTypesAreRejected) {
@@ -1452,7 +1477,7 @@ TEST(ParquetSchemaTest, NativeListPreservesLegacyMapKeyValueElement) {
     EXPECT_EQ(remove_nullable(column->children[0].children[0].data_type)->get_primitive_type(),
               TYPE_INT);
     EXPECT_EQ(remove_nullable(column->children[0].children[1].data_type)->get_primitive_type(),
-              TYPE_STRING);
+              TYPE_VARBINARY);
 }
 
 } // namespace doris::format::parquet

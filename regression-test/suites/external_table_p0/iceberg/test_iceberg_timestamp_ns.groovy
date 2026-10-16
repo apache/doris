@@ -117,6 +117,11 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                     PROPERTIES ("format-version"="3", "write.format.default"="${format}")"""
                 sql "INSERT INTO ${partitionTable} SELECT id, ts FROM ${table}"
                 "qt_${format}_${transform}" "SELECT * FROM ${partitionTable} ORDER BY id"
+                // A rounded DATETIMEV2 comparison must not become exact nanos partition pruning.
+                for (String predicate : ["CAST(ts AS DATETIMEV2(6)) = '2024-01-02 03:04:05.123457'",
+                        "CAST(ts AS DATETIMEV2(6)) IN ('2024-01-02 03:04:05.123457')"]) {
+                    assertEquals([[1], [2]], sql("SELECT id FROM ${partitionTable} WHERE ${predicate} ORDER BY id"))
+                }
                 sql "INSERT OVERWRITE TABLE ${partitionTable} SELECT id, ts FROM ${table} WHERE id=2"
                 "qt_${format}_${transform}_overwrite" "SELECT * FROM ${partitionTable} ORDER BY id"
                 if (transform == "identity") {
@@ -129,6 +134,13 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                     sql """INSERT OVERWRITE TABLE ${partitionTable}
                         PARTITION(ts='2024-01-01 00:00:00+08:00') SELECT 10"""
                     "qt_${format}_identity_static_offset" "SELECT * FROM ${partitionTable} ORDER BY id"
+                    // Static partition metadata must parse the same compact forms as the sink.
+                    sql "INSERT OVERWRITE TABLE ${partitionTable} PARTITION(ts='20240102') SELECT 11"
+                    assertEquals([["2024-01-02 00:00:00.000000000"]],
+                        sql("SELECT CAST(ts AS STRING) FROM ${partitionTable} WHERE id=11"))
+                    sql "INSERT OVERWRITE TABLE ${partitionTable} PARTITION(ts='20240102030405') SELECT 12"
+                    assertEquals([["2024-01-02 03:04:05.000000000"]],
+                        sql("SELECT CAST(ts AS STRING) FROM ${partitionTable} WHERE id=12"))
                     sql "SET time_zone='Asia/Shanghai'"
                 }
             }

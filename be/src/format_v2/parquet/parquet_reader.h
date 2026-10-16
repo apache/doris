@@ -104,7 +104,8 @@ private:
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // global RowId context
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
-    bool _enable_mapping_varbinary = false;    // whether raw BYTE_ARRAY is mapped to VARBINARY
+    bool _enable_mapping_varbinary =
+            false; // UUID override only; ordinary V2 binary mapping is unconditional.
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;

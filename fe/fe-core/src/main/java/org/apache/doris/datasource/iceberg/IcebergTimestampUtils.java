@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -27,13 +28,9 @@ import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAccessor;
-import java.time.temporal.TemporalQueries;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -44,18 +41,8 @@ public final class IcebergTimestampUtils {
     }
 
     public static long parseNanos(String value, ZoneId zone) {
-        LocalDateTime timestamp;
-        if (value.length() == 10) {
-            timestamp = LocalDate.parse(value).atStartOfDay();
-        } else {
-            TemporalAccessor parsed = DateTimeFormatter.ISO_DATE_TIME.parse(value.replace(' ', 'T'));
-            timestamp = LocalDateTime.from(parsed);
-            ZoneOffset offset = parsed.query(TemporalQueries.offset());
-            if (offset != null) {
-                // Static partition filters must match the sink's session-local civil-time cast.
-                timestamp = LocalDateTime.ofInstant(timestamp.toInstant(offset), zone);
-            }
-        }
+        // Static partitions must accept and round exactly the same literals as the sink cast.
+        LocalDateTime timestamp = TimeStampNsLiteral.parseDateTime(value, zone);
         // Widen before combining: the minimum timestamp's whole second overflows long nanos.
         return BigDecimal.valueOf(timestamp.toEpochSecond(ZoneOffset.UTC))
                 .multiply(BigDecimal.valueOf(1_000_000_000L))

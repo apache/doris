@@ -203,7 +203,7 @@ true	6	7	8	60	6.2	val_6	val_6	DIAMONDS	\N	\N	\N	\N	\N	\N	\N	\N	\N	["arr_6", "arr
 true	8	9	10	80	8.199999999999999	val_8	val_8	SPADES	true	8	9	10	80	8.199999999999999	val_8	val_8	SPADES	["arr_8", "arr_9", "arr_10"]	[8]	{8:"val_8", 9:"val_9", 10:"val_10"}	{8:[{"nestedintscolumn":[8, 9, 10], "nestedstringcolumn":"val_8"}, {"nestedintscolumn":[9, 10, 11], "nestedstringcolumn":"val_9"}, {"nestedintscolumn":[10, 11, 12], "nestedstringcolumn":"val_10"}], 9:[{"nestedintscolumn":[8, 9, 10], "nestedstringcolumn":"val_8"}, {"nestedintscolumn":[9, 10, 11], "nestedstringcolumn":"val_9"}, {"nestedintscolumn":[10, 11, 12], "nestedstringcolumn":"val_10"}], 10:[{"nestedintscolumn":[8, 9, 10], "nestedstringcolumn":"val_8"}, {"nestedintscolumn":[9, 10, 11], "nestedstringcolumn":"val_9"}, {"nestedintscolumn":[10, 11, 12], "nestedstringcolumn":"val_10"}]}
 
 -- !test_25 --
-{"duration":"111222333444"}
+{"duration":0x313131323232333333343434}
 
 -- !test_26 --
 1001-01-07 17:07:46.123+08:05:43	1001-01-07 17:07:46.123+08:05:43

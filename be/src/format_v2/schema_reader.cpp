@@ -53,9 +53,9 @@ Status fetch_file_schema(const TFileScanRangeParams& params, const TFileRangeDes
         reader = std::make_unique<parquet::ParquetReader>(properties, file, io_ctx, profile,
                                                           std::nullopt, timestamp_tz, varbinary);
     } else if (params.format_type == TFileFormatType::FORMAT_ORC) {
-        // ORC binary mapping is fixed by its schema reader, without a separate mapping option.
+        // Preserve the UUID override while ordinary ORC BINARY always maps to VARBINARY.
         reader = std::make_unique<orc::OrcReader>(properties, file, io_ctx, profile, std::nullopt,
-                                                  timestamp_tz);
+                                                  timestamp_tz, varbinary);
     } else {
         return Status::NotSupported("V2 schema inference requires Parquet or ORC");
     }
