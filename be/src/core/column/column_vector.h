@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 #include <sys/types.h>
 
@@ -54,7 +55,7 @@
 class SipHash;
 
 namespace doris {
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 struct ProcessHashTableProbe;
 }
 
@@ -77,7 +78,7 @@ private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
 
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct doris::ProcessHashTableProbe;
 
     struct less;

@@ -99,11 +99,12 @@ ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
 
     FunctionUtils function_utils(result_type, {input_type}, false);
     FunctionContext* context = function_utils.get_fn_ctx();
-    DORIS_CHECK(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    DORIS_CHECK(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    DORIS_CHECK(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    DORIS_CHECK(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     Status status = function->execute(context, block, {0}, 1, rows);
-    static_cast<void>(function->close(context, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(function->close(context, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(
+            function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     return {.status = std::move(status),
             .output = block.get_by_position(1).column,
             .return_type = function->get_return_type()};

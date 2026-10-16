@@ -56,15 +56,15 @@ static std::vector<std::string> run_array_cum_sum(const std::vector<TestArray>& 
     FunctionUtils fn_utils(result_type, {array_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols({nullptr});
-    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, result_type, "result"});
     auto result_idx = block.columns() - 1;
     auto st = func->execute(fn_ctx, block, {0}, result_idx, row_size);
     EXPECT_TRUE(st.ok()) << st;
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     if (!st.ok()) {
         return results;
     }
