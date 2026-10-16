@@ -113,6 +113,11 @@ public class BackendServiceClient {
         return stub.outfileWriteSuccess(request);
     }
 
+    public Future<InternalService.PLanceIndexPrewarmResponse> prewarmLanceIndexAsync(
+            InternalService.PLanceIndexPrewarmRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).prewarmLanceIndex(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);

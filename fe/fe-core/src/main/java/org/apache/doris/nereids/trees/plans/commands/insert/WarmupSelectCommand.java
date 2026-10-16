@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.lance.LanceIndexPrewarm;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordInterface;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
@@ -36,6 +40,7 @@ import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -64,12 +69,22 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
             .addColumn(new Column("BytesWriteIntoCache", ScalarType.createType(PrimitiveType.BIGINT)))
             .build();
 
+    private final TableNameInfo indexTable;
+    private final List<String> indexColumns;
+
     /**
      * WarmupSelectCommand constructor
      */
     public WarmupSelectCommand(LogicalPlan logicalQuery) {
+        this(logicalQuery, null, ImmutableList.of());
+    }
+
+    /** An empty column list selects every logical index in the pinned snapshot. */
+    public WarmupSelectCommand(LogicalPlan logicalQuery, TableNameInfo indexTable, List<String> indexColumns) {
         super(PlanType.INSERT_INTO_BLACKHOLE_COMMAND, logicalQuery, Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty());
+        this.indexTable = indexTable;
+        this.indexColumns = ImmutableList.copyOf(indexColumns);
         super.setInsertExecutorListener(new InsertExecutorListener() {
             @Override
             public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
@@ -217,9 +232,25 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
     }
 
     @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (indexTable != null) {
+            LanceIndexPrewarm.run(ctx, executor, indexTable, indexColumns,
+                    () -> executor.isCancelled() || ctx.isKilled());
+        } else {
+            super.run(ctx, executor);
+        }
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Index prewarm is read-only and must retain this session's execution context on any FE.
+        return indexTable == null ? super.toRedirectStatus() : RedirectStatus.NO_FORWARD;
+    }
+
+    @Override
     public ShowResultSetMetaData getResultSetMetaData() {
-        // Unlike ordinary INSERT, warmup returns per-backend statistics rather than OK.
-        return metaData;
+        // Binary PREPARE must advertise the schema of the selected execution mode.
+        return indexTable == null ? metaData : LanceIndexPrewarm.getResultSetMetaData();
     }
 
     /**

@@ -42,6 +42,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -79,6 +80,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#include "format_v2/lance/lance_session_manager.h"
 #include "format_v2/table/lance_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
@@ -230,6 +232,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // The synchronous SDK cannot be interrupted. Keep abandoned prewarm IO off the
+          // shared RPC workers, with at most one running and one queued request per service.
+          _lance_index_prewarm_pool(1, 1, "lance_prewarm"),
           // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
           _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
                            resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
@@ -808,6 +813,60 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
         return;
+    }
+}
+
+void PInternalService::prewarm_lance_index(google::protobuf::RpcController* controller,
+                                           const PLanceIndexPrewarmRequest* request,
+                                           PLanceIndexPrewarmResponse* response,
+                                           google::protobuf::Closure* done) {
+    const auto received = std::chrono::steady_clock::now();
+    bool offered = _lance_index_prewarm_pool.try_offer([request, response, done, received]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status status;
+        try {
+            auto run = [&]() -> Status {
+                DBUG_EXECUTE_IF("PInternalService.prewarm_lance_index.fail", {
+                    return Status::InternalError("Injected Lance index prewarm failure");
+                });
+                const auto queued_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - received)
+                                               .count();
+                if (!request->has_timeout_ms() || request->timeout_ms() <= queued_ms) {
+                    return Status::TimedOut("Lance index prewarm expired before execution");
+                }
+                // C strings cannot represent embedded NUL bytes; reject rather than silently
+                // opening a different path/index or truncating a vended credential.
+                if (request->dataset_uri().find('\0') != std::string::npos ||
+                    request->index_name().find('\0') != std::string::npos) {
+                    return Status::InvalidArgument("Invalid Lance prewarm URI or index name");
+                }
+                std::vector<const char*> options;
+                options.reserve(request->storage_options_size() * 2 + 1);
+                for (const auto& [key, value] : request->storage_options()) {
+                    if (key.find('\0') != std::string::npos ||
+                        value.find('\0') != std::string::npos) {
+                        return Status::InvalidArgument("Invalid Lance prewarm storage option");
+                    }
+                    options.push_back(key.c_str());
+                    options.push_back(value.c_str());
+                }
+                options.push_back(nullptr);
+                RETURN_IF_ERROR(format::lance::LanceSessionManager::instance().prewarm_index(
+                        request->dataset_uri().c_str(), options.data(), request->dataset_version(),
+                        request->index_name().c_str()));
+                response->set_dataset_version(request->dataset_version());
+                return Status::OK();
+            };
+            status = run();
+        } catch (const std::exception&) {
+            // Provider exception messages may contain the storage credentials in the request.
+            status = Status::InternalError("Lance index prewarm failed on this backend");
+        }
+        status.to_protobuf(response->mutable_status());
+    });
+    if (!offered) {
+        offer_failed(response, done, _lance_index_prewarm_pool);
     }
 }
 

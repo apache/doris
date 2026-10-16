@@ -215,6 +215,12 @@ Status LanceSessionManager::_initialize() {
 
 Status LanceSessionManager::open_dataset(const char* uri, const char* const* storage_options,
                                          uint64_t version, LanceDataset** dataset) {
+    return _open_dataset(uri, storage_options, version, dataset, false);
+}
+
+Status LanceSessionManager::_open_dataset(const char* uri, const char* const* storage_options,
+                                          uint64_t version, LanceDataset** dataset,
+                                          bool redact_errors) {
     if (uri == nullptr || dataset == nullptr) {
         return Status::InvalidArgument("Lance dataset URI and output must not be null");
     }
@@ -231,7 +237,44 @@ Status LanceSessionManager::open_dataset(const char* uri, const char* const* sto
 
     *dataset = lance_dataset_open_with_session(uri, storage_options, version, _session);
     if (*dataset == nullptr) {
+        // Constructing an SDK error Status can itself log the provider message. Redact before
+        // that construction, not only when returning the prewarm RPC response.
+        if (redact_errors) {
+            return Status::InternalError(
+                    "Unable to open the pinned Lance snapshot for index prewarm");
+        }
         return lance_error("open Lance dataset with shared session");
+    }
+    return Status::OK();
+}
+
+Status LanceSessionManager::prewarm_index(const char* uri, const char* const* storage_options,
+                                          uint64_t version, const char* index_name) {
+    if (uri == nullptr || *uri == '\0' || version == 0 || index_name == nullptr ||
+        *index_name == '\0') {
+        return Status::InvalidArgument(
+                "Lance index prewarm requires URI, index name and a fixed version");
+    }
+    // Bound concurrent SDK prewarm IO per BE without blocking all RPC workers behind a mutex.
+    // A failed or timed-out caller may retry after the existing SDK operation finishes.
+    std::unique_lock lock(_prewarm_mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return Status::Cancelled("Another Lance index prewarm is running on this backend");
+    }
+    LanceDataset* raw_dataset = nullptr;
+    auto status = _open_dataset(uri, storage_options, version, &raw_dataset, true);
+    std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(raw_dataset,
+                                                                          lance_dataset_close);
+    if (!status.ok()) {
+        // SDK storage errors can include credentials or signed URLs. Return operation context only.
+        return Status::InternalError("Unable to open the pinned Lance snapshot for index prewarm");
+    }
+    if (lance_dataset_version(dataset.get()) != version) {
+        return Status::InternalError("Lance index prewarm opened an unexpected snapshot");
+    }
+    if (lance_dataset_prewarm_index(dataset.get(), index_name) != 0) {
+        return Status::InternalError(
+                "Lance index prewarm failed: index unavailable, unsupported, or storage IO failed");
     }
     return Status::OK();
 }
