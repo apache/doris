@@ -93,6 +93,7 @@ import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -699,9 +700,10 @@ public class NereidsPlanner extends Planner {
      * Attach the hbo fingerprint and the simplified struct info to the mutable state of a plan node,
      * so that {@link #appendHboFingerprintAnnotations()} can print the injectable hbo entries of the
      * plan (the node {@code toString()} itself stays free of hbo text).
-     * <p>For join / aggregation / filter nodes only: a filter that sits above an olap scan
-     * (filter-on-scan) carries the fingerprint of the scan group, which is the read-side lookup
-     * key constraining the filter output row count.
+     * <p>For join / aggregation / filter nodes only. A filter that sits above an olap scan
+     * (filter-on-scan) carries the key of its own group ({@code F{...}(S{...})}), which is the key the
+     * read side looks up for that filter node; the scan group's own {@code S{...}} key is what the
+     * learned lookup of the scan uses and is not printed by this annotation.
      */
     private void attachHboExplainInfoToTree(Plan plan, Map<Integer, Group> groupsById) {
         ConnectContext connectContext = ConnectContext.get();
@@ -731,7 +733,7 @@ public class NereidsPlanner extends Planner {
                 ? GroupStructInfo.LiteralMode.WITH_LITERAL
                 : GroupStructInfo.LiteralMode.NO_LITERAL;
         // the struct info of a group is built once per query, so the data state printed here is the
-        // same one the read side judged its entries against (see Group#getOrComputeHboStructParts)
+        // same one the read side judged its entries against (see Group#the struct info of the group)
         Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById);
         GroupStructInfo.LiteralMode noLiteralMode = GroupStructInfo.LiteralMode.NO_LITERAL;
         if (isJoinOrAgg && node instanceof AbstractPhysicalJoin) {
@@ -750,7 +752,7 @@ public class NereidsPlanner extends Planner {
                         structInfo.get().getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL));
             }
             node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonical(primaryMode));
-            // the constant agnostic form is materialized by the rope as well: folding the literal
+            // the constant agnostic form is rendered from the description as well: folding the literal
             // carrying form as text would mis-handle a literal whose value contains a parenthesis,
             // and the printed struct= must hash to the fingerprint next to it
             if (isFilter) {
@@ -1438,12 +1440,15 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * Quote a canonical struct info the way {@code HBO SET STATISTICS} expects it: delimited by
-     * single quotes, with an apostrophe doubled and a backslash escaped, exactly what
-     * {@code SqlLiteralUtils.parseStringLiteral} decodes again.
+     * Quote a canonical struct info the way {@code HBO SET STATISTICS} expects it: delimited by single
+     * quotes, with an apostrophe doubled, and with a backslash escaped only when the session treats a
+     * backslash as an escape character - {@code SqlLiteralUtils.parseStringLiteral} decodes the text with
+     * the session's own rules, so escaping it under {@code NO_BACKSLASH_ESCAPES} would add a backslash.
      */
     private static String quoteCanonical(String canonical) {
-        return "'" + canonical.replace("\\", "\\\\").replace("'", "''") + "'";
+        boolean backslashIsAnEscape = !SqlModeHelper.hasNoBackSlashEscapes();
+        String quoted = backslashIsAnEscape ? canonical.replace("\\", "\\\\") : canonical;
+        return "'" + quoted.replace("'", "''") + "'";
     }
 
     /**

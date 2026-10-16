@@ -356,7 +356,9 @@ public class HboPlanStatisticsManager {
      * @param condCanonical the canonical equality-condition set the factor was measured for
      */
     public void putPinnedExpansionStatistics(String fingerprint, double expansion, String condCanonical) {
-        // a condition key never carries a literal by itself: it is the constant agnostic form
+        // a condition key carries its literals in both modes (a residual decides how many partner rows a
+        // row finds), and HBO SET STATISTICS stores the pasted text verbatim for such an entry, so the
+        // mode recorded here is the label of the line EXPLAIN prints rather than a folding instruction
         putPinnedStatistics(fingerprint, 0, PinnedType.JOIN_EXPANSION, condCanonical, expansion,
                 LiteralMode.NO_LITERAL);
     }

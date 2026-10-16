@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -54,8 +57,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -122,8 +127,11 @@ import java.util.Set;
  *
  * <p>The prefix of every key is frozen as well: the existing {@code hbo_persist_internal_db_test}
  * hardcodes one canonical string end to end, and this corpus complements it instead of replacing it
- * (that suite pins what is stored in the internal table, this one pins every shape the traversal
- * can render).
+ * (that suite pins what is stored in the internal table, this one pins every shape the traversal can
+ * render from a hand-built memo - the storage layer aggregate below a scan is the one rendering this
+ * suite cannot build, because the memo refuses a physical plan, so its form
+ * ({@code A{sl,op=X}(S{...})}) is asserted by the rendering code and its callers rather than by a case
+ * here).
  *
  * <p><b>The CLUSTER section.</b> {@code hbo-struct-info-golden-cluster.txt} is <b>captured data</b>,
  * not generated: it holds the annotation lines a live FE printed for the shapes in the task
@@ -138,12 +146,11 @@ import java.util.Set;
  * <p><b>Generating this file.</b>
  * <pre>
  *   cd fe
- *   MAVEN_OPTS="-Dmaven.repo.local=$PWD/../.dsh-m2/repository" \
- *     mvn -o -pl fe-core -am test -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false \
+ *   mvn -o -pl fe-core -am test -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false \
  *     -Dskip.doc=true -Dhbo.golden.dump=true
+ *   # add -Dmaven.repo.local=PATH when the environment resolves offline from a local repository
  *   # and then, to prove the corpus asserts clean:
- *   MAVEN_OPTS="-Dmaven.repo.local=$PWD/../.dsh-m2/repository" \
- *     mvn -o -pl fe-core -am test -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false \
+ *   mvn -o -pl fe-core -am test -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false \
  *     -Dskip.doc=true
  * </pre>
  * The dump rewrites {@code hbo-struct-info-golden.txt} only; the cluster file is never written by a
@@ -195,11 +202,47 @@ public class GroupStructInfoGoldenTest {
         String generated = goldenFileContent();
         if (Boolean.getBoolean(DUMP_PROPERTY)) {
             Path file = RESOURCE_DIR.resolve(GOLDEN_FILE_NAME);
+            // the regenerating run cannot assert (it is the run which defines the expectation), so it
+            // reports what moved instead: a blessed behaviour change has to be visible in the output of
+            // the very command which blessed it, not only in a diff somebody may not read
+            List<String> before = Files.exists(file) ? readResourceLines(GOLDEN_FILE_NAME) : ImmutableList.of();
+            reportWhatMoved(before, ImmutableList.copyOf(generated.split("\n", -1)));
             Files.write(file, (generated + "\n").getBytes(StandardCharsets.UTF_8));
-            System.out.println("[hbo-golden] wrote " + file.toAbsolutePath());
+            System.out.println("[hbo-golden] wrote " + file.toAbsolutePath()
+                    + " - this run asserted nothing; review the resource diff");
             return;
         }
         assertSameLines(readResourceLines(GOLDEN_FILE_NAME), generated);
+    }
+
+    @Test
+    void testLiteralsWhichDecideRowsStayInTheConstantAgnosticKey() {
+        // a filter: two conjuncts which fold to one text are two predicates, not one, so the conjunction
+        // and one of its conjuncts must not share a key (a pinned count may not cross between them)
+        GroupStructInfo two = built("filter_two_conjuncts_which_fold_alike");
+        GroupStructInfo one = built("filter_one_of_those_conjuncts");
+        Assertions.assertNotEquals(one.getFingerprint(NO_LITERAL), two.getFingerprint(NO_LITERAL),
+                "a conjunction and one of its conjuncts share a constant agnostic key");
+        Assertions.assertTrue(two.getCanonical(NO_LITERAL).contains(";"),
+                "the second conjunct was folded away: " + two.getCanonical(NO_LITERAL));
+        // a top-n and a window whose definition carries a literal decide which rows (and which values)
+        // reach the node above, so the literal is part of the identity: the two variants differ in both
+        // modes and the fold of the literal carrying text is the constant agnostic text
+        String[][] pairs = {
+                {"topn_with_a_literal_in_the_ordering_key", "topn_with_another_literal_in_the_ordering_key"},
+                {"window_with_a_literal_in_the_ordering_key", "window_with_another_literal_in_the_ordering_key"},
+        };
+        for (String[] pair : pairs) {
+            GroupStructInfo left = built(pair[0]);
+            GroupStructInfo right = built(pair[1]);
+            Assertions.assertNotEquals(left.getFingerprint(NO_LITERAL), right.getFingerprint(NO_LITERAL),
+                    pair[0] + " and " + pair[1] + " share a constant agnostic key");
+            for (GroupStructInfo info : ImmutableList.of(left, right)) {
+                Assertions.assertEquals(info.getCanonical(NO_LITERAL),
+                        GroupStructInfo.toNoLiteral(info.getCanonical(WITH_LITERAL)),
+                        "the fold of the literal carrying text is not the constant agnostic text");
+            }
+        }
     }
 
     @Test
@@ -330,6 +373,12 @@ public class GroupStructInfoGoldenTest {
     void testTheCapturedClusterCorpusKeepsItsInvariants() throws IOException {
         List<String> lines = readResourceLines(CLUSTER_FILE_NAME);
         String raw = String.join("\n", lines);
+        // the two reasons below are constructed by the traversal rather than declared as a constant, so
+        // the frozen text is tied to the formula the code uses: a renamed plan class or a changed prefix
+        // cannot pass unnoticed
+        Assertions.assertEquals("unsupported=" + LogicalPartitionTopN.class.getSimpleName(), PARTITION_TOPN_SKIP);
+        Assertions.assertEquals("arity=0 of " + LogicalCTEConsumer.class.getSimpleName(),
+                CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
         Set<String> knownSkips = ImmutableSet.of(STORAGE_LAYER_SKIP, PARTIAL_STAGE_SKIP, PARTITION_TOPN_SKIP,
                 CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
         List<String> skips = new ArrayList<>();
@@ -337,17 +386,20 @@ public class GroupStructInfoGoldenTest {
         ClusterNode node = null;
         int cases = 0;
         int recorded = 0;
+        Map<String, ClusterNode> nodes = new LinkedHashMap<>();
         for (String line : lines) {
             if (line.startsWith("# node ")) {
-                recorded += node == null ? 0 : node.check(caseName, raw);
-                node = new ClusterNode(line);
+                // the two literal modes of one node are printed under the same `# node` header, so a node
+                // is looked up by that header (within its case - two cases can describe the same plan
+                // shape): keying a fresh node per header is what used to leave every node with one mode
+                // and made the cross mode invariant below unreachable
+                node = nodes.computeIfAbsent(caseName + "|" + line, ClusterNode::new);
                 continue;
             }
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
             }
             if (line.startsWith("[CLUSTER ")) {
-                recorded += node == null ? 0 : node.check(caseName, raw);
                 node = null;
                 caseName = line.substring("[CLUSTER ".length(), line.length() - 1);
                 cases++;
@@ -360,17 +412,25 @@ public class GroupStructInfoGoldenTest {
                 String skip = line.substring("skip = ".length());
                 Assertions.assertTrue(knownSkips.contains(skip),
                         caseName + " records an unknown skip reason: " + skip);
-                Assertions.assertTrue(raw.contains(skip),
-                        caseName + " does not carry its skip reason as-is: " + skip);
+                Assertions.assertTrue(node != null && node.header.contains(" skipped"),
+                        caseName + " records a skip reason on a node which is not marked as skipped: " + skip);
                 skips.add(skip);
                 continue;
             }
             Assertions.assertNotNull(node, caseName + " records a struct before any node header: " + line);
             node.add(line, caseName);
         }
-        recorded += node == null ? 0 : node.check(caseName, raw);
+        int foldChecks = 0;
+        for (ClusterNode clusterNode : nodes.values()) {
+            recorded += clusterNode.check(caseName, raw);
+            foldChecks += clusterNode.getFoldChecks();
+        }
         Assertions.assertTrue(cases >= 15, "the cluster corpus holds only " + cases + " cases");
         Assertions.assertTrue(recorded >= 15, "the cluster corpus records only " + recorded + " entries");
+        // the pairs which print both modes: without a floor a future corpus could lose them all and the
+        // cross mode invariant would silently stop running again
+        Assertions.assertTrue(foldChecks >= 10,
+                "only " + foldChecks + " nodes of the cluster corpus were checked across both literal modes");
         for (String expected : knownSkips) {
             Assertions.assertTrue(skips.contains(expected),
                     "the cluster corpus does not record the skip reason: " + expected);
@@ -394,9 +454,15 @@ public class GroupStructInfoGoldenTest {
         private final String header;
         private final Map<String, String> structs = new LinkedHashMap<>();
         private final Map<String, String> fingerprints = new LinkedHashMap<>();
+        /** how often the cross mode invariant ran for this node (see the floor in the test) */
+        private int foldChecks;
 
         ClusterNode(String header) {
             this.header = header;
+        }
+
+        int getFoldChecks() {
+            return foldChecks;
         }
 
         void add(String line, String caseName) {
@@ -430,12 +496,21 @@ public class GroupStructInfoGoldenTest {
             String noLiteral = structs.get("no_literal");
             if (!joinExpansion) {
                 if (withLiteral != null && noLiteral != null) {
+                    foldChecks++;
                     Assertions.assertEquals(noLiteral, GroupStructInfo.toNoLiteral(withLiteral),
                             caseName + ": toNoLiteral did not fold the literal carrying struct into the"
                                     + " constant agnostic one recorded next to it");
-                    Assertions.assertEquals(GroupStructInfo.stripScanBaseline(withLiteral),
-                            GroupStructInfo.stripScanBaseline(noLiteral),
-                            caseName + ": the identity of the scans depends on the literal mode");
+                    // the literals of the two texts differ by design, so the invariant is about the scan
+                    // tokens: both modes describe the same scans, in the same order, with the same identity
+                    List<HboScanDescriptor> withLiteralScans = HboScanDescriptor.parseAll(withLiteral);
+                    List<HboScanDescriptor> noLiteralScans = HboScanDescriptor.parseAll(noLiteral);
+                    Assertions.assertEquals(withLiteralScans.size(), noLiteralScans.size(),
+                            caseName + ": the number of scan tokens depends on the literal mode");
+                    for (int i = 0; i < withLiteralScans.size(); i++) {
+                        Assertions.assertEquals(withLiteralScans.get(i).getShapeIdentity(),
+                                noLiteralScans.get(i).getShapeIdentity(),
+                                caseName + ": the identity of scan " + i + " depends on the literal mode");
+                    }
                 }
                 if (noLiteral != null) {
                     Assertions.assertEquals(noLiteral, GroupStructInfo.toNoLiteral(noLiteral),
@@ -487,7 +562,7 @@ public class GroupStructInfoGoldenTest {
         sb.append("# GroupStructInfoGoldenTest from the current implementation; regenerate it with:\n");
         sb.append("#\n");
         sb.append("#   cd fe\n");
-        sb.append("#   MAVEN_OPTS=\"-Dmaven.repo.local=$PWD/../.dsh-m2/repository\" mvn -o -pl fe-core -am test \\\n");
+        sb.append("#   mvn -o -pl fe-core -am test \\\n");
         sb.append("#     -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false -Dskip.doc=true \\\n");
         sb.append("#     -Dhbo.golden.dump=true\n");
         sb.append("#   # then run the same command without -Dhbo.golden.dump to prove the corpus asserts clean\n");
@@ -506,7 +581,7 @@ public class GroupStructInfoGoldenTest {
         sb.append("#\n");
         sb.append("# plan cases: ").append(planCases().size())
                 .append(", text cases: ").append(textCases().size())
-                .append(" (both sections are sorted by case name)").append('\n');
+                .append(" (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)").append('\n');
         sb.append('\n');
         sb.append(planSection());
         sb.append('\n');
@@ -653,6 +728,9 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::filterSlotEqualSlot));
         cases.add(new PlanCase("project_above_scan", "project over a scan (transparent)",
                 GroupStructInfoGoldenTest::projectAboveScan));
+        cases.add(new PlanCase("sort_above_a_filter",
+                "sort over a filter (transparent): the sort adds no rows and no identity of its own",
+                GroupStructInfoGoldenTest::sortAboveAFilter));
         cases.add(new PlanCase("join_inner_two_scans", "inner join of two scans with one equality condition",
                 GroupStructInfoGoldenTest::joinInnerTwoScans));
         cases.add(new PlanCase("join_inner_chain_three_left_deep",
@@ -667,7 +745,7 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("join_left_outer",
                 "left outer join of two scans (the join type and the memo order are kept)",
                 GroupStructInfoGoldenTest::joinLeftOuter));
-        cases.add(new PlanCase("limit", "limit 5 offset 0 over a scan (LimitPhase.ORIGIN)",
+        cases.add(new PlanCase("limit", "limit 5 offset 0 over a scan",
                 GroupStructInfoGoldenTest::limit));
         cases.add(new PlanCase("topn", "top-n of 3 rows ordered by one key, asc nulls first",
                 GroupStructInfoGoldenTest::topn));
@@ -698,6 +776,28 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("invalid_too_many_scans",
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
+        cases.add(new PlanCase("filter_one_of_those_conjuncts",
+                "a filter with one conjunct: the shape a two conjunct filter must not share a key with",
+                GroupStructInfoGoldenTest::filterOneOfThoseConjuncts));
+        cases.add(new PlanCase("filter_two_conjuncts_which_fold_alike",
+                "a filter with two conjuncts on one slot which fold to one text: both stay in the key",
+                GroupStructInfoGoldenTest::filterTwoConjunctsWhichFoldAlike));
+        cases.add(new PlanCase("topn_with_a_literal_in_the_ordering_key",
+                "top-n ordered by slot * 1: the factor decides which rows survive",
+                GroupStructInfoGoldenTest::topnWithOneInTheOrderingKey));
+        cases.add(new PlanCase("topn_with_another_literal_in_the_ordering_key",
+                "the same top-n ordered by slot * -1: a different constant agnostic key",
+                GroupStructInfoGoldenTest::topnWithMinusOneInTheOrderingKey));
+        cases.add(new PlanCase("window_with_two_order_keys_and_a_bounded_frame",
+                "window over two ordering keys with a bounded frame: the separator and the offsets are part"
+                        + " of the key",
+                GroupStructInfoGoldenTest::windowWithTwoOrderKeysAndABoundedFrame));
+        cases.add(new PlanCase("window_with_a_literal_in_the_ordering_key",
+                "window ordered by slot * 1 under a filter: the factor decides the values above it",
+                GroupStructInfoGoldenTest::windowWithOneInTheOrderingKey));
+        cases.add(new PlanCase("window_with_another_literal_in_the_ordering_key",
+                "the same window ordered by slot * -1: a different constant agnostic key",
+                GroupStructInfoGoldenTest::windowWithMinusOneInTheOrderingKey));
         cases.add(new PlanCase("filter_above_a_file_scan",
                 "empty filter over an external table scan: the token carries the qualified table and no"
                         + " data state",
@@ -750,6 +850,77 @@ public class GroupStructInfoGoldenTest {
                 t1, t2, null));
     }
 
+    private static GroupStructInfo filterOneOfThoseConjuncts() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference slot = (SlotReference) t1.getOutput().get(0);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(slot, new IntegerLiteral(1))), t1));
+    }
+
+    private static GroupStructInfo filterTwoConjunctsWhichFoldAlike() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference slot = (SlotReference) t1.getOutput().get(0);
+        // both conjuncts render as `EqualTo(col(...), lit(*))` in the constant agnostic mode and as two
+        // different texts with their literals: the plan keeps a different number of rows either way
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(slot, new IntegerLiteral(1)),
+                new EqualTo(slot, new IntegerLiteral(2))), t1));
+    }
+
+    private static GroupStructInfo topnWithOneInTheOrderingKey() {
+        return topnOrderedByFactor(1);
+    }
+
+    private static GroupStructInfo topnWithMinusOneInTheOrderingKey() {
+        return topnOrderedByFactor(-1);
+    }
+
+    private static GroupStructInfo topnOrderedByFactor(int factor) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference slot = (SlotReference) t1.getOutput().get(0);
+        return describe(new LogicalTopN<>(ImmutableList.of(
+                new OrderKey(new Multiply(slot, new IntegerLiteral(factor)), true, true)), 3, 0, t1));
+    }
+
+    private static GroupStructInfo windowWithTwoOrderKeysAndABoundedFrame() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        WindowFrame frame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(new IntegerLiteral(2)),
+                WindowFrame.FrameBoundary.newFollowingBoundary(new IntegerLiteral(1)));
+        WindowExpression window = new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of(
+                        new OrderExpression(new OrderKey(key, true, true)),
+                        new OrderExpression(new OrderKey(t1.getOutput().get(1), false, false))), frame);
+        Alias alias = new Alias(window, "rn");
+        LogicalWindow<LogicalOlapScan> logicalWindow = new LogicalWindow<>(ImmutableList.of(alias), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new GreaterThan(alias.toSlot(), new IntegerLiteral(1))), logicalWindow));
+    }
+
+    private static GroupStructInfo windowWithOneInTheOrderingKey() {
+        return windowOrderedByFactor(1);
+    }
+
+    private static GroupStructInfo windowWithMinusOneInTheOrderingKey() {
+        return windowOrderedByFactor(-1);
+    }
+
+    private static GroupStructInfo windowOrderedByFactor(int factor) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        WindowFrame frame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window = new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of(new OrderExpression(
+                        new OrderKey(new Multiply(key, new IntegerLiteral(factor)), true, true))), frame);
+        Alias alias = new Alias(window, "rn");
+        LogicalWindow<LogicalOlapScan> logicalWindow = new LogicalWindow<>(ImmutableList.of(alias), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new GreaterThan(alias.toSlot(), new IntegerLiteral(1))), logicalWindow));
+    }
+
     private static GroupStructInfo filterAboveAFileScan() {
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getName()).thenReturn("t");
@@ -769,6 +940,14 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(0, "t1");
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(t1.getOutput().get(0), t1.getOutput().get(1))), t1));
+    }
+
+    private static GroupStructInfo sortAboveAFilter() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(t1.getOutput().get(0), new IntegerLiteral(1))), t1);
+        return describe(new LogicalSort<>(ImmutableList.of(
+                new OrderKey(t1.getOutput().get(1), true, true)), filter));
     }
 
     private static GroupStructInfo projectAboveScan() {
@@ -1040,10 +1219,30 @@ public class GroupStructInfoGoldenTest {
         return Files.readAllLines(file, StandardCharsets.UTF_8);
     }
 
+    /** Print the lines a regeneration moved, so a blessed change is visible in the run which blessed it. */
+    private static void reportWhatMoved(List<String> before, List<String> after) {
+        int changed = 0;
+        int common = Math.min(before.size(), after.size());
+        for (int i = 0; i < common; i++) {
+            if (!before.get(i).equals(after.get(i))) {
+                changed++;
+                System.out.println("[hbo-golden] line " + (i + 1) + " moved:\n  old: " + before.get(i)
+                        + "\n  new: " + after.get(i));
+            }
+        }
+        if (before.size() != after.size()) {
+            changed += Math.abs(before.size() - after.size());
+            System.out.println("[hbo-golden] the file grew from " + before.size() + " to " + after.size()
+                    + " lines (the tail after line " + common + " moved)");
+        }
+        System.out.println("[hbo-golden] " + changed + " line(s) differ from the committed corpus");
+    }
+
     /**
      * Compare the committed corpus with the freshly generated one line by line, so that a mismatch
      * names the line which moved instead of dumping the whole file.
      */
+
     private static void assertSameLines(List<String> committed, String generated) {
         List<String> actual = ImmutableList.copyOf(generated.split("\n", -1));
         int common = Math.min(committed.size(), actual.size());

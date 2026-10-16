@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Config;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -329,5 +330,19 @@ public class HboStructFreshnessTest {
         } finally {
             Config.hbo_row_count_change_ratio = persist;
         }
+    }
+
+    @Test
+    void testARecordedRowCountOfZeroIsNotAMeasurement() {
+        // the publish path reads the operator profile node itself while the runtime counters live on its
+        // CustomCounters child, so a published entry records 0 there: the entry is not comparable and stays
+        // applicable, like every other entry whose data state cannot be read (and unlike a measurement of a
+        // table whose rows really moved)
+        Map<String, Long> recorded = new LinkedHashMap<>();
+        recorded.put("internal.db.t", 0L);
+        HboStructFreshness freshness = HboStructFreshness.ofLearnedRows(recorded,
+                ImmutableList.of(HboScanDescriptor.parse("internal.db.t,v3,r1000")));
+        Assertions.assertFalse(freshness.isStale(),
+                "an entry which records no measurement must not be reported stale: " + freshness.getSummary());
     }
 }

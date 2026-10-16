@@ -305,9 +305,13 @@ public class GroupStructInfo {
     }
 
     /**
-     * The row count and partition selection of every scan of the sub tree, in the order the scan
-     * tokens appear in the canonical string (i.e. the order a user sees when pasting the struct
-     * info). Empty when the struct info is invalid.
+     * The row count and partition selection of every scan of the sub tree, in the order the scan tokens
+     * appear in the canonical string (i.e. the order a user sees when pasting the struct info). A sub
+     * tree which the canonical string writes twice - a child which is referenced more than once - keeps
+     * its token in the text twice while its tables are read once, so its descriptors appear here once;
+     * a caller which compares this list with the tokens of a text has to expect that difference (the
+     * learned freshness comparison folds the tokens of a text per table for the same reason). Empty when
+     * the struct info is invalid.
      */
     public List<HboScanDescriptor> getScans() {
         return scans;
@@ -571,8 +575,10 @@ public class GroupStructInfo {
         try {
             root = buildNode(ge.getPlan(), ge, ctx);
         } catch (RuntimeException e) {
-            // memo content not supported by the simplified struct info: treat as invalid and
-            // fall back to legacy behavior instead of failing the optimizer on the hot path
+            // memo content which the simplified struct info cannot describe (an unexpected plan node, a
+            // cast of a named expression which is not the alias of a window expression): treat the group as
+            // invalid and fall back to the legacy behavior instead of failing the optimizer on the hot
+            // path. Rendering cannot throw for a description which was built: it only concatenates.
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
             return invalidStructInfo(ctx.reason);
         }
@@ -693,8 +699,10 @@ public class GroupStructInfo {
         // part of the identity of every node above it. A window is a boundary as well: it keeps every
         // row, but the values of the columns it computes depend on its definition, and a node above it
         // reads those values.
-        if ((plan instanceof Project || plan instanceof Sort || plan instanceof Window)
-                && !(plan instanceof TopN) && !(plan instanceof Window) && ge.arity() == 1) {
+        // a top-n is a sort but must not be flattened (it keeps a bounded number of rows, so it is a
+        // boundary of the chain), and a window is neither a project nor a sort, so it reaches the leaf
+        // branch below without a negation which a cleanup could drop
+        if ((plan instanceof Project || plan instanceof Sort) && !(plan instanceof TopN) && ge.arity() == 1) {
             ChainInfo child = chainInfoOf(ge.child(0));
             if (!child.valid) {
                 return child;
@@ -1293,18 +1301,18 @@ public class GroupStructInfo {
                 out.append(')');
                 return;
             case FILTER:
-                out.append("F{").append(conditions(node.conditions, mode)).append("}(");
+                out.append("F{").append(sortedConditions(node.conditions, mode)).append("}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
             case AGGREGATE:
-                out.append("A{gb:").append(conditions(node.conditions, mode)).append("}(");
+                out.append("A{gb:").append(sortedConditions(node.conditions, mode)).append("}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
             case JOIN:
                 out.append("J{").append(node.flattenable ? "inner" : String.valueOf(node.joinType))
-                        .append(",c:[").append(conditions(node.conditions, mode)).append("]}(");
+                        .append(",c:[").append(distinctConditions(node.conditions, mode)).append("]}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
@@ -1355,23 +1363,43 @@ public class GroupStructInfo {
     }
 
     /**
-     * The conditions of a node in one mode: each of them is rendered in that mode, and the rendered texts
-     * are sorted and de-duplicated. Every mode therefore has its own order and its own de-duplication,
-     * which is what the two string sets of the previous implementation did - the literal carrying form of
-     * two conditions can differ while their constant agnostic forms are the same text, and vice versa.
+     * The conditions of a filter or an aggregation in one mode: every condition is rendered in that mode
+     * and the rendered texts are sorted, but a text which occurs twice stays twice. Two conjuncts can fold
+     * to the same constant agnostic text ({@code a like '%x%' and a like '%y%'}), and they still describe
+     * two predicates whose plans keep a different number of rows: de-duplicating them would give the two
+     * plans one key, and a pinned count measured on one of them would be applied to the other.
      */
-    private static String conditions(List<Expression> conditions, LiteralMode mode) {
+    private static String sortedConditions(List<Expression> conditions, LiteralMode mode) {
+        List<String> rendered = new ArrayList<>(conditions.size());
+        for (Expression condition : conditions) {
+            rendered.add(renderExpression(condition, mode));
+        }
+        rendered.sort(String::compareTo);
+        return String.join(SEP, rendered);
+    }
+
+    /**
+     * The conditions of a join in one mode: rendered, sorted and de-duplicated. A flattened chain can
+     * contribute the same condition from several of its joins, and the two string sets of the previous
+     * implementation de-duplicated by the rendered text for that reason.
+     */
+    private static String distinctConditions(List<Expression> conditions, LiteralMode mode) {
         TreeSet<String> rendered = new TreeSet<>();
         for (Expression condition : conditions) {
-            StringBuilder sb = new StringBuilder();
-            if (mode == LiteralMode.NO_LITERAL) {
-                appendNormalizedExpression(condition, new StringBuilder(), sb);
-            } else {
-                appendNormalizedExpression(condition, sb, new StringBuilder());
-            }
-            rendered.add(sb.toString());
+            rendered.add(renderExpression(condition, mode));
         }
         return String.join(SEP, rendered);
+    }
+
+    /** One condition, rendered in one literal mode. */
+    private static String renderExpression(Expression expression, LiteralMode mode) {
+        StringBuilder sb = new StringBuilder();
+        if (mode == LiteralMode.NO_LITERAL) {
+            appendNormalizedExpression(expression, new StringBuilder(), sb);
+        } else {
+            appendNormalizedExpression(expression, sb, new StringBuilder());
+        }
+        return sb.toString();
     }
 
     private static void appendTopNHeader(StringBuilder out, Node node, LiteralMode mode) {
@@ -1382,7 +1410,10 @@ public class GroupStructInfo {
                 out.append(',');
             }
             first = false;
-            appendNormalizedExpression(orderKey.getExpr(), mode, out);
+            // a literal inside an ordering key decides which rows the top-n keeps, so it is part of the
+            // identity and is written in both modes (see Kind.literalsAreIdentity): folding it would give
+            // `order by b * 1` and `order by b * -1` one key in the constant agnostic mode
+            out.append(identityText(orderKey.getExpr()));
             out.append(orderKey.isAsc() ? ":asc" : ":desc")
                     .append(orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
         }
@@ -1400,9 +1431,11 @@ public class GroupStructInfo {
                 out.append(';');
             }
             firstExpression = false;
-            appendNormalizedExpression(windowExpression.getFunction(), mode, out);
+            // the definition of a window decides the values a node above it reads, so its literals are
+            // part of the identity and are written in both modes (see Kind.literalsAreIdentity)
+            out.append(identityText(windowExpression.getFunction()));
             out.append(";part:[");
-            appendNormalizedList(windowExpression.getPartitionKeys(), mode, out);
+            out.append(identityText(windowExpression.getPartitionKeys()));
             out.append("];ord:[");
             boolean firstKey = true;
             for (OrderExpression orderExpression : windowExpression.getOrderKeys()) {
@@ -1411,7 +1444,7 @@ public class GroupStructInfo {
                 }
                 firstKey = false;
                 OrderKey orderKey = orderExpression.getOrderKey();
-                appendNormalizedExpression(orderKey.getExpr(), mode, out);
+                out.append(identityText(orderKey.getExpr()));
                 out.append(orderKey.isAsc() ? ":asc" : ":desc")
                         .append(orderKey.isNullFirst() ? ":nulls_first" : ":nulls_last");
             }
@@ -1573,6 +1606,17 @@ public class GroupStructInfo {
      * written into both modes, so that the NO_LITERAL folding cannot merge two different values into one
      * entry.
      */
+    private static String identityText(List<? extends Expression> expressions) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < expressions.size(); i++) {
+            if (i > 0) {
+                text.append(',');
+            }
+            text.append(identityText(expressions.get(i)));
+        }
+        return text.toString();
+    }
+
     private static String identityText(Expression expression) {
         StringBuilder withLiteral = new StringBuilder();
         appendNormalizedExpression(expression, withLiteral, new StringBuilder());
@@ -1647,22 +1691,6 @@ public class GroupStructInfo {
         } else {
             appendNormalizedSorted(conjuncts, out, new StringBuilder());
         }
-    }
-
-    /**
-     * Collect both forms of the conditions of one join node (hash and other conjuncts) as sorted, de
-     * duplicated sets, normalizing every conjunct once: whether a given conjunct is classified as a
-     * hash conjunct or as an other conjunct depends on the grouping of the chain, so that
-     * classification cannot be part of a canonical form that has to be insensitive to the grouping.
-     */
-
-    private static void addCondition(Expression conjunct,
-            Set<String> conditions, Set<String> conditionsNoLiteral) {
-        StringBuilder withLiteral = new StringBuilder();
-        StringBuilder noLiteral = new StringBuilder();
-        appendNormalizedExpression(conjunct, withLiteral, noLiteral);
-        conditions.add(withLiteral.toString());
-        conditionsNoLiteral.add(noLiteral.toString());
     }
 
     /**

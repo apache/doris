@@ -49,8 +49,8 @@ import java.util.TreeSet;
  * <p>The canonical form is {@code JE{<join type>;EqualTo(...);...}} with the pairs and the residual
  * conditions sorted; a pair is rendered by {@link GroupStructInfo#normalizeExpression(Expression)}
  * which already sorts the two operands of an equality (equality is commutative), so {@code a = b}
- * and {@code b = a} collapse. The residual conditions are rendered constant agnostically, like the
- * rest of the join keys.
+ * and {@code b = a} collapse. A residual condition is rendered with its literal in both modes,
+ * because it decides how many partner rows a row finds ({@code b > c + 1} is not {@code b > c + 2}).
  */
 public class HboJoinConditions {
     private static final String PREFIX = "JE{";

@@ -342,10 +342,19 @@ public class HboStatisticsCommand extends Command {
                     + " copy the struct= value of a node above a scan from EXPLAIN");
         }
         if (keyedEntry && type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
-            throw new AnalysisException("a join expansion entry is keyed by the constant agnostic"
-                    + " condition canonical, use LITERAL_MODE=NO_LITERAL");
+            // the canonical of an expansion key carries its literals in both modes, so the mode is only a
+            // label here; EXPLAIN prints the line as the constant agnostic one and that label is required
+            throw new AnalysisException("a join expansion entry is keyed by the condition canonical and"
+                    + " is labelled like the line EXPLAIN prints, use LITERAL_MODE=NO_LITERAL");
         }
-        String canonical = canonicalFor(structCanonical, literalMode);
+        // the key of a join expansion entry is the condition canonical itself, with its literals: the
+        // expansion path compares exactly the text HboJoinConditions.canonicalOf renders (it renders every
+        // residual with its literal, because `b > c + 1` and `b > c + 2` do not expand the same rows). The
+        // text is therefore used verbatim and never folded - folding a literal the read side keeps would
+        // make the sha256 differ from the fingerprint EXPLAIN printed next to the very same text, and the
+        // statement would reject a pair the user copied correctly.
+        String canonical = type == PinnedType.JOIN_EXPANSION
+                ? structCanonical : canonicalFor(structCanonical, literalMode);
         if (isFingerprintOf(targetFingerprint, canonical)) {
             return canonical;
         }

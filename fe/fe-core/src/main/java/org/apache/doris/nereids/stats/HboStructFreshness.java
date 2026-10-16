@@ -413,7 +413,13 @@ public class HboStructFreshness {
         for (Map.Entry<String, Long> entry : recordedRowsByTable.entrySet()) {
             long[] live = liveByTable.get(entry.getKey());
             long recorded = entry.getValue();
-            if (live == null || recorded == HboScanDescriptor.UNKNOWN
+            // a recorded count of 0 is the "not measured" sentinel of the publish path: the runtime
+            // counters live on the CustomCounters child profile of an operator (RuntimeProfile reads the
+            // operator node itself), so a published learned scan entry records 0 there. Comparing that 0
+            // with the catalog rows of the table would make every published entry look stale, although
+            // nothing was measured - an entry whose recorded count is not a measurement stays applicable,
+            // like every other entry which cannot be compared.
+            if (live == null || recorded == HboScanDescriptor.UNKNOWN || recorded == 0
                     || live[0] == HboScanDescriptor.UNKNOWN
                     || liveKinds.get(entry.getKey()) != HboScanDescriptor.RowsKind.MEASURED) {
                 // the learned numbers are measured row counts, so they are only compared with a

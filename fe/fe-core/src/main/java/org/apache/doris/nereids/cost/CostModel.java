@@ -475,15 +475,10 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     && context.getSessionVariable().isEnableHboOptimization()
                     && hboPlanStatisticsProvider.hasAnyHboPlanStats()) {
                 Optional<PlanNodeAndHash> planNodeAndHashOpt;
-                try {
-                    // the publish path keys a join with the constant agnostic form, and that is the
-                    // form which the read side publishes for skew ratios as well
-                    planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin,
-                            GroupStructInfo.LiteralMode.NO_LITERAL);
-                } catch (IllegalStateException e) {
-                    LOG.warn("failed to get plan node hash", e);
-                    planNodeAndHashOpt = Optional.empty();
-                }
+                // the publish path keys a join with the constant agnostic form, and that is the
+                // form which the read side publishes for skew ratios as well
+                planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin,
+                        GroupStructInfo.LiteralMode.NO_LITERAL);
                 if (planNodeAndHashOpt.isPresent()) {
                     RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(
                             planNodeAndHashOpt.get());

@@ -4,7 +4,7 @@
 # GroupStructInfoGoldenTest from the current implementation; regenerate it with:
 #
 #   cd fe
-#   MAVEN_OPTS="-Dmaven.repo.local=$PWD/../.dsh-m2/repository" mvn -o -pl fe-core -am test \
+#   mvn -o -pl fe-core -am test \
 #     -Dtest='GroupStructInfoGoldenTest' -DfailIfNoTests=false -Dskip.doc=true \
 #     -Dhbo.golden.dump=true
 #   # then run the same command without -Dhbo.golden.dump to prove the corpus asserts clean
@@ -21,7 +21,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 24, text cases: 49 (both sections are sorted by case name)
+# plan cases: 32, text cases: 49 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -97,6 +97,18 @@ NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
 NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_one_of_those_conjuncts]
+desc = a filter with one conjunct: the shape a two conjunct filter must not share a key with
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_slot_equal_slot]
 desc = filter comparing two slots of one scan (both literal modes coincide)
 valid = true
@@ -107,6 +119,18 @@ WITH_LITERAL.fingerprint = b2d8ab821d3fc606f420c62128541362a428a4d13e5014582cc10
 NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1,v1,r0})
 NO_LITERAL.shape = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1})
 NO_LITERAL.fingerprint = b2d8ab821d3fc606f420c62128541362a428a4d13e5014582cc1076f04ae7a2b
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_two_conjuncts_which_fold_alike]
+desc = a filter with two conjuncts on one slot which fold to one text: both stay in the key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = c3eefab74e79ee3fda5ed185f12d09fd8e94254ecf8e5475aa3216e90a4fd5a3
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 446d4d8927b4d5a5adc07cb70c2552c748dd5d961d226697c2f5b8b11b704c6e
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_explode_split]
@@ -225,7 +249,7 @@ scans = 2
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN limit]
-desc = limit 5 offset 0 over a scan (LimitPhase.ORIGIN)
+desc = limit 5 offset 0 over a scan
 valid = true
 skipReason =
 WITH_LITERAL.canonical = L{5,0}S{null.null.t1,v1,r0}
@@ -284,6 +308,18 @@ NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.nu
 NO_LITERAL.fingerprint = a90cde5e9a499b7b576a276fa52a00fcdae2e974212165d0da96b15c0766677f
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN sort_above_a_filter]
+desc = sort over a filter (transparent): the sort adds no rows and no identity of its own
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN topn]
 desc = top-n of 3 rows ordered by one key, asc nulls first
 valid = true
@@ -294,6 +330,30 @@ WITH_LITERAL.fingerprint = ed35f43d785891e00df0a647140a1c0c2b9a12bda3d9d2fd01418
 NO_LITERAL.canonical = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1,v1,r0}
 NO_LITERAL.shape = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1}
 NO_LITERAL.fingerprint = ed35f43d785891e00df0a647140a1c0c2b9a12bda3d9d2fd01418abaf58f9fb3
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN topn_with_a_literal_in_the_ordering_key]
+desc = top-n ordered by slot * 1: the factor decides which rows survive
+valid = true
+skipReason =
+WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1}
+WITH_LITERAL.fingerprint = 448557cadec84027018cf45b776c5613a48679d67546c20ce25c5670015094ab
+NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1}
+NO_LITERAL.fingerprint = 448557cadec84027018cf45b776c5613a48679d67546c20ce25c5670015094ab
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN topn_with_another_literal_in_the_ordering_key]
+desc = the same top-n ordered by slot * -1: a different constant agnostic key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1}
+WITH_LITERAL.fingerprint = f4a18a9a9efc2985a8c8fa9e892a9bfceebffc62b587cd116ca72e97d07ada6b
+NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1}
+NO_LITERAL.fingerprint = f4a18a9a9efc2985a8c8fa9e892a9bfceebffc62b587cd116ca72e97d07ada6b
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN union_constant_branch]
@@ -319,6 +379,42 @@ WITH_LITERAL.fingerprint = 374a3d827e34b5fe7cd95d0277e7f350c07fac0f272d2e5723f96
 NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
 NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
 NO_LITERAL.fingerprint = 76bc95bde43a2eaa88e9a5dbcf2d512a02c8795832f20e656e6b64253d40f4f3
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN window_with_a_literal_in_the_ordering_key]
+desc = window ordered by slot * 1 under a filter: the factor decides the values above it
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+WITH_LITERAL.fingerprint = 8eeacc4ef9a18955db854c022b60392ce6a6d1fc630f8b06e613941a201dee33
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+NO_LITERAL.fingerprint = e73bbeca0c4d90a51fda86eb428b742863a59281a437cc121cec4ce65ae1863b
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN window_with_another_literal_in_the_ordering_key]
+desc = the same window ordered by slot * -1: a different constant agnostic key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+WITH_LITERAL.fingerprint = 286ea483729c94a9e6aa0e3d0d1f5218b8afa336ff74879664b38576d2578545
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+NO_LITERAL.fingerprint = 5b982f359fc182264b66b963e4303a82186c43b105beb977b45addda82957957
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN window_with_two_order_keys_and_a_bounded_frame]
+desc = window over two ordering keys with a bounded frame: the separator and the offsets are part of the key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}}(S{null.null.t1,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}}(S{null.null.t1}))
+WITH_LITERAL.fingerprint = c7871b06bf675e73c9dd3e0457135c6173f2ef59073bd23bf0796036a624b499
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}}(S{null.null.t1,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}}(S{null.null.t1}))
+NO_LITERAL.fingerprint = 3a55e2c0316173524c3a680094ede4c2d06a4251c3925c1d56d523b600f09136
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 
