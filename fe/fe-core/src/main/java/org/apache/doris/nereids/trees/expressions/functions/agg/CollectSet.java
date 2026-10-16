@@ -114,6 +114,10 @@ public class CollectSet extends NotNullableAggregateFunction
     public void checkLegalityBeforeTypeCoercion() {
         // The BE set kernel cannot hash raw VARBINARY; reject it before implicit casts change its type.
         for (Expression argument : getArguments()) {
+            // Spatial values also lack a BE collect-set kernel, even when admitted by ANY.
+            if (argument.getDataType().isSpatialType()) {
+                throw new AnalysisException("collect_set does not support spatial arguments");
+            }
             if (argument.getDataType().isVarBinaryType()) {
                 throw new AnalysisException("collect_set does not support VARBINARY arguments");
             }

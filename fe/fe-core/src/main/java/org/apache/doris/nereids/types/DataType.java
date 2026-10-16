@@ -696,6 +696,10 @@ public abstract class DataType {
         return this instanceof StringType;
     }
 
+    public boolean isSpatialType() {
+        return this instanceof GeometryType || this instanceof GeographyType;
+    }
+
     public boolean isVarBinaryType() {
         return this instanceof VarBinaryType;
     }

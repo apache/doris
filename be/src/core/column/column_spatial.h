@@ -21,6 +21,7 @@
 #include <pdqsort.h>
 
 #include <cstddef>
+#include <memory>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
@@ -61,7 +62,7 @@ public:
     void resize(size_t n) override { _data.resize(n); }
     void clear() override {
         _data.clear();
-        _arena.clear();
+        _arena->clear();
     }
     Field operator[](size_t n) const override {
         return Field::create_field<TYPE_VARBINARY>(_data[n]);
@@ -109,9 +110,9 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
-    size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena.size(); }
+    size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena->size(); }
     size_t byte_size() const override {
-        return _data.size() * sizeof(doris::StringView) + _arena.used_size();
+        return _data.size() * sizeof(doris::StringView) + _arena->used_size();
     }
     bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
@@ -130,7 +131,7 @@ private:
     size_t serialize_impl(char* pos, size_t row) const override;
     size_t serialize_size_at(size_t row) const override;
     Container _data;
-    Arena _arena;
+    std::unique_ptr<Arena> _arena = std::make_unique<Arena>();
     const PrimitiveType _primitive_type;
 };
 

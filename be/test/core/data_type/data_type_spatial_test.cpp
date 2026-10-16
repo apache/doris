@@ -39,6 +39,49 @@
 
 namespace doris {
 
+TEST(DataTypeSpatialTest, DefaultCrsCaseIsCanonicalButCustomCrsIsPreserved) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const DataTypeSpatial canonical(primitive);
+        for (const auto* crs : {"ogc:crs84", "OgC:CrS84"}) {
+            const DataTypeSpatial imported(primitive, crs);
+            EXPECT_EQ(imported.crs(), "OGC:CRS84");
+            EXPECT_TRUE(imported.equals(canonical));
+        }
+        EXPECT_EQ(DataTypeSpatial(primitive, "projjson:CustomCrs").crs(), "projjson:CustomCrs");
+    }
+}
+
+static void check_spatial_trim_memory(PrimitiveType primitive, size_t payload_size) {
+    auto column = ColumnSpatial::create(primitive);
+    const std::string first(payload_size, 'a');
+    for (size_t row = 0; row < 16; ++row) {
+        column->insert_data(first.data(), first.size());
+    }
+    for (size_t cycle = 0; cycle < 64; ++cycle) {
+        const std::string next(payload_size, static_cast<char>('b' + cycle % 20));
+        for (size_t row = 0; row < 16; ++row) {
+            column->insert_data(next.data(), next.size());
+        }
+        column->erase(0, 16);
+        EXPECT_EQ(column->size(), 16);
+        EXPECT_EQ(column->get_data_at(0).to_string(), next);
+        EXPECT_EQ(column->get_data_at(15).to_string(), next);
+        EXPECT_LE(column->byte_size(), 16 * sizeof(StringView) + 32 * payload_size);
+        EXPECT_LE(column->allocated_bytes(), 8 * (16 * payload_size + 4096));
+    }
+    column->erase(0, column->size());
+    EXPECT_EQ(column->byte_size(), 0);
+    column->insert_data(first.data(), first.size());
+    EXPECT_EQ(column->get_data_at(0).to_string(), first);
+}
+
+TEST(DataTypeSpatialTest, ErasureReclaimsArenaAcrossAppendTrimCycles) {
+    check_spatial_trim_memory(TYPE_GEOMETRY, 21);
+    check_spatial_trim_memory(TYPE_GEOGRAPHY, 21);
+    check_spatial_trim_memory(TYPE_GEOMETRY, 8192);
+    check_spatial_trim_memory(TYPE_GEOGRAPHY, 8192);
+}
+
 TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
     auto geometry = DataTypeFactory::instance().create_data_type(TYPE_GEOMETRY, false);
     auto geography = DataTypeFactory::instance().create_data_type(TYPE_GEOGRAPHY, false);

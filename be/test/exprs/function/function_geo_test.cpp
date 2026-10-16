@@ -763,7 +763,7 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_accepts_supported_geography) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto geography_type =
-            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical");
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "ogc:crs84", "spherical");
     auto left_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
     auto right_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
     left_column->insert_data(wkb.data(), wkb.size());

@@ -581,7 +581,7 @@ public class ScalarType extends Type {
     public static ScalarType createGeometryType(String crs) {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(crs), "Spatial CRS must not be empty");
         ScalarType result = new ScalarType(PrimitiveType.GEOMETRY);
-        result.spatialCrs = crs;
+        result.spatialCrs = normalizeSpatialCrs(crs);
         return result;
     }
 
@@ -596,9 +596,14 @@ public class ScalarType extends Type {
         Preconditions.checkArgument(SPATIAL_EDGE_ALGORITHMS.contains(normalizedAlgorithm),
                 "Unsupported Geography algorithm: %s", algorithm);
         ScalarType result = new ScalarType(PrimitiveType.GEOGRAPHY);
-        result.spatialCrs = crs;
+        result.spatialCrs = normalizeSpatialCrs(crs);
         result.spatialAlgorithm = normalizedAlgorithm;
         return result;
+    }
+
+    private static String normalizeSpatialCrs(String crs) {
+        // Default CRS case aliases are equivalent; custom CRS/property references keep their spelling.
+        return "OGC:CRS84".equalsIgnoreCase(crs) ? "OGC:CRS84" : crs;
     }
 
     public String getSpatialCrs() {

@@ -24,6 +24,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -34,8 +36,10 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -43,6 +47,20 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ConnectorSpatialWriteValidatorTest {
+    @Test
+    public void testImportedDefaultCrsCaseCanAcceptConstructorValues() {
+        for (String crs : ImmutableList.of("ogc:crs84", "OgC:CrS84")) {
+            ConnectorColumn external = new ConnectorColumn("shape", ConnectorType.of("GEOGRAPHY")
+                    .withSpatialMetadata(crs, "spherical"), "", true, null);
+            Column imported = ConnectorColumnConverter.convertColumn(external);
+            Assertions.assertEquals("OGC:CRS84", ((ScalarType) imported.getType()).getSpatialCrs());
+            ConnectorSpatialWriteValidator.validate(imported, new StGeogFromWKB(
+                    new StringLiteral("0101000000000000000000F03F0000000000000040")));
+        }
+        Assertions.assertEquals("projjson:CustomCrs",
+                ScalarType.createGeographyType("projjson:CustomCrs", "spherical").getSpatialCrs());
+    }
+
     @Test
     public void testMatchingSpatialParametersAreAccepted() {
         validate(ScalarType.createGeometryType("EPSG:4326"),

@@ -82,6 +82,10 @@ public class Histogram extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // The BE kernel has no spatial value-state dispatch; fail before casts hide the input type.
+        if (getArgumentType(0).isSpatialType()) {
+            throw new AnalysisException("histogram does not support spatial arguments");
+        }
         if (!(getArgument(0).getDataType() instanceof PrimitiveType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
         }

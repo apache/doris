@@ -52,6 +52,15 @@ suite("test_spatial_wkb_compatibility") {
         sql "select ST_Touches(ST_GeogFromWKB('0102000000020000000000000000406540000000000000000000000000004065c00000000000000000'), ST_GeogFromWKB('0102000000020000000000000000406540000000000000000000000000004065c00000000000000000'))"
         exception "does not support this Geography shape pair"
     }
+    // Recognized default CRS case aliases retain the same calculation and write identity.
+    qt_default_geography_crs_case """select
+        ST_Distance(cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
+            as GEOGRAPHY('ogc:crs84', 'spherical')),
+            cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
+            as GEOGRAPHY('OgC:CrS84', 'spherical'))),
+        ST_AsText(cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
+            as GEOGRAPHY('ogc:crs84', 'spherical')))"""
+
     // Exercise one spatial key: two keys take a different serialized-key dispatch path.
     [geometry: "ST_GeometryFromWKBTyped", geography: "ST_GeogFromWKB"].each { kind, constructor ->
         def point1 = "0101000000000000000000F03F0000000000000040"
@@ -69,6 +78,26 @@ suite("test_spatial_wkb_compatibility") {
             select count(*) from shapes l join shapes r on l.shape = r.shape""")
         "qt_single_null_safe_join_${kind}"("""with shapes as (${nullableShapes})
             select count(*) from shapes l join shapes r on l.shape <=> r.shape""")
+
+        // MIN/MAX compare stored WKB, while ANY_VALUE must keep an owning spatial state.
+        "qt_single_value_aggregates_${kind}"("""with shapes as (${nullableShapes})
+            select ST_AsText(min(shape)), ST_AsText(max(shape)),
+                ST_AsText(any_value(shape)) in ('POINT (1 2)', 'POINT (3 4)') from shapes""")
+        "qt_single_value_nulls_${kind}"("""select
+            min(${constructor}(null)) is null, max(${constructor}(null)) is null,
+            any_value(${constructor}(null)) is null from numbers("number" = "3")""")
+        ["ndv", "approx_count_distinct", "histogram", "collect_set"].each { aggregate ->
+            test {
+                sql """with shapes as (${nullableShapes}) select ${aggregate}(shape) from shapes"""
+                exception "does not support spatial arguments"
+            }
+        }
+        ["histogram", "collect_set"].each { aggregate ->
+            test {
+                sql """with shapes as (${nullableShapes}) select ${aggregate}(shape, 2) from shapes"""
+                exception "does not support spatial arguments"
+            }
+        }
 
         // Keep two WHEN clauses and distinct input columns so CASE survives CaseWhenToIf.
         "order_qt_case_materialization_${kind}"("""with shapes as (

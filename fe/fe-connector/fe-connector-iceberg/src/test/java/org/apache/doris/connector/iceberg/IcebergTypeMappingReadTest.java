@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorType;
 
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -61,6 +63,18 @@ public class IcebergTypeMappingReadTest {
     // ---------------------------------------------------------------------
     // Flag-independent primitives — must match legacy icebergPrimitiveTypeToDorisType exactly.
     // ---------------------------------------------------------------------
+
+    @Test
+    public void defaultGeographyCaseSurvivesExternalSchemaImport() {
+        for (String crs : List.of("ogc:crs84", "OgC:CrS84")) {
+            Schema external = new Schema(Types.NestedField.optional(1, "shape",
+                    Types.GeographyType.of(crs, EdgeAlgorithm.SPHERICAL)));
+            ConnectorType imported = mapOff(external.findType("shape"));
+            Assertions.assertEquals("GEOGRAPHY", imported.getTypeName());
+            Assertions.assertEquals(crs, imported.getSpatialCrs());
+            Assertions.assertEquals("spherical", imported.getSpatialAlgorithm());
+        }
+    }
 
     @Test
     public void flagIndependentPrimitivesMatchLegacy() {

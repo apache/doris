@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <string_view>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
@@ -35,6 +36,17 @@
 namespace doris {
 
 namespace {
+
+std::string normalize_spatial_crs(std::string crs) {
+    // Imported ogc:crs84 has default semantics; leave custom CRS/property references unchanged.
+    constexpr std::string_view default_crs = "OGC:CRS84";
+    if (std::ranges::equal(crs, default_crs, [](unsigned char left, unsigned char right) {
+            return std::tolower(left) == std::tolower(right);
+        })) {
+        return std::string(default_crs);
+    }
+    return crs;
+}
 
 std::string normalize_spatial_algorithm(PrimitiveType type, std::string algorithm) {
     if (type == TYPE_GEOGRAPHY && algorithm.empty()) {
@@ -75,7 +87,7 @@ private:
 DataTypeSpatial::DataTypeSpatial(PrimitiveType primitive_type, std::string crs,
                                  std::string algorithm)
         : _primitive_type(primitive_type),
-          _crs(std::move(crs)),
+          _crs(normalize_spatial_crs(std::move(crs))),
           _algorithm(normalize_spatial_algorithm(primitive_type, std::move(algorithm))) {
     DCHECK(primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY);
     DCHECK(!_crs.empty());
