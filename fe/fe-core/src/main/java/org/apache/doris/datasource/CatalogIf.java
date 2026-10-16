@@ -32,6 +32,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -83,7 +84,12 @@ public interface CatalogIf<T extends DatabaseIf> {
         try {
             return getDbNames();
         } catch (Exception e) {
-            LOG.warn("failed to get db names in catalog {}", getName(), e);
+            String diagnosticTrace = ExceptionDiagnosticUtils.sanitizedStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
+            }
             return Lists.newArrayList();
         }
     }
