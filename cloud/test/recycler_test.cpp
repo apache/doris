@@ -9213,7 +9213,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_rowset_idx_v3) {
     doris::TabletSchemaCloudPB schema;
     schema.set_schema_version(1);
     schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
-    auto index = schema.add_index();
+    auto* index = schema.add_index();
     index->set_index_id(1);
     index->set_index_type(IndexType::INVERTED);
 
@@ -9233,7 +9233,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_rowset_idx_v3) {
         rowset.set_schema_version(schema.schema_version());
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
-        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true, true);
         rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
