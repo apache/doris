@@ -37,12 +37,18 @@ created against the fixture's final location (see lance_build_search_snapshot.py
       --storage-option secret_access_key=password --storage-option region=us-east-1 \\
       --storage-option allow_http=true
   # then sync tree/ and _refs/branches/ from that location back
+  # store the branch under an ASCII name before committing (Bash syntax)
+  mv preinstalled_data/lance/unicode_branch.lance/tree/$'dev\\u1c89' \\
+      preinstalled_data/lance/unicode_branch.lance/tree/dev_u1c89
   python3 lance_build_unicode_branch.py --check preinstalled_data/lance
 
 Build it with pylance 12.0.0, the Lance the FE uses, not the writer pinned in
 lance_fixture_requirements.txt: Lance 7 stores a non-ASCII branch directory percent-encoded
 (tree/dev%E1%B2%89/), which Lance 12 does not find, while Lance 12 stores it as tree/dev\u1c89/.
-The catalog build carries the fixture over as-is. --check runs with any reader.
+The repository stores that directory as tree/dev_u1c89/ so checkout does not depend on
+filesystem Unicode support. iceberg.yaml.tpl restores the original object keys after
+uploading to MinIO. The catalog build carries the portable fixture over as-is.
+--check verifies this stored layout and runs with any reader.
 """
 import argparse
 import shutil
@@ -52,7 +58,8 @@ import lance
 import pyarrow as pa
 
 UNICODE_BRANCH_DIR = "unicode_branch.lance"
-BRANCH = "devᲉ"
+BRANCH = "dev\u1c89"
+STORED_BRANCH = "dev_u1c89"
 PARENT_URI = "s3://warehouse/lance/unicode_branch.lance"
 WRITER_VERSION = "12.0.0"
 DIMENSION = 4
@@ -102,8 +109,8 @@ def check(output: Path) -> None:
     assert [v["version"] for v in dataset.versions()] == [1], dataset.versions()
     assert row_ids(dataset) == list(range(1, 9)), "main rows differ"
     assert list(dataset.branches.list()) == [BRANCH], dataset.branches.list()
-    # The branch directory keeps the name as is; Lance 12 does not find a percent-encoded one.
-    manifests = sorted((output / "tree" / BRANCH / "_versions").glob("*.manifest"))
+    # Keep Git paths portable; the upload restores the exact name Lance 12 resolves.
+    manifests = sorted((output / "tree" / STORED_BRANCH / "_versions").glob("*.manifest"))
     assert len(manifests) == 2, f"branch {BRANCH!r} must carry versions 1 and 2: {manifests}"
     for manifest in manifests:
         assert PARENT_URI.encode() in manifest.read_bytes(), f"{manifest} must reference {PARENT_URI}"
