@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -100,8 +101,18 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             return plan;
         }
         replacedExprIds.clear();
+        CascadesContext context = jobContext.getCascadesContext();
+        // a present current tree means this plan is the body of a CTE producer, see RewriteCteChildren
+        Optional<CTEId> cteId = context.getCurrentTree();
         exprIdRewriter = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replacedExprIds, true), jobContext);
-        return plan.accept(this, jobContext.getCascadesContext());
+        Plan rewrittenPlan = plan.accept(this, context);
+        if (cteId.isPresent() && !replacedExprIds.isEmpty()) {
+            // The consumers of this CTE map their slots to the outputs of the producer by exprId, and they are
+            // rewritten before the producer subtree, so publish the renamed exprIds for RewriteCteChildren to
+            // refresh their maps. A rule may rename more than once, so the mappings are accumulated.
+            context.getStatementContext().addProducerExprIdRemap(cteId.get(), replacedExprIds);
+        }
+        return rewrittenPlan;
     }
 
     @Override

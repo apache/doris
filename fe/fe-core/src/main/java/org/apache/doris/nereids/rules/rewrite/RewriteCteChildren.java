@@ -43,16 +43,12 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,13 +110,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         if (cteConsumers.isEmpty()) {
             return outer;
         }
-        List<Slot> oldProducerOutputs = cteAnchor.child(0).getOutput();
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
-        Map<ExprId, ExprId> producerExprIdRemap = computeProducerExprIdRemap(oldProducerOutputs, producer.getOutput());
+        // A rule of the producer body may have renamed the exprIds of the producer outputs, while the consumers,
+        // which are rewritten before the producer, still map to the previous exprIds: refresh both maps of every
+        // consumer of this CTE with the new producer slots. The rules publish what they renamed, and a rule may
+        // rename more than once, so follow the chain to its end.
+        Map<ExprId, ExprId> producerExprIdRemap = cascadesContext.getStatementContext()
+                .getProducerExprIdRemap(cteAnchor.getCteId());
         if (!producerExprIdRemap.isEmpty()) {
-            // The producer subtree is rewritten in its own context, so a rule of it may rename the exprIds of the
-            // producer outputs, while the consumers, which are rewritten before the producer, still map to the
-            // previous exprIds. Refresh both maps of every consumer of this CTE with the new producer slots.
             Map<ExprId, Slot> producerOutputSlots = producer.getOutput().stream()
                     .collect(Collectors.toMap(Slot::getExprId, Function.identity()));
             outer = (LogicalPlan) outer.<Plan, Void>accept(new CteConsumerOutputsRefresher(cteAnchor.getCteId(),
@@ -147,62 +144,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     }
 
     /**
-     * The outputs of a CTE producer body are the contract of its consumers, the consumers map to them by exprId. A
-     * rule which rewrites the producer body may rename them, so compare the outputs before and after the rewrite to
-     * know which exprIds changed. A column which is not renamed keeps its exprId, so it needs no mapping, and the
-     * columns which are renamed are the ones whose exprId disappeared: match them by name, a rule which renames an
-     * output keeps its name. A column which was pruned by the rewrite of the body, e.g. by ColumnPruning, has no
-     * counterpart in the new outputs any more, so there is nothing to map for it, see the two CTE tests of
-     * CteLimitPushdownPlanTest and DataTraitTest which prune the columns their consumers do not read.
+     * Refresh the producer slots of the two output maps of the consumers of a CTE with the exprIds the rules of the
+     * producer body published, see StatementContext#getProducerExprIdRemap.
      */
-    @VisibleForTesting
-    static Map<ExprId, ExprId> computeProducerExprIdRemap(List<Slot> oldOutputs, List<Slot> newOutputs) {
-        Set<ExprId> newExprIds = newOutputs.stream().map(Slot::getExprId).collect(Collectors.toSet());
-        Set<ExprId> matchedNewExprIds = Sets.newHashSetWithExpectedSize(newExprIds.size());
-        List<Slot> renamedOldOutputs = new ArrayList<>();
-        for (Slot oldOutput : oldOutputs) {
-            if (newExprIds.contains(oldOutput.getExprId())) {
-                matchedNewExprIds.add(oldOutput.getExprId());
-            } else {
-                renamedOldOutputs.add(oldOutput);
-            }
-        }
-        Map<ExprId, ExprId> remap = new HashMap<>();
-        for (Slot renamedOldOutput : renamedOldOutputs) {
-            List<Slot> candidates = newOutputs.stream()
-                    .filter(newOutput -> !matchedNewExprIds.contains(newOutput.getExprId()))
-                    .filter(newOutput -> newOutput.getName().equals(renamedOldOutput.getName()))
-                    .collect(Collectors.toList());
-            if (candidates.size() > 1) {
-                // the name is not a key: several outputs of the producer may share it. The lineage of a slot
-                // survives a rename (Alias#toSlot copies it), so use it to find the right candidate.
-                candidates = candidates.stream()
-                        .filter(candidate -> sameLineage(renamedOldOutput, candidate))
-                        .collect(Collectors.toList());
-            }
-            // a unique candidate is the renamed column; no candidate means the column was pruned, and several
-            // same named candidates which cannot be told apart are not mapped at all instead of guessing
-            if (candidates.size() == 1) {
-                remap.put(renamedOldOutput.getExprId(), candidates.get(0).getExprId());
-                matchedNewExprIds.add(candidates.get(0).getExprId());
-            }
-        }
-        return remap;
-    }
-
-    private static boolean sameLineage(Slot left, Slot right) {
-        if (!(left instanceof SlotReference) || !(right instanceof SlotReference)) {
-            return false;
-        }
-        SlotReference leftReference = (SlotReference) left;
-        SlotReference rightReference = (SlotReference) right;
-        return leftReference.getOriginalTable().isPresent() && rightReference.getOriginalTable().isPresent()
-                && leftReference.getOriginalTable().equals(rightReference.getOriginalTable())
-                && leftReference.getOriginalColumn().equals(rightReference.getOriginalColumn());
-    }
-
-    /** Refresh the producer slots of the two output maps of the consumers of a CTE, see computeProducerExprIdRemap. */
-    private static class CteConsumerOutputsRefresher extends DefaultPlanRewriter<Void> {
+    static class CteConsumerOutputsRefresher extends DefaultPlanRewriter<Void> {
         private final CTEId cteId;
         private final Map<ExprId, ExprId> producerExprIdRemap;
         private final Map<ExprId, Slot> producerOutputSlots;
@@ -232,14 +177,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         }
 
         private Slot refreshProducerSlot(Slot producerSlot) {
-            ExprId newExprId = producerExprIdRemap.get(producerSlot.getExprId());
-            if (newExprId == null) {
+            ExprId lastExprId = ExprIdRewriter.lastExprId(producerExprIdRemap, producerSlot.getExprId());
+            if (lastExprId.equals(producerSlot.getExprId())) {
                 return producerSlot;
             }
-            Slot newProducerSlot = producerOutputSlots.get(newExprId);
-            Preconditions.checkArgument(newProducerSlot != null,
-                    "the producer does not output the exprId %s", newExprId);
-            return newProducerSlot;
+            // the column may be pruned by the rewrite of the producer body after it was renamed, then there is
+            // nothing to map for it any more
+            Slot newProducerSlot = producerOutputSlots.get(lastExprId);
+            return newProducerSlot != null ? newProducerSlot : producerSlot;
         }
     }
 

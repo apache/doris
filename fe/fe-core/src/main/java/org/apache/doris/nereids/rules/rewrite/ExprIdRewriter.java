@@ -52,6 +52,24 @@ public class ExprIdRewriter extends ExpressionRewrite {
         this.jobContext = jobContext;
     }
 
+    /**
+     * Follow the replacement chain of an exprId to its end: an exprId may be renamed more than once, e.g. by
+     * several rules or by several passes of the same rule, and only the last exprId exists in the plan then.
+     */
+    public static ExprId lastExprId(Map<ExprId, ExprId> replaceMap, ExprId exprId) {
+        ExprId lastExprId = replaceMap.get(exprId);
+        if (lastExprId == null) {
+            return exprId;
+        }
+        while (true) {
+            ExprId nextExprId = replaceMap.get(lastExprId);
+            if (nextExprId == null) {
+                return lastExprId;
+            }
+            lastExprId = nextExprId;
+        }
+    }
+
     /**rewriteExpr*/
     public Plan rewriteExpr(Plan plan, Map<ExprId, ExprId> replaceMap) {
         if (replaceMap.isEmpty()) {
@@ -103,55 +121,28 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
                     @Override
                     public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
-                        ExprId newId = replaceMap.get(slot.getExprId());
-                        if (newId == null) {
+                        if (replaceMap.get(slot.getExprId()) == null) {
                             return slot;
                         }
-                        ExprId lastId = newId;
-                        while (true) {
-                            newId = replaceMap.get(lastId);
-                            if (newId == null) {
-                                return slot.withExprId(lastId);
-                            } else {
-                                lastId = newId;
-                            }
-                        }
+                        return slot.withExprId(lastExprId(replaceMap, slot.getExprId()));
                     }
                 };
         private static final DefaultExpressionRewriter<Map<ExprId, ExprId>> SLOT_ALIAS_REPLACER =
                 new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
                     @Override
                     public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
-                        ExprId newId = replaceMap.get(slot.getExprId());
-                        if (newId == null) {
+                        if (replaceMap.get(slot.getExprId()) == null) {
                             return slot;
                         }
-                        ExprId lastId = newId;
-                        while (true) {
-                            newId = replaceMap.get(lastId);
-                            if (newId == null) {
-                                return slot.withExprId(lastId);
-                            } else {
-                                lastId = newId;
-                            }
-                        }
+                        return slot.withExprId(lastExprId(replaceMap, slot.getExprId()));
                     }
 
                     @Override
                     public Expression visitAlias(Alias alias, Map<ExprId, ExprId> replaceMap) {
-                        ExprId newId = replaceMap.get(alias.getExprId());
-                        if (newId == null) {
+                        if (replaceMap.get(alias.getExprId()) == null) {
                             return alias;
                         }
-                        ExprId lastId = newId;
-                        while (true) {
-                            newId = replaceMap.get(lastId);
-                            if (newId == null) {
-                                return alias.withExprId(lastId);
-                            } else {
-                                lastId = newId;
-                            }
-                        }
+                        return alias.withExprId(lastExprId(replaceMap, alias.getExprId()));
                     }
                 };
 
