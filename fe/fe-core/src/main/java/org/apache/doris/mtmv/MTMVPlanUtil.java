@@ -578,8 +578,10 @@ public class MTMVPlanUtil {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             statementContext.setIvmRewriteContext(ivmRewriteContext);
             statementContext.setExcludedTriggerTables(excludedTriggerTables);
-            ivmRewriteContext.ifPresent(rewriteContext -> rewriteContext.setUseFullKeys(
-                    MTMVPropertyUtil.isIvmUseFullKeys(mvProperties)));
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
+                rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+            });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
             LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);

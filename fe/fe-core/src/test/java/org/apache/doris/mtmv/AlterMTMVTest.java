@@ -30,7 +30,6 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -40,9 +39,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -57,22 +54,6 @@ import java.util.Set;
 
 
 public class AlterMTMVTest extends TestWithFeService {
-    /**
-     * These tests describe the unique-key model's layout and the IVM metadata only it carries. A query an
-     * append-only detail MV could hold is not what they are about, so the model is forced here; the detail
-     * model has tests of its own.
-     */
-    @BeforeEach
-    public void forceUniqueKeyModel() {
-        Config.enable_debug_points = true;
-        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
-    }
-
-    @AfterEach
-    public void clearForcedModel() {
-        DebugPointUtil.clearDebugPoints();
-    }
-
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
@@ -319,6 +300,27 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     @Test
+    public void testAlterIvmForceMowRejected() throws Exception {
+        createDatabaseAndUse("alter_ivm_force_mow");
+        createTable("CREATE TABLE alter_ivm_force_mow.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_ivm_force_mow_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        // Which model the MV is built on is fixed at creation, the way ivm_use_full_keys is: an ALTER must
+        // report it rather than move the MV to a model its refresh would contradict.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alt_ivm_force_mow_mv"
+                        + " SET ('ivm_force_mow' = 'true')"));
+        Assertions.assertTrue(exception.getMessage().contains("cannot be altered"),
+                exception.getMessage());
+    }
+
+    @Test
     public void testAlterFromAutoToCompleteAllowed() throws Exception {
         createDatabaseAndUse("alter_test_auto_complete");
         createTable("CREATE TABLE alter_test_auto_complete.alt_base (k1 int, v1 int)\n"
@@ -406,7 +408,7 @@ public class AlterMTMVTest extends TestWithFeService {
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
+                + " PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1')\n"
                 + " AS SELECT k1, v1 FROM ivm_base");
 
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()

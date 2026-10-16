@@ -147,6 +147,10 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink,
             Set<TableNameInfo> excludedTriggerTables) {
+        // The MV is built with the query's own columns, so a column name Doris reserves for a hidden one
+        // would leave the MV holding fewer columns than the query produced; the unique-key normalize
+        // rejects the same names, and both models lay hidden columns on the MV they build.
+        IvmUtil.validateUserOutputColumnNames(sink.getOutputExprs());
         return visitChildren(this, sink, excludedTriggerTables);
     }
 

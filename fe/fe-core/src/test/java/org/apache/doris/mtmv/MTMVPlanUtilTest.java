@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -34,7 +33,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -55,9 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -66,22 +62,6 @@ import java.util.Map;
 import java.util.Optional;
 
 public class MTMVPlanUtilTest extends SqlTestBase {
-    /**
-     * These tests describe the unique-key model's layout: the row-id column, the distribution hashed on it,
-     * the physical key order, and the validation that guards them. A query an append-only detail MV could
-     * hold is not what they are about, so the model is forced here; the detail model has tests of its own.
-     */
-    @BeforeEach
-    public void forceUniqueKeyModel() {
-        Config.enable_debug_points = true;
-        DebugPointUtil.addDebugPoint(IvmNormalizeMTMV.DEBUG_POINT_FORCE_UNIQUE_KEYS);
-    }
-
-    @AfterEach
-    public void clearForcedModel() {
-        DebugPointUtil.clearDebugPoints();
-    }
-
     @Override
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
@@ -460,7 +440,11 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
-        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
+        // The property CREATE reads to build an MV on the unique-key model; this test describes that
+        // model's hidden columns.
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW, "true");
+        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, mvProperties,
                 mtmvPartitionDefinition, distributionDescriptor, null, Maps.newHashMap(),
                 Lists.newArrayList(), logicalPlan, Optional.of(IvmRewriteContext.create("test_mtmv")));
         List<String> columnNames = queryInfo.getColumnDefinitions().stream()
@@ -549,11 +533,19 @@ public class MTMVPlanUtilTest extends SqlTestBase {
             createMvByNereids("create materialized view row_binlog_schema_ivm "
                     + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                     + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1', 'binlog.enable' = 'true', "
                     + "'binlog.format' = 'ROW') \n"
                     + "        as select k1, v1 from test.row_binlog_schema_base;");
             createMvByNereids("create materialized view row_binlog_schema_dup "
                     + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "'binlog.format' = 'ROW') \n"
+                    + "        as select k1, v1 from test.row_binlog_schema_base;");
+            // The same incremental MV without the property, over the same append-only base table: the detail
+            // model, which is a DUP table, so it carries the row lsns its own binlog writes as well.
+            createMvByNereids("create materialized view row_binlog_schema_detail "
+                    + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                     + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                     + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
                     + "'binlog.format' = 'ROW') \n"
@@ -570,14 +562,19 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV ivmMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_ivm");
         MTMV dupMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_dup");
+        MTMV detailMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_detail");
         MTMV plainMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_plain");
 
+        Assertions.assertTrue(ivmMv.isIvmUniqueKeysTable());
         Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL), rowBinlogHiddenColumns(ivmMv));
         Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL, Column.ROW_LSN_COL),
                 rowBinlogHiddenColumns(dupMv));
+        Assertions.assertTrue(detailMv.isIvmAppendOnlyDupTable());
+        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL, Column.ROW_LSN_COL),
+                rowBinlogHiddenColumns(detailMv));
         Assertions.assertTrue(rowBinlogHiddenColumns(plainMv).isEmpty());
 
-        for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, plainMv)) {
+        for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, detailMv, plainMv)) {
             ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv,
                     MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
             Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx),
@@ -714,7 +711,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         createMvByNereids("create materialized view mv_ivm_unique_key "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -746,7 +743,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "KEY(id)\n"
                 + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -768,7 +765,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DUPLICATE KEY(id)\n"
                 + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -828,7 +825,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         createMvByNereids("create materialized view mv_ivm_rowid_check "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");

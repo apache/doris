@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.mtmv.ivm.IvmNormalizeDupKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
@@ -55,14 +54,6 @@ import java.util.List;
  * normalized here.
  */
 public class IvmNormalizeMTMV implements CustomRewriter {
-    /**
-     * Debug point that settles a statement on the unique-key model whatever its query would be judged.
-     * Unit tests that describe that model's layout -- the row-id column, its distribution, the physical
-     * key order -- turn it on, so a query an append-only detail MV could hold is still laid out the way
-     * those tests describe. The detail model has tests of its own.
-     */
-    public static final String DEBUG_POINT_FORCE_UNIQUE_KEYS = "IvmNormalizeMTMV.force_unique_keys";
-
     private static final Logger LOG = LogManager.getLogger(IvmNormalizeMTMV.class);
 
     @Override
@@ -122,12 +113,12 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         Preconditions.checkState(rewriteContext.isCreate(),
                 "an IVM rewrite without an MV can only be CREATE, but its mode is: %s",
                 rewriteContext.getMode());
-        return judgeKeysType(plan);
+        return judgeKeysType(plan, rewriteContext);
     }
 
     /**
-     * Decides which key type an MV being created must be built with, from the query and its base
-     * tables alone.
+     * Decides which key type an MV being created must be built with, from the query, its base tables
+     * and the MV's creation-time properties.
      *
      * <p>{@link KeysType#DUP_KEYS} means the MV is a detail table a refresh only ever appends to,
      * and it needs both halves of "no refresh can undo or rewrite a row the MV already holds": every
@@ -139,9 +130,14 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      * need the row-id path is outside what the normalize supports and is rejected there instead
      * (UNION DISTINCT, semi/anti joins, windows, limits), which is why this names the two rather
      * than every shape that is not.
+     *
+     * <p>A query that qualifies for the detail model is still built on the unique-key one when the MV
+     * is created with {@code ivm_force_mow}, which is the user's way to ask for the model that
+     * retracts: this is the one place creation reads it, and afterwards the model is what the MV's
+     * own key type says.
      */
-    private KeysType judgeKeysType(Plan plan) {
-        if (DebugPointUtil.isEnable(DEBUG_POINT_FORCE_UNIQUE_KEYS)) {
+    private KeysType judgeKeysType(Plan plan, IvmRewriteContext rewriteContext) {
+        if (rewriteContext.isForceMow()) {
             return KeysType.UNIQUE_KEYS;
         }
         boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate

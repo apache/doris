@@ -159,7 +159,6 @@ public class MTMV extends OlapTable {
         this.ivmInfo = new IvmInfo();
         this.ivmInfo.setEnableIvm(params.enableIvm);
         if (params.enableIvm) {
-            this.ivmInfo.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(params.mvProperties));
             // The unique-key model pins the layout its refresh reads down by a signature, so an MV of that
             // model without one is a bug in the create path. An append-only detail MV publishes none: its
             // refresh reads no layout, and it has no sequence column for a signature to order either.

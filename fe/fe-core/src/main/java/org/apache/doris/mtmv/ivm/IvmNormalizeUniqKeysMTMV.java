@@ -22,7 +22,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggColumnKey;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
@@ -266,10 +266,11 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         if (ivmRewriteContext.getUseFullKeys() != null) {
             return ivmRewriteContext.getUseFullKeys();
         }
-        // CREATE has no MV yet, so its full-keys setting can only come from the context.
+        // CREATE has no MV yet, so its full-keys setting can only come from the context. Later statements
+        // read it from the MV's own properties, which are what CREATE persisted.
         MTMV mtmv = ivmRewriteContext.getMtmv();
-        if (mtmv != null && mtmv.getIvmInfo() != null) {
-            return mtmv.getIvmInfo().isUseFullKeys();
+        if (mtmv != null) {
+            return MTMVPropertyUtil.isIvmUseFullKeys(mtmv.getMvProperties());
         }
         return false;
     }
@@ -927,7 +928,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
-        validateUserOutputColumnNames(sink.getOutputExprs());
+        IvmUtil.validateUserOutputColumnNames(sink.getOutputExprs());
         Plan newChild = sink.child().accept(this, context);
         List<NamedExpression> baseOutputs = materializeDroppedAggState(
                 rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(), context.isFirstNonSink));
@@ -966,16 +967,6 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             rewriteResult.setIdentityKeySlots(sinkKeys);
         }
         return result;
-    }
-
-    private void validateUserOutputColumnNames(List<NamedExpression> outputs) {
-        for (NamedExpression output : outputs) {
-            try {
-                FeNameFormat.checkColumnName(output.getName());
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage(), e);
-            }
-        }
     }
 
     @Override
