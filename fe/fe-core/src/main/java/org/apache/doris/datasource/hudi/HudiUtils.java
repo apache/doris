@@ -183,7 +183,8 @@ public class HudiUtils {
             case DOUBLE:
                 return Type.DOUBLE;
             case STRING:
-                return Type.STRING;
+                // Avro UUID is logical metadata over STRING, not an ordinary text column.
+                return logicalType != null && "uuid".equals(logicalType.getName()) ? Type.UUID : Type.STRING;
             case FIXED:
             case BYTES:
                 return handleFixedOrBytesType(logicalType);

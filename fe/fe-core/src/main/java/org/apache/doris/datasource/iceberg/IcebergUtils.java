@@ -155,7 +155,6 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -293,6 +292,11 @@ public class IcebergUtils {
                 return false;
             }
             PartitionField partitionField = fields.get(0);
+            org.apache.iceberg.types.Type sourceType = spec.schema().findType(partitionField.sourceId());
+            // Calendar boundaries and NULL sentinels can exceed the signed nanosecond domain.
+            if (sourceType == null || sourceType.typeId() == TypeID.TIMESTAMP_NANO) {
+                return false;
+            }
             String transformName = partitionField.transform().toString();
             if (!YEAR.equals(transformName)
                     && !MONTH.equals(transformName)
@@ -332,7 +336,18 @@ public class IcebergUtils {
         }
     }
 
+    public static Expression convertToIcebergExpr(Expr expr, Schema schema, Set<Integer> unsafeNanosFields) {
+        // Drop the whole unsafe conjunct before conversion, including under NOT: negating a
+        // partially widened operand would incorrectly prune matching files.
+        return IcebergTimestampUtils.referencesUnsafe(expr, schema, unsafeNanosFields)
+                ? null : convertToIcebergExpr(expr, schema);
+    }
+
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
+        return convertToIcebergExpr(expr, schema, false);
+    }
+
+    private static Expression convertToIcebergExpr(Expr expr, Schema schema, boolean requireExact) {
         if (expr == null) {
             return null;
         }
@@ -351,10 +366,12 @@ public class IcebergUtils {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
-                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
+                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema, requireExact);
+                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema, requireExact);
                     if (left != null && right != null) {
                         expression = Expressions.and(left, right);
+                    } else if (requireExact) {
+                        return null;
                     } else if (left != null) {
                         return left;
                     } else if (right != null) {
@@ -363,15 +380,16 @@ public class IcebergUtils {
                     break;
                 }
                 case OR: {
-                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
-                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
+                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema, requireExact);
+                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema, requireExact);
                     if (left != null && right != null) {
                         expression = Expressions.or(left, right);
                     }
                     break;
                 }
                 case NOT: {
-                    Expression child = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
+                    // Negation must never invert a widened operand after a nanos conversion fails.
+                    Expression child = convertToIcebergExpr(compoundPredicate.getChild(0), schema, true);
                     if (child != null) {
                         expression = Expressions.not(child);
                     }
@@ -391,11 +409,11 @@ public class IcebergUtils {
                 case LT:
                 case EQ_FOR_NULL:
                     BinaryPredicate eq = (BinaryPredicate) expr;
-                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
+                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0), schema);
                     LiteralExpr literalExpr = null;
                     if (slotRef == null && eq.getChild(0).isLiteral()) {
                         literalExpr = (LiteralExpr) eq.getChild(0);
-                        slotRef = convertDorisExprToSlotRef(eq.getChild(1));
+                        slotRef = convertDorisExprToSlotRef(eq.getChild(1), schema);
                     } else if (eq.getChild(1).isLiteral()) {
                         literalExpr = (LiteralExpr) eq.getChild(1);
                     }
@@ -447,7 +465,7 @@ public class IcebergUtils {
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
-            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
+            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0), schema);
             if (slotRef == null) {
                 return null;
             }
@@ -478,7 +496,7 @@ public class IcebergUtils {
             }
         }
 
-        return checkConversion(expression, schema);
+        return checkConversion(expression, schema, requireExact);
     }
 
     private static Types.NestedField getPushdownField(Schema schema, String colName) {
@@ -489,17 +507,19 @@ public class IcebergUtils {
         return schema.caseInsensitiveFindField(colName);
     }
 
-    private static Expression checkConversion(Expression expression, Schema schema) {
+    private static Expression checkConversion(Expression expression, Schema schema, boolean requireExact) {
         if (expression == null) {
             return null;
         }
         switch (expression.op()) {
             case AND: {
                 And andExpr = (And) expression;
-                Expression left = checkConversion(andExpr.left(), schema);
-                Expression right = checkConversion(andExpr.right(), schema);
+                Expression left = checkConversion(andExpr.left(), schema, requireExact);
+                Expression right = checkConversion(andExpr.right(), schema, requireExact);
                 if (left != null && right != null) {
                     return andExpr;
+                } else if (requireExact) {
+                    return null;
                 } else if (left != null) {
                     return left;
                 } else if (right != null) {
@@ -510,8 +530,8 @@ public class IcebergUtils {
             }
             case OR: {
                 Or orExpr = (Or) expression;
-                Expression left = checkConversion(orExpr.left(), schema);
-                Expression right = checkConversion(orExpr.right(), schema);
+                Expression left = checkConversion(orExpr.left(), schema, requireExact);
+                Expression right = checkConversion(orExpr.right(), schema, requireExact);
                 if (left == null || right == null) {
                     return null;
                 } else {
@@ -520,7 +540,7 @@ public class IcebergUtils {
             }
             case NOT: {
                 Not notExpr = (Not) expression;
-                Expression child = checkConversion(notExpr.child(), schema);
+                Expression child = checkConversion(notExpr.child(), schema, true);
                 if (child == null) {
                     return null;
                 } else {
@@ -545,6 +565,23 @@ public class IcebergUtils {
     }
 
     public static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {
+        if (icebergType.typeId() == TypeID.UUID) {
+            // UUID file bounds may use a different order from Iceberg's evaluator, even for equality.
+            // Keep value predicates as Doris residuals; null-count predicates are still safe.
+            return null;
+        }
+        if (icebergType.typeId() == TypeID.TIMESTAMP_NANO) {
+            if (expr instanceof NullLiteral || ((Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
+                return null;
+            }
+            try {
+                // Iceberg treats raw Long literals as micros; preserve the unit explicitly.
+                return Expressions.nanos(IcebergTimestampUtils.parseNanos(expr.getStringValue(), ZoneOffset.UTC));
+            } catch (IllegalArgumentException | ArithmeticException | java.time.DateTimeException
+                    | org.apache.doris.nereids.exceptions.AnalysisException e) {
+                return null;
+            }
+        }
         TypeID icebergTypeID = icebergType.typeId();
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
@@ -666,13 +703,19 @@ public class IcebergUtils {
         return null;
     }
 
-    private static SlotRef convertDorisExprToSlotRef(Expr expr) {
+    private static SlotRef convertDorisExprToSlotRef(Expr expr, Schema schema) {
         SlotRef slotRef = null;
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
         } else if (expr instanceof CastExpr) {
             if (expr.getChild(0) instanceof SlotRef) {
                 slotRef = (SlotRef) expr.getChild(0);
+                Types.NestedField field = getPushdownField(schema, slotRef.getColumnName());
+                // Rounding a nanos column changes which rows match; stripping that cast can prune matches.
+                if (field != null && field.type().typeId() == TypeID.TIMESTAMP_NANO
+                        && !expr.getType().equals(Type.TIMESTAMP_NS)) {
+                    return null;
+                }
             }
         }
         return slotRef;
@@ -756,7 +799,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return Type.UUID;
             case BINARY:
                 // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
                 // STRING makes Arrow clients reject otherwise valid Iceberg values.
@@ -777,6 +820,10 @@ public class IcebergUtils {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
+            case TIMESTAMP_NANO:
+                // Unzoned nanos have a wall-clock carrier; zoned nanos remain unsupported.
+                return ((Types.TimestampNanoType) primitive).shouldAdjustToUTC()
+                        ? Type.UNSUPPORTED : Type.TIMESTAMP_NS;
             case TIME:
                 return Type.UNSUPPORTED;
             default:
@@ -1183,6 +1230,8 @@ public class IcebergUtils {
                 long micros = (Long) value;
                 LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_NANO:
+                return value == null ? null : Transforms.identity(type).toHumanString(type, value);
             case TIMESTAMP:
                 if (value == null) {
                     return null;
@@ -1328,10 +1377,13 @@ public class IcebergUtils {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Int string: " + value, e);
                 }
+            case TIMESTAMP_NANO:
+                // ADD COLUMN sends validated SQL text, while integer metadata is already nanos.
+                return Expressions.nanos(value.matches("[+-]?[0-9]+") ? Long.parseLong(value)
+                        : IcebergTimestampUtils.parseNanos(value, ZoneOffset.UTC));
             case LONG:
             case TIME:
             case TIMESTAMP:
-            case TIMESTAMP_NANO:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {
@@ -1398,7 +1450,8 @@ public class IcebergUtils {
                     return valueStr;
                 case UUID:
                     if (!valueStr.startsWith("0x")) {
-                        return UUID.fromString(valueStr);
+                        // Static SQL partitions accept the same compact UUID text as the sink cast.
+                        return new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(valueStr).getValue();
                     }
                     ByteBuffer uuidBytes = decodeBinaryPartitionValue(valueStr);
                     Preconditions.checkArgument(uuidBytes.remaining() == 16, "UUID requires 16 bytes");
@@ -1423,6 +1476,9 @@ public class IcebergUtils {
                 case DATE:
                     // Parse date string (format: yyyy-MM-dd) to epoch day
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIMESTAMP_NANO:
+                    return IcebergTimestampUtils.parseNanos(valueStr,
+                            org.apache.doris.nereids.util.DateUtils.getTimeZone());
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
                 case TIME:
@@ -1627,7 +1683,7 @@ public class IcebergUtils {
             return SingleValueParser.toJson(type, value);
         }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
-        if (type.typeId() == TypeID.TIMESTAMP) {
+        if (type.typeId() == TypeID.TIMESTAMP || type.typeId() == TypeID.TIMESTAMP_NANO) {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
             // Doris' DATETIMEV2 default parser requires a space between the date and time.
             String dorisValue = humanValue.replace('T', ' ');
@@ -1660,8 +1716,8 @@ public class IcebergUtils {
 
     /**
      * Return binary-like initial defaults in a lossless transport representation. These defaults
-     * cannot be carried as raw Java strings and their Doris type is insufficient to identify them
-     * when varbinary mapping is disabled, because UUID/BINARY/FIXED then map to STRING/CHAR.
+     * cannot be carried as raw Java strings. UUID defaults instead use canonical text and their
+     * native Doris UUID type.
      */
     public static Map<Integer, String> getBase64EncodedInitialDefaults(Schema schema) {
         Map<Integer, String> result = Maps.newHashMap();
@@ -1702,8 +1758,7 @@ public class IcebergUtils {
     /**
      * Return every binary-like field id, including list elements and map keys/values without a
      * field-level default. BE needs this type identity while decoding binary values nested inside
-     * a complex initial-default JSON value because Iceberg STRING, UUID, FIXED, and BINARY can all
-     * map to a Doris string type.
+     * a complex initial-default JSON value, whose string tokens do not identify binary payloads.
      */
     public static Set<Integer> getBinaryLikeFieldIds(Schema schema) {
         return getBinaryLikeFieldIds(schema.columns());
@@ -1735,19 +1790,11 @@ public class IcebergUtils {
     }
 
     public static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
-        return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY
-                || type.typeId() == TypeID.FIXED;
+        return type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
     }
 
     private static String serializeBinaryInitialDefault(org.apache.iceberg.types.Type type, Object value) {
-        if (type.typeId() != TypeID.UUID) {
-            return Transforms.identity(type).toHumanString(type, value);
-        }
-        UUID uuid = (UUID) value;
-        ByteBuffer bytes = ByteBuffer.allocate(16);
-        bytes.putLong(uuid.getMostSignificantBits());
-        bytes.putLong(uuid.getLeastSignificantBits());
-        return Base64.getEncoder().encodeToString(bytes.array());
+        return Transforms.identity(type).toHumanString(type, value);
     }
 
     /**

@@ -455,12 +455,10 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             sql "set enable_paimon_rust_reader=true"
             assertEquals(expected.toString(), sql(query).toString())
             if (index == 2) {
-                def profile = profileTextOf(query)
-                assertTrue(profile.contains("PaimonRustReader"))
-                assertTrue(counterValues(profile, "RustRuntimeFiltersInput").any { it > 0 },
-                        "the IN filter must arrive before opening the Rust split")
-                assertTrue(counterValues(profile, "RustRuntimeFiltersApplied").every { it == 0 },
-                        "lossy-domain runtime filters must stay residual")
+                // Native TIMESTAMP_NS requires JNI until the Rust bridge transports all nine digits.
+                def profile = profileTextOf(query, false)
+                assertFalse(profile.contains("PaimonRustReader"),
+                        "nanosecond timestamps must retain the precision-preserving JNI route")
             }
         }
 

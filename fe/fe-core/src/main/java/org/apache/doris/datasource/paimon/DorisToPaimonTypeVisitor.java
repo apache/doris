@@ -114,6 +114,8 @@ public class DorisToPaimonTypeVisitor extends DorisTypeVisitor<DataType> {
             // Paimon interprets numeric timestamp strings in units derived from this precision.
             return new TimestampType(primitiveType.equals(PrimitiveType.DATETIMEV2)
                     ? ((ScalarType) atomic).getScalarScale() : 0);
+        } else if (primitiveType.equals(PrimitiveType.TIMESTAMP_NS)) {
+            return new TimestampType(9);
         } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
             // TIMESTAMPTZ represents an instant, so map it to Paimon's local-zoned timestamp.
             return new LocalZonedTimestampType(((ScalarType) atomic).getScalarScale());

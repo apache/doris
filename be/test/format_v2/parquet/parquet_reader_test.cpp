@@ -49,6 +49,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
@@ -76,6 +77,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
+#include "format_v2/schema_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
@@ -2287,10 +2289,7 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                             std::vector<format::ColumnDefinition> schema;
                             ASSERT_TRUE(reader->get_schema(&schema).ok());
                             ASSERT_EQ(schema.size(), 1);
-                            auto expected_type = preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
-                            if (mapping) {
-                                expected_type = TYPE_VARBINARY;
-                            }
+                            auto expected_type = TYPE_UUID;
                             EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
                                       expected_type);
                             auto request = std::make_shared<format::FileScanRequest>();
@@ -2313,20 +2312,9 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                                     if (expected_null) {
                                         continue;
                                     }
-                                    if (mapping || preserve_binary_uuid) {
-                                        const auto value =
-                                                column.get_nested_column().get_data_at(row);
-                                        EXPECT_EQ(value.size, bytes.size());
-                                        EXPECT_EQ(value.to_string(),
-                                                  std::string(reinterpret_cast<const char*>(
-                                                                      bytes.data()),
-                                                              bytes.size()));
-                                    } else {
-                                        EXPECT_EQ(remove_nullable(schema[0].type)
-                                                          ->to_string(column.get_nested_column(),
-                                                                      row),
-                                                  "00112233-4455-6677-8899-aabbccddeeff");
-                                    }
+                                    EXPECT_EQ(remove_nullable(schema[0].type)
+                                                      ->to_string(column.get_nested_column(), row),
+                                              "00112233-4455-6677-8899-aabbccddeeff");
                                 }
                                 total += rows;
                             }
@@ -2357,17 +2345,17 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
 }
 
-TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
+TEST_F(NewParquetReaderTest, RawByteArrayMappingIgnoresLegacyOption) {
     write_unannotated_binary_parquet_file(_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
-    auto string_reader = create_reader();
-    const auto string_init_status = string_reader->init(&state);
-    ASSERT_TRUE(string_init_status.ok()) << string_init_status;
-    std::vector<format::ColumnDefinition> string_schema;
-    ASSERT_TRUE(string_reader->get_schema(&string_schema).ok());
-    ASSERT_EQ(string_schema.size(), 1);
-    EXPECT_EQ(remove_nullable(string_schema[0].type)->get_primitive_type(), TYPE_STRING);
+    auto default_reader = create_reader();
+    const auto default_init_status = default_reader->init(&state);
+    ASSERT_TRUE(default_init_status.ok()) << default_init_status;
+    std::vector<format::ColumnDefinition> default_schema;
+    ASSERT_TRUE(default_reader->get_schema(&default_schema).ok());
+    ASSERT_EQ(default_schema.size(), 1);
+    EXPECT_EQ(remove_nullable(default_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     RuntimeProfile binary_profile("raw_binary_mapping_profile");
     auto binary_reader =
@@ -2377,7 +2365,7 @@ TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
     std::vector<format::ColumnDefinition> binary_schema;
     ASSERT_TRUE(binary_reader->get_schema(&binary_schema).ok());
     ASSERT_EQ(binary_schema.size(), 1);
-    // The explicit VARBINARY mapping must remain available for scans whose table contract asks for it.
+    // The legacy option cannot reinterpret raw bytes as text.
     EXPECT_EQ(remove_nullable(binary_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -3803,7 +3791,7 @@ TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
     EXPECT_EQ(decimals.get_element(1), Decimal128V3(-1));
     EXPECT_EQ(decimals.get_element(3), Decimal128V3(-987654321));
 
-    const auto& fixed_values = assert_cast<const ColumnString&>(
+    const auto& fixed_values = assert_cast<const ColumnVarbinary&>(
             assert_cast<const ColumnNullable&>(*output[1]).get_nested_column());
     ASSERT_EQ(fixed_values.size(), ROW_COUNT);
     EXPECT_EQ(fixed_values.get_data_at(0).to_string(), "ABCD");
@@ -3943,6 +3931,65 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
     // Enabling instant mappings cannot invent timezone semantics for unannotated INT96.
     EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}, true), "2025-01-01 00:00:00.000000");
     EXPECT_EQ(read_first_value(std::string {}, true), "2024-12-31 16:00:00.000000");
+}
+
+TEST_F(NewParquetReaderTest, NanosecondsSurviveWallClockProjectionAndDictionary) {
+    const std::vector<int64_t> nanos = {
+            std::numeric_limits<int64_t>::min(), -1, 0, 1, 123456788, 123456789,
+            std::numeric_limits<int64_t>::max()};
+    auto arrow_type = arrow::timestamp(arrow::TimeUnit::NANO);
+    auto array = build_timestamp_array(arrow_type, nanos);
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("ts", arrow_type, true)}), {array});
+    for (bool dictionary : {false, true}) {
+        auto file = arrow::io::FileOutputStream::Open(_file_path);
+        ASSERT_TRUE(file.ok());
+        ::parquet::WriterProperties::Builder properties;
+        properties.version(::parquet::ParquetVersion::PARQUET_2_6);
+        if (dictionary) {
+            properties.enable_dictionary();
+        } else {
+            properties.disable_dictionary();
+        }
+        ASSERT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *file,
+                                                 nanos.size(), properties.build())
+                            .ok());
+        ASSERT_TRUE((*file)->Close().ok());
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        TFileScanRangeParams params;
+        params.__set_file_type(TFileType::FILE_S3);
+        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        TFileRangeDesc range;
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_path(_file_path);
+        std::vector<format::ColumnDefinition> tvf_schema;
+        ASSERT_TRUE(format::fetch_file_schema(params, range, std::make_shared<io::IOContext>(),
+                                              nullptr, &tvf_schema)
+                            .ok());
+        ASSERT_EQ(tvf_schema.size(), 1);
+        EXPECT_EQ(tvf_schema[0].type->get_primitive_type(), TYPE_TIMESTAMP_NS);
+        ASSERT_EQ(1, schema.size());
+        ASSERT_EQ(TYPE_TIMESTAMP_NS, schema[0].type->get_primitive_type());
+        auto projection = field_projection(0);
+        projection.timestamp_is_adjusted_to_utc = false;
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {projection};
+        ASSERT_TRUE(reader->open(request).ok());
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(nanos.size(), rows);
+        const auto& values = nullable_nested_column<ColumnTimeStampNs>(block, 0);
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_EQ(nanos[row], values.get_element(row).epoch_nanos());
+        }
+    }
 }
 
 TEST_F(NewParquetReaderTest, Int96UsesPerColumnTimestampSemantics) {
@@ -5155,8 +5202,9 @@ TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionary
     EXPECT_EQ(total_rows, 6);
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    // The fixed binary file leaf now has VARBINARY semantics and stays on residual filtering.
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 4);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 1);
     EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
 }
 

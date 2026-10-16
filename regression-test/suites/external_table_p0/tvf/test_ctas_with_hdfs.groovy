@@ -29,6 +29,9 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
         String tableName = "ctas_tvf_1";
         def uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc/orc_all_types/p1_col=desktops/p2_col=bigint_col/*"
 
+        // These fixtures contain textual bytes; internal CTAS requires an explicit conversion from VARBINARY.
+        String projection = "* REPLACE(CAST(binary_col AS STRING) AS binary_col)"
+
         // test varchar type as partition column
         sql """drop table if exists ${tableName}; """
         sql """ create table ${tableName}
@@ -38,7 +41,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select ${projection} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -58,7 +61,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${projection} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -79,7 +82,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${projection} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -100,7 +103,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select ${projection} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -116,7 +119,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             DISTRIBUTED BY HASH(p1_col) BUCKETS 10
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select ${projection} from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",

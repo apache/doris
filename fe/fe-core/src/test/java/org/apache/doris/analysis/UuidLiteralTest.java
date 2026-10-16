@@ -56,4 +56,14 @@ public class UuidLiteralTest {
                     JdbcScanNode.conjunctExprToString(TOdbcTableType.CLICKHOUSE, predicate, null));
         }
     }
+
+    @Test
+    public void testTrinoUsesTypedUuidLiterals() throws Exception {
+        org.apache.doris.catalog.JdbcTable table = org.mockito.Mockito.mock(org.apache.doris.catalog.JdbcTable.class);
+        org.mockito.Mockito.when(table.getJdbcTableType()).thenReturn(TOdbcTableType.TRINO);
+        UuidLiteral value = new UuidLiteral("80000000000000000000000000000000");
+        Assert.assertEquals("UUID '80000000-0000-0000-0000-000000000000'",
+                value.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, table));
+    }
+
 }

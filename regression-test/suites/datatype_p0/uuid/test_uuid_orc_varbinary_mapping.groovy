@@ -50,16 +50,18 @@ suite("test_uuid_orc_varbinary_mapping") {
         sql """SELECT id, u, a, m, s, CAST(b AS VARBINARY) AS b
                FROM uuid_orc_varbinary_mapping ORDER BY id
                INTO OUTFILE "file://${outputDirectory}/orc_" FORMAT AS ORC"""
-        for (boolean scannerV2 : [false, true]) {
+        // The unconditional native mapping contract is implemented by FileScanner V2.
+        for (boolean scannerV2 : [true]) {
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
             for (boolean binaryMapping : [false, true]) {
                 String source = """local("file_path"="${outputDirectory.fileName}/orc_*",
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
-                String uuidValue = binaryMapping ? "CAST(HEX(u) AS UUID)" : "u"
-                String nestedValue = binaryMapping ? "CAST(HEX(value) AS UUID)" : "value"
-                String structValue = binaryMapping ? "CAST(HEX(s.k) AS UUID)" : "s.k"
+                // UUID annotations override physical binary mapping, including nested leaves.
+                String uuidValue = "u"
+                String nestedValue = "value"
+                String structValue = "s.k"
                 "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, ${uuidValue},
                         ARRAY_MAP(value -> ${nestedValue}, a),
                         ARRAY_MAP(value -> ${nestedValue}, MAP_KEYS(m)),

@@ -28,6 +28,7 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
         def originalTimeZone = sql "SELECT @@time_zone"
         try {
             // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
             // Pin the display timezone so the golden results do not depend on the FE default.
             sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/decimal32-written-as-64-bit.snappy.parquet"
@@ -198,6 +199,7 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // V2 schema discovery honors logical annotations instead of exposing raw BYTE_ARRAY.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/parquet-thrift-compat.snappy.parquet"
             order_qt_test_24 """ select * from HDFS(
                         "uri" = "${uri}",

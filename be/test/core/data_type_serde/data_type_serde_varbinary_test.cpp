@@ -667,4 +667,36 @@ TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithRawBytes) {
     }
 }
 
+TEST_F(DataTypeVarbinarySerDeTest, OrcBinaryPreservesSelectedNullAndEmptyValues) {
+    auto type = ::orc::createPrimitiveType(::orc::BINARY);
+    ::orc::StringVectorBatch batch(4, *::orc::getDefaultPool());
+    batch.numElements = 4;
+    batch.hasNulls = true;
+    std::string bytes("a\0b\xff", 4);
+    for (size_t i = 0; i < 4; ++i) {
+        batch.notNull[i] = i != 1;
+        batch.data[i] = bytes.data();
+        batch.length[i] = bytes.size();
+    }
+    batch.data[1] = nullptr;
+    batch.length[1] = -1; // NULL payloads must never be inspected.
+    batch.data[2] = nullptr;
+    batch.length[2] = 0;
+    std::vector<size_t> selected {3, 1, 2, 0};
+    OrcDecodedColumnView view {
+            .file_type = type.get(), .batch = &batch, .rows = 4, .selected_rows = &selected};
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    }
+    ASSERT_EQ(column->size(), 8);
+    for (size_t i = 0; i < column->size(); ++i) {
+        EXPECT_EQ(column->get_data_at(i).to_string(), (i % 4 == 0 || i % 4 == 3) ? bytes : "");
+    }
+    batch.length[3] = -1;
+    auto invalid = ColumnVarbinary::create();
+    EXPECT_FALSE(serde.read_column_from_orc(*invalid, view).ok());
+}
+
 } // namespace doris
