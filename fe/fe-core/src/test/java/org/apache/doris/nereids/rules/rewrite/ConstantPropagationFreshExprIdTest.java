@@ -67,6 +67,11 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY k, v)"
             + " SELECT l.k, l.v, l.cnt, r.k, r.v, r.cnt FROM c l CROSS JOIN c r";
 
+    private static final String SQL_MATERIALIZED_CTE_CONSTANT_COLUMN
+            = "WITH c AS (SELECT v, k + 0 AS x, count(*) AS cnt"
+            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY v, k)"
+            + " SELECT l.v, l.x, l.cnt, r.v, r.x, r.cnt FROM c l CROSS JOIN c r";
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -158,8 +163,14 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     void testMaterializedCteConsumerMapsStayValid() throws Exception {
         // the producer body and the consumers are rewritten in different subtree contexts and the consumers are
         // rewritten first, so the fresh exprIds of the producer outputs must not cross the CTE boundary
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite();
-        Plan plan = checker.getPlan();
+        Plan plan = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite().getPlan();
+        assertCteConsumerMapsStayValid(plan);
+        // the query has to stay plannable
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
+    }
+
+    /** Every producer slot a CTE consumer maps to has to be an output slot of the producer. */
+    private static void assertCteConsumerMapsStayValid(Plan plan) {
         Set<ExprId> producerOutputExprIds = new java.util.HashSet<>();
         Set<LogicalCTEConsumer> consumers = new java.util.HashSet<>();
         plan.foreach(node -> {
@@ -183,8 +194,17 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
                                 + " which the producer does not output: " + plan.treeString());
             }
         }
-        // the query has to stay plannable
-        PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
+    }
+
+    @Test
+    void testMaterializedCteKeepsConstantProducerOutput() {
+        // `k + 0` is uniform (k = 5), so it folds to a constant, but it is an output of the CTE producer and not
+        // a grouping key: the producer has to keep it as it is, its consumers map it by exprId
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(SQL_MATERIALIZED_CTE_CONSTANT_COLUMN).rewrite().getPlan();
+        assertCteConsumerMapsStayValid(plan);
+        Assertions.assertEquals(3, ((LogicalCTEProducer<?>) plan.child(0)).getOutput().size(), plan.treeString());
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE_CONSTANT_COLUMN);
     }
 
     private static LogicalProject<?> findConstantProject(Plan plan) {

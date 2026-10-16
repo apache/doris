@@ -254,7 +254,15 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             // agg output need contains group by expression
             Expression replacedExpr = replaceConstants(expr, false, rewriteContext,
                     childEqualTrait.first, childEqualTrait.second);
-            Expression newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
+            Expression newOutputExpr;
+            if (isCteProducerOutput(expr)) {
+                // the consumers of the CTE map this output of the producer by its exprId, so the aggregate has to
+                // keep the output expression itself: the constant is not materialized for this column, and since
+                // the definition does not change, the exprId keeps describing one and the same column
+                newOutputExpr = expr;
+            } else {
+                newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
+            }
             if (newOutputExpr instanceof NamedExpression) {
                 newOutputExprs.add((NamedExpression) newOutputExpr);
             }
