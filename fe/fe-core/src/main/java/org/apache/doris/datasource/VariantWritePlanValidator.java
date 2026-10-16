@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -35,14 +36,20 @@ import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -66,7 +73,8 @@ public final class VariantWritePlanValidator {
      * sink will only see that scalar/NULL and encode it back as Variant. Explicit casts remain an
      * intentional user conversion and are not rejected. Only the expressions whose values can reach
      * the target are inspected: the condition of an IF or of a CASE branch only chooses a value, so a
-     * Variant path compared with a scalar there loses nothing that is written.</p>
+     * Variant path compared with a scalar there loses nothing that is written. Likewise the later
+     * inputs of EXCEPT and INTERSECT only decide which rows of the first input stay.</p>
      */
     public static void validateNoLossyCoercion(List<Column> targetColumns, Plan sourcePlan) {
         validateNoLossyCoercion(targetColumns, sourcePlan, Optional.empty());
@@ -192,20 +200,53 @@ public final class VariantWritePlanValidator {
     private static Set<ExprId> traceRecursiveCte(
             Plan plan, RecursiveCte recursiveCte, Set<ExprId> requiredExprIds,
             String targetColumn, TraceContext context) {
+        // The recursive term reads the previous iteration through the work table, so a column it writes
+        // can carry the value of another column. Trace those columns as well until no new one is reached.
+        Map<ExprId, Integer> workTableOrdinals = workTableOrdinals(plan);
         Set<ExprId> externalExprIds = new HashSet<>();
-        Set<Integer> requiredOrdinals = requiredOutputOrdinals(plan, requiredExprIds);
-        for (int childIndex = 0; childIndex < plan.arity(); childIndex++) {
-            List<SlotReference> childOutputs = recursiveCte.getRegularChildOutput(childIndex);
-            Set<ExprId> childRequiredExprIds = new HashSet<>();
-            for (int ordinal : requiredOrdinals) {
-                if (ordinal < childOutputs.size()) {
-                    childRequiredExprIds.add(childOutputs.get(ordinal).getExprId());
+        Set<Integer> tracedOrdinals = new HashSet<>();
+        Set<Integer> pendingOrdinals = requiredOutputOrdinals(plan, requiredExprIds);
+        while (!pendingOrdinals.isEmpty()) {
+            tracedOrdinals.addAll(pendingOrdinals);
+            Set<ExprId> childExternalExprIds = new HashSet<>();
+            for (int childIndex = 0; childIndex < plan.arity(); childIndex++) {
+                List<SlotReference> childOutputs = recursiveCte.getRegularChildOutput(childIndex);
+                Set<ExprId> childRequiredExprIds = new HashSet<>();
+                for (int ordinal : pendingOrdinals) {
+                    if (ordinal < childOutputs.size()) {
+                        childRequiredExprIds.add(childOutputs.get(ordinal).getExprId());
+                    }
+                }
+                childExternalExprIds.addAll(traceOutputLineage(
+                        plan.child(childIndex), childRequiredExprIds, targetColumn, context));
+            }
+            pendingOrdinals = new HashSet<>();
+            for (ExprId exprId : childExternalExprIds) {
+                Integer ordinal = workTableOrdinals.get(exprId);
+                if (ordinal == null) {
+                    externalExprIds.add(exprId);
+                } else if (!tracedOrdinals.contains(ordinal)) {
+                    pendingOrdinals.add(ordinal);
                 }
             }
-            externalExprIds.addAll(traceOutputLineage(
-                    plan.child(childIndex), childRequiredExprIds, targetColumn, context));
         }
         return externalExprIds;
+    }
+
+    /** Maps each column of the work table the recursive term reads to the CTE output ordinal it holds. */
+    private static Map<ExprId, Integer> workTableOrdinals(Plan recursiveCte) {
+        CTEId cteId = ((LogicalRecursiveUnionAnchor<?>) recursiveCte.child(0)).getCteId();
+        List<LogicalWorkTableReference> workTables = recursiveCte.child(1).collectToList(
+                node -> node instanceof LogicalWorkTableReference
+                        && ((LogicalWorkTableReference) node).getCteId().equals(cteId));
+        Map<ExprId, Integer> ordinals = new HashMap<>();
+        for (LogicalWorkTableReference workTable : workTables) {
+            List<Slot> outputs = workTable.getOutput();
+            for (int ordinal = 0; ordinal < outputs.size(); ordinal++) {
+                ordinals.put(outputs.get(ordinal).getExprId(), ordinal);
+            }
+        }
+        return ordinals;
     }
 
     private static Set<ExprId> traceGenerate(
@@ -247,7 +288,12 @@ public final class VariantWritePlanValidator {
             }
         }
 
-        for (int childIndex = 0; childIndex < setOperation.getArity(); childIndex++) {
+        // EXCEPT and INTERSECT return rows of their first input; the later inputs only decide which of
+        // those rows stay, so none of their values is written.
+        int valueInputs = plan instanceof LogicalExcept || plan instanceof LogicalIntersect
+                ? 1
+                : setOperation.getArity();
+        for (int childIndex = 0; childIndex < valueInputs; childIndex++) {
             List<SlotReference> childOutputs = setOperation.getRegularChildOutput(childIndex);
             Set<ExprId> childRequiredExprIds = new HashSet<>();
             for (int ordinal : requiredOrdinals) {
@@ -275,21 +321,37 @@ public final class VariantWritePlanValidator {
     private static Set<ExprId> traceCteConsumer(
             LogicalCTEConsumer consumer, Set<ExprId> requiredExprIds,
             String targetColumn, TraceContext context) {
+        Set<ExprId> producerExprIds = new HashSet<>();
+        for (Map.Entry<Slot, Slot> mapping : consumer.getConsumerToProducerOutputMap().entrySet()) {
+            if (requiredExprIds.contains(mapping.getKey().getExprId())) {
+                producerExprIds.add(mapping.getValue().getExprId());
+            }
+        }
+        // A producer shared by several consumers is traced once per set of requested outputs, so the
+        // work stays proportional to the plan rather than to the number of paths through it.
+        Pair<CTEId, Set<ExprId>> traceKey = Pair.of(consumer.getCteId(), ImmutableSet.copyOf(producerExprIds));
+        Set<ExprId> completedTrace = context.completedCteTraces.get(traceKey);
+        if (completedTrace != null) {
+            return completedTrace;
+        }
         LogicalCTEProducer<?> producer = context.cteProducers.get(consumer.getCteId());
-        Optional<Plan> producerPlan = producer == null
-                ? context.findAnalyzerCteProducer(consumer)
-                : Optional.of(producer.child());
+        Optional<Plan> producerPlan;
+        if (producer == null) {
+            // A producer taken from the analyzer context is not part of the traced plan, so the
+            // producers of the WITH clauses nested in it have not been collected yet.
+            producerPlan = context.findAnalyzerCteProducer(consumer);
+            producerPlan.ifPresent(context::collectCteProducers);
+        } else {
+            producerPlan = Optional.of(producer.child());
+        }
         if (!producerPlan.isPresent() || !context.activeCteIds.add(consumer.getCteId())) {
             return Collections.emptySet();
         }
         try {
-            Set<ExprId> producerExprIds = new HashSet<>();
-            for (Map.Entry<Slot, Slot> mapping : consumer.getConsumerToProducerOutputMap().entrySet()) {
-                if (requiredExprIds.contains(mapping.getKey().getExprId())) {
-                    producerExprIds.add(mapping.getValue().getExprId());
-                }
-            }
-            return traceOutputLineage(producerPlan.get(), producerExprIds, targetColumn, context);
+            Set<ExprId> externalExprIds = ImmutableSet.copyOf(
+                    traceOutputLineage(producerPlan.get(), producerExprIds, targetColumn, context));
+            context.completedCteTraces.put(traceKey, externalExprIds);
+            return externalExprIds;
         } finally {
             context.activeCteIds.remove(consumer.getCteId());
         }
@@ -420,6 +482,8 @@ public final class VariantWritePlanValidator {
     private static final class TraceContext {
         private final Map<CTEId, LogicalCTEProducer<?>> cteProducers = new HashMap<>();
         private final Set<CTEId> activeCteIds = new HashSet<>();
+        // Completed producer traces, keyed by CTE and requested producer outputs, with the ExprIds they return.
+        private final Map<Pair<CTEId, Set<ExprId>>, Set<ExprId>> completedCteTraces = new HashMap<>();
         private final Optional<CTEContext> analyzerCteContext;
 
         private TraceContext(Plan sourcePlan, Optional<CTEContext> analyzerCteContext) {

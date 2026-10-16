@@ -41,8 +41,12 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -54,6 +58,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Function;
 
@@ -157,6 +162,20 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testRecursiveCteLossCarriedThroughAnotherColumnIsRejected() {
+        // The recursive term writes payload from the work table's a, so from the second row on payload holds
+        // what the anchor's a lost. MUTATION: tracing only the requested column of each term -> accepted.
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), recursiveCtePlan(0)));
+        Assertions.assertTrue(exception.getMessage().contains("implicitly casts VARIANT to INT"),
+                exception.getMessage());
+
+        // The anchor's a never reaches payload when the recursive term writes payload from payload.
+        VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), recursiveCtePlan(1));
+    }
+
+    @Test
     public void testScalarSubqueryLossIsRejected() {
         LogicalProject<?> lossyQueryPlan = projectExpression(variant -> new If(
                 BooleanLiteral.TRUE,
@@ -223,6 +242,47 @@ public class VariantWritePlanValidatorTest {
                 () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTarget(), source, cteContext));
         Assertions.assertTrue(exception.getMessage().contains("implicitly casts VARIANT to INT"),
                 exception.getMessage());
+    }
+
+    @Test
+    public void testWithNestedInAnalyzerContextProducerIsTraced() {
+        // A leading WITH binds its sink before the outer anchors exist, so the outer producer comes from the
+        // analyzer context and the WITH nested in it is not part of the traced plan. MUTATION: tracing the
+        // fetched producer without collecting its nested producers -> accepted.
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        Plan nestedWith = PlanChecker.from(connectContext).analyze(
+                "WITH inner_source AS (SELECT IF(TRUE, parse_to_variant('{\"lost\":true}'), 1) AS payload) "
+                        + "SELECT payload FROM inner_source").getPlan();
+        LogicalSubQueryAlias<Plan> producerPlan = new LogicalSubQueryAlias<>("outer_source", nestedWith);
+        // Far from the ids the analyzer gave the nested WITH.
+        CTEId cteId = new CTEId(1000);
+        CTEContext cteContext = new CTEContext(cteId, producerPlan, new CTEContext());
+        cteContext.setAnalyzedPlan(producerPlan);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                new RelationId(1000), cteId, "outer_source", producerPlan);
+        LogicalOneRowRelation source = oneRow(
+                new Alias(new ScalarSubquery(consumer), "payload"));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTarget(), source, cteContext));
+        Assertions.assertTrue(exception.getMessage().contains("input column 'payload'"), exception.getMessage());
+    }
+
+    @Test
+    public void testSharedCteProducerIsTracedOncePerRequestedOutputs() {
+        // Each CTE reads the previous one twice, so walking every path would trace c0 2^30 times. MUTATION:
+        // dropping the completed-trace cache -> times out.
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StringBuilder sql = new StringBuilder("WITH c0 AS (SELECT parse_to_variant('{\"k\":1}') AS payload)");
+        for (int level = 1; level <= 30; level++) {
+            sql.append(String.format(", c%d AS (SELECT payload FROM c%d UNION ALL SELECT payload FROM c%d)",
+                    level, level - 1, level - 1));
+        }
+        sql.append(" SELECT 1, payload FROM c30");
+        Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql.toString()).getPlan();
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(30),
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), analyzedPlan));
     }
 
     @Test
@@ -325,6 +385,32 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testLaterExceptAndIntersectInputsAreNotWrittenValues() {
+        // EXCEPT and INTERSECT write rows of their first input; the second input only decides which rows stay,
+        // so a lossy cast there writes nothing. MUTATION: tracing every set-operation input -> rejected.
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        String lossy = "IF(TRUE, parse_to_variant('{\"lost\":true}'), 1)";
+        String numeric = "CAST(1 AS DECIMAL(38, 9))";
+        for (String setOperator : ImmutableList.of("EXCEPT", "INTERSECT")) {
+            Plan membershipOnly = PlanChecker.from(connectContext).analyze(
+                    "SELECT 1, " + numeric + " AS payload " + setOperator + " SELECT 1, " + lossy).getPlan();
+            Assertions.assertDoesNotThrow(
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), membershipOnly),
+                    setOperator);
+
+            // The first input is written, so its lossy cast is still rejected.
+            Plan written = PlanChecker.from(connectContext).analyze(
+                    "SELECT 1, " + lossy + " AS payload " + setOperator + " SELECT 1, " + numeric).getPlan();
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(variantTargetWithId(), written),
+                    setOperator);
+            Assertions.assertTrue(exception.getMessage().contains("input column 'payload'"),
+                    exception.getMessage());
+        }
+    }
+
+    @Test
     public void testRowLevelDmlRoutingColumnsUseMappedSourceOrdinal() {
         LogicalOneRowRelation input = variantInput();
         Slot variantSlot = input.getOutput().get(0);
@@ -376,6 +462,42 @@ public class VariantWritePlanValidatorTest {
                 () -> VariantWritePlanValidator.validateNoLossyCoercion(targets, source));
         Assertions.assertTrue(exception.getMessage().contains("implicitly casts VARIANT to ARRAY<INT>"),
                 exception.getMessage());
+    }
+
+    /**
+     * {@code WITH RECURSIVE source(a, payload) AS (SELECT IF(TRUE, CAST(v AS INT), 1), 1 UNION ALL SELECT a, x
+     * FROM source) SELECT 1, payload FROM source}, shaped as AnalyzeCTE builds it, where x is the work-table
+     * column at {@code payloadSource}.
+     */
+    private static Plan recursiveCtePlan(int payloadSource) {
+        CTEId cteId = new CTEId(1);
+        LogicalOneRowRelation input = variantInput();
+        Plan anchor = new LogicalRecursiveUnionAnchor<>(cteId, new LogicalProject<>(ImmutableList.of(
+                new Alias(new If(
+                        BooleanLiteral.TRUE,
+                        new Cast(input.getOutput().get(0), IntegerType.INSTANCE),
+                        new IntegerLiteral(1)), "a"),
+                new Alias(new IntegerLiteral(1), "payload")), input));
+        LogicalWorkTableReference workTable = new LogicalWorkTableReference(
+                new RelationId(2), cteId, anchor.getOutput(), ImmutableList.of("source"));
+        List<Slot> previous = workTable.getOutput();
+        Plan recursive = new LogicalRecursiveUnionProducer<>("source", new LogicalProject<>(ImmutableList.of(
+                new Alias(previous.get(0), "a"),
+                new Alias(previous.get(payloadSource), "payload")), workTable));
+        Plan union = new LogicalRecursiveUnion<>(
+                "source",
+                Qualifier.ALL,
+                ImmutableList.of(
+                        new SlotReference("a", IntegerType.INSTANCE),
+                        new SlotReference("payload", IntegerType.INSTANCE)),
+                ImmutableList.of(slotReferences(anchor), slotReferences(recursive)),
+                ImmutableList.of(anchor, recursive));
+        return new LogicalProject<>(ImmutableList.of(
+                new Alias(new IntegerLiteral(1), "id"), union.getOutput().get(1)), union);
+    }
+
+    private static List<SlotReference> slotReferences(Plan plan) {
+        return plan.getOutput().stream().map(SlotReference.class::cast).collect(ImmutableList.toImmutableList());
     }
 
     private static LogicalUnion lossyUnionPlan() {
