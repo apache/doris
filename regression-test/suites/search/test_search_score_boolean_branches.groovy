@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_search_score_boolean_branches", "p0") {
+    // SEARCH has no row-scan fallback. Keep its index path enabled under CI session fuzzing.
+    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_inverted_index_query = true"
+
     sql "DROP TABLE IF EXISTS test_search_score_multi_column_mixed"
     sql """
         CREATE TABLE test_search_score_multi_column_mixed (
