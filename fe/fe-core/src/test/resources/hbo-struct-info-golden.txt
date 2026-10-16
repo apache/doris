@@ -21,7 +21,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 22, text cases: 49 (both sections are sorted by case name)
+# plan cases: 23, text cases: 49 (both sections are sorted by case name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -196,6 +196,19 @@ WITH_LITERAL.fingerprint = a169b9db96047237b49da39db13c19538d9f4e575d35530486137
 NO_LITERAL.canonical = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
 NO_LITERAL.shape = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
 NO_LITERAL.fingerprint = a169b9db96047237b49da39db13c19538d9f4e575d35530486137c5a1627eb69
+scans = 2
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN join_residual_conditions_per_mode_order]
+desc = inner join with two residual conditions whose literal carrying order differs from the constant agnostic order: each mode is rendered, sorted and de-duplicated on its own
+valid = true
+skipReason =
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1};S{null.null.t2})
+WITH_LITERAL.fingerprint = dd16807bc5b321f6ac58f9dcec9a9bf0b3578676de901c57208242003b0c337d
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
+NO_LITERAL.fingerprint = b553ab92b74e05b77d3e570e11945b2a0a600b34ef7ddaf4b61ff5e7d3be9e77
 scans = 2
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=

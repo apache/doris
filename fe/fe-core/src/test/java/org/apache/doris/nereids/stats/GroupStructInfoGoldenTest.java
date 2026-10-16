@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -679,6 +680,10 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("invalid_too_many_scans",
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
+        cases.add(new PlanCase("join_residual_conditions_per_mode_order",
+                "inner join with two residual conditions whose literal carrying order differs from the"
+                        + " constant agnostic order: each mode is rendered, sorted and de-duplicated on its own",
+                GroupStructInfoGoldenTest::joinResidualConditionsPerModeOrder));
         return cases;
     }
 
@@ -708,6 +713,19 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(0, "t1");
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(t1.getOutput().get(0), new IntegerLiteral(1))), t1));
+    }
+
+    private static GroupStructInfo joinResidualConditionsPerModeOrder() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        LogicalOlapScan t2 = scan(1, "t2");
+        // `1 < t2.x` sorts before `2 < t1.y` when the literals are kept, while both render as
+        // `lit(*) < col(...)` in the constant agnostic mode and then sort by the column: the two modes of
+        // one join therefore print their conditions in a different order, which the identity has to keep
+        return describe(new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))),
+                ImmutableList.<Expression>of(new LessThan(new IntegerLiteral(1), t2.getOutput().get(0)),
+                        new LessThan(new IntegerLiteral(2), t1.getOutput().get(0))),
+                t1, t2, null));
     }
 
     private static GroupStructInfo filterSlotEqualSlot() {

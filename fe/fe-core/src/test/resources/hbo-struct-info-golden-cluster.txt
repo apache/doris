@@ -221,3 +221,22 @@ fp = no_literal:7b1ed4d5caec07e41e437e75fbbe27ddb871ed628cf5f92251e6684ce87a58c8
 [CLUSTER count_star_hbo_sg_t1]
 sql = select count(*) from hbo_test.hbo_sg_t1
 note = count(*) is answered from the table row count as a one row constant plan, so the physical plan holds no join / aggregation / filter node and nothing is annotated
+
+[CLUSTER cte_consumed_twice]
+note = the CTE is consumed twice: the description of the consumer sub tree is composed twice and its scans are read once (the plan below the anchor is shared by the two consumers)
+sql = with c as (select a from hbo_test.hbo_sg_t1 where b = 1) select count(*) from c x join c y on x.a = y.a
+# node 104 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+wl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(1:INT))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = with_literal:ad8c83f0d8febc9e337bc615ab37aa6181ee6ebce638528ff6de637dbd4b7449
+# node 104 filter-on-scan(table=internal.hbo_test.hbo_sg_t1) type=exact
+nl = F{EqualTo(col(internal.hbo_test.hbo_sg_t1.b),lit(*))}(S{internal.hbo_test.hbo_sg_t1,v3,r1010})
+fp = no_literal:e48ea852ce81f79d3981cd3230a43380966e6714791b6b8b60f19e9ca075ca82
+# node 109 join skipped
+skip = arity=0 of LogicalCTEConsumer
+# node 109 join type=join_expansion
+nl = JE{INNER_JOIN;EqualTo(col(x.a),col(y.a))}
+fp = no_literal:f18e4bd5ee936e2241da0ad156d26f6ef4f185ecfa6d4a2bd08c1c0f99d9db6a
+# node 111 aggregation skipped
+skip = local (partial) aggregation stage: the read side applies the row count of the final aggregation above it
+# node 113 aggregation skipped
+skip = arity=0 of LogicalCTEConsumer
