@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics.hbo;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -25,17 +26,42 @@ import java.util.Optional;
  * Describes plan statistics which are derived from history based optimizer.
  */
 public class InputTableStatisticsInfo {
-    private final Optional<String> hash;
     private final Optional<List<PlanStatistics>> inputTableStatistics;
 
-    public InputTableStatisticsInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics) {
-        this.hash = Objects.requireNonNull(hash, "hash is null");
+    public InputTableStatisticsInfo(Optional<List<PlanStatistics>> inputTableStatistics) {
         this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics,
                 "inputTableStatistics is null");
     }
 
-    public Optional<String> getHash() {
-        return hash;
+    /**
+     * Fold the input table statistics of another node which shares the fingerprint of this one: two
+     * runtime nodes can carry one fingerprint (the two scans of a self join, for instance), and the
+     * provider stores one entry per fingerprint. Their input statistics are concatenated, which is what
+     * the drift comparison reads - it sums the rows of every recorded scan of a table.
+     */
+    public InputTableStatisticsInfo merge(InputTableStatisticsInfo other) {
+        if (inputTableStatistics.isEmpty()) {
+            return other;
+        }
+        if (other.inputTableStatistics.isEmpty()) {
+            return this;
+        }
+        List<PlanStatistics> merged = new ArrayList<>(inputTableStatistics.get());
+        merged.addAll(other.inputTableStatistics.get());
+        return new InputTableStatisticsInfo(Optional.of(merged));
+    }
+
+    /**
+     * Whether this entry describes the rows at least one input table contributed.
+     *
+     * <p>The read side treats an entry without input table statistics as a wildcard which matches by
+     * fingerprint alone (that is how {@code HBO SET LEARNED STATISTICS} injects one). A published entry of
+     * a query whose profile recorded no input table for any of its nodes - an external table has no scan
+     * statistics item, for instance - would look exactly like such a wildcard, so the publish path stores
+     * an entry only when it carries this information.
+     */
+    public boolean hasInputTables() {
+        return inputTableStatistics.isPresent() && !inputTableStatistics.get().isEmpty();
     }
 
     public Optional<List<PlanStatistics>> getInputTableStatistics() {
@@ -51,11 +77,11 @@ public class InputTableStatisticsInfo {
             return false;
         }
         InputTableStatisticsInfo that = (InputTableStatisticsInfo) o;
-        return Objects.equals(hash, that.hash) && Objects.equals(inputTableStatistics, that.inputTableStatistics);
+        return Objects.equals(inputTableStatistics, that.inputTableStatistics);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(hash, inputTableStatistics);
+        return Objects.hash(inputTableStatistics);
     }
 }

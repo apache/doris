@@ -835,6 +835,17 @@ public class RuntimeProfile {
                     case "RowsProduced":
                         item.setOutputRows(value.sum.getValue());
                         break;
+                    case "RowsRead":
+                    case "ScanRows":
+                        // a scan operator reports the rows it read under these names; a learned entry has
+                        // to record the rows a scan read, and "InputRows" is only registered for sink
+                        // operators, so a scan which records zero here would be judged stale on the next
+                        // identical query (the learned comparison reads the recorded scan rows). The
+                        // case of "InputRows" below wins when a node reports both.
+                        if (item.getInputRows() == 0) {
+                            item.setInputRows(value.sum.getValue());
+                        }
+                        break;
                     case "InputRows":
                         item.setInputRows(value.sum.getValue());
                         if (isBuildSinkOperator) {

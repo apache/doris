@@ -1,0 +1,232 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("hbo_struct_group_level_test", "nonConcurrent") {
+    // The hbo struct info / fingerprint is a property of the memo group, not of one of its group
+    // expressions: every expression of a group is logically equivalent, therefore the same
+    // relations joined by the same conditions must produce the same struct info whichever grouping
+    // or join order the optimizer explores. `(T1 join T2) join T3` and `T1 join (T2 join T3)` are
+    // two expressions of the same group, so they must share one struct info and one fingerprint -
+    // this suite pins that down at SQL level.
+    sql "create database if not exists hbo_test;"
+    sql "use hbo_test;"
+
+    sql "drop table if exists hbo_sg_t1;"
+    sql "drop table if exists hbo_sg_t2;"
+    sql "drop table if exists hbo_sg_t3;"
+    sql """create table hbo_sg_t1(a int, b int) distributed by hash(a) buckets 4 properties("replication_num"="1");"""
+    sql """create table hbo_sg_t2(a int, c int) distributed by hash(a) buckets 4 properties("replication_num"="1");"""
+    sql """create table hbo_sg_t3(b int, d int) distributed by hash(b) buckets 4 properties("replication_num"="1");"""
+    sql """insert into hbo_sg_t1 select number, number from numbers("number" = "1000");"""
+    sql """insert into hbo_sg_t2 select number, number from numbers("number" = "1000");"""
+    sql """insert into hbo_sg_t3 select number, number from numbers("number" = "1000");"""
+    sql """analyze table hbo_sg_t1 with sync;"""
+    sql """analyze table hbo_sg_t2 with sync;"""
+    sql """analyze table hbo_sg_t3 with sync;"""
+
+    def prevInfoCollection = (sql "show global variables like 'enable_hbo_info_collection'")[0][1].toString()
+    sql "set global enable_hbo_info_collection=true;"
+    sql "set enable_hbo_optimization=true;"
+    sql "set show_hbo_fingerprint=true;"
+    sql "set enable_sql_cache=false;"
+    sql "set enable_query_cache=false;"
+    try {
+        def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
+        // every fingerprint recorded for one kind of node in the annotation block, de duplicated
+        def fingerprintsOf = { String text, String kind ->
+            // only the row count entry of each node (the join / aggregation struct line)
+            (text =~ /\] ${kind} type=\w+ literal_mode=\w+ fingerprint='([0-9a-f]+)' struct='[JA]/)
+                    .collect { it[1] }.unique().sort()
+        }
+        // [fingerprint, struct] of every join node of the explain
+        def joinAnnotationsOf = { String text ->
+            (text =~ /\] join type=\w+ literal_mode=\w+ fingerprint='([0-9a-f]+)' struct='(J\{[^']*)'/)
+                    .collect { [it[1], it[2]] }
+        }
+        def joinStructsOf = { String text -> joinAnnotationsOf(text).collect { it[1] } }
+        // the root of a join chain carries every leaf of the chain, so it has the longest struct
+        def rootJoinOf = { String text ->
+            def annotations = joinAnnotationsOf(text).sort { a, b -> b[1].length() <=> a[1].length() }
+            assertTrue(!annotations.isEmpty(), "no hbo join struct annotation found:\n" + text)
+            annotations[0]
+        }
+        def aggStructsOf = { String text ->
+            (text =~ /\] aggregation type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='([^']*)'/)
+                    .collect { it[1] }.unique().sort()
+        }
+
+        // the whole three table chain is one flattened node: the conditions of both joins merged into
+        // one sorted set, the leaves sorted by their canonical form, no occurrence ordinal. Every
+        // scan token carries the data state of its scan as an annotation (visible version and
+        // scanned rows), which is what a user copies with the struct info and what the read side
+        // compares an entry with.
+        // the row count of a scan is tagged by how it was obtained: 'r' when every selected
+        // partition reported its own count, 'e' when it was derived from the table. Both are the
+        // same number for a freshly loaded table, and the tag is an annotation of the struct info,
+        // never part of the fingerprint, so the assertions normalise it.
+        def normalizeRows = { String text -> text.replaceAll(/,[re](\d+)/, ',r$1') }
+        def t1Scan = "S{internal.hbo_test.hbo_sg_t1,v2,r1000}"
+        def t2Scan = "S{internal.hbo_test.hbo_sg_t2,v2,r1000}"
+        def t3Scan = "S{internal.hbo_test.hbo_sg_t3,v2,r1000}"
+        def expectedChainStruct = "J{inner,c:[" +
+                "EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a));" +
+                "EqualTo(col(internal.hbo_test.y.c),col(internal.hbo_test.z.d))]}(" +
+                t1Scan + ";" + t2Scan + ";" + t3Scan + ")"
+        def expectedAggStruct = "A{gb:}(" + expectedChainStruct + ")"
+
+        def leftDeep = "select count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a" +
+                " join hbo_sg_t3 z on y.c = z.d"
+        def rightDeep = "select count(*) from hbo_sg_t1 x" +
+                " join (hbo_sg_t2 y join hbo_sg_t3 z on y.c = z.d) on x.a = y.a"
+        def leftText = explainText(leftDeep)
+        def rightText = explainText(rightDeep)
+
+        // (1) the core requirement: `T1 join T2 join T3` and `T1 join (T2 join T3)` must have exactly
+        // the same struct info - and therefore the same fingerprint - both for the join chain and
+        // for the aggregation above it
+        assertEquals(expectedChainStruct, normalizeRows(rootJoinOf(leftText)[1]))
+        assertEquals(expectedChainStruct, normalizeRows(rootJoinOf(rightText)[1]))
+        assertEquals(rootJoinOf(leftText)[0], rootJoinOf(rightText)[0])
+        assertEquals([expectedAggStruct], aggStructsOf(leftText).collect { normalizeRows(it) })
+        assertEquals([expectedAggStruct], aggStructsOf(rightText).collect { normalizeRows(it) })
+        assertEquals(fingerprintsOf(leftText, "aggregation"), fingerprintsOf(rightText, "aggregation"))
+
+        // no occurrence ordinal is part of the descriptor any more
+        assertFalse(expectedChainStruct.contains("#"), expectedChainStruct)
+
+        // (2) commutativity: the same conditions with the sides of the joins swapped
+        def swapped = "select count(*) from hbo_sg_t2 y join hbo_sg_t3 z on y.c = z.d" +
+                " join hbo_sg_t1 x on x.a = y.a"
+        def swappedText = explainText(swapped)
+        assertEquals(normalizeRows(rootJoinOf(leftText)[1]), normalizeRows(rootJoinOf(swappedText)[1]))
+
+        // (3) a sub chain of a bigger query has the same struct info as the same chain used alone,
+        // so statistics pinned for a two table join also apply inside a three table query
+        def twoTable = "select count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a"
+        def twoTableStruct = rootJoinOf(explainText(twoTable))[1]
+        assertTrue(joinStructsOf(leftText).collect { normalizeRows(it) }.contains(normalizeRows(twoTableStruct)),
+                "sub chain struct " + twoTableStruct + " not found in:\n" + leftText)
+
+        // (4) the aggregate functions are not part of the aggregate struct info: the output row
+        // count of an aggregation is the number of groups, which only the grouping keys determine
+        def countAgg = "select x.a, count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a group by x.a"
+        def sumAgg = "select x.a, sum(y.c) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a group by x.a"
+        def countAggStructs = aggStructsOf(explainText(countAgg))
+        assertEquals(countAggStructs, aggStructsOf(explainText(sumAgg)))
+        assertEquals(1, countAggStructs.size(), countAggStructs.toString())
+        assertTrue(countAggStructs[0].startsWith("A{gb:col(internal.hbo_test.x.a)}("), countAggStructs[0])
+        assertFalse(countAggStructs[0].contains("Count"), countAggStructs[0])
+
+        // the same grouping key over a different join chain must not collapse into the same entry:
+        // the child struct info is part of the aggregate struct info
+        def chainAgg = "select x.a, count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a" +
+                " join hbo_sg_t3 z on y.c = z.d group by x.a"
+        assertNotEquals(countAggStructs, aggStructsOf(explainText(chainAgg)))
+
+        // (5) the scan baseline is an annotation of the struct info, not part of its fingerprint:
+        // inserting rows changes the printed struct info of every node above the loaded table, but
+        // the fingerprints stay the same, so an injected entry keeps matching - and whether it may
+        // still be applied is decided by the read side (see hbo_row_count_drift_test)
+        def beforeLoad = rootJoinOf(explainText(leftDeep))
+        sql """ insert into hbo_sg_t1 select number + 1000, number from numbers("number" = "10"); """
+        def afterLoad = rootJoinOf(explainText(leftDeep))
+        assertEquals(beforeLoad[0], afterLoad[0])
+        assertNotEquals(beforeLoad[1], afterLoad[1])
+        assertTrue(normalizeRows(afterLoad[1]).contains("S{internal.hbo_test.hbo_sg_t1,v3,r1010}"), afterLoad[1])
+        // (6) a table sample reads a random subset on every execution: no row count recorded for it can
+        // be reused, so the sampled scan and every node above it are reported as skipped - and a query
+        // without a sample keeps its fingerprints
+        def unsampled = "select count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a"
+        assertTrue(explainText(unsampled).contains("type=exact"), explainText(unsampled))
+        def sampled = explainText("select count(*) from hbo_sg_t1 x tablesample(50 percent)" +
+                " join hbo_sg_t2 y on x.a = y.a")
+        assertTrue(sampled.contains("tablesample of internal.hbo_test.hbo_sg_t1"), sampled)
+        assertFalse(sampled.contains("type=exact"), sampled)
+
+        // (7) a window computes its columns from the rows of its partition: a predicate above it reads
+        // different values when the partition changes, so the definition is part of every key above it
+        def windowByB = explainText("select count(*) from (select a, b, row_number() over" +
+                " (partition by b order by a) rn from hbo_sg_t1) w where rn % 2 = 0")
+        def windowByA = explainText("select count(*) from (select a, b, row_number() over" +
+                " (partition by a order by b) rn from hbo_sg_t1) w where rn % 2 = 0")
+        assertTrue(windowByB.contains("W{"), windowByB)
+        assertNotEquals([], fingerprintsOf(windowByB, "aggregation"))
+        assertNotEquals(fingerprintsOf(windowByB, "aggregation"), fingerprintsOf(windowByA, "aggregation"))
+
+        // (8) the constant branches of a union are moved out of its children by
+        // MergeOneRowRelationIntoUnion: they decide which rows the union produces, so they belong to the
+        // key of every node above it
+        def unionTwo = explainText("select count(*) from (select a from hbo_sg_t1 union select 2) x")
+        def unionThree = explainText("select count(*) from (select a from hbo_sg_t1 union select 3) x")
+        assertTrue(unionTwo.contains("const:["), unionTwo)
+        assertNotEquals(fingerprintsOf(unionTwo, "aggregation"), fingerprintsOf(unionThree, "aggregation"))
+
+        // (9) the operators which bound or expand rows are part of the key of every node above them: a
+        // top-n, a limit, a generator, a repeat and a set operation. The assertions are relational - a
+        // text appears, two keys differ - so a future identity which is a little more or less specific
+        // does not break the suite for nothing.
+        def boundedByTopN = { int bound -> explainText("select count(*) from (select a from hbo_sg_t1" +
+                " order by a limit $bound) x") }
+        assertTrue(aggStructsOf(boundedByTopN(5)).any { it.contains("T{5,0") }, boundedByTopN(5))
+        assertNotEquals(fingerprintsOf(boundedByTopN(5), "aggregation"),
+                fingerprintsOf(boundedByTopN(7), "aggregation"))
+        def boundedByLimit = { int bound -> explainText("select count(*) from (select a from hbo_sg_t1" +
+                " limit $bound) x") }
+        assertTrue(aggStructsOf(boundedByLimit(5)).any { it.contains("L{5,0}") }, boundedByLimit(5))
+        assertNotEquals(fingerprintsOf(boundedByLimit(5), "aggregation"),
+                fingerprintsOf(boundedByLimit(7), "aggregation"))
+        // a generator decides how many rows a row expands into, and the delimiter it splits by is part of
+        // that (it is kept in both literal modes for that reason)
+        def generated = { String delimiter -> explainText("select count(*) from hbo_sg_t1" +
+                " lateral view explode_split(cast(a as varchar), '$delimiter') tmp as x") }
+        assertTrue(aggStructsOf(generated(",")).any { it.contains("G{tf:[") }, generated(","))
+        assertNotEquals(fingerprintsOf(generated(","), "aggregation"),
+                fingerprintsOf(generated(";"), "aggregation"))
+        // a repeat adds the grouping sets it was given
+        def repeated = explainText("select count(*) from (select a from hbo_sg_t1" +
+                " group by grouping sets ((a), ())) x")
+        assertTrue(aggStructsOf(repeated).any { it.contains("R{gs:[") }, repeated)
+        assertNotEquals(fingerprintsOf(repeated, "aggregation"),
+                fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 group by a) x"),
+                        "aggregation"))
+        // a set operation names its qualifier and its compared columns; a distinct one is not an all one
+        assertTrue(aggStructsOf(explainText("select count(*) from (select a from hbo_sg_t1 intersect" +
+                " select a from hbo_sg_t2) x")).any { it.contains("I{") })
+        assertTrue(aggStructsOf(explainText("select count(*) from (select a from hbo_sg_t1 except" +
+                " select a from hbo_sg_t2) x")).any { it.contains("E{") })
+        assertNotEquals(fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 union all" +
+                " select a from hbo_sg_t2) x"), "aggregation"),
+                fingerprintsOf(explainText("select count(*) from (select a from hbo_sg_t1 union" +
+                        " select a from hbo_sg_t2) x"), "aggregation"))
+        // (10) a mark join keeps the condition which decides its rows: the two queries below differ only in
+        // the column the sub query selects, and the executed null aware join matches a different set of rows
+        assertNotEquals(
+                fingerprintsOf(explainText("select count(*) from hbo_sg_t1 x where x.a not in" +
+                        " (select b from hbo_sg_t2) or x.b = 1"), "aggregation"),
+                fingerprintsOf(explainText("select count(*) from hbo_sg_t1 x where x.a not in" +
+                        " (select c from hbo_sg_t2) or x.b = 1"), "aggregation"))
+        // (11) a CTE anchor describes its consumer side: the sub tree below it is described (the join above
+        // the anchor has a key), and a different body gives the join above it a different key
+        def cteWith = { int predicate -> explainText("with c as (select a from hbo_sg_t1 where b = $predicate)" +
+                " select count(*) from c join hbo_sg_t2 y on c.a = y.a") }
+        assertNotEquals([], fingerprintsOf(cteWith(1), "join"))
+        assertNotEquals(fingerprintsOf(cteWith(1), "join"), fingerprintsOf(cteWith(2), "join"))
+
+    } finally {
+        sql "set global enable_hbo_info_collection=${prevInfoCollection};"
+    }
+}

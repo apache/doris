@@ -215,8 +215,8 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public PhysicalProject<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalProject<>(projects, groupExpression, null, physicalProperties,
-                statistics, child());
+        return rebuildKeepingStates(this, new PhysicalProject<>(projects, groupExpression, null, physicalProperties,
+                statistics, child()));
     }
 
     /**
