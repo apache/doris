@@ -591,6 +591,20 @@ public class GroupStructInfo {
         return null;
     }
 
+    /**
+     * Append the description of one node to the rope. Every branch is built in three steps:
+     * <ol>
+     *   <li>step 1 - {@link #describeChild} (or {@link #describeBranches}) describes the children: the
+     *       memoized description of a child group is composed, its sub tree is never walked again;</li>
+     *   <li>step 2 - the node's own information is built as the pair of both literal modes (a
+     *       {@link Text} piece, or the header of its node kind);</li>
+     *   <li>step 3 - the pieces are composed in the order the canonical string is printed: the node's
+     *       own text, its children with their separators, the closing text.</li>
+     * </ol>
+     * A node whose kind or arity is not supported calls {@link #invalid} and returns; the group is then
+     * {@link #isValid() invalid} and the read side falls back to the optimizer estimation instead of
+     * applying a key which may not be the one it computes.
+     */
     private static void appendPlan(Plan plan, GroupExpression ge, Canonical out, Ctx ctx) {
         if (!ctx.valid) {
             return;
@@ -601,13 +615,15 @@ public class GroupStructInfo {
         if (plan instanceof OlapScan) {
             appendScan((OlapScan) plan, out, ctx);
         } else if (plan instanceof Filter) {
-            Filter filter = (Filter) plan;
-            StringBuilder withLiteralHeader = new StringBuilder("F{");
-            StringBuilder noLiteralHeader = new StringBuilder("F{");
-            appendNormalizedSorted(filter.getConjuncts(), withLiteralHeader, noLiteralHeader);
-            out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
-            appendChild(ge, 0, out, ctx);
-            out.same(")");
+            // step 2: the node's own information (its conjuncts, sorted, in both literal modes)
+            Text own = filterText((Filter) plan);
+            // step 1: its child
+            GroupStructInfo child = describeChild(ge, 0, ctx);
+            if (child == null) {
+                return;
+            }
+            // step 3: assemble in the order the text is printed
+            out.add(own).append(child).same(")");
         } else if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
                 || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
             if (ge.arity() == 0 && plan instanceof PhysicalCTEConsumer) {
@@ -658,21 +674,25 @@ public class GroupStructInfo {
             // rows survive - two top-ns with the same bound but a different ordering can match a
             // different number of partners in the join above them
             if (ge.arity() == 1) {
-                TopN topN = (TopN) plan;
-                StringBuilder withLiteral = new StringBuilder();
-                StringBuilder noLiteral = new StringBuilder();
-                appendTopNHeader(topN, withLiteral, noLiteral);
-                out.addText(withLiteral.toString(), noLiteral.toString());
-                appendChild(ge, 0, out, ctx);
+                // step 2: the node's own information, step 1: its child, step 3: assemble
+                Text own = topNText((TopN) plan);
+                GroupStructInfo child = describeChild(ge, 0, ctx);
+                if (child == null) {
+                    return;
+                }
+                out.add(own).append(child);
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
         } else if (plan instanceof Limit) {
             if (ge.arity() == 1) {
-                Limit limit = (Limit) plan;
-                out.addText(bound("L", limit.getLimit(), limit.getOffset()),
-                        bound("L", limit.getLimit(), limit.getOffset()));
-                appendChild(ge, 0, out, ctx);
+                // step 2: the node's own information, step 1: its child, step 3: assemble
+                Text own = limitText((Limit) plan);
+                GroupStructInfo child = describeChild(ge, 0, ctx);
+                if (child == null) {
+                    return;
+                }
+                out.add(own).append(child);
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
@@ -713,20 +733,30 @@ public class GroupStructInfo {
         }
     }
 
-    private static void appendChild(GroupExpression ge, int index, Canonical out, Ctx ctx) {
+    /**
+     * Step 1 of a node build: describe one child of this node. The child is described once per query -
+     * its memoized description is returned - and a child which cannot be described invalidates this
+     * node with the reason of the child, so that the first reason of the failing sub tree is the one
+     * which is reported.
+     */
+    private static GroupStructInfo describeChild(GroupExpression ge, int index, Ctx ctx) {
         if (!ctx.valid) {
-            return;
+            return null;
         }
-        // the child is described once per query: its memoized parts are composed here instead of
-        // walking its sub tree again (the grand children are never visited by this build)
         GroupStructInfo child = describeGroup(ge.child(index), ctx);
         if (!child.isValid()) {
-            // keep the reason of the child: a description which is invalid because of its child reports
-            // the cause of that child (the first reason wins)
             invalid(ctx, child.getSkipReason());
-            return;
+            return null;
         }
-        out.append(child);
+        return child;
+    }
+
+    /** Step 3 of a node build: compose the description of a child into the rope (a {@link Child} piece). */
+    private static void appendChild(GroupExpression ge, int index, Canonical out, Ctx ctx) {
+        GroupStructInfo child = describeChild(ge, index, ctx);
+        if (child != null) {
+            out.append(child);
+        }
     }
 
     private static void appendJoin(Join join, GroupExpression ge, Canonical out, Ctx ctx) {
@@ -763,7 +793,11 @@ public class GroupStructInfo {
         TreeSet<String> conditions = new TreeSet<>();
         TreeSet<String> conditionsNoLiteral = new TreeSet<>();
         List<Leaf> leaves = new ArrayList<>();
+        // step 2a: the conditions of this node, merged with the conditions of the chains below it (a
+        // flattenable join contributes its own conditions, see buildChainInfo)
         collectJoinConditions(join, conditions, conditionsNoLiteral);
+        // step 1: every child is either flattened into this node (a join below, a transparent operator)
+        // or described here as a leaf; its conditions are merged into the sets above
         for (int i = 0; i < ge.arity(); i++) {
             ChainInfo child = chainInfoOf(ge.child(i));
             if (!child.valid) {
@@ -779,10 +813,10 @@ public class GroupStructInfo {
         if (!ctx.valid) {
             return;
         }
-        // the leaves are ordered by their fingerprint input (their own shape, i.e. without the data
-        // state of their scans): the order is part of the fingerprint, so it must not depend on a
-        // data state which the fingerprint deliberately ignores
-        leaves.sort(Comparator.comparing(Leaf::getShape));
+        // step 3: assemble - the leaves are ordered by their fingerprint input (their own shape, i.e.
+        // without the data state of their scans, because the order is part of the fingerprint and must
+        // not depend on a data state), the conditions by their text
+        leaves.sort(Comparator.comparing(Leaf::sortKey));
         out.same("J{inner,c:[");
         out.modes(String.join(SEP, conditions), String.join(SEP, conditionsNoLiteral));
         out.same("]}(");
@@ -940,7 +974,8 @@ public class GroupStructInfo {
             return repeated;
         }
 
-        String getShape() {
+        /** The key the leaves of a chain are ordered by: the identity of the sub tree, no data state. */
+        String sortKey() {
             return leaf.getShape(LiteralMode.WITH_LITERAL);
         }
     }
@@ -951,15 +986,34 @@ public class GroupStructInfo {
     }
 
     private static void appendAggregate(Aggregate<?> agg, GroupExpression ge, Canonical out, Ctx ctx) {
-        // Only the grouping keys and the child take part: the output row count of an aggregation is
-        // the number of groups, which the aggregate functions and the output expressions cannot
-        // change, so keeping them would only split one plan pattern into several cache entries.
-        StringBuilder withLiteralHeader = new StringBuilder("A{gb:");
-        StringBuilder noLiteralHeader = new StringBuilder("A{gb:");
-        appendNormalizedSorted(agg.getGroupByExpressions(), withLiteralHeader, noLiteralHeader);
-        out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
-        appendChild(ge, 0, out, ctx);
-        out.same(")");
+        // step 2: only the grouping keys and the child take part - the output row count of an
+        // aggregation is the number of groups, which the aggregate functions and the output
+        // expressions cannot change, so keeping them would only split one plan pattern into several
+        // cache entries
+        Text own = aggregateText(agg);
+        // step 1: its child
+        GroupStructInfo child = describeChild(ge, 0, ctx);
+        if (child == null) {
+            return;
+        }
+        // step 3: assemble in the order the text is printed
+        out.add(own).append(child).same(")");
+    }
+
+    /** The header of an aggregation: its grouping keys, sorted, in both literal modes. */
+    private static Text aggregateText(Aggregate<?> agg) {
+        StringBuilder withLiteral = new StringBuilder("A{gb:");
+        StringBuilder noLiteral = new StringBuilder("A{gb:");
+        appendNormalizedSorted(agg.getGroupByExpressions(), withLiteral, noLiteral);
+        return new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
+    }
+
+    /** The header of a filter: its conjuncts, sorted, in both literal modes. */
+    private static Text filterText(Filter filter) {
+        StringBuilder withLiteral = new StringBuilder("F{");
+        StringBuilder noLiteral = new StringBuilder("F{");
+        appendNormalizedSorted(filter.getConjuncts(), withLiteral, noLiteral);
+        return new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
     }
 
     /** Mark the description invalid, remembering why (the first reason is the one reported). */
@@ -1050,9 +1104,13 @@ public class GroupStructInfo {
             withLiteral.append("];frame:[").append(frame).append("]}");
             noLiteral.append("];frame:[").append(frame).append("]}");
         }
-        out.modes(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
-        appendChild(ge, 0, out, ctx);
-        out.same(")");
+        // step 2: the node's own information, step 1: its child, step 3: assemble
+        Text own = new Text(withLiteral.append("}(").toString(), noLiteral.append("}(").toString());
+        GroupStructInfo child = describeChild(ge, 0, ctx);
+        if (child == null) {
+            return;
+        }
+        out.add(own).append(child).same(")");
     }
 
     /** Append a comma separated list of normalized expressions (both literal modes). */
@@ -1067,6 +1125,37 @@ public class GroupStructInfo {
             first = false;
             appendNormalizedExpression(expression, withLiteral, noLiteral);
         }
+    }
+
+    /** The header of a top-n: its bound and the ordering which decides the rows it keeps. */
+    private static Text topNText(TopN topN) {
+        StringBuilder withLiteral = new StringBuilder();
+        StringBuilder noLiteral = new StringBuilder();
+        appendTopNHeader(topN, withLiteral, noLiteral);
+        return new Text(withLiteral.toString(), noLiteral.toString());
+    }
+
+    /** The bound of a limit: the same text in both modes, a bound is never folded. */
+    private static Text limitText(Limit limit) {
+        String text = bound("L", limit.getLimit(), limit.getOffset());
+        return new Text(text, text);
+    }
+
+    /**
+     * Step 1 for a node with an arbitrary number of children (a set operation): describe every branch in
+     * memo order, or report the reason of the first branch which cannot be described.
+     */
+    private static List<GroupStructInfo> describeBranches(GroupExpression ge, Ctx ctx) {
+        List<GroupStructInfo> branches = new ArrayList<>(ge.arity());
+        for (int i = 0; i < ge.arity(); i++) {
+            GroupStructInfo branch = describeGroup(ge.child(i), ctx);
+            if (!branch.isValid()) {
+                invalid(ctx, branch.getSkipReason());
+                return null;
+            }
+            branches.add(branch);
+        }
+        return branches;
     }
 
     /** The bound of a limit / top-n: the same text in both modes, a bound is never folded. */
@@ -1093,9 +1182,15 @@ public class GroupStructInfo {
             }
             functions.append(identityText(generate.getGenerators().get(i)));
         }
-        String header = "G{tf:[" + functions + "]}";
-        out.addText(header, header);
-        appendChild(ge, 0, out, ctx);
+        // step 2: the node's own information (the same text in both modes, see the javadoc above)
+        Text own = new Text("G{tf:[" + functions + "]}", "G{tf:[" + functions + "]}");
+        // step 1: its child
+        GroupStructInfo child = describeChild(ge, 0, ctx);
+        if (child == null) {
+            return;
+        }
+        // step 3: assemble in the order the text is printed
+        out.add(own).append(child);
     }
 
     /**
@@ -1122,8 +1217,13 @@ public class GroupStructInfo {
             withLiteral.append(']');
             noLiteral.append(']');
         }
-        out.addText(withLiteral.append("]}").toString(), noLiteral.append("]}").toString());
-        appendChild(ge, 0, out, ctx);
+        // step 2: the node's own information, step 1: its child, step 3: assemble
+        Text own = new Text(withLiteral.append("]}").toString(), noLiteral.append("]}").toString());
+        GroupStructInfo child = describeChild(ge, 0, ctx);
+        if (child == null) {
+            return;
+        }
+        out.add(own).append(child);
     }
 
     /**
@@ -1174,14 +1274,10 @@ public class GroupStructInfo {
             }
         }
         String header = kind + "{" + qualifier + ",cols:[" + columns + "]" + constants + "}";
-        List<GroupStructInfo> branches = new ArrayList<>(ge.arity());
-        for (int i = 0; i < ge.arity(); i++) {
-            GroupStructInfo branch = describeGroup(ge.child(i), ctx);
-            if (!branch.isValid()) {
-                invalid(ctx, branch.getSkipReason());
-                return;
-            }
-            branches.add(branch);
+        // step 1: describe every branch (the header above is this node's own information)
+        List<GroupStructInfo> branches = describeBranches(ge, ctx);
+        if (branches == null) {
+            return;
         }
         out.addText(header, header);
         out.addText("(", "(");
@@ -1887,6 +1983,11 @@ public class GroupStructInfo {
         /** A fragment which differs between the literal modes (a literal carrying expression). */
         Canonical modes(String withLiteral, String noLiteral) {
             return addText(withLiteral, noLiteral);
+        }
+
+        /** The information of one node of the traversal, as the pair both literal modes need. */
+        Canonical add(Text text) {
+            return addText(text.getWithLiteral(), text.getNoLiteral());
         }
 
         /** The scan token of a scan group. */
