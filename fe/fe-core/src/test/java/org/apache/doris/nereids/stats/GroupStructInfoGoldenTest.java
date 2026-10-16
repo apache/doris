@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -231,6 +233,8 @@ public class GroupStructInfoGoldenTest {
         String[][] pairs = {
                 {"topn_with_a_literal_in_the_ordering_key", "topn_with_another_literal_in_the_ordering_key"},
                 {"window_with_a_literal_in_the_ordering_key", "window_with_another_literal_in_the_ordering_key"},
+                // the function of a window is the one identity site a real plan reaches today
+                {"window_function_with_a_literal", "window_function_with_another_literal"},
         };
         for (String[] pair : pairs) {
             GroupStructInfo left = built(pair[0]);
@@ -376,9 +380,10 @@ public class GroupStructInfoGoldenTest {
         // the two reasons below are constructed by the traversal rather than declared as a constant, so
         // the frozen text is tied to the formula the code uses: a renamed plan class or a changed prefix
         // cannot pass unnoticed
-        Assertions.assertEquals("unsupported=" + LogicalPartitionTopN.class.getSimpleName(), PARTITION_TOPN_SKIP);
-        Assertions.assertEquals("arity=0 of " + LogicalCTEConsumer.class.getSimpleName(),
-                CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
+        Assertions.assertEquals(GroupStructInfo.UNSUPPORTED_REASON_PREFIX
+                + LogicalPartitionTopN.class.getSimpleName(), PARTITION_TOPN_SKIP);
+        Assertions.assertEquals(GroupStructInfo.ARITY_REASON_PREFIX + 0 + GroupStructInfo.ARITY_REASON_MIDDLE
+                + LogicalCTEConsumer.class.getSimpleName(), CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
         Set<String> knownSkips = ImmutableSet.of(STORAGE_LAYER_SKIP, PARTIAL_STAGE_SKIP, PARTITION_TOPN_SKIP,
                 CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
         List<String> skips = new ArrayList<>();
@@ -393,7 +398,12 @@ public class GroupStructInfoGoldenTest {
                 // is looked up by that header (within its case - two cases can describe the same plan
                 // shape): keying a fresh node per header is what used to leave every node with one mode
                 // and made the cross mode invariant below unreachable
-                node = nodes.computeIfAbsent(caseName + "|" + line, ClusterNode::new);
+                String nodeKey = caseName + "|" + line;
+                node = nodes.get(nodeKey);
+                if (node == null) {
+                    node = new ClusterNode(caseName, line);
+                    nodes.put(nodeKey, node);
+                }
                 continue;
             }
             if (line.isEmpty() || line.startsWith("#")) {
@@ -422,7 +432,7 @@ public class GroupStructInfoGoldenTest {
         }
         int foldChecks = 0;
         for (ClusterNode clusterNode : nodes.values()) {
-            recorded += clusterNode.check(caseName, raw);
+            recorded += clusterNode.check(clusterNode.caseName, raw);
             foldChecks += clusterNode.getFoldChecks();
         }
         Assertions.assertTrue(cases >= 15, "the cluster corpus holds only " + cases + " cases");
@@ -451,13 +461,15 @@ public class GroupStructInfoGoldenTest {
 
     /** One node of a captured case: the struct of each literal mode and the fingerprints printed. */
     private static final class ClusterNode {
+        private final String caseName;
         private final String header;
         private final Map<String, String> structs = new LinkedHashMap<>();
         private final Map<String, String> fingerprints = new LinkedHashMap<>();
         /** how often the cross mode invariant ran for this node (see the floor in the test) */
         private int foldChecks;
 
-        ClusterNode(String header) {
+        ClusterNode(String caseName, String header) {
+            this.caseName = caseName;
             this.header = header;
         }
 
@@ -788,6 +800,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("topn_with_another_literal_in_the_ordering_key",
                 "the same top-n ordered by slot * -1: a different constant agnostic key",
                 GroupStructInfoGoldenTest::topnWithMinusOneInTheOrderingKey));
+        cases.add(new PlanCase("window_function_with_a_literal",
+                "window whose function carries a literal: it decides the values a node above it reads",
+                GroupStructInfoGoldenTest::windowFunctionWithFourBuckets));
+        cases.add(new PlanCase("window_function_with_another_literal",
+                "the same window with another bucket count: a different constant agnostic key",
+                GroupStructInfoGoldenTest::windowFunctionWithTenBuckets));
         cases.add(new PlanCase("window_with_two_order_keys_and_a_bounded_frame",
                 "window over two ordering keys with a bounded frame: the separator and the offsets are part"
                         + " of the key",
@@ -880,6 +898,33 @@ public class GroupStructInfoGoldenTest {
         SlotReference slot = (SlotReference) t1.getOutput().get(0);
         return describe(new LogicalTopN<>(ImmutableList.of(
                 new OrderKey(new Multiply(slot, new IntegerLiteral(factor)), true, true)), 3, 0, t1));
+    }
+
+    private static GroupStructInfo windowFunctionWithFourBuckets() {
+        return windowWithAFunctionLiteral(4);
+    }
+
+    private static GroupStructInfo windowFunctionWithTenBuckets() {
+        return windowWithAFunctionLiteral(10);
+    }
+
+    /**
+     * A window whose <em>function</em> carries a literal: {@code ntile(4)} and {@code ntile(10)} keep a
+     * different number of rows under a predicate above the window, and the constant of the function is
+     * deliberately not normalized away by the analyzer, so this is the cell the identity rule exists for.
+     */
+    private static GroupStructInfo windowWithAFunctionLiteral(int buckets) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        WindowFrame frame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window = new WindowExpression(new Ntile(new IntegerLiteral(buckets)),
+                ImmutableList.of(key), ImmutableList.of(), frame);
+        Alias alias = new Alias(window, "nt");
+        LogicalWindow<LogicalOlapScan> logicalWindow = new LogicalWindow<>(ImmutableList.of(alias), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new LessThanEqual(alias.toSlot(), new IntegerLiteral(1))), logicalWindow));
     }
 
     private static GroupStructInfo windowWithTwoOrderKeysAndABoundedFrame() {
@@ -1232,8 +1277,16 @@ public class GroupStructInfoGoldenTest {
         }
         if (before.size() != after.size()) {
             changed += Math.abs(before.size() - after.size());
-            System.out.println("[hbo-golden] the file grew from " + before.size() + " to " + after.size()
-                    + " lines (the tail after line " + common + " moved)");
+            System.out.println("[hbo-golden] the file " + (after.size() > before.size() ? "grew" : "shrank")
+                    + " from " + before.size() + " to " + after.size() + " lines");
+        }
+        // lines without a positional counterpart (a pure append or truncation) are printed by content, so
+        // a blessed change is never reported as "nothing moved" in the run which blessed it
+        for (int i = common; i < after.size(); i++) {
+            System.out.println("[hbo-golden] line " + (i + 1) + " added: " + after.get(i));
+        }
+        for (int i = common; i < before.size(); i++) {
+            System.out.println("[hbo-golden] line " + (i + 1) + " removed: " + before.get(i));
         }
         System.out.println("[hbo-golden] " + changed + " line(s) differ from the committed corpus");
     }

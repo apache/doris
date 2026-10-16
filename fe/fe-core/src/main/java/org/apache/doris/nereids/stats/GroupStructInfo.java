@@ -151,6 +151,16 @@ public class GroupStructInfo {
      */
     public static final String UNSUPPORTED_FINGERPRINT = "";
 
+    /**
+     * The prefix of the reason a node whose kind the description does not support is reported with, and
+     * the two halves of the reason a node with an unsupported number of children is reported with. They
+     * are constants so that the corpus can bind the frozen skip texts to the formula which produces them
+     * instead of restating the prefix.
+     */
+    static final String UNSUPPORTED_REASON_PREFIX = "unsupported=";
+    static final String ARITY_REASON_PREFIX = "arity=";
+    static final String ARITY_REASON_MIDDLE = " of ";
+
     private static final List<HboScanDescriptor> INVALID_SCANS = Collections.emptyList();
 
     /**
@@ -966,7 +976,8 @@ public class GroupStructInfo {
                 return invalidNode("unsupported=cte consumer without a memo edge", ctx);
             }
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             // a consumer describes the sub tree it consumes and a producer the sub tree it materializes:
             // both are transparent
@@ -976,7 +987,8 @@ public class GroupStructInfo {
             // the value of an anchor is its consumer side: the producer is the first child and the plan
             // which consumes it is the second one (LogicalCTEAnchor.computeOutput is right().getOutput())
             if (ge.arity() < 2) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             return passthroughNode(ge, 1, ctx);
         }
@@ -1002,7 +1014,8 @@ public class GroupStructInfo {
         }
         if (plan instanceof TopN) {
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             // a top-n keeps its bound and its ordering out of the folding: the bound is written in both
             // modes so that the constant agnostic form cannot fold two different bounds into one entry,
@@ -1017,7 +1030,8 @@ public class GroupStructInfo {
         }
         if (plan instanceof Limit) {
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             Limit limit = (Limit) plan;
             Node node = new Node(Kind.LIMIT);
@@ -1028,7 +1042,8 @@ public class GroupStructInfo {
         }
         if (plan instanceof Generate) {
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             // a generate expands a row into the rows of its table functions, so its identity is the
             // identity of those functions: the function and its arguments decide how many rows come out,
@@ -1040,7 +1055,8 @@ public class GroupStructInfo {
         }
         if (plan instanceof Repeat) {
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             // a repeat produces the rows of several grouping sets, so its identity is the list of those
             // sets; the order of the sets is part of the identity (the grouping id values depend on it)
@@ -1063,13 +1079,15 @@ public class GroupStructInfo {
             // changes the number of rows, so the nodes above them are described by the shape below and
             // they must not make the struct info of those nodes disappear
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             return passthroughNode(ge, 0, ctx);
         }
         if (plan instanceof Window) {
             if (ge.arity() != 1) {
-                return invalidNode("arity=" + ge.arity() + " of " + plan.getClass().getSimpleName(), ctx);
+                return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
+                        + plan.getClass().getSimpleName(), ctx);
             }
             // a window computes its columns from the rows of its partition, so its definition decides the
             // values a node above it reads and is part of the identity; the window itself adds no rows
@@ -1087,7 +1105,7 @@ public class GroupStructInfo {
             // them would only split one plan pattern into several cache entries
             return conditionsNode(Kind.AGGREGATE, ((Aggregate<?>) plan).getGroupByExpressions(), ge, ctx);
         }
-        return invalidNode("unsupported=" + plan.getClass().getSimpleName(), ctx);
+        return invalidNode(UNSUPPORTED_REASON_PREFIX + plan.getClass().getSimpleName(), ctx);
     }
 
     /** A filter or an aggregation: a header made of its conditions, then its single child. */
@@ -1606,6 +1624,13 @@ public class GroupStructInfo {
      * written into both modes, so that the NO_LITERAL folding cannot merge two different values into one
      * entry.
      */
+    private static String identityText(Expression expression) {
+        StringBuilder withLiteral = new StringBuilder();
+        appendNormalizedExpression(expression, withLiteral, new StringBuilder());
+        return withLiteral.toString();
+    }
+
+    /** The identity text of a list of expressions, comma separated (the form the header prints). */
     private static String identityText(List<? extends Expression> expressions) {
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < expressions.size(); i++) {
@@ -1615,12 +1640,6 @@ public class GroupStructInfo {
             text.append(identityText(expressions.get(i)));
         }
         return text.toString();
-    }
-
-    private static String identityText(Expression expression) {
-        StringBuilder withLiteral = new StringBuilder();
-        appendNormalizedExpression(expression, withLiteral, new StringBuilder());
-        return withLiteral.toString();
     }
 
     /**

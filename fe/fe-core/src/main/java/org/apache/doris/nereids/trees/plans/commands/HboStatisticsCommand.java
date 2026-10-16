@@ -67,6 +67,13 @@ import java.util.regex.Pattern;
  * the named fingerprint and no way to build one (a fingerprint is a one way hash, not an index), so
  * only the user can bring the description along.
  *
+ * <p>The two lines EXPLAIN prints for one node are two different keys. The constant agnostic line is
+ * the one the default mode accepts; the literal carrying line is accepted with
+ * {@code LITERAL_MODE=WITH_LITERAL} and is <em>not</em> always the fold of the other one, because the
+ * conditions of a node are ordered (and a join de-duplicates them) independently per mode: a node with
+ * conditions which fold alike has a literal carrying text which folds into something other than its own
+ * constant agnostic text, so the line to copy is the one whose mode is passed.
+ *
  * <p>A pinned entry requires it, for three reasons. The type of the entry is validated against the
  * description (a {@code TYPE=JOIN_EXPANSION} entry must name a {@code JE{...}} condition canonical and a
  * {@code TYPE=FILTER_SMALL} entry a filter root). The scan tokens of the description are the data state

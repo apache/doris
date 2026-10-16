@@ -214,4 +214,33 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
                 STRUCT='${condCanonical}'; """
         exception "a join row count entry is keyed by the group struct info"
     }
+
+    // a condition key carries its literals: a join whose residual carries one is injectable from the very
+    // line EXPLAIN prints, while the folded form of that line names a different condition and stays
+    // rejected (the expansion path compares the literal carrying text, so `> c + 1` is not `> c + 2`)
+    def literalQuery = "select * from hbo_je_t1 join hbo_je_t2 on hbo_je_t1.a = hbo_je_t2.a"
+            + " and hbo_je_t1.b > hbo_je_t2.c + 1"
+    def literalMatcher = (annotation(literalQuery) =~
+            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='([^']*)'/)
+    assertTrue(literalMatcher.find(), "no condition fingerprint annotation:\n" + annotation(literalQuery))
+    def literalFingerprint = literalMatcher.group(1)
+    def literalCanonical = literalMatcher.group(2)
+    assertTrue(literalCanonical.contains("lit(1:"), literalCanonical)
+    try {
+        sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${literalFingerprint}'
+                STRUCT='${literalCanonical}'; """
+        def showLiteral = (sql """ HBO SHOW PINNED STATISTICS; """).findAll {
+            it[1].toString() == literalFingerprint
+        }
+        assertEquals(1, showLiteral.size(), showLiteral.toString())
+        assertEquals(literalCanonical, showLiteral[0][5].toString())
+    } finally {
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${literalFingerprint}'; """
+    }
+    test {
+        // folding the literal the read side keeps must not be accepted for this type
+        sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${literalFingerprint}'
+                STRUCT='${literalCanonical.replaceAll(/lit\([^)]*\)/, "lit(*)")}'; """
+        exception "hbo statistics STRUCT does not match the fingerprint ${literalFingerprint}"
+    }
 }

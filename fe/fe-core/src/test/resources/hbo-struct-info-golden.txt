@@ -21,7 +21,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 32, text cases: 49 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 34, text cases: 49 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -369,6 +369,30 @@ NO_LITERAL.fingerprint = d5cbfab77aa4a63e0c21dc73c88df7cb77a386aa9ab14164972dccb
 scans = 2
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN window_function_with_a_literal]
+desc = window whose function carries a literal: it decides the values a node above it reads
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+WITH_LITERAL.fingerprint = 13eb166abbcbb3756d0c196de3169abaf27f2e72837bfa5ee184ba353e11647c
+NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+NO_LITERAL.fingerprint = d3b4e1bb17bcb5b283c011c4e530ad48a7a2ddc6a2625e20e6eb674c91952c13
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN window_function_with_another_literal]
+desc = the same window with another bucket count: a different constant agnostic key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+WITH_LITERAL.fingerprint = 8917bac76b73dde33acc7a590275014d67c8016be680d07fc87d51443475e7d0
+NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1,v1,r0}))
+NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}}(S{null.null.t1}))
+NO_LITERAL.fingerprint = c18333ccc5035fd9071fdb67ac0d2329fb7292d957817c3f289df06c9454e54b
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_under_a_filter]
 desc = filter over a window partitioned by one column (no order by)
 valid = true

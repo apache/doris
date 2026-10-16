@@ -418,7 +418,10 @@ public class HboStructFreshness {
             // operator node itself), so a published learned scan entry records 0 there. Comparing that 0
             // with the catalog rows of the table would make every published entry look stale, although
             // nothing was measured - an entry whose recorded count is not a measurement stays applicable,
-            // like every other entry which cannot be compared.
+            // like every other entry which cannot be compared. 0 is also the genuine row count of an empty
+            // table, so teaching the publish path to read the counter (or to record the catalog count as
+            // the baseline) has to introduce a distinct sentinel at the same time, or a table which grew
+            // from empty becomes a silent pass.
             if (live == null || recorded == HboScanDescriptor.UNKNOWN || recorded == 0
                     || live[0] == HboScanDescriptor.UNKNOWN
                     || liveKinds.get(entry.getKey()) != HboScanDescriptor.RowsKind.MEASURED) {
