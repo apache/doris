@@ -88,6 +88,10 @@ protected:
                              uint32_t num_rows);
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   uint32_t num_rows);
+
+    void _emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns, uint32_t num_rows);
+    void _merge_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
+                                             const IColumn* merge_column, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         const std::vector<int>& key_locs,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
