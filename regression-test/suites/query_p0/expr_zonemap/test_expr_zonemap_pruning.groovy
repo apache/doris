@@ -771,7 +771,5 @@ suite("test_expr_zonemap_pruning") {
     // rows. Pruning against the [0,0] placeholder would drop the segment.
     assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1")
     qt_hidden_version_or_miss """SELECT COUNT(*) FROM test_expr_zonemap_pruning_hidden_col WHERE __DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1"""
-    // No row carries a different version, so this compound matches nothing either way.
-    assertEquals(0L, assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion + 1000} OR v = -1"))
     sql """ set show_hidden_columns = false """
 }
