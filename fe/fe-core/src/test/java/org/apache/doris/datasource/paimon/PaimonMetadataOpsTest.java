@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -526,19 +527,20 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
-    public void testModifyColumnPreservesRemoteTypeBehindLossyProjection()
-            throws Exception {
-        TimestampType remoteType = new TimestampType(9);
-        DataField remoteField = new DataField(0, "ts", remoteType);
-        Column projectedColumn = new Column(
-                "ts", ScalarType.createDatetimeV2Type(6), true);
+    public void testModifyColumnPreservesRemoteTimestampPrecision() throws Exception {
+        for (int precision : new int[] {7, 8, 9}) {
+            DataField remoteField = new DataField(0, "ts", new TimestampType(precision));
+            Column projectedColumn = new Column("ts", Type.TIMESTAMP_NS, true);
+            // TIMESTAMP_NS represents all three precisions; an attribute-only ALTER must preserve them.
+            org.apache.paimon.types.DataType requestedType = ops.requestedColumnType(projectedColumn, remoteField);
+            Assert.assertTrue(requestedType instanceof TimestampType);
+            Assert.assertEquals(precision, ((TimestampType) requestedType).getPrecision());
+            Assert.assertEquals(projectedColumn.isAllowNull(), requestedType.isNullable());
 
-        org.apache.paimon.types.DataType requestedType =
-                ops.requestedColumnType(projectedColumn, remoteField);
-
-        Assert.assertTrue(requestedType instanceof TimestampType);
-        Assert.assertEquals(9, ((TimestampType) requestedType).getPrecision());
-        Assert.assertEquals(projectedColumn.isAllowNull(), requestedType.isNullable());
+            // DATETIMEV2(6) is now an explicit type change, not the unchanged external projection.
+            Column reducedColumn = new Column("ts", ScalarType.createDatetimeV2Type(6), true);
+            Assert.assertEquals(6, ((TimestampType) ops.requestedColumnType(reducedColumn, remoteField)).getPrecision());
+        }
     }
 
     @Test

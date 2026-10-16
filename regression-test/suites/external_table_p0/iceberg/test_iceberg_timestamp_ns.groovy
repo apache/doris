@@ -20,9 +20,8 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
         return
     }
     String host = context.config.otherConfigs.get("externalEnvIp")
-    // The newer REST fixture preserves nanosecond schema defaults; the baseline 1.10 server rescales them.
-    String restPort = context.config.otherConfigs.get("iceberg_scan_planning_rest_uri_port")
-    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    // Use the existing HDFS fixture so metadata defaults are not rescaled by the older REST server.
+    String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String catalog = "test_iceberg_timestamp_ns"
     def zone = sql("SELECT @@time_zone")[0][0]
     def scanner = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
@@ -30,9 +29,9 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
         sql "SET enable_file_scanner_v2=true"
         sql "DROP CATALOG IF EXISTS ${catalog}"
         sql """CREATE CATALOG ${catalog} PROPERTIES (
-            "type"="iceberg", "iceberg.catalog.type"="rest", "uri"="http://${host}:${restPort}",
-            "s3.endpoint"="http://${host}:${minioPort}", "s3.access_key"="admin",
-            "s3.secret_key"="password", "s3.region"="us-east-1", "use_path_style"="true")"""
+            "type"="iceberg", "iceberg.catalog.type"="hadoop",
+            "warehouse"="hdfs://${host}:${hdfsPort}/user/doris/iceberg_timestamp_ns",
+            "hadoop.username"="doris")"""
         sql "SWITCH ${catalog}"
         sql "CREATE DATABASE IF NOT EXISTS timestamp_ns_roundtrip"
         sql "USE timestamp_ns_roundtrip"
@@ -60,9 +59,8 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
             def files = sql("SELECT file_path FROM ${table}\$files WHERE content=0")
             assertTrue(!files.isEmpty())
             for (def file : files) {
-                String tvf = """S3("uri"="${file[0]}", "format"="${format}",
-                    "s3.endpoint"="http://${host}:${minioPort}", "s3.access_key"="admin",
-                    "s3.secret_key"="password", "s3.region"="us-east-1", "use_path_style"="true")"""
+                String tvf = """HDFS("uri"="${file[0]}", "format"="${format}",
+                    "hadoop.username"="doris")"""
                 if (file == files[0]) {
                     "qt_${format}_tvf_schema" "DESC FUNCTION ${tvf}"
                 }

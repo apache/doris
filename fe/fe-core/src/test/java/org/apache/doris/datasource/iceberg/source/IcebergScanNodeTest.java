@@ -2454,11 +2454,45 @@ public class IcebergScanNodeTest {
         Assert.assertEquals(2, node.getScanColumns(new Schema(fields)).size());
     }
 
+    @Test
+    public void testSchemaCarrierRetainsReferencedHistoricalNanosField() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField nanos = Types.NestedField.optional(
+                9, "equality_nanos", Types.TimestampNanoType.withoutZone());
+        Schema historicalSchema = new Schema(1, ImmutableList.of(id, nanos));
+        Schema currentSchema = new Schema(2, ImmutableList.of(id));
+        Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
+        Snapshot currentSnapshot = mockSnapshot(1001L, currentSchema, 1000L);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(ImmutableList.of(historicalSchema, currentSchema));
+        Mockito.when(metadata.schemasById()).thenReturn(ImmutableMap.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(metadata.snapshot(1000L)).thenReturn(historicalSnapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(currentSnapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(
+                currentSchema, ImmutableSet.of(9));
+        // Dropped equality fields remain readable when their nanos type is supported.
+        List<Column> columns = node.getScanColumns(new Schema(fields));
+        Assert.assertEquals(2, columns.size());
+        Assert.assertEquals(Type.TIMESTAMP_NS, columns.get(1).getType());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testSchemaCarrierRejectsReferencedUnsupportedHistoricalField() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        // UNKNOWN still exercises rejection now that unzoned nanos have a valid Doris mapping.
         Types.NestedField unsupported = Types.NestedField.optional(
-                9, "equality_nanos", Types.TimestampNanoType.withoutZone());
+                9, "unknown_equality_field", Types.UnknownType.get());
         Schema historicalSchema = new Schema(1, ImmutableList.of(id, unsupported));
         Schema currentSchema = new Schema(2, ImmutableList.of(id));
         Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
