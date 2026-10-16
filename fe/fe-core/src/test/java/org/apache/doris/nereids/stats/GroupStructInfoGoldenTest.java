@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -39,10 +42,12 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -164,6 +169,8 @@ public class GroupStructInfoGoldenTest {
             "local (partial) aggregation stage: the read side applies the row count of the final"
                     + " aggregation above it";
     private static final String PARTITION_TOPN_SKIP = "unsupported=LogicalPartitionTopN";
+    /** A logical CTE consumer whose sub tree hangs off the CTE id, not off a memo edge. */
+    private static final String CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP = "arity=0 of LogicalCTEConsumer";
 
     /** One plan case of the PLAN section: a name, a one line description and the described plan. */
     private static final class PlanCase {
@@ -323,7 +330,8 @@ public class GroupStructInfoGoldenTest {
     void testTheCapturedClusterCorpusKeepsItsInvariants() throws IOException {
         List<String> lines = readResourceLines(CLUSTER_FILE_NAME);
         String raw = String.join("\n", lines);
-        Set<String> knownSkips = ImmutableSet.of(STORAGE_LAYER_SKIP, PARTIAL_STAGE_SKIP, PARTITION_TOPN_SKIP);
+        Set<String> knownSkips = ImmutableSet.of(STORAGE_LAYER_SKIP, PARTIAL_STAGE_SKIP, PARTITION_TOPN_SKIP,
+                CTE_CONSUMER_WITHOUT_MEMO_EDGE_SKIP);
         List<String> skips = new ArrayList<>();
         String caseName = "<no case>";
         ClusterNode node = null;
@@ -680,6 +688,10 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("invalid_too_many_scans",
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
+        cases.add(new PlanCase("filter_above_a_file_scan",
+                "empty filter over an external table scan: the token carries the qualified table and no"
+                        + " data state",
+                GroupStructInfoGoldenTest::filterAboveAFileScan));
         cases.add(new PlanCase("join_residual_conditions_per_mode_order",
                 "inner join with two residual conditions whose literal carrying order differs from the"
                         + " constant agnostic order: each mode is rendered, sorted and de-duplicated on its own",
@@ -726,6 +738,21 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<Expression>of(new LessThan(new IntegerLiteral(1), t2.getOutput().get(0)),
                         new LessThan(new IntegerLiteral(2), t1.getOutput().get(0))),
                 t1, t2, null));
+    }
+
+    private static GroupStructInfo filterAboveAFileScan() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("hive");
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
+                ImmutableList.of("hive", "db", "t"), ImmutableList.of(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty());
+        return describe(new LogicalFilter<>(ImmutableSet.of(), scan));
     }
 
     private static GroupStructInfo filterSlotEqualSlot() {

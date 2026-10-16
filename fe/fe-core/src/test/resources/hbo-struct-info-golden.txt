@@ -21,7 +21,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 23, text cases: 49 (both sections are sorted by case name)
+# plan cases: 24, text cases: 49 (both sections are sorted by case name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -73,6 +73,18 @@ NO_LITERAL.fingerprint = 28c7b7125e9d88d7e0be73cdfe07e1520d6cc95568342a77cba53f1
 scans = 2
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_above_a_file_scan]
+desc = empty filter over an external table scan: the token carries the qualified table and no data state
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{}(S{hive.db.t})
+WITH_LITERAL.shape = F{}(S{hive.db.t})
+WITH_LITERAL.fingerprint = db133f390c16ab651cda334a50f7cd5076a2d9adae82d0ea3aa2b8c70fd0c1ab
+NO_LITERAL.canonical = F{}(S{hive.db.t})
+NO_LITERAL.shape = F{}(S{hive.db.t})
+NO_LITERAL.fingerprint = db133f390c16ab651cda334a50f7cd5076a2d9adae82d0ea3aa2b8c70fd0c1ab
+scans = 1
+scan[0] = table=hive.db.t shapeIdentity=hive.db.t render=hive.db.t visibleVersion=-1 scanRows=-1 rowsKind=UNKNOWN selectedPartitions=-1 totalPartitions=-1 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_literal]
 desc = filter with one literal comparison over a scan
 valid = true

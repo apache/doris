@@ -51,7 +51,7 @@
 # GroupStructInfoGoldenTest). The data state in a scan token (v3,r1010) is the state
 # of the cluster on the capture date; the fingerprint it is stripped from is stable.
 #
-# case count: 20
+# case count: 21
 
 [CLUSTER filter_literal]
 sql = select * from hbo_test.hbo_sg_t1 where a = 1
