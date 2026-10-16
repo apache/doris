@@ -96,12 +96,18 @@ void intersect_through_bit_set(std::span<const uint32_t> docs, std::span<const u
             preceding += static_cast<uint32_t>(std::popcount(bits[word]));
         }
     } else {
+        // Every candidate is written and kept only when its bit is set, so no branch depends on
+        // whether it matches.
+        std::vector<uint32_t>& rows = *out.rows;
+        const size_t begin = rows.size();
+        rows.resize(begin + candidates.size());
+        uint32_t* next = rows.data() + begin;
         for (const uint32_t candidate : candidates) {
             const uint32_t off = candidate - first;
-            if ((bits[off >> 6] & (uint64_t {1} << (off & 63))) != 0) {
-                out.append(candidate, 0);
-            }
+            *next = candidate;
+            next += (bits[off >> 6] >> (off & 63)) & 1;
         }
+        rows.resize(static_cast<size_t>(next - rows.data()));
     }
 }
 
@@ -192,10 +198,7 @@ Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
     if (_candidates == nullptr) {
         out->reserve(out->size() + _cursor.doc_freq());
         VectorDocIdSink sink(*out);
-        return for_each_block(_cursor, [&sink](const PostingsBlock& block) {
-            return block.dense ? sink.append_range(block.range_begin, block.range_end)
-                               : sink.append_sorted(block.docs);
-        });
+        return list_blocks(_cursor, sink);
     }
     out->reserve(out->size() + std::min<uint64_t>(_candidates->size(), _cursor.doc_freq()));
     return for_each_candidate_block(

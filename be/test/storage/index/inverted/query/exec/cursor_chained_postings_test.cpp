@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <random>
 #include <span>
 #include <utility>
 #include <vector>
@@ -315,6 +316,34 @@ TEST(CursorChainedPostings, OrdinalIntersectionCoversSparseWideAndBoundedBlocks)
                     }
                     check_ordinals(docs, candidates);
                 }
+            }
+        }
+    }
+}
+
+// Random documents and candidates of a block's span, as unrelated terms of several densities meet.
+TEST(CursorChainedPostings, IntersectionHandlesRandomDensities) {
+    std::mt19937 random(20261016);
+    for (const uint32_t span : {256U, 1024U, 16384U}) {
+        for (const double doc_rate : {0.05, 0.5, 0.95}) {
+            for (const double candidate_rate : {0.05, 0.5, 0.95}) {
+                std::bernoulli_distribution holds_doc(doc_rate);
+                std::bernoulli_distribution holds_candidate(candidate_rate);
+                std::vector<uint32_t> docs;
+                std::vector<uint32_t> candidates;
+                for (uint32_t doc = 0; doc < span; ++doc) {
+                    if (holds_doc(random)) {
+                        docs.push_back(doc);
+                    }
+                    if (holds_candidate(random)) {
+                        candidates.push_back(doc);
+                    }
+                }
+                ASSERT_FALSE(docs.empty());
+                std::erase_if(candidates, [&](uint32_t doc) {
+                    return doc < docs.front() || doc > docs.back();
+                });
+                check_ordinals(docs, candidates);
             }
         }
     }

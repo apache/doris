@@ -524,6 +524,31 @@ TEST_F(ListedTermsTest, AConjunctionOfTermsHeldByEveryRowHoldsEveryRow) {
     EXPECT_TRUE(input->prefetches["each"].empty());
 }
 
+// The one term left beside a term held by every row lists its own rows, or those among the
+// candidates.
+TEST_F(ListedTermsTest, ALoneTermListsItsRowsOrThoseAmongTheCandidates) {
+    for (const bool batches : {false, true}) {
+        auto input = source(batches);
+        input->add("every", every_row(input->doc_count()));
+        const auto lone = [&] {
+            ListedTerms group(input, nullptr);
+            group.add(0, "every");
+            group.add(1, "c");
+            group.open(/*conjunctive=*/true);
+            return group;
+        };
+        EXPECT_EQ(lone().conjunction(nullptr).true_rows,
+                  roaring::Roaring::bitmapOf(3, 3U, 8U, 20U));
+        const std::vector<uint32_t> candidates {2, 8, 20, 30};
+        EXPECT_EQ(lone().conjunction(&candidates).true_rows,
+                  roaring::Roaring::bitmapOf(2, 8U, 20U));
+        ASSERT_EQ(input->prefetches["c"].size(), 2U);
+        EXPECT_TRUE(input->prefetches["c"][0].whole);
+        EXPECT_EQ(input->prefetches["c"][1].candidates, candidates);
+        EXPECT_TRUE(input->prefetches["every"].empty());
+    }
+}
+
 // Collecting every row of a scored disjunction lists its terms one after another; a TopK on a
 // source that does not batch its reads streams them side by side instead of holding every
 // matching row and score first, and ranks the rows alike.
