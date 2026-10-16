@@ -71,6 +71,21 @@ suite("test_ivm_append_only_dup_mv_1") {
     assertTrue(dupSingleDdl.toString().contains("DUPLICATE KEY("))
     assertFalse(dupSingleDdl.toString().contains("enable_unique_key_merge_on_write"))
 
+    // Rebuilding from that DDL has to give the same table: the two schemas are recorded side by side (the
+    // key model, the columns and their types), and the copy is then refreshed as an MV of its own.
+    sql """drop materialized view if exists dup_mv_single_rt;"""
+    sql """${dupSingleDdl[0][1].replace("dup_mv_single", "dup_mv_single_rt")}"""
+    qt_dup_single_roundtrip_original """desc dup_mv_single all"""
+    qt_dup_single_roundtrip_copy """desc dup_mv_single_rt all"""
+
+    sql """REFRESH MATERIALIZED VIEW dup_mv_single_rt COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_single_rt")
+    order_qt_dup_single_roundtrip_after_complete """SELECT id, category, amount FROM dup_mv_single_rt"""
+    sql """INSERT INTO dup_base_single VALUES (6, 'food', 7.00);"""
+    sql """REFRESH MATERIALIZED VIEW dup_mv_single_rt INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_single_rt")
+    order_qt_dup_single_roundtrip_after_incremental """SELECT id, category, amount FROM dup_mv_single_rt"""
+
     // A column name Doris reserves for a hidden one is rejected here as well: the MV is built with the
     // query's own columns, and a `__DORIS_`-named one is not a column a user can see, so accepting it would
     // leave the MV holding fewer columns than its query produced. The unique-key model rejects these names

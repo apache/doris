@@ -4,6 +4,24 @@ dup_mv_single	DUP_KEYS	id	bigint	bigint	No	true	\N		true
 		category	varchar(20)	varchar(20)	No	true	\N		true		
 		amount	decimal(12,2)	decimalv3(12,2)	No	false	\N	NONE	true		
 
+-- !dup_single_roundtrip_original --
+dup_mv_single	DUP_KEYS	id	bigint	bigint	No	true	\N		true		
+		category	varchar(20)	varchar(20)	No	true	\N		true		
+		amount	decimal(12,2)	decimalv3(12,2)	No	false	\N	NONE	true		
+
+-- !dup_single_roundtrip_copy --
+dup_mv_single_rt	DUP_KEYS	id	bigint	bigint	No	true	\N		true		
+		category	varchar(20)	varchar(20)	No	true	\N		true		
+		amount	decimal(12,2)	decimalv3(12,2)	No	false	\N	NONE	true		
+
+-- !dup_single_roundtrip_after_complete --
+1	book	10.00
+2	food	20.00
+
+-- !dup_single_roundtrip_after_incremental --
+1	book	10.00
+2	food	20.00
+
 -- !dup_single_after_complete --
 1	book	10.00
 2	food	20.00
