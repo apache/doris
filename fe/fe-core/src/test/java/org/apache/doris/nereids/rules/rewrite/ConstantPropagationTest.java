@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -44,12 +45,14 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -418,6 +421,37 @@ class ConstantPropagationTest {
                 new IntegerLiteral(13), aggOutput.get(8).getName());
         assertConstantProjectItem(actualProjects2.get(9), aggOutput.get(9).getExprId(),
                 new IntegerLiteral(6), aggOutput.get(9).getName());
+    }
+
+    @Test
+    public void testBlackholeSinkFollowsFreshExprId() {
+        // `warm up select` is planned with a blackhole sink which takes its output expressions from its child, so
+        // the sink has to follow the fresh exprIds of the constants materialized below it, otherwise it expects a
+        // slot which the rewritten child does not output any more
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5))), student);
+        List<Expression> groupby = ImmutableList.of(studentId, studentGender);
+        List<NamedExpression> aggOutput = ImmutableList.of(
+                new Alias(new Sum(studentAge), "sum_age"),
+                studentGender,
+                studentId);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate
+                = new LogicalAggregate<>(groupby, aggOutput, filter);
+        List<NamedExpression> sinkOutputExprs = ImmutableList.copyOf(aggregate.getOutput());
+        LogicalBlackholeSink<LogicalAggregate<LogicalFilter<LogicalOlapScan>>> sink
+                = new LogicalBlackholeSink<>(sinkOutputExprs, aggregate);
+
+        LogicalSink<?> rewrittenSink = (LogicalSink<?>) executor.rewriteRoot(sink, jobContext);
+        List<ExprId> childOutputIds = rewrittenSink.child().getOutput().stream()
+                .map(Slot::getExprId).collect(java.util.stream.Collectors.toList());
+        for (NamedExpression outputExpr : rewrittenSink.getOutputExprs()) {
+            Assertions.assertTrue(childOutputIds.contains(outputExpr.getExprId()),
+                    "the sink expects " + outputExpr + " which its child does not output: "
+                            + rewrittenSink.child().getOutput());
+        }
+        // the constant column of the sink is refreshed to the fresh exprId of the constant project
+        Assertions.assertNotEquals(studentId.getExprId(),
+                rewrittenSink.getOutputExprs().get(2).getExprId());
     }
 
     /**

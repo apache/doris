@@ -23,15 +23,18 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 
 import com.google.common.collect.ImmutableList;
 
@@ -62,6 +65,25 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 if (!newPlan.deepEquals(plan)) {
                     return newPlan;
                 }
+            }
+        }
+        // ExpressionRewrite has a rule for the common sink types only, e.g. there is none for the blackhole sink. A
+        // sink takes its output expressions from its child, so it must follow the fresh exprIds of the child as
+        // well, otherwise it would keep expecting a slot which the rewritten child does not output any more. So
+        // rewrite the output expressions of any sink type here.
+        if (plan instanceof LogicalSink) {
+            LogicalSink<? extends Plan> sink = (LogicalSink<? extends Plan>) plan;
+            ExpressionRewriteContext context = new ExpressionRewriteContext(sink, jobContext.getCascadesContext());
+            ImmutableList.Builder<NamedExpression> newOutputExprs
+                    = ImmutableList.builderWithExpectedSize(sink.getOutputExprs().size());
+            boolean changed = false;
+            for (NamedExpression outputExpr : sink.getOutputExprs()) {
+                NamedExpression newOutputExpr = (NamedExpression) rewriter.rewrite(outputExpr, context);
+                changed |= !newOutputExpr.equals(outputExpr);
+                newOutputExprs.add(newOutputExpr);
+            }
+            if (changed) {
+                return sink.withOutputExprs(newOutputExprs.build());
             }
         }
         return plan;

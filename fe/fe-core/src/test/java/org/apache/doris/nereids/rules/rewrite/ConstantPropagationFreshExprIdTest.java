@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -60,6 +62,10 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " intersect"
             + " select col_datetime_3__undef_signed_not_null, col_date_undef_signed_not_null"
             + " from table_100_undef_partitions2_keys3_properties4_distributed_by54 ;";
+
+    private static final String SQL_MATERIALIZED_CTE = "WITH c AS (SELECT k, v, count(*) AS cnt"
+            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY k, v)"
+            + " SELECT l.k, l.v, l.cnt, r.k, r.v, r.cnt FROM c l CROSS JOIN c r";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -146,6 +152,39 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         // "AdjustNullable convert slot 2004-04-28#xx from not-nullable to nullable"
         PlanChecker checker = PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite();
         assertNoShadowProject(checker.getPlan());
+    }
+
+    @Test
+    void testMaterializedCteConsumerMapsStayValid() throws Exception {
+        // the producer body and the consumers are rewritten in different subtree contexts and the consumers are
+        // rewritten first, so the fresh exprIds of the producer outputs must not cross the CTE boundary
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite();
+        Plan plan = checker.getPlan();
+        Set<ExprId> producerOutputExprIds = new java.util.HashSet<>();
+        Set<LogicalCTEConsumer> consumers = new java.util.HashSet<>();
+        plan.foreach(node -> {
+            if (node instanceof LogicalCTEProducer) {
+                ((LogicalCTEProducer<?>) node).getOutput().forEach(slot -> producerOutputExprIds.add(slot.getExprId()));
+            } else if (node instanceof LogicalCTEConsumer) {
+                consumers.add((LogicalCTEConsumer) node);
+            }
+            return false;
+        });
+        Assertions.assertFalse(consumers.isEmpty(), plan.treeString());
+        for (LogicalCTEConsumer consumer : consumers) {
+            for (Slot producerSlot : consumer.getProducerToConsumerOutputMap().keySet()) {
+                Assertions.assertTrue(producerOutputExprIds.contains(producerSlot.getExprId()),
+                        "the consumer map of " + consumer.getRelationId() + " references " + producerSlot
+                                + " which the producer does not output: " + plan.treeString());
+            }
+            for (Slot producerSlot : consumer.getConsumerToProducerOutputMap().values()) {
+                Assertions.assertTrue(producerOutputExprIds.contains(producerSlot.getExprId()),
+                        "the consumer map of " + consumer.getRelationId() + " references " + producerSlot
+                                + " which the producer does not output: " + plan.treeString());
+            }
+        }
+        // the query has to stay plannable
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
     }
 
     private static LogicalProject<?> findConstantProject(Plan plan) {
