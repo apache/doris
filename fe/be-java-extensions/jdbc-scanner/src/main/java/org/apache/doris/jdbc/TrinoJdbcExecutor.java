@@ -35,6 +35,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -49,6 +50,17 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
 
     public TrinoJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+    }
+
+    @Override
+    protected void setUuid(int parameterIndex, java.util.UUID value) throws SQLException {
+        // Trino's JDBC driver binds UUID through VARCHAR; the sink SQL casts it back to UUID.
+        preparedStatement.setString(parameterIndex, value.toString());
+    }
+
+    @Override
+    protected void setUuidNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.VARCHAR);
     }
 
     @Override
@@ -89,6 +101,11 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
+            case UUID: {
+                // JNI requires UUID objects even when the driver exposes canonical text.
+                String value = resultSet.getString(columnIndex + 1);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case TIMESTAMPTZ: {
                 if (config != null && config.getTableType() == org.apache.doris.thrift.TOdbcTableType.PRESTO) {
                     // PrestoDB does not implement typed getObject for zoned timestamps.
@@ -170,6 +187,13 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
             return Collections.emptyList();
         }
         switch (type.getType()) {
+            case UUID: {
+                List<java.util.UUID> result = new ArrayList<>(array.size());
+                for (Object value : array) {
+                    result.add(value == null ? null : java.util.UUID.fromString(value.toString()));
+                }
+                return result;
+            }
             case DATE:
             case DATEV2: {
                 List<LocalDate> result = Lists.newArrayList();

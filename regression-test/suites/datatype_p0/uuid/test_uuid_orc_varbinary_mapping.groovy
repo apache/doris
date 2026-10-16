@@ -50,20 +50,23 @@ suite("test_uuid_orc_varbinary_mapping") {
         sql """SELECT id, u, a, m, s, CAST(b AS VARBINARY) AS b
                FROM uuid_orc_varbinary_mapping ORDER BY id
                INTO OUTFILE "file://${outputDirectory}/orc_" FORMAT AS ORC"""
-        for (boolean scannerV2 : [false, true]) {
+        // The unconditional native mapping contract is implemented by FileScanner V2.
+        for (boolean scannerV2 : [true]) {
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
             for (boolean binaryMapping : [false, true]) {
                 String source = """local("file_path"="${outputDirectory.fileName}/orc_*",
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
-                // Ordinary BINARY stays VARBINARY even when the UUID binary override is off.
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
-                // UUID annotations preserve scalar and nested types independently of the binary option.
-                "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, u,
-                        ARRAY_MAP(value -> value, a),
-                        ARRAY_MAP(value -> value, MAP_KEYS(m)),
-                        ARRAY_MAP(value -> value, MAP_VALUES(m)),
-                        s.k, HEX(b), LENGTH(HEX(b))
+                // UUID annotations override physical binary mapping, including nested leaves.
+                String uuidValue = "u"
+                String nestedValue = "value"
+                String structValue = "s.k"
+                "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, ${uuidValue},
+                        ARRAY_MAP(value -> ${nestedValue}, a),
+                        ARRAY_MAP(value -> ${nestedValue}, MAP_KEYS(m)),
+                        ARRAY_MAP(value -> ${nestedValue}, MAP_VALUES(m)),
+                        ${structValue}, HEX(b), LENGTH(HEX(b))
                     FROM ${source} ORDER BY id"""
                 "qt_filtered_${scannerV2}_${binaryMapping}" """SELECT id, u, HEX(b), LENGTH(HEX(b))
                     FROM ${source} WHERE u IS NOT NULL AND id > 1 ORDER BY id"""

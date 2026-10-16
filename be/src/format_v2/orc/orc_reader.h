@@ -93,6 +93,7 @@ public:
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* row_readers_created = nullptr;
+        RuntimeProfile::Counter* timestamp_stripe_footers_read = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -204,7 +205,6 @@ private:
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
-    bool _enable_mapping_varbinary = false;
     std::shared_ptr<const FileContext> _file_context;
 };
 

@@ -155,7 +155,6 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -566,6 +565,11 @@ public class IcebergUtils {
     }
 
     public static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {
+        if (icebergType.typeId() == TypeID.UUID) {
+            // UUID file bounds may use a different order from Iceberg's evaluator, even for equality.
+            // Keep value predicates as Doris residuals; null-count predicates are still safe.
+            return null;
+        }
         if (icebergType.typeId() == TypeID.TIMESTAMP_NANO) {
             if (expr instanceof NullLiteral || ((Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
                 return null;
@@ -795,7 +799,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return Type.UUID;
             case BINARY:
                 // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
                 // STRING makes Arrow clients reject otherwise valid Iceberg values.
@@ -1446,7 +1450,8 @@ public class IcebergUtils {
                     return valueStr;
                 case UUID:
                     if (!valueStr.startsWith("0x")) {
-                        return UUID.fromString(valueStr);
+                        // Static SQL partitions accept the same compact UUID text as the sink cast.
+                        return new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(valueStr).getValue();
                     }
                     ByteBuffer uuidBytes = decodeBinaryPartitionValue(valueStr);
                     Preconditions.checkArgument(uuidBytes.remaining() == 16, "UUID requires 16 bytes");
@@ -1711,8 +1716,8 @@ public class IcebergUtils {
 
     /**
      * Return binary-like initial defaults in a lossless transport representation. These defaults
-     * cannot be carried as raw Java strings and their Doris type is insufficient to identify them
-     * when varbinary mapping is disabled, because UUID/BINARY/FIXED then map to STRING/CHAR.
+     * cannot be carried as raw Java strings. UUID defaults instead use canonical text and their
+     * native Doris UUID type.
      */
     public static Map<Integer, String> getBase64EncodedInitialDefaults(Schema schema) {
         Map<Integer, String> result = Maps.newHashMap();
@@ -1753,8 +1758,7 @@ public class IcebergUtils {
     /**
      * Return every binary-like field id, including list elements and map keys/values without a
      * field-level default. BE needs this type identity while decoding binary values nested inside
-     * a complex initial-default JSON value because Iceberg STRING, UUID, FIXED, and BINARY can all
-     * map to a Doris string type.
+     * a complex initial-default JSON value, whose string tokens do not identify binary payloads.
      */
     public static Set<Integer> getBinaryLikeFieldIds(Schema schema) {
         return getBinaryLikeFieldIds(schema.columns());
@@ -1786,19 +1790,11 @@ public class IcebergUtils {
     }
 
     public static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
-        return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY
-                || type.typeId() == TypeID.FIXED;
+        return type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
     }
 
     private static String serializeBinaryInitialDefault(org.apache.iceberg.types.Type type, Object value) {
-        if (type.typeId() != TypeID.UUID) {
-            return Transforms.identity(type).toHumanString(type, value);
-        }
-        UUID uuid = (UUID) value;
-        ByteBuffer bytes = ByteBuffer.allocate(16);
-        bytes.putLong(uuid.getMostSignificantBits());
-        bytes.putLong(uuid.getLeastSignificantBits());
-        return Base64.getEncoder().encodeToString(bytes.array());
+        return Transforms.identity(type).toHumanString(type, value);
     }
 
     /**

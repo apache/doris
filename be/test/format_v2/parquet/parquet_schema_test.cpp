@@ -107,7 +107,8 @@ TEST(ParquetSchemaTest, LogicalAnnotationsOverrideBinaryDefault) {
         iceberg.set_enable_mapping_varbinary(binary_mapping);
         iceberg.set_preserve_binary_uuid(true);
         ASSERT_TRUE(iceberg.parse_from_thrift(schema).ok());
-        EXPECT_EQ(iceberg.get_column(2)->data_type->get_primitive_type(), TYPE_STRING);
+        // Native UUID consumers no longer request a raw string carrier for table-level decoding.
+        EXPECT_EQ(iceberg.get_column(2)->data_type->get_primitive_type(), TYPE_UUID);
     }
 }
 

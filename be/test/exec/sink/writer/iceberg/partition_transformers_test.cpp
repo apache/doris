@@ -25,7 +25,9 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/value/uuid_value.h"
 #include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
@@ -754,6 +756,25 @@ TEST_F(PartitionTransformersTest, DatePartitionsMatchYearZeroFileOrdinals) {
         EXPECT_EQ((hash & INT32_MAX) % 16,
                   assert_cast<const ColumnInt32&>(*buckets.column).get_data()[i]);
     }
+}
+
+TEST_F(PartitionTransformersTest, uuid_identity_and_bucket_preserve_logical_value) {
+    auto type = std::make_shared<DataTypeUUID>();
+    auto column = ColumnUUID::create();
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    column->insert_value(value);
+    Block block({{std::move(column), type, "u"}});
+    iceberg::PartitionField field(1, 1000, "u_bucket", "bucket[17]");
+    auto transform = PartitionColumnTransforms::create(field, type);
+    auto result = transform->apply(block, 0);
+    const auto bytes = UUIDValue::to_big_endian(value);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*result.column).get_data()[0],
+              (HashUtil::murmur_hash3_32(bytes.data(), bytes.size(), 0) & INT32_MAX) % 17);
+    IdentityPartitionColumnTransform identity(type);
+    EXPECT_EQ(
+            identity.get_partition_value(type, std::string("00112233-4455-6677-8899-aabbccddeeff")),
+            "00112233-4455-6677-8899-aabbccddeeff");
 }
 
 } // namespace doris

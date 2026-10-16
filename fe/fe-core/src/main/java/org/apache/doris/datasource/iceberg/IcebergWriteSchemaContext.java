@@ -607,7 +607,7 @@ public final class IcebergWriteSchemaContext {
             case STRING:
                 return new StringLiteral((String) value);
             case UUID:
-                return binaryExpression(uuidBytes((UUID) value), targetType);
+                return new org.apache.doris.nereids.trees.expressions.literal.UuidLiteral(value.toString());
             case FIXED:
             case BINARY:
                 return binaryExpression(byteBufferBytes((ByteBuffer) value), targetType);
@@ -667,7 +667,7 @@ public final class IcebergWriteSchemaContext {
                     .map(Literal.class::cast).collect(ImmutableList.toImmutableList());
             return new ArrayLiteral(literalItems, targetType);
         }
-        // Legacy UUID/FIXED/BINARY mapping uses UNHEX to materialize raw bytes. Container
+        // Legacy FIXED/BINARY mapping uses UNHEX to materialize raw bytes. Container
         // literals accept literal children only, so preserve that expression in the existing
         // array function path; UNHEX remains executable by older BEs during a rolling upgrade.
         return TypeCoercionUtils.castIfNotSameType(new Array(items), targetType);
@@ -730,13 +730,6 @@ public final class IcebergWriteSchemaContext {
         }
         return TypeCoercionUtils.castIfNotSameType(
                 new CreateNamedStruct(namedFields.toArray(new Expression[0])), targetType);
-    }
-
-    private static byte[] uuidBytes(UUID value) {
-        return ByteBuffer.allocate(16)
-                .putLong(value.getMostSignificantBits())
-                .putLong(value.getLeastSignificantBits())
-                .array();
     }
 
     private static Expression binaryExpression(byte[] bytes, DataType targetType) {

@@ -10731,7 +10731,7 @@ TEST_F(NewOrcReaderTest, NanosecondFilesPreserveNegativeFractionsAcrossWriterTim
     }
 }
 
-TEST_F(NewOrcReaderTest, AdjacentNanosStripesReuseOneRowReader) {
+TEST_F(NewOrcReaderTest, NanosStripeFootersAreLazyAndRowReadersAreAmortized) {
     const auto file = (_test_dir / "many_nanos_stripes.orc").string();
     auto type = ::orc::createStructType();
     auto ns = ::orc::createPrimitiveType(::orc::TIMESTAMP);
@@ -10768,6 +10768,7 @@ TEST_F(NewOrcReaderTest, AdjacentNanosStripesReuseOneRowReader) {
     auto request = std::make_shared<format::FileScanRequest>();
     request->non_predicate_columns = {field_projection(0)};
     ASSERT_TRUE(reader->open(request).ok());
+    ASSERT_EQ(profile.get_counter("OrcTimestampStripeFootersRead")->value(), 1);
     bool eof = false;
     size_t total = 0;
     while (!eof) {
@@ -10783,7 +10784,23 @@ TEST_F(NewOrcReaderTest, AdjacentNanosStripesReuseOneRowReader) {
         total += rows;
     }
     EXPECT_EQ(total, STRIPES);
-    EXPECT_EQ(profile.get_counter("OrcRowReadersCreated")->value(), 1);
+    EXPECT_LE(profile.get_counter("OrcRowReadersCreated")->value(), 7);
+    EXPECT_EQ(profile.get_counter("OrcTimestampStripeFootersRead")->value(), STRIPES);
+
+    // A late row-id lookup must not open the footer of every preceding stripe.
+    auto sparse_reader = create_reader_for_path(file, &profile);
+    ASSERT_TRUE(sparse_reader->init(&state).ok());
+    request->row_ids = std::vector<int64_t> {STRIPES - 1};
+    const auto previous_footers = profile.get_counter("OrcTimestampStripeFootersRead")->value();
+    ASSERT_TRUE(sparse_reader->open(request).ok());
+    EXPECT_EQ(profile.get_counter("OrcTimestampStripeFootersRead")->value() - previous_footers, 1);
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    eof = false;
+    ASSERT_TRUE(sparse_reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, 0),
+              "1970-01-01 00:00:00.000000063");
 }
 
 TEST_F(NewOrcReaderTest, JavaNanosSiblingPreservesHistoricalCivilTime) {
@@ -10981,7 +10998,8 @@ TEST_F(NewOrcReaderTest, NanosecondFilesPreserveHistoricalWriterCivilTime) {
                     }
                 }
                 EXPECT_EQ(output_row, seconds.size());
-                EXPECT_EQ(profile.get_counter("OrcRowReadersCreated")->value(), 1);
+                // The first stripe stays independent so LIMIT does not read later footers.
+                EXPECT_LE(profile.get_counter("OrcRowReadersCreated")->value(), 2);
                 const auto& stats = reader->reader_statistics();
                 EXPECT_EQ(stats.lazy_read_filtered_rows + (lazy ? stats.filtered_group_rows : 0),
                           lazy ? threshold + 1 : 0);
@@ -12289,6 +12307,102 @@ TEST_F(NewOrcReaderTest, DateCountValidatesScalarAndNestedValues) {
                 EXPECT_TRUE(scan_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << scan_status;
                 EXPECT_NE(scan_status.to_string().find("outside the Doris DATE range"),
                           std::string::npos);
+            } else {
+                ASSERT_TRUE(scan_status.ok()) << scan_status;
+                EXPECT_EQ(rows, 3);
+            }
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, NanosCountValidatesScalarAndNestedValues) {
+    const std::vector<std::vector<std::optional<int64_t>>> cases = {
+            {-14831769600, 0, 1}, {0, 1, 2}, {std::nullopt, std::nullopt, std::nullopt}};
+    for (size_t case_id = 0; case_id < cases.size(); ++case_id) {
+        SCOPED_TRACE(case_id);
+        const auto& days = cases[case_id];
+        const auto path = (_test_dir / "count_nested_nanos.orc").string();
+        auto type = std::unique_ptr<::orc::Type>(
+                ::orc::Type::buildTypeFromString("struct<d:timestamp,a:array<timestamp>,s:struct<d:"
+                                                 "timestamp>,m:map<int,timestamp>>"));
+        const auto annotate = [&](auto&& self, ::orc::Type& node) -> void {
+            if (node.getKind() == ::orc::TIMESTAMP) {
+                node.setAttribute("iceberg.timestamp-unit", "NANOS");
+            }
+            for (uint64_t i = 0; i < node.getSubtypeCount(); ++i) {
+                self(self, *const_cast<::orc::Type*>(node.getSubtype(i)));
+            }
+        };
+        annotate(annotate, *type);
+        MemoryOutputStream stream(1024 * 1024);
+        auto writer = ::orc::createWriter(*type, &stream, ::orc::WriterOptions());
+        auto batch = writer->createRowBatch(days.size());
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto fill = [&](auto&& self, ::orc::ColumnVectorBatch& column) -> void {
+            column.numElements = days.size();
+            if (auto* record = dynamic_cast<::orc::StructVectorBatch*>(&column)) {
+                for (auto* field : record->fields) {
+                    self(self, *field);
+                }
+            } else if (auto* list = dynamic_cast<::orc::ListVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    list->offsets[i] = i;
+                }
+                self(self, *list->elements);
+            } else if (auto* map = dynamic_cast<::orc::MapVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    map->offsets[i] = i;
+                }
+                auto& keys = dynamic_cast<::orc::LongVectorBatch&>(*map->keys);
+                keys.numElements = days.size();
+                for (size_t i = 0; i < days.size(); ++i) {
+                    keys.data[i] = i;
+                }
+                self(self, *map->elements);
+            } else {
+                auto& dates = dynamic_cast<::orc::TimestampVectorBatch&>(column);
+                dates.hasNulls = true;
+                for (size_t i = 0; i < days.size(); ++i) {
+                    dates.notNull[i] = days[i].has_value();
+                    dates.data[i] = days[i].value_or(0);
+                    dates.nanoseconds[i] = 0;
+                }
+            }
+        };
+        fill(fill, root);
+        writer->add(*batch);
+        writer->close();
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        out.close();
+
+        for (int column_id = 0; column_id < 4; ++column_id) {
+            SCOPED_TRACE(column_id);
+            auto reader = create_reader_for_path(path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(column_id)};
+            ASSERT_TRUE(reader->open(request).ok());
+            format::FileAggregateRequest aggregate;
+            aggregate.agg_type = TPushAggOp::type::COUNT;
+            format::FileAggregateResult result;
+            ASSERT_TRUE(reader->get_aggregate_result(aggregate, &result).ok());
+            EXPECT_EQ(result.count, 3);
+            aggregate.columns.push_back({.projection = field_projection(column_id)});
+            const auto status = reader->get_aggregate_result(aggregate, &result);
+            const bool invalid = case_id == 0;
+            // Millisecond ORC statistics cannot prove signed-nanos validity for every leaf.
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            auto block = build_file_block({schema[column_id]});
+            size_t rows = 0;
+            bool eof = false;
+            const auto scan_status = reader->get_block(&block, &rows, &eof);
+            if (invalid) {
+                EXPECT_TRUE(scan_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << scan_status;
+
             } else {
                 ASSERT_TRUE(scan_status.ok()) << scan_status;
                 EXPECT_EQ(rows, 3);

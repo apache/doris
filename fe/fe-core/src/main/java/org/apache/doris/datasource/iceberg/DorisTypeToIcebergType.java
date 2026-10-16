@@ -119,6 +119,8 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             return Types.FloatType.get();
         } else if (primitiveType.equals(PrimitiveType.DOUBLE)) {
             return Types.DoubleType.get();
+        } else if (primitiveType.equals(PrimitiveType.UUID)) {
+            return Types.UUIDType.get();
         } else if (primitiveType.isCharFamily()) {
             return Types.StringType.get();
         } else if (primitiveType.equals(PrimitiveType.DATE)

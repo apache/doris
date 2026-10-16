@@ -88,6 +88,29 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                 WHERE ts='2024-01-02 03:04:05.123456789'"""
             assertEquals(beforeRewrite, sql("SELECT * FROM ${table} ORDER BY id"))
 
+            // Raw rewrite literals have not passed planner coercion. An offset must select
+            // the same civil partition as a TIMESTAMP_NS SQL comparison in the session zone.
+            String offsetTable = "${table}_rewrite_offset"
+            sql "DROP TABLE IF EXISTS ${offsetTable}"
+            sql """CREATE TABLE ${offsetTable} (id INT, ts TIMESTAMP_NS)
+                PARTITION BY LIST(ts) () PROPERTIES ("format-version"="3",
+                "write.format.default"="${format}")"""
+            sql "SET time_zone='Asia/Shanghai'"
+            sql "INSERT INTO ${offsetTable} VALUES (1, '2024-01-01 00:00:00.123456789')"
+            def targetFiles = sql("SELECT file_path FROM ${offsetTable}\$files WHERE content=0").flatten().toSet()
+            assertTrue(!targetFiles.isEmpty())
+            sql "INSERT INTO ${offsetTable} VALUES (2, '2023-12-31 16:00:00.123456789')"
+            def unrelatedFiles = sql("SELECT file_path FROM ${offsetTable}\$files WHERE content=0")
+                    .flatten().toSet() - targetFiles
+            assertTrue(!unrelatedFiles.isEmpty())
+            sql """ALTER TABLE ${offsetTable} EXECUTE rewrite_data_files("rewrite-all"="true")
+                WHERE ts='2024-01-01 00:00:00.123456789+08:00'"""
+            def remainingFiles = sql("SELECT file_path FROM ${offsetTable}\$files WHERE content=0").flatten().toSet()
+            assertTrue(remainingFiles.intersect(targetFiles).isEmpty())
+            assertTrue(remainingFiles.containsAll(unrelatedFiles))
+            assertEquals([[1], [2]], sql("SELECT id FROM ${offsetTable} ORDER BY id"))
+            sql "DROP TABLE ${offsetTable}"
+
             String defaultsTable = "${table}_defaults"
             sql "DROP TABLE IF EXISTS ${defaultsTable}"
             sql """CREATE TABLE ${defaultsTable} (id INT) PROPERTIES

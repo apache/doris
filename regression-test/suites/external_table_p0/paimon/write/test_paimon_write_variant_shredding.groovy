@@ -168,6 +168,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!shreddedFiles.isEmpty())
         def physicalRows = []
         shreddedFiles.each { filePath ->
+            // Variant metadata and residual payload are binary, even without an explicit mapping option.
             String payloadType = rawPayloadType(filePath)
             // Raw TVFs expose the Variant metadata and residual value as opaque binary bytes.
             assertTrue(payloadType.contains("metadata:varbinary"))

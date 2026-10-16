@@ -925,10 +925,8 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
-        // UUID is a logical type, so the raw-binary default must not override it.
-        // Preserve table-requested raw carriers for Iceberg equality deletes and defaults.
-        auto uuid_type = _preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
-        ans.first = DataTypeFactory::instance().create_data_type(uuid_type, nullable, -1, -1, 16);
+        // UUID annotations describe a logical UUID even when binary mapping is enabled.
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

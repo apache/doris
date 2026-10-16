@@ -528,8 +528,10 @@ public class IcebergNereidsUtils {
                     if (((org.apache.iceberg.types.Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
                         return null;
                     }
+                    // Rewrite WHERE strings have not undergone SQL coercion: normalize explicit
+                    // offsets into session civil time before encoding the unzoned nanos value.
                     return Expressions.nanos(IcebergTimestampUtils.parseNanos(
-                            literal.getStringValue(), java.time.ZoneOffset.UTC));
+                            literal.getStringValue(), DateUtils.getTimeZone()));
                 case TIMESTAMP: {
                     // Iceberg expects microseconds since epoch. Honor with/without zone semantics.
                     if (literal instanceof DateTimeLiteral
