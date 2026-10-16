@@ -164,19 +164,77 @@ final class IcebergPartitionUtils {
     }
 
     /**
-     * The partition field a static-partition name addresses: its SOURCE column name, or the field name itself.
-     * Iceberg refuses to name a partition field after a column other than its own source
-     * ({@code PartitionSpec.Builder#checkAndAddPartitionName}), so the two lookups cannot disagree.
+     * The partition field a static-partition name addresses: the IDENTITY field over that top-level source column
+     * first, then a field with that name. The source lookup must win — a field may carry a name that collides with
+     * another column's name in a different case ({@code identity(other, "ID")} next to {@code identity(id,
+     * "id_identity")} is legal, because {@code PartitionSpec.Builder} checks names case-SENSITIVELY), and the
+     * engine's name is the source column it validated.
      */
     private static String toPartitionFieldName(Schema schema, PartitionSpec spec, String name) {
+        PartitionField identity = identityPartitionBySourceColumn(schema, spec, name);
+        if (identity != null) {
+            return identity.name();
+        }
         for (PartitionField field : spec.fields()) {
-            NestedField source = schema.findField(field.sourceId());
-            if ((source != null && source.name().equalsIgnoreCase(name))
-                    || field.name().equalsIgnoreCase(name)) {
+            if (field.name().equalsIgnoreCase(name)) {
                 return field.name();
             }
         }
         return name;
+    }
+
+    /**
+     * The top-level column a partition field's source resolves to, or {@code null} when the source is a nested
+     * field. {@link NestedField#name()} is only the LEAF name, so a nested {@code payload.id} source must not be
+     * mistaken for the top-level column {@code id}: the engine can only materialize a top-level column.
+     */
+    static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        for (NestedField column : schema.columns()) {
+            if (column.fieldId() == sourceId) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
+    /** The spec's <em>identity</em> partition over the top-level column {@code name}, or null. */
+    static PartitionField identityPartitionBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Any partition field over the top-level column {@code name}, or null (used to report a non-identity one). */
+    static PartitionField partitionFieldBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** The top-level source columns of the spec's identity partitions, in field order. */
+    static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> names = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null) {
+                names.add(source);
+            }
+        }
+        return names;
     }
 
     /**
