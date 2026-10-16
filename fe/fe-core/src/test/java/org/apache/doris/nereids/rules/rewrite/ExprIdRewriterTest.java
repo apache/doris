@@ -90,6 +90,28 @@ public class ExprIdRewriterTest {
         Assertions.assertTrue(rewrittenSlotExprIds.contains(newExprId), rewrittenAssignment.toString());
     }
 
+    @Test
+    void testAliasIdIsRewrittenThroughThePlanRewrite() {
+        // a rule which renames an Alias (e.g. EliminateGroupByKeyByUniform) publishes the alias exprId itself, and
+        // the plan rewrite has to replace it, not only the exprIds of the slots below it
+        ExprId oldAliasExprId = new ExprId(8);
+        ExprId newAliasExprId = new ExprId(10);
+        NamedExpression item = new Alias(oldAliasExprId, new IntegerLiteral(200), "field1");
+
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of(""));
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.of(item), scan);
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldAliasExprId, newAliasExprId);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(scan);
+        Plan rewritten = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replaceMap, true),
+                new JobContext(cascadesContext, null)).rewriteExpr(project, replaceMap);
+
+        NamedExpression rewrittenItem = ((LogicalProject<?>) rewritten).getProjects().get(0);
+        Assertions.assertEquals(newAliasExprId, rewrittenItem.getExprId(), rewrittenItem.toString());
+        Assertions.assertEquals("field1", rewrittenItem.getName());
+    }
+
     private static SlotReference slot(ExprId exprId, String name) {
         return new SlotReference(exprId, name, IntegerType.INSTANCE, true, ImmutableList.of("test", "t"));
     }
