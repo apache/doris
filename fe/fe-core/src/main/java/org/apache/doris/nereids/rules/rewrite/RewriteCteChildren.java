@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -42,16 +43,24 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -99,22 +108,116 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
+        Set<LogicalCTEConsumer> cteConsumers = collectCteConsumers(outer, cteAnchor.getCteId());
+        cascadesContext.getCteIdToConsumers().put(cteAnchor.getCteId(), cteConsumers);
+        if (cteConsumers.isEmpty()) {
+            return outer;
+        }
+        List<Slot> oldProducerOutputs = cteAnchor.child(0).getOutput();
+        Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
+        Map<ExprId, ExprId> producerExprIdRemap = computeProducerExprIdRemap(oldProducerOutputs, producer.getOutput());
+        if (!producerExprIdRemap.isEmpty()) {
+            // The producer subtree is rewritten in its own context, so a rule of it may rename the exprIds of the
+            // producer outputs, while the consumers, which are rewritten before the producer, still map to the
+            // previous exprIds. Refresh both maps of every consumer of this CTE with the new producer slots.
+            Map<ExprId, Slot> producerOutputSlots = producer.getOutput().stream()
+                    .collect(Collectors.toMap(Slot::getExprId, Function.identity()));
+            outer = (LogicalPlan) outer.<Plan, Void>accept(new CteConsumerOutputsRefresher(cteAnchor.getCteId(),
+                    producerExprIdRemap, producerOutputSlots), null);
+            cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
+            cascadesContext.getCteIdToConsumers()
+                    .put(cteAnchor.getCteId(), collectCteConsumers(outer, cteAnchor.getCteId()));
+        }
+        return cteAnchor.withChildren(producer, outer);
+    }
+
+    private static Set<LogicalCTEConsumer> collectCteConsumers(Plan outer, CTEId cteId) {
         Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
         outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
-                if (logicalCTEConsumer.getCteId().equals(cteAnchor.getCteId())) {
+                if (logicalCTEConsumer.getCteId().equals(cteId)) {
                     cteConsumers.add(logicalCTEConsumer);
                 }
             }
             return false;
         });
-        cascadesContext.getCteIdToConsumers().put(cteAnchor.getCteId(), cteConsumers);
-        if (cteConsumers.isEmpty()) {
-            return outer;
+        return cteConsumers;
+    }
+
+    /**
+     * The outputs of a CTE producer body are the contract of its consumers, the consumers map to them by exprId. A
+     * rule which rewrites the producer body may rename them, so compare the outputs before and after the rewrite to
+     * know which exprIds changed. A column which is not renamed keeps its exprId, so it needs no mapping, and the
+     * columns which are renamed are the ones whose exprId disappeared: match them by name, a rule which renames an
+     * output keeps its name. Columns which are pruned, e.g. by ColumnPruning, are not needed by any consumer, so
+     * they have no mapping either.
+     */
+    private static Map<ExprId, ExprId> computeProducerExprIdRemap(List<Slot> oldOutputs, List<Slot> newOutputs) {
+        Set<ExprId> newExprIds = newOutputs.stream().map(Slot::getExprId).collect(Collectors.toSet());
+        Set<ExprId> matchedNewExprIds = Sets.newHashSetWithExpectedSize(newExprIds.size());
+        List<Slot> renamedOldOutputs = new ArrayList<>();
+        for (Slot oldOutput : oldOutputs) {
+            if (newExprIds.contains(oldOutput.getExprId())) {
+                matchedNewExprIds.add(oldOutput.getExprId());
+            } else {
+                renamedOldOutputs.add(oldOutput);
+            }
         }
-        Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
-        return cteAnchor.withChildren(producer, outer);
+        Map<ExprId, ExprId> remap = new HashMap<>();
+        for (Slot renamedOldOutput : renamedOldOutputs) {
+            for (Slot newOutput : newOutputs) {
+                if (!matchedNewExprIds.contains(newOutput.getExprId())
+                        && newOutput.getName().equals(renamedOldOutput.getName())) {
+                    remap.put(renamedOldOutput.getExprId(), newOutput.getExprId());
+                    matchedNewExprIds.add(newOutput.getExprId());
+                    break;
+                }
+            }
+        }
+        return remap;
+    }
+
+    /** Refresh the producer slots of the two output maps of the consumers of a CTE, see computeProducerExprIdRemap. */
+    private static class CteConsumerOutputsRefresher extends DefaultPlanRewriter<Void> {
+        private final CTEId cteId;
+        private final Map<ExprId, ExprId> producerExprIdRemap;
+        private final Map<ExprId, Slot> producerOutputSlots;
+
+        CteConsumerOutputsRefresher(CTEId cteId, Map<ExprId, ExprId> producerExprIdRemap,
+                Map<ExprId, Slot> producerOutputSlots) {
+            this.cteId = cteId;
+            this.producerExprIdRemap = producerExprIdRemap;
+            this.producerOutputSlots = producerOutputSlots;
+        }
+
+        @Override
+        public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
+            if (!cteConsumer.getCteId().equals(cteId)) {
+                return cteConsumer;
+            }
+            Map<Slot, Slot> consumerToProducerOutputMap = new LinkedHashMap<>();
+            Multimap<Slot, Slot> producerToConsumerOutputMap = LinkedHashMultimap.create();
+            for (Map.Entry<Slot, Slot> entry : cteConsumer.getConsumerToProducerOutputMap().entrySet()) {
+                Slot newProducerSlot = refreshProducerSlot(entry.getValue());
+                consumerToProducerOutputMap.put(entry.getKey(), newProducerSlot);
+                for (Slot consumerSlot : cteConsumer.getProducerToConsumerOutputMap().get(entry.getValue())) {
+                    producerToConsumerOutputMap.put(newProducerSlot, consumerSlot);
+                }
+            }
+            return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+        }
+
+        private Slot refreshProducerSlot(Slot producerSlot) {
+            ExprId newExprId = producerExprIdRemap.get(producerSlot.getExprId());
+            if (newExprId == null) {
+                return producerSlot;
+            }
+            Slot newProducerSlot = producerOutputSlots.get(newExprId);
+            Preconditions.checkArgument(newProducerSlot != null,
+                    "the producer does not output the exprId %s", newExprId);
+            return newProducerSlot;
+        }
     }
 
     @Override

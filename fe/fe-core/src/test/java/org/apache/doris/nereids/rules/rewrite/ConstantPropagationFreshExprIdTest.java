@@ -163,10 +163,30 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     void testMaterializedCteConsumerMapsStayValid() throws Exception {
         // the producer body and the consumers are rewritten in different subtree contexts and the consumers are
         // rewritten first, so the fresh exprIds of the producer outputs must not cross the CTE boundary
+        Set<ExprId> analyzedProducerOutputIds = cteProducerOutputIds(
+                PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).getPlan());
         Plan plan = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite().getPlan();
         assertCteConsumerMapsStayValid(plan);
+        // the constant group by key of the producer is materialized with a fresh exprId, so the producer outputs
+        // different exprIds than in the analyzed plan, and the consumers had to be refreshed with them
+        Set<ExprId> rewrittenProducerOutputIds = cteProducerOutputIds(plan);
+        Assertions.assertEquals(analyzedProducerOutputIds.size(), rewrittenProducerOutputIds.size(),
+                plan.treeString());
+        Assertions.assertNotEquals(analyzedProducerOutputIds, rewrittenProducerOutputIds, plan.treeString());
         // the query has to stay plannable
         PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
+    }
+
+    private static Set<ExprId> cteProducerOutputIds(Plan plan) {
+        Set<ExprId> producerOutputExprIds = new java.util.HashSet<>();
+        plan.foreach(node -> {
+            if (node instanceof LogicalCTEProducer) {
+                ((LogicalCTEProducer<?>) node).getOutput().forEach(slot -> producerOutputExprIds.add(slot.getExprId()));
+            }
+            return false;
+        });
+        Assertions.assertFalse(producerOutputExprIds.isEmpty(), plan.treeString());
+        return producerOutputExprIds;
     }
 
     /** Every producer slot a CTE consumer maps to has to be an output slot of the producer. */
@@ -198,12 +218,16 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
 
     @Test
     void testMaterializedCteKeepsConstantProducerOutput() {
-        // `k + 0` is uniform (k = 5), so it folds to a constant, but it is an output of the CTE producer and not
-        // a grouping key: the producer has to keep it as it is, its consumers map it by exprId
+        // `k + 0` is uniform (k = 5), so it folds to a constant, and it is an output column of the CTE producer:
+        // whether the rule materializes the constant or leaves the column alone, the consumers have to keep
+        // mapping to an output which the producer really exposes
+        Set<ExprId> analyzedProducerOutputIds = cteProducerOutputIds(
+                PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE_CONSTANT_COLUMN).getPlan());
         Plan plan = PlanChecker.from(connectContext)
                 .analyze(SQL_MATERIALIZED_CTE_CONSTANT_COLUMN).rewrite().getPlan();
         assertCteConsumerMapsStayValid(plan);
-        Assertions.assertEquals(3, ((LogicalCTEProducer<?>) plan.child(0)).getOutput().size(), plan.treeString());
+        // the producer keeps its three output columns, whether they are rewritten in place or renamed
+        Assertions.assertEquals(analyzedProducerOutputIds.size(), cteProducerOutputIds(plan).size(), plan.treeString());
         PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE_CONSTANT_COLUMN);
     }
 

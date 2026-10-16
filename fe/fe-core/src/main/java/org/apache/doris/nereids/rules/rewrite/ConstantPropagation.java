@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * constant propagation, like: a = 10 and a + b > 30 => a = 10 and 10 + b > 30,
@@ -92,13 +91,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
      * to refresh the references in the plan above.
      */
     private final Map<ExprId, ExprId> replacedExprIds = Maps.newHashMap();
-    /**
-     * The outputs of a CTE producer body. The producer body and the consumers of a materialized CTE are rewritten
-     * in different subtree contexts, and the consumers are rewritten before the producer: they map their own
-     * slots to the output slots of the producer by exprId. So the exprIds of the producer outputs must stay
-     * stable, otherwise the consumer maps would point to slots which the producer does not output any more.
-     */
-    private Set<ExprId> cteProducerOutputExprIds = ImmutableSet.of();
     private ExprIdRewriter exprIdRewriter;
 
     @Override
@@ -108,10 +100,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             return plan;
         }
         replacedExprIds.clear();
-        // a present current tree means this plan is a CTE producer body, see RewriteCteChildren
-        cteProducerOutputExprIds = jobContext.getCascadesContext().getCurrentTree().isPresent()
-                ? plan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toSet())
-                : ImmutableSet.of();
         exprIdRewriter = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replacedExprIds, true), jobContext);
         return plan.accept(this, jobContext.getCascadesContext());
     }
@@ -150,11 +138,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(newPredicate));
             return having.withConjunctsAndChild(newConjuncts, having.child());
         }
-    }
-
-    /** Whether this expression is an output of a CTE producer body, whose exprId has to stay stable. */
-    private boolean isCteProducerOutput(Expression expr) {
-        return expr instanceof Slot && cteProducerOutputExprIds.contains(((Slot) expr).getExprId());
     }
 
     @Override
@@ -219,9 +202,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                     = replaceConstants(expr, false, rewriteContext, childEqualTrait.first, childEqualTrait.second);
             if (!newExpr.isConstant()) {
                 newGroupByExprs.add(newExpr);
-            } else if (isCteProducerOutput(expr)) {
-                // the consumers of the CTE still map this output by its exprId, so the aggregate has to keep it
-                newGroupByExprs.add(expr);
             }
         }
 
@@ -254,20 +234,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             // agg output need contains group by expression
             Expression replacedExpr = replaceConstants(expr, false, rewriteContext,
                     childEqualTrait.first, childEqualTrait.second);
-            Expression newOutputExpr;
-            if (isCteProducerOutput(expr)) {
-                // the consumers of the CTE map this output of the producer by its exprId, so the aggregate has to
-                // keep the output expression itself: the constant is not materialized for this column, and since
-                // the definition does not change, the exprId keeps describing one and the same column
-                newOutputExpr = expr;
-            } else {
-                newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
-            }
+            Expression newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
             if (newOutputExpr instanceof NamedExpression) {
                 newOutputExprs.add((NamedExpression) newOutputExpr);
             }
 
-            if (replacedExpr.isConstant() && !replacedExpr.equals(expr) && !isCteProducerOutput(expr)) {
+            if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
                 // A constant output describes another value than the output slot of the aggregate: its nullable
                 // and data type may differ, so it must be materialized with a fresh exprId instead of reusing
                 // the exprId of the aggregate output. Otherwise the plan would contain two definitions for one
@@ -426,11 +398,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     // process NameExpression
     private NamedExpression replaceNameExpressionConstants(NamedExpression expr, ExpressionRewriteContext context,
             ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants) {
-        if (cteProducerOutputExprIds.contains(expr.getExprId())) {
-            // the consumers of the CTE map this output of the producer by its exprId, see cteProducerOutputExprIds
-            return expr;
-        }
-
         // if a project item is a slot reference, and the slot equals to a constant value, don't rewrite it.
         // because rule `EliminateUnnecessaryProject ` can eliminate a project when the project's output slots equal to
         // its child's output slots.
