@@ -25,8 +25,8 @@
 
 #include "common/be_mock_util.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/inverted_index_parser.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 

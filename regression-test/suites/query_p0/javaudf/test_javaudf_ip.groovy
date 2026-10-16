@@ -25,6 +25,7 @@ suite("nereids_test_javaudf_ip") {
 
     def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     try {
         sql """ DROP FUNCTION IF EXISTS java_udf_ipv4_test1(ipv4);"""

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
@@ -99,15 +98,6 @@ public class Sum0 extends NotNullableAggregateFunction
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_sum because there is no distinct args");
         return new MultiDistinctSum0(false, child());
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = getArgument(0).getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("sum0 requires a numeric, boolean or string parameter: " + this.toSql());
-        }
     }
 
     /**

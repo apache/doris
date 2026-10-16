@@ -25,6 +25,7 @@ class FilterBase {
 public:
     FilterBase(bool null_aware) : _null_aware(null_aware) {}
     bool contain_null() const { return _null_aware && _contain_null; }
+    bool null_aware() const { return _null_aware; }
 
     void set_contain_null(bool contain_null) { _contain_null |= contain_null; }
 

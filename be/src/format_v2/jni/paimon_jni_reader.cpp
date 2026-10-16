@@ -32,6 +32,7 @@ constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
 constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
 constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
+constexpr std::string_view VARIANT_ACCESS_PATH_PREFIX = "variant_access_path.";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
                                         const TPaimonFileDesc& paimon_params) {
@@ -133,6 +134,14 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     } else if (paimon_params.__isset.hadoop_conf) {
         for (const auto& kv : paimon_params.hadoop_conf) {
             (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
+        }
+    }
+    for (size_t column_idx = 0; column_idx < _projected_columns.size(); ++column_idx) {
+        const auto& access_paths = _projected_columns[column_idx].variant_access_paths;
+        for (size_t path_idx = 0; path_idx < access_paths.size(); ++path_idx) {
+            (*params)[std::string(VARIANT_ACCESS_PATH_PREFIX) + std::to_string(column_idx) + "." +
+                      std::to_string(path_idx)] =
+                    JniDataBridge::encode_schema_values(access_paths[path_idx]);
         }
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift

@@ -222,7 +222,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
                 + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
                 + "distributed by hash(k1) buckets 1 "
                 + "properties('replication_num' = '1', 'binlog.enable'='true', 'binlog.format'='ROW');";
-        createTable(createTableStr);
+        createTableWithRowBinlog(createTableStr);
 
         truncateStr = "truncate table internal.testcommand.tbl_row_binlog;";
         plan = nereidsParser.parseSingle(truncateStr);

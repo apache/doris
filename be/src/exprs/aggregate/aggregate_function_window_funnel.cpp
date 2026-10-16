@@ -56,6 +56,7 @@ void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& f
     factory.register_alias("window_funnel_v1", "window_funnel");
 }
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "window_funnel", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
 }
 } // namespace doris

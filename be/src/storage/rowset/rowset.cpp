@@ -23,7 +23,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_schema.h"
