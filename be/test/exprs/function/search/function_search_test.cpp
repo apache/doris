@@ -1905,7 +1905,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
     EXPECT_EQ(0U, scorer->doc());
-    EXPECT_NEAR(std::log(2.0F), scorer->score(), 1e-6F);
+    // The source has three tokens over four rows, even without stored norms.
+    EXPECT_NEAR(0.88F * std::log(2.0F), scorer->score(), 1e-6F);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
     // The pattern was lowercased by the selected analyzer and enumerated on the selected
     // index only; a leading wildcard has no prefix to enumerate from.
@@ -2759,7 +2760,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeWildcardUsesSourceScoringStatistics) {
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(nullptr, scorer);
     EXPECT_EQ(0U, scorer->doc());
-    EXPECT_NEAR(std::log(2.0F), scorer->score(), 1e-6F);
+    // avgdl = 2/4 and implicit length = 1: BM25 is idf * 2.2 / 3.1.
+    EXPECT_NEAR((2.2F / 3.1F) * std::log(2.0F), scorer->score(), 1e-6F);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 

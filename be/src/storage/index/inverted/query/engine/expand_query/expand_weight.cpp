@@ -127,8 +127,10 @@ ScorerPtr ExpandWeight::_scored_terms(const QueryExecutionContext& context,
     index_query::IndexScoringStats stats;
     THROW_IF_ERROR(source->scoring_stats(&stats));
     DORIS_CHECK_GT(stats.doc_count, 0);
-    const float avgdl = static_cast<float>(stats.has_norms ? stats.token_count : stats.doc_count) /
-                        stats.doc_count;
+    // Docs-only SNII still reports its physical token count. Only legacy sources without
+    // that metadata report zero, so use unit average length only for those sources.
+    const uint64_t token_count = stats.token_count != 0 ? stats.token_count : stats.doc_count;
+    const float avgdl = static_cast<float>(token_count) / stats.doc_count;
     DORIS_CHECK_GT(avgdl, 0.0F);
     std::vector<ScorerPtr> scorers;
     scorers.reserve(terms.size());
