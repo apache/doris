@@ -277,7 +277,8 @@ Status open_diagnostic_footer(const std::vector<tparquet::SchemaElement>& schema
 } // namespace
 
 TEST(ParquetSchemaTest, VariantFallbackErrorReportsPathAndActualSchema) {
-    auto schema = shredded_array_variant_schema(true, false);
+    // A typed carrier still needs an optional fallback; only fallback-only elements may require it.
+    auto schema = shredded_array_variant_schema(true, true);
     schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto status = open_diagnostic_footer(schema);
     ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
