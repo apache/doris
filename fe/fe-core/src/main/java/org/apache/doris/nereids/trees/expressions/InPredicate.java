@@ -136,28 +136,6 @@ public class InPredicate extends Expression {
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         List<Expression> arguments = getArguments();
-        if (arguments.get(0).getDataType().isStructType()) {
-            // we should check in value list is all struct type
-            for (int i = 1; i < arguments.size(); i++) {
-                if (!arguments.get(i).getDataType().isStructType() && !arguments.get(i).getDataType().isNullType()) {
-                    throw new AnalysisException("in predicate struct should compare with struct type list, but got : "
-                            + arguments.get(i).getDataType().toSql());
-                }
-            }
-            return;
-        }
-
-        if (arguments.get(0).getDataType().isArrayType()) {
-            // we should check in value list is all list type
-            for (int i = 1; i < arguments.size(); i++) {
-                if (!arguments.get(i).getDataType().isArrayType() && !arguments.get(i).getDataType().isNullType()) {
-                    throw new AnalysisException("in predicate list should compare with struct type list, but got : "
-                            + arguments.get(i).getDataType().toSql());
-                }
-            }
-            return;
-        }
-
         arguments.forEach(c -> {
             if (c.getDataType().isObjectType()) {
                 throw new AnalysisException("in predicate could not contains object type: " + this.toSql());
