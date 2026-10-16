@@ -89,6 +89,57 @@ suite("test_file_type") {
     } finally {
         sql "SET enable_fold_constant_by_be = ${constantFoldMode}"
     }
+    // Multiple WHEN arms retain CASE rather than being rewritten to IF.
+    def originalShortCircuit = sql("SELECT @@short_circuit_evaluation")[0][0]
+    try {
+        for (def shortCircuit in [false, true]) {
+            sql "SET short_circuit_evaluation = ${shortCircuit}"
+            def selected = sql """
+                SELECT number, ELEMENT_AT(chosen, 'uri'),
+                       FROM_BINARY(ELEMENT_AT(chosen, 'inline')), CAST(chosen IS NULL AS INT)
+                FROM (
+                    SELECT number,
+                           CASE WHEN number % 3 = 0 THEN f
+                                WHEN number % 3 = 1 THEN CAST(NULL AS FILE)
+                                ELSE g END AS chosen
+                    FROM (
+                        SELECT number,
+                               CAST(NAMED_STRUCT('uri', CONCAT('urn:left:', number),
+                                   'offset', NULL, 'size', NULL, 'content_type', NULL,
+                                   'checksum', NULL, 'inline',
+                                   CAST(CONCAT('L', number) AS VARBINARY)) AS FILE) AS f,
+                               CAST(NAMED_STRUCT('uri', CONCAT('urn:right:', number),
+                                   'offset', NULL, 'size', NULL, 'content_type', NULL,
+                                   'checksum', NULL, 'inline',
+                                   CAST(CONCAT('R', number) AS VARBINARY)) AS FILE) AS g
+                        FROM NUMBERS("number" = "6")
+                    ) inputs
+                ) selections ORDER BY number
+            """
+            assertEquals([["0", "urn:left:0", "4C30", "0"], ["1", null, null, "1"],
+                          ["2", "urn:right:2", "5232", "0"], ["3", "urn:left:3", "4C33", "0"],
+                          ["4", null, null, "1"], ["5", "urn:right:5", "5235", "0"]],
+                    selected.collect { row -> row.collect { value -> value == null ? null : value.toString() } })
+        }
+    } finally {
+        sql "SET short_circuit_evaluation = ${originalShortCircuit}"
+    }
+    // Both functions compare elements, including FILE nested below a container.
+    for (def function in ["ARRAY_REVERSE_SORT", "ARRAY_COMPACT"]) {
+        for (def values in ["ARRAY(f, f)", "ARRAY(ARRAY(f), ARRAY(f))",
+                            "ARRAY(NAMED_STRUCT('f', f), NAMED_STRUCT('f', f))",
+                            "ARRAY(MAP('f', f), MAP('f', f))"]) {
+            test {
+                sql """SELECT ${function}(${values}) FROM (
+                    SELECT CAST(NAMED_STRUCT('uri', CONCAT('urn:key:', number),
+                        'offset', NULL, 'size', NULL, 'content_type', NULL,
+                        'checksum', NULL, 'inline', NULL) AS FILE) AS f
+                    FROM NUMBERS("number" = "2")
+                ) inputs"""
+                exception "FILE"
+            }
+        }
+    }
     def inlineFallback = """CAST(JSON_PARSE('{"uri":null,"offset":null,"size":null,
             "content_type":null,"checksum":null,"inline":"AP+A"}') AS FILE)"""
     qt_conditional_values fileQuery("""
@@ -329,9 +380,13 @@ suite("test_file_type") {
     }
     sql "SET enable_strict_cast = true"
 
+    test {
+        sql fileQuery("SELECT ELEMENT_AT(f, 'unknown') FROM test_file_type_values")
+        exception "the specified field name unknown was not found"
+    }
+
     for (def query in [
         "SELECT CAST('s3://bucket/file' AS FILE)",
-        "SELECT ELEMENT_AT(f, 'unknown') FROM test_file_type_values",
         "SELECT ELEMENT_AT(f, id) FROM test_file_type_values",
         "SELECT ELEMENT_AT(f, CAST(id AS STRING)) FROM test_file_type_values",
         "SELECT f = f FROM test_file_type_values",
@@ -346,8 +401,7 @@ suite("test_file_type") {
     ]) {
         test {
             sql fileQuery(query)
-            exception(query.contains("'unknown'") ? "the specified field name unknown was not found"
-                    : query.contains("f = f") ? "complex type"
+            exception(query.contains("f = f") ? "complex type"
                     : query.contains("COUNT(DISTINCT") ? "COUNT DISTINCT could not process type" : "FILE")
         }
     }

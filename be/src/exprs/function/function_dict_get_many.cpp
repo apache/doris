@@ -32,6 +32,7 @@
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 

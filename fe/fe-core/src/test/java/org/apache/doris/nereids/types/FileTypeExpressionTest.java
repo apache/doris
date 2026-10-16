@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
@@ -50,9 +51,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFileOuter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -74,6 +77,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.thrift.TResultSinkType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -96,6 +100,41 @@ public class FileTypeExpressionTest {
     }
 
     @Test
+    public void testFlightRejectsOnlyFileResultColumns() {
+        ConnectContext previous = ConnectContext.get();
+        try {
+            ConnectContext flight = MemoTestUtils.createConnectContext();
+            flight.setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCOL);
+            flight.setCurrentUserIdentity(UserIdentity.ROOT);
+            flight.setRemoteIP("127.0.0.1");
+            flight.setEnv(Env.getCurrentEnv());
+            flight.setThreadLocalInfo();
+            String file = "cast(named_struct('uri', 'urn:x', 'offset', null, 'size', null, "
+                    + "'content_type', null, 'checksum', null, 'inline', null) as file)";
+            for (String value : Arrays.asList("cast(null as file)", file, "array(" + file + ")",
+                    "named_struct('f', " + file + ")", "map('key', " + file + ")")) {
+                String sql = "select " + value;
+                assertAnalysisError("Arrow Flight does not support FILE result columns",
+                        () -> PlanChecker.from(flight).analyze(sql), sql);
+                Assertions.assertDoesNotThrow(
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+                flight.setThreadLocalInfo();
+            }
+            for (String sql : Arrays.asList("select 1", "select named_struct('s', 'text')",
+                    "select element_at(" + file + ", 'uri')",
+                    "select cast(" + file + " as json)")) {
+                Assertions.assertDoesNotThrow(() -> PlanChecker.from(flight).analyze(sql), sql);
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testFileChecksDoNotReconstructPersistedDecimalArithmeticTypes() {
         ConnectContext previous = ConnectContext.get();
         try {
@@ -110,8 +149,6 @@ public class FileTypeExpressionTest {
             Assertions.assertThrows(NotSupportedException.class, divide::getDataType);
             Assertions.assertDoesNotThrow(divide::checkInputDataTypes);
             Assertions.assertDoesNotThrow(alias::checkInputDataTypes);
-            Assertions.assertDoesNotThrow(() -> ExpressionUtils.checkFileExecutionVersion(divide));
-            Assertions.assertDoesNotThrow(() -> ExpressionUtils.checkFileExecutionVersion(alias));
             Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
             Assertions.assertFalse(context.getSessionVariable().isEnableDecimal256());
         } finally {
@@ -150,6 +187,29 @@ public class FileTypeExpressionTest {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression + " from (select 1 id, cast(null as file) f, "
                             + "cast(null as array<file>) files) t"), expression);
+        }
+    }
+
+    @Test
+    public void testArrayComparisonFunctionsRejectNestedFile() {
+        for (String sqlType : Arrays.asList("ARRAY<FILE>", "ARRAY<ARRAY<FILE>>",
+                "ARRAY<STRUCT<f:FILE>>", "ARRAY<MAP<STRING,FILE>>")) {
+            Expression array = new SlotReference("files", type(sqlType));
+            for (BoundFunction function : Arrays.asList(new ArrayReverseSort(array), new ArrayCompact(array))) {
+                String expected = function.getName() + " does not support type";
+                assertAnalysisError(expected, () -> TypeCoercionUtils.processBoundFunction(function), sqlType);
+                String sql = "select " + function.getName() + "(files) from (select cast(null as "
+                        + sqlType + ") files) t";
+                assertAnalysisError(expected,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+            }
+        }
+        for (String sqlType : Arrays.asList("ARRAY<INT>", "ARRAY<ARRAY<INT>>")) {
+            Expression array = new SlotReference("values", type(sqlType));
+            for (BoundFunction function : Arrays.asList(new ArrayReverseSort(array), new ArrayCompact(array))) {
+                Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processBoundFunction(function),
+                        function.getName() + " " + sqlType);
+            }
         }
     }
 
@@ -665,23 +725,6 @@ public class FileTypeExpressionTest {
             assertAnalysisError(expectedMessage,
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
         }
-    }
-
-    @Test
-    public void testQueryVersionGate() {
-        LogicalOneRowRelation relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Collections.singletonList(new Alias(new NullLiteral(FileType.INSTANCE), "f")));
-        int version = Config.be_exec_version;
-        try {
-            Config.be_exec_version = Config.FILE_MIN_BE_EXEC_VERSION - 1;
-            assertAnalysisError("FILE requires execution version", () -> CheckAnalysis.checkFilePlan(relation));
-            Expression getter = ExpressionAnalyzer.analyzeFunction(null, null,
-                    new ElementAt(new SlotReference("f", FileType.INSTANCE), new StringLiteral("uri")));
-            assertAnalysisError("FILE requires execution version", getter::checkInputDataTypes);
-        } finally {
-            Config.be_exec_version = version;
-        }
-        Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
     }
 
     @Test
