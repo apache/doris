@@ -28,6 +28,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_spatial.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
@@ -76,6 +77,49 @@ TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
     const auto restored_value = restored->get_data_at(0);
     EXPECT_EQ(wkb.size(), restored_value.size);
     EXPECT_EQ(0, memcmp(wkb.data(), restored_value.data, restored_value.size));
+}
+
+static void expect_mutable_spatial_filter(PrimitiveType primitive) {
+    auto column = ColumnSpatial::create(primitive);
+    std::vector<std::string> values {std::string(4096, 'a'), std::string(8192, 'b'),
+                                     std::string(4096, 'c')};
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    const auto* first_payload = column->get_data_at(0).data;
+    const auto* last_payload = column->get_data_at(2).data;
+    const auto allocated = column->allocated_bytes();
+    EXPECT_EQ(2, column->filter(IColumn::Filter {1, 0, 1}));
+    EXPECT_EQ(first_payload, column->get_data_at(0).data);
+    EXPECT_EQ(last_payload, column->get_data_at(1).data);
+    EXPECT_EQ(values[2], column->get_data_at(1).to_string());
+    EXPECT_EQ(allocated, column->allocated_bytes());
+    EXPECT_EQ(1, column->filter(IColumn::Filter {0, 1}));
+    EXPECT_EQ(last_payload, column->get_data_at(0).data);
+    EXPECT_EQ(0, column->filter(IColumn::Filter {0}));
+    column->insert_data(values[0].data(), values[0].size());
+    EXPECT_EQ(values[0], column->get_data_at(0).to_string());
+}
+
+TEST(DataTypeSpatialTest, MutableFilterRetainsPayloadArena) {
+    expect_mutable_spatial_filter(TYPE_GEOMETRY);
+    expect_mutable_spatial_filter(TYPE_GEOGRAPHY);
+}
+
+TEST(DataTypeSpatialTest, MutableNullableFilterRetainsPayloadArena) {
+    auto nullable_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY));
+    auto nullable = nullable_type->create_column();
+    const std::string payload(4096, 'p');
+    nullable->insert_data(payload.data(), payload.size());
+    nullable->insert_default();
+    nullable->insert_data(payload.data(), payload.size());
+    const auto& nested = assert_cast<const ColumnNullable&>(*nullable).get_nested_column();
+    const auto* retained_payload = nested.get_data_at(2).data;
+    EXPECT_EQ(2, nullable->filter(IColumn::Filter {0, 1, 1}));
+    EXPECT_TRUE(nullable->is_null_at(0));
+    EXPECT_FALSE(nullable->is_null_at(1));
+    EXPECT_EQ(retained_payload, nested.get_data_at(1).data);
+    EXPECT_EQ(payload, nested.get_data_at(1).to_string());
 }
 
 TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {

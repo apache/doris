@@ -450,6 +450,74 @@ TEST(VGeoFunctionsTest, GeographyPointRelationsDistinguishInteriorAndBoundary) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyEmptyPolygonsFailDistanceCalculations) {
+    const std::string empty = "010300000000000000";
+    const std::string point = "010100000000000000000000000000000000000000";
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    for (const auto& pair : std::vector<std::pair<std::string, std::string>> {
+                 {empty, point}, {point, empty}, {empty, empty}}) {
+        Block block;
+        const auto status = execute_geography_test("st_distance", {pair.first, pair.second},
+                                                   result_type, &block);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
+                  std::string::npos);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingRejectsExactAntipodes) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    const std::vector<std::pair<std::string, std::string>> antipodes {
+            {"010100000000000000000000000000000000000000",
+             "010100000000000000008066400000000000000000"},
+            {"010100000000000000000000000000000000002440",
+             "0101000000000000000080664000000000000024c0"},
+            {"01010000000000000000003e400000000000804640",
+             "01010000000000000000c062c000000000008046c0"},
+            {"010100000000000000004065400000000000003ec0",
+             "010100000000000000000024c00000000000003e40"},
+            {"010100000000000000008046400000000000805640",
+             "0101000000000000000080564000000000008056c0"},
+    };
+    for (const auto& pair : antipodes) {
+        for (const auto& inputs : std::vector<std::vector<std::string>> {
+                     {pair.first, pair.second},
+                     {pair.second, pair.first},
+                     {"010100000000000000000024400000000000003440", pair.first, pair.second},
+                     {pair.second, pair.first, "010100000000000000000024400000000000003440"}}) {
+            Block block;
+            ASSERT_TRUE(execute_geography_test(inputs.size() == 2 ? "st_azimuth" : "st_angle",
+                                               inputs, result_type, &block)
+                                .ok());
+            EXPECT_TRUE(block.get_by_position(inputs.size()).column->is_null_at(0));
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingPreservesNearAntipodes) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    const std::vector<std::pair<std::string, std::string>> near_antipodes {
+            {"010100000000000000000000000000000000000000",
+             "01010000000c21e7fdff7f66400000000000000000"},
+            {"010100000000000000000000000000000000002440",
+             "01010000000c21e7fdff7f664000000000000024c0"},
+    };
+    for (const auto& pair : near_antipodes) {
+        Block azimuth;
+        ASSERT_TRUE(execute_geography_test("st_azimuth", {pair.first, pair.second}, result_type,
+                                           &azimuth)
+                            .ok());
+        ASSERT_FALSE(azimuth.get_by_position(2).column->is_null_at(0));
+        EXPECT_NEAR((*azimuth.get_by_position(2).column)[0].get<TYPE_DOUBLE>(), M_PI_2, 1e-7);
+        Block angle;
+        ASSERT_TRUE(execute_geography_test("st_angle", {pair.second, pair.first, pair.second},
+                                           result_type, &angle)
+                            .ok());
+        ASSERT_FALSE(angle.get_by_position(3).column->is_null_at(0));
+        EXPECT_NEAR((*angle.get_by_position(3).column)[0].get<TYPE_DOUBLE>(), 0, 1e-12);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyBearingUsesLatitudeLongitudeAndClockwiseConvention) {
     struct Case {
         std::string start;

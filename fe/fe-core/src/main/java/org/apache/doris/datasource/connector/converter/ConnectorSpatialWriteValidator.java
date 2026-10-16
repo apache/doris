@@ -67,6 +67,9 @@ public final class ConnectorSpatialWriteValidator {
             validateExpression(expression.child(0), targetType, columnName);
             return;
         }
+        if (expression.isNullLiteral()) {
+            return;
+        }
         DataType targetDataType = DataType.fromCatalogType(targetType);
         if (expression instanceof If && expression.getDataType().equals(targetDataType)) {
             If branch = (If) expression;

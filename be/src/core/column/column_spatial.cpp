@@ -168,11 +168,15 @@ ColumnPtr ColumnSpatial::filter(const IColumn::Filter& filter, ssize_t result_si
 
 size_t ColumnSpatial::filter(const IColumn::Filter& filter) {
     column_match_filter_size(size(), filter.size());
-    auto filtered = this->filter(filter, -1);
-    const auto& spatial = assert_cast<const ColumnSpatial&>(*filtered);
-    clear();
-    insert_range_from(spatial, 0, spatial.size());
-    return size();
+    // Moving views within this column keeps their arena alive and avoids copying retained WKB.
+    size_t retained = 0;
+    for (size_t i = 0; i < size(); ++i) {
+        if (filter[i]) {
+            _data[retained++] = _data[i];
+        }
+    }
+    _data.resize(retained);
+    return retained;
 }
 
 MutableColumnPtr ColumnSpatial::permute(const IColumn::Permutation& perm, size_t limit) const {

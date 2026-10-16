@@ -104,7 +104,12 @@ static Status decode_calculation_shape(StringRef value, const DataTypePtr& type,
                                        std::unique_ptr<GeoShape>* shape,
                                        const char* function_name) {
     *shape = decode_geo_shape(value, type);
-    if (is_spatial_type(type) && *shape == nullptr) {
+    // POLYGON EMPTY decodes successfully, but distance helpers retain infinity/max sentinels.
+    // Reject it for typed calculations just like empty points/lines, leaving raw WKB untouched.
+    if (is_spatial_type(type) &&
+        (*shape == nullptr ||
+         ((*shape)->type() == GEO_SHAPE_POLYGON &&
+          assert_cast<const GeoPolygon&>(**shape).polygon()->num_loops() == 0))) {
         return Status::NotSupported("Function {} does not support this Geography WKB shape",
                                     function_name);
     }
@@ -236,7 +241,7 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     return Status::OK();
 }
 
-static S2LatLng geography_point_coordinate(StringRef wkb) {
+static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
     double longitude;
     double latitude;
     const auto status = WkbParse::point_coordinates(wkb.data, wkb.size, &longitude, &latitude);
@@ -248,17 +253,23 @@ static S2LatLng geography_point_coordinate(StringRef wkb) {
     } else if (longitude == 180) {
         longitude = -180;
     }
-    return S2LatLng::FromDegrees(latitude, longitude);
+    return {longitude, latitude};
 }
 
 static bool geography_bearing(StringRef from, StringRef to, double* bearing) {
     const auto start = geography_point_coordinate(from);
     const auto end = geography_point_coordinate(to);
-    // Coincident or antipodal positions have no unique initial bearing.
-    if (start == end || start.GetDistance(end).radians() == M_PI) {
+    // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
+    // haversine distance rounds (0, 0) -> (179.999999, 0) to pi despite its unique east bearing.
+    const bool antipodal =
+            start.second == -end.second &&
+            (std::abs(start.second) == 90 || std::abs(start.first - end.first) == 180);
+    if (start == end || antipodal) {
         return false;
     }
-    *bearing = S2Earth::GetInitialBearing(start, end).radians();
+    *bearing = S2Earth::GetInitialBearing(S2LatLng::FromDegrees(start.second, start.first),
+                                          S2LatLng::FromDegrees(end.second, end.first))
+                       .radians();
     *bearing = std::fmod(*bearing + 2 * M_PI, 2 * M_PI);
     return true;
 }
