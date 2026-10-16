@@ -20,6 +20,7 @@ package org.apache.doris.statistics.model;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.JsonObject;
@@ -56,6 +57,21 @@ public class Bucket {
         this.ndv = ndv;
         this.lowerExpr = lowerExpr;
         this.upperExpr = upperExpr;
+    }
+
+    /**
+     * Fraction of the values of this bucket that fall in [lower, upper]. The ndv values are
+     * assumed to spread evenly over the range as DataType.rangeLength measures it, so they sit
+     * ndv - 1 gaps apart and a sub range of length len holds len * (ndv - 1) / length + 1 of them.
+     * On an integer key with one value per unit that is the (len + 1) / (length + 1) the narrow
+     * buckets of HISTOGRAM() need; on a single point it is 1 / ndv.
+     */
+    public double coveredFraction(double lower, double upper, DataType dataType) {
+        double bucketLength = dataType.rangeLength(this.upper, this.lower);
+        if (ndv <= 1 || !(bucketLength > 0) || Double.isInfinite(bucketLength)) {
+            return 1;
+        }
+        return (dataType.rangeLength(upper, lower) * (ndv - 1) / bucketLength + 1) / ndv;
     }
 
     public static Bucket deserializeFromJson(Type datatype, String json) throws AnalysisException {

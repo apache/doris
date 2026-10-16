@@ -28,9 +28,11 @@ public class HistData {
     public final String updateTime;
 
     public HistData(ResultRow row) {
-        this.statsId = new StatsId(row);
-        this.sampleRate = Double.parseDouble(row.get(7));
-        this.buckets = row.get(8);
-        this.updateTime = row.get(9);
+        // histogram_statistics has no part_id column, StatsId(ResultRow) reads the column_statistics layout
+        this.statsId = new StatsId(row.get(0), Long.parseLong(row.get(1)), Long.parseLong(row.get(2)),
+                Long.parseLong(row.get(3)), Long.parseLong(row.get(4)), row.get(5), null);
+        this.sampleRate = Double.parseDouble(row.get(6));
+        this.buckets = row.get(7);
+        this.updateTime = row.get(8);
     }
 }

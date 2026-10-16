@@ -41,6 +41,7 @@ public class ColumnStatisticBuilder {
 
     private String updatedTime;
     private Map<Literal, Float> hotValues;
+    private Histogram histogram;
 
     public ColumnStatisticBuilder() {
     }
@@ -59,6 +60,7 @@ public class ColumnStatisticBuilder {
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
         this.hotValues = columnStatistic.hotValues;
+        this.histogram = columnStatistic.histogram;
     }
 
     // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
@@ -80,6 +82,7 @@ public class ColumnStatisticBuilder {
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
         this.hotValues = columnStatistic.hotValues;
+        this.histogram = columnStatistic.histogram;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -135,6 +138,15 @@ public class ColumnStatisticBuilder {
     public ColumnStatisticBuilder setHotValues(Map<Literal, Float> hotValues) {
         this.hotValues = hotValues;
         return this;
+    }
+
+    public ColumnStatisticBuilder setHistogram(Histogram histogram) {
+        this.histogram = histogram;
+        return this;
+    }
+
+    public Histogram getHistogram() {
+        return histogram;
     }
 
     public double getCount() {
@@ -199,7 +211,7 @@ public class ColumnStatisticBuilder {
         }
         ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
-                isUnknown, updatedTime, hotValues);
+                isUnknown, updatedTime, hotValues, histogram);
         return colStats;
     }
 

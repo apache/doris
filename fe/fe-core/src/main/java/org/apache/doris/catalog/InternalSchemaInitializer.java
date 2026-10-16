@@ -342,6 +342,26 @@ public class InternalSchemaInitializer extends Thread {
         createTable(getStatisticsCreateSql(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
                 Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
         /**
+         *CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`histogram_statistics` (
+         *   `id` varchar(4096) NOT NULL COMMENT "",
+         *   `catalog_id` varchar(1024) NOT NULL COMMENT "",
+         *   `db_id` varchar(1024) NOT NULL COMMENT "",
+         *   `tbl_id` varchar(1024) NOT NULL COMMENT "",
+         *   `idx_id` varchar(1024) NOT NULL COMMENT "",
+         *   `col_id` varchar(1024) NOT NULL COMMENT "",
+         *   `sample_rate` double NOT NULL COMMENT "",
+         *   `buckets` varchar(65533) NOT NULL COMMENT "",
+         *   `update_time` datetime NOT NULL COMMENT ""
+         * ) ENGINE = olap
+         * UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`)
+         * COMMENT "Doris internal statistics table, DO NOT MODIFY IT"
+         * DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`)
+         * BUCKETS 7
+         * PROPERTIES ("replication_num" = "1")
+         */
+        createTable(getStatisticsCreateSql(StatisticConstants.HISTOGRAM_TBL_NAME,
+                Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id")));
+        /**
          *CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`audit_log` (
          *   `query_id` varchar(48) NULL COMMENT "",
          *   `time` datetimev2(3) NULL COMMENT "",
@@ -562,6 +582,11 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         optionalTable = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        if (!optionalTable.isPresent()) {
+            return false;
+        }
+
+        optionalTable = db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME);
         if (!optionalTable.isPresent()) {
             return false;
         }

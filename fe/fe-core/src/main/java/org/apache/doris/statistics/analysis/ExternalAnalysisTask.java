@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -68,7 +67,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         }
         String template;
         if (shouldCollectHotValue()) {
-            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+            params.put("hotValueCollectCount", String.valueOf(getHotValueCollectCount(info)));
             params.put("subStringColName", getStringTypeColName(col));
             params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
             template = FULL_ANALYZE_TEMPLATE;

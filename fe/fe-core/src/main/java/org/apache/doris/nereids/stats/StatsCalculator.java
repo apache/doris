@@ -143,6 +143,7 @@ import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.StatisticsCache.OlapTableStatistics;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.StatisticRange;
@@ -1240,7 +1241,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         builder.merge(pcolStats);
                     }
                 }
-                return builder.toColumnStatistics();
+                ColumnStatistic columnStatistic = builder.toColumnStatistics();
+                if (connectContext != null
+                        && connectContext.getSessionVariable().isEnableHistogramJoinEstimation()) {
+                    Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(
+                            olapTableStatistics.catalogId, olapTableStatistics.schemaId,
+                            olapTableStatistics.tableId, olapTableStatistics.selectIndexId, colName).orElse(null);
+                    if (histogram != null && !histogram.hasCollapsedBuckets()) {
+                        // the histogram is table level, the merged column stats cover the
+                        // selected partitions only
+                        columnStatistic = new ColumnStatisticBuilder(columnStatistic).setHistogram(histogram
+                                .intersectRange(columnStatistic.minValue, columnStatistic.maxValue, true))
+                                .build();
+                    }
+                }
+                return columnStatistic;
             }
         }
 
@@ -1307,7 +1322,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeTopN
      */
     public Statistics computeTopN(TopN topN, Statistics inputStats) {
-        return inputStats.cleanHotValues().build()
+        return inputStats.cleanHotValues().build().cleanHistogram().build()
                 .withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), topN.getLimit()));
     }
 
@@ -1343,7 +1358,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: for the filter push down window situation, we will prune the row count twice
         //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
         //  and the other is in 'Filter'. It's hard to dismiss.
-        StatisticsBuilder builder = inputStats.cleanHotValues();
+        StatisticsBuilder builder = inputStats.cleanHotValues().build().cleanHistogram();
         return builder.build().withRowCountAndEnforceValid(rowCount);
     }
 
@@ -1351,7 +1366,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeLimit
      */
     public Statistics computeLimit(Limit limit, Statistics inputStats) {
-        StatisticsBuilder builder = inputStats.cleanHotValues();
+        StatisticsBuilder builder = inputStats.cleanHotValues().build().cleanHistogram();
         return builder.build().withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), limit.getLimit()));
     }
 
@@ -1415,6 +1430,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
                 builder.setHotValues(null);
                 columnStat = builder.build();
+            }
+            // Neither can the histogram: after GROUP BY every key value appears once.
+            if (columnStat.histogram != null) {
+                columnStat = new ColumnStatisticBuilder(columnStat).setHistogram(null).build();
             }
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
@@ -1519,32 +1538,42 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             //update hot values
             Map<Literal, Float> unionHotValues = new HashMap<>();
+            // the ratios of the hot values are shares of the not null rows
+            double notNullRowCountSum = 0;
             for (int j = 0; j < childOutputs.size(); j++) {
                 Slot slot = childOutputs.get(j).get(i);
                 ColumnStatistic slotStats = childStats.get(j).findColumnStatistics(slot);
+                double notNullRowCount = Math.max(0, childStats.get(j).getRowCount() - slotStats.numNulls);
+                notNullRowCountSum += notNullRowCount;
                 if (slotStats.getHotValues() != null) {
                     for (Map.Entry<Literal, Float> entry : slotStats.getHotValues().entrySet()) {
-                        Float value = unionHotValues.get(entry.getKey());
+                        // the same value of another literal type is the same key
+                        Literal key = StatisticsUtil.findHotValueKey(unionHotValues, entry.getKey());
+                        Float value = key == null ? null : unionHotValues.get(key);
                         if (value == null) {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
+                                    (float) (entry.getValue() * notNullRowCount));
                         } else {
-                            unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
+                            unionHotValues.put(key,
+                                    (float) (value + entry.getValue() * notNullRowCount));
                         }
                     }
                 }
             }
+            double unionNotNullRowCount = Math.max(1, notNullRowCountSum);
 
             int maxHotValueCount = SessionVariable.getHotValueCollectCount();
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
             unionHotValues.entrySet().stream()
                     .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
                     .limit(maxHotValueCount)
-                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
+                    .forEach(e -> resultHotValues.put(e.getKey(),
+                            (float) (e.getValue() / unionNotNullRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }
+            // the histograms of the children are not merged
+            colStatsBuilder.setHistogram(null);
             statisticsBuilder.putColumnStatistics(unionOutput.get(i), colStatsBuilder.build());
         }
 
@@ -1593,22 +1622,29 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             //update hot values
             Map<Literal, Float> unionHotValues = new HashMap<>();
+            // the ratios of the hot values are shares of the not null rows
+            double notNullRowCountSum = 0;
             for (int j = 0; j < childOutputs.size(); j++) {
                 Slot slot = childOutputs.get(j).get(i);
                 ColumnStatistic slotStats = childStats.get(j).findColumnStatistics(slot);
+                double notNullRowCount = Math.max(0, childStats.get(j).getRowCount() - slotStats.numNulls);
+                notNullRowCountSum += notNullRowCount;
                 if (slotStats.getHotValues() != null) {
                     for (Map.Entry<Literal, Float> entry : slotStats.getHotValues().entrySet()) {
-                        Float value = unionHotValues.get(entry.getKey());
+                        // the same value of another literal type is the same key
+                        Literal key = StatisticsUtil.findHotValueKey(unionHotValues, entry.getKey());
+                        Float value = key == null ? null : unionHotValues.get(key);
                         if (value == null) {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
+                                    (float) (entry.getValue() * notNullRowCount));
                         } else {
-                            unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
+                            unionHotValues.put(key,
+                                    (float) (value + entry.getValue() * notNullRowCount));
                         }
                     }
                 }
             }
+            double unionNotNullRowCount = Math.max(1, notNullRowCountSum);
 
             int maxHotValueCount = SessionVariable.getHotValueCollectCount();
             if (maxHotValueCount <= 0) {
@@ -1618,10 +1654,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             unionHotValues.entrySet().stream()
                     .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
                     .limit(maxHotValueCount)
-                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
+                    .forEach(e -> resultHotValues.put(e.getKey(),
+                            (float) (e.getValue() / unionNotNullRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }
+            // the histograms of the children are not merged
+            colStatsBuilder.setHistogram(null);
             statisticsBuilder.putColumnStatistics(unionOutput.get(i), colStatsBuilder.build());
         }
 
@@ -1765,7 +1804,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     return Pair.of(expr.toSlot(), colStatsBuilder.build());
                 }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         columnStatisticMap.putAll(childColumnStats);
-        return new Statistics(childStats.getRowCount(), 1, columnStatisticMap).cleanHotValues().build();
+        return new Statistics(childStats.getRowCount(), 1, columnStatisticMap)
+                .cleanHotValues().build().cleanHistogram().build();
     }
 
     private ColumnStatisticBuilder unionColumn(ColumnStatisticBuilder leftStatsBuilder,

@@ -25,6 +25,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
@@ -50,8 +51,43 @@ public class HistogramTask extends BaseAnalysisTask {
             + "FROM "
             + "    ${dbName}.${tblName}";
 
+    // ANALYZE WITH HISTOGRAM + MCV: top-N hot values and residual histogram in one scan.
+    private static final String ANALYZE_MCV_HISTOGRAM_SQL_TEMPLATE_TABLE = "INSERT INTO "
+            + "${internalDB}.${histogramStatTbl} "
+            + "WITH src AS (SELECT ${colName} FROM ${dbName}.${tblName}), "
+            + "nn AS (SELECT COUNT(${colName}) AS c FROM src), "
+            + "hot AS (SELECT t.v, t.c FROM (SELECT ${colName} AS v, COUNT(*) AS c FROM src "
+            + "    WHERE ${colName} IS NOT NULL GROUP BY ${colName}) t, nn "
+            + "    WHERE t.c / nn.c >= " + StatisticsUtil.HOT_VALUE_MIN_RATIO_SQL
+            + " ORDER BY t.c DESC LIMIT ${mcvCount}), "
+            + "mcv AS (SELECT GROUP_CONCAT(CONCAT("
+            + "    REPLACE(REPLACE(CAST(hot.v AS STRING), ':', '\\\\:'), ';', '\\\\;'), "
+            + "    ' :', ROUND(hot.c / nn.c, 4)), ' ;') AS s FROM hot, nn), "
+            + "excl AS (SELECT HISTOGRAM(${colName}, ${maxBucketNum}) AS h FROM src "
+            + "    WHERE ${colName} NOT IN (SELECT v FROM hot)), "
+            + "fh AS (SELECT HISTOGRAM(${colName}, ${maxBucketNum}) AS h FROM src) "
+            + "SELECT "
+            + "    CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
+            + "    ${catalogId} AS catalog_id, "
+            + "    ${dbId} AS db_id, "
+            + "    ${tblId} AS tbl_id, "
+            + "    ${idxId} AS idx_id, "
+            + "    '${colId}' AS col_id, "
+            + "    ${sampleRate} AS sample_rate, "
+            + "    JSON_INSERT(fh.h, '$.mcv_histogram', JSON_OBJECT("
+            + "        'mcv', IFNULL(mcv.s, ''), "
+            + "        'buckets', IFNULL(JSON_EXTRACT(excl.h, '$.buckets'), JSON_PARSE('[]')))) AS buckets, "
+            + "    NOW() AS create_time "
+            + "FROM fh, mcv, excl";
+
     public HistogramTask(AnalysisInfo info) {
         super(info);
+    }
+
+    @VisibleForTesting
+    static String buildAnalyzeSql(Map<String, String> params, boolean collectMcvHistogram) {
+        return new StringSubstitutor(params).replace(collectMcvHistogram
+                ? ANALYZE_MCV_HISTOGRAM_SQL_TEMPLATE_TABLE : ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE);
     }
 
     @Override
@@ -69,11 +105,12 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("colName", SqlUtils.getIdentSql(String.valueOf(info.colName)));
         params.put("sampleRate", getSampleRateFunction());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
+        params.put("mcvCount", String.valueOf(getHotValueCollectCount(info)));
 
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
+        StatisticsUtil.execUpdate(buildAnalyzeSql(params, info.collectMcvHistogram));
         Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(
-                tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
+                tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), info.indexId,
+                col.getName());
     }
 
     @Override

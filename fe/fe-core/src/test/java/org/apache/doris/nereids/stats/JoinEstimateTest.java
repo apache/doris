@@ -183,4 +183,10 @@ public class JoinEstimateTest {
         ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
         Assertions.assertNotNull(outAStats);
     }
+
+    private static GroupPlan groupPlan(IdGenerator<GroupId> gen, SlotReference... slots) {
+        return new GroupPlan(new Group(gen.getNextId(), new LogicalProperties(
+                () -> Lists.newArrayList(slots), () -> DataTrait.EMPTY_TRAIT)));
+    }
+
 }
