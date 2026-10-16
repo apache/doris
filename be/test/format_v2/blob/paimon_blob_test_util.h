@@ -89,6 +89,7 @@ protected:
         return {.system_properties = _system_properties,
                 .runtime_state = nullptr,
                 .io_ctx = &_io_context,
+                .profile = nullptr,
                 .fs_name = _fs_name,
                 .file_cache_admission = false,
                 .blob_max_size = max_size};

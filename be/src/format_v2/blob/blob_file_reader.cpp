@@ -90,6 +90,12 @@ constexpr int64_t BLOB_FOOTER_SIZE = 5; // Index length (4) followed by format v
 
 } // namespace
 
+BlobFileReader::~BlobFileReader() {
+    if (_reader) {
+        _reader->collect_profile_before_close();
+    }
+}
+
 Status BlobFileReader::_read_exact(int64_t offset, char* data, size_t size,
                                    const io::IOContext* io_ctx) const {
     if (offset < 0 || uint64_t(offset) > _reader->size() ||

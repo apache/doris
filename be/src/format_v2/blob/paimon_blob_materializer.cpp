@@ -23,10 +23,18 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_nullable.h"
 #include "format_v2/blob/paimon_blob_column_reader.h"
+#include "runtime/file_scan_profile.h"
 
 namespace doris::format::paimon {
 
-Status PaimonBlobMaterializer::init(const std::map<std::string, std::string>& options) {
+Status PaimonBlobMaterializer::init(const std::map<std::string, std::string>& options,
+                                    RuntimeProfile* profile) {
+    _materialize_timer = nullptr;
+    if (profile) {
+        _materialize_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                profile, "PaimonBlobMaterializeTime",
+                file_scan_profile::parent_or_root(profile, file_scan_profile::TABLE_READER), 1);
+    }
     _blob_as_descriptor = false;
     const auto it = options.find("blob-as-descriptor");
     if (it != options.end()) {
@@ -96,6 +104,8 @@ Status PaimonBlobMaterializer::materialize(const ColumnInt64& anchor_row_positio
     if (!has_blob_columns() || table_block->rows() == 0) {
         return Status::OK();
     }
+    // Includes lazy file opening, index decoding, payload reads and FILE construction.
+    SCOPED_TIMER(_materialize_timer);
     if (anchor_row_positions.size() != table_block->rows()) {
         return Status::InternalError("BLOB row positions and Parquet output are not aligned");
     }

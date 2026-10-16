@@ -269,7 +269,7 @@ public class VectorColumn {
     }
 
     /**
-     * Release columns and meta information
+     * Release buffers owned by a writable column. Readable columns borrow BE memory.
      */
     public void close() {
         if (childColumns != null) {
@@ -290,9 +290,8 @@ public class VectorColumn {
         if (data != 0) {
             if (columnType.isVarbinaryType()) {
                 freeVarbinaryData();
-            } else {
-                OffHeap.freeMemory(data);
             }
+            OffHeap.freeMemory(data);
         }
 
         if (offsets != 0) {

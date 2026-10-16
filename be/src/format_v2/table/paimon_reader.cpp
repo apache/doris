@@ -248,7 +248,8 @@ Status PaimonReader::init(format::TableReadOptions&& options) {
     const std::map<std::string, std::string> empty_options;
     return _blob_materializer->init(_scan_params && _scan_params->__isset.paimon_options
                                             ? _scan_params->paimon_options
-                                            : empty_options);
+                                            : empty_options,
+                                    _scanner_profile);
 }
 
 Status PaimonReader::abort_split() {
@@ -345,6 +346,7 @@ Status PaimonReader::materialize_virtual_columns(Block* table_block) {
             {.system_properties = *_system_properties,
              .runtime_state = _runtime_state,
              .io_ctx = _io_ctx.get(),
+             .profile = _scanner_profile,
              .fs_name = _current_file_range_desc.fs_name,
              .file_cache_admission = !_current_file_range_desc.__isset.file_cache_admission ||
                                      _current_file_range_desc.file_cache_admission,

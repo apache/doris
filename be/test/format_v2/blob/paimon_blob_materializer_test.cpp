@@ -33,6 +33,29 @@ namespace {
 
 class PaimonBlobMaterializerTest : public blob_test::PaimonBlobTest {};
 
+TEST_F(PaimonBlobMaterializerTest, ProfilesMaterializationAcrossSplits) {
+    RuntimeProfile profile("PaimonBlobTest");
+    PaimonBlobMaterializer materializer;
+    ASSERT_TRUE(materializer.init({}, &profile).ok());
+    const std::vector<ColumnDefinition> columns {blob_column("image", 7)};
+    auto context = read_context();
+    context.profile = &profile;
+    auto* timer = profile.get_counter("PaimonBlobMaterializeTime");
+    ASSERT_NE(timer, nullptr);
+    EXPECT_EQ(timer->value(), 0);
+    for (int split = 0; split < 2; ++split) {
+        auto file = write_blob("split-" + std::to_string(split) + ".blob", 7, 0, {"hello"});
+        ASSERT_TRUE(materializer.prepare_split(blob_split(0, 1, {file}), columns).ok());
+        auto block = output_block(columns, 1);
+        const auto before = timer->value();
+        ASSERT_TRUE(materializer.materialize(*row_positions({0}), &block, context).ok());
+        EXPECT_GT(timer->value(), before);
+        expect_inline(*block.get_by_position(0).column, 0, "hello");
+    }
+    materializer.reset();
+    EXPECT_GT(timer->value(), 0);
+}
+
 TEST_F(PaimonBlobMaterializerTest, MatchesFieldIdsAfterRenameAndProjectionReordering) {
     auto image_first = write_blob("image_first.blob", 7, 1000, {"image-0", std::nullopt});
     auto image_second = write_blob("image_second.blob", 7, 1002, {"", "image-3"});

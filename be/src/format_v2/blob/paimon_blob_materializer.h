@@ -27,6 +27,7 @@
 #include "format_v2/blob/paimon_blob_column_reader.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 class Block;
@@ -41,7 +42,8 @@ class PaimonBlobMaterializer {
 public:
     using ReadContext = PaimonBlobColumnReader::ReadContext;
 
-    Status init(const std::map<std::string, std::string>& options);
+    Status init(const std::map<std::string, std::string>& options,
+                RuntimeProfile* profile = nullptr);
     // Clears the previous split, validates row ranges and resolves projected FILE columns.
     // This does not open BLOB files. An absent blob_files field disables materialization;
     // a present but empty list still creates readers that fill missing nullable columns with NULL.
@@ -55,6 +57,7 @@ public:
     const std::set<std::string>& blob_column_names() const { return _blob_column_names; }
 
 private:
+    RuntimeProfile::Counter* _materialize_timer = nullptr;
     bool _blob_as_descriptor = false;
     // Logical range of the complete Parquet anchor. All byte splits use the same origin;
     // ROW_POSITION remains relative to the whole file, including rows skipped by filtering.

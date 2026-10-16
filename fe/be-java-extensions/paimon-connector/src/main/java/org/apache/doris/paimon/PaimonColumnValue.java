@@ -38,6 +38,10 @@ import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -321,14 +325,27 @@ public class PaimonColumnValue implements ColumnValue {
     private byte[] readBlobPayload(Blob blob) {
         if (blob instanceof BlobRef) {
             // Managed .blob references carry their length, so reject before opening the payload.
-            // External references can have length -1 and are checked after reading below.
             checkBlobSize(blob.toDescriptor().length());
         }
-        // TODO: Use bounded streaming reads for unknown-length BLOBs so the size limit can be
-        // enforced before toData() allocates and reads the entire payload.
-        byte[] payload = blob.toData();
-        checkBlobSize(payload.length);
-        return payload;
+        // External descriptors can have length -1. Read at most limit + 1 bytes,
+        // checking before retaining each chunk instead of materializing the whole object.
+        try (InputStream input = blob.newInputStream();
+                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[(int) Math.min(8192L, blobMaxSize + 1)];
+            long total = 0;
+            while (true) {
+                int request = (int) Math.min(buffer.length, blobMaxSize - total + 1);
+                int read = input.read(buffer, 0, request);
+                if (read < 0) {
+                    return output.toByteArray();
+                }
+                total += read;
+                checkBlobSize(total);
+                output.write(buffer, 0, read);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read Paimon BLOB column '" + dorisType.getName() + "'", e);
+        }
     }
 
     private void checkBlobSize(long size) {

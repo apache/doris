@@ -27,6 +27,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
+class RuntimeProfile;
 class RuntimeState;
 namespace io {
 struct FileSystemProperties;
@@ -46,11 +47,13 @@ namespace doris::format::paimon {
 // This reader has no knowledge of output Block positions.
 class PaimonBlobColumnReader {
 public:
-    // Borrowed only for read_blob(); no owning TableReader state is retained.
+    // The context is borrowed for read_blob(). Scanner-owned profile and I/O statistics
+    // must outlive this reader, since the opened file readers retain them.
     struct ReadContext {
         const io::FileSystemProperties& system_properties;
         RuntimeState* runtime_state;
         const io::IOContext* io_ctx;
+        RuntimeProfile* profile;
         const std::string& fs_name;
         bool file_cache_admission;
         // Per-value inline payload limit; descriptor output does not read payload bytes.

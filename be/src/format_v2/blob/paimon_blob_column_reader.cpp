@@ -25,6 +25,7 @@
 #include "core/pod_array.h"
 #include "format_v2/blob/blob_file_reader.h"
 #include "io/file_factory.h"
+#include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
 
 namespace doris::format::paimon {
@@ -87,16 +88,22 @@ Status PaimonBlobColumnReader::_open_blob_file(BlobFileState* blob_file,
     description.file_cache_admission = context.file_cache_admission;
     auto reader = FileFactory::create_file_reader(
             context.system_properties, description,
-            FileFactory::get_reader_options(context.runtime_state, description));
+            FileFactory::get_reader_options(context.runtime_state, description), context.profile);
     if (!reader.has_value()) {
         return std::move(reader).error();
     }
     if (reader.value()->size() != uint64_t(description.file_size)) {
         return Status::Corruption("BLOB file size differs from its manifest: {}", description.path);
     }
+    auto file_reader = std::move(reader).value();
+    // Match ordinary file reads so footer, index and payload I/O all reach scanner accounting.
+    if (context.io_ctx && context.io_ctx->file_reader_stats) {
+        file_reader = std::make_shared<io::TracingFileReader>(std::move(file_reader),
+                                                              context.io_ctx->file_reader_stats);
+    }
     auto blob = std::make_unique<format::BlobFileReader>();
-    RETURN_IF_ERROR(blob->open(std::move(reader).value(), blob_file->blob_metadata.row_count,
-                               context.io_ctx));
+    RETURN_IF_ERROR(
+            blob->open(std::move(file_reader), blob_file->blob_metadata.row_count, context.io_ctx));
     blob_file->blob_reader = std::move(blob);
     return Status::OK();
 }

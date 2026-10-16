@@ -30,6 +30,8 @@ namespace doris::format {
 // table row ids, field ids, projection, and SQL FILE values belong to the caller.
 class BlobFileReader {
 public:
+    ~BlobFileReader();
+
     struct ByteRange {
         // Absolute byte offset of the payload in this .blob file, excluding record framing.
         int64_t offset;
@@ -38,6 +40,8 @@ public:
     };
 
     // Read and decode the footer/index only. Data access requires a successful open().
+    // Owns the supplied reader and flushes its I/O profile on destruction,
+    // including when open() fails after performing I/O.
     Status open(io::FileReaderSPtr reader, int64_t expected_rows, const io::IOContext* io_ctx);
     // row is zero-based within this .blob file. SQL NULL returns nullopt, while an empty
     // non-NULL value returns a ByteRange with size 0. Descriptor reads need only this index.

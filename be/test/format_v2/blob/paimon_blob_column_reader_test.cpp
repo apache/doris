@@ -30,6 +30,44 @@ namespace {
 
 class PaimonBlobColumnReaderTest : public blob_test::PaimonBlobTest {};
 
+TEST_F(PaimonBlobColumnReaderTest, AccountsForFooterIndexAndPayloadAcrossBatchesAndFiles) {
+    auto first = write_blob("first.blob", 7, 100, {"hello", "", std::nullopt});
+    auto second = write_blob("second.blob", 7, 103, {"world"});
+    io::FileReaderStats stats;
+    _io_context.file_reader_stats = &stats;
+    auto context = read_context(); // Local FileFactory reads, with no file cache.
+    PaimonBlobColumnReader reader(blob_column("image", 7), {&first, &second}, false);
+    MutableColumnPtr result;
+    ASSERT_TRUE(reader.read_blob(*row_positions({0}), 100, context, &result).ok());
+    EXPECT_EQ(stats.read_calls, 3);                    // Footer, index, first complete record.
+    EXPECT_EQ(stats.read_bytes, first.file_size - 16); // Empty record not yet read.
+    EXPECT_GT(stats.read_time_ns, 0);
+    EXPECT_EQ(stats.read_rows, 0); // Anchor rows are already counted by the scanner.
+
+    ASSERT_TRUE(reader.read_blob(*row_positions({1, 2, 3}), 100, context, &result).ok());
+    EXPECT_EQ(stats.read_calls, 7); // Empty record, then second file's footer/index/record.
+    EXPECT_EQ(stats.read_bytes, first.file_size + second.file_size);
+    expect_inline(*result, 0, "");
+    expect_inline(*result, 1, std::nullopt);
+    expect_inline(*result, 2, "world");
+}
+
+TEST_F(PaimonBlobColumnReaderTest, DescriptorAccountsForMetadataWithoutReadingPayload) {
+    auto file = write_blob("descriptor.blob", 7, 100, {"hello", "", std::nullopt});
+    io::FileReaderStats stats;
+    _io_context.file_reader_stats = &stats;
+    auto context = read_context();
+    PaimonBlobColumnReader reader(blob_column("image", 7), {&file}, true);
+    MutableColumnPtr result;
+    ASSERT_TRUE(reader.read_blob(*row_positions({0, 1, 2}), 100, context, &result).ok());
+    EXPECT_EQ(stats.read_calls, 2);
+    EXPECT_EQ(stats.read_bytes, file.file_size - (5 + 16) - 16); // Footer and index only.
+    EXPECT_GT(stats.read_time_ns, 0);
+    ASSERT_TRUE(reader.read_blob(*row_positions({0}), 100, context, &result).ok());
+    EXPECT_EQ(stats.read_calls, 2); // Decoded index is reused across batches.
+    expect_descriptor(*result, 0, file.path, 4, 5);
+}
+
 TEST_F(PaimonBlobColumnReaderTest, SortsFilesAndRequiresContiguousAnchorCoverage) {
     auto first = write_blob("first.blob", 7, 1000, {"a", "b", "c"});
     auto second = write_blob("second.blob", 7, 1003, {"d", "e"});
