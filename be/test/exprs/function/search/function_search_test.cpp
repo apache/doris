@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -1854,6 +1855,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
             std::make_shared<RecordingNativeInvertedIndexReader>(&decoy_meta, decoy_file_reader);
     auto selected_reader = std::make_shared<RecordingNativeInvertedIndexReader>(
             &selected_meta, selected_file_reader);
+    selected_reader->fake_source->set_doc_count(4);
+    selected_reader->fake_source->set_scoring_stats({.doc_count = 4, .token_count = 3});
     selected_reader->fake_source->add("alpha", {0, 2});
     selected_reader->fake_source->add("gamma", {1});
     decoy_reader->fake_source->add("alpha", {1});
@@ -1902,7 +1905,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
     EXPECT_EQ(0U, scorer->doc());
-    EXPECT_FLOAT_EQ(1.0F, scorer->score());
+    EXPECT_NEAR(std::log(2.0F), scorer->score(), 1e-6F);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
     // The pattern was lowercased by the selected analyzer and enumerated on the selected
     // index only; a leading wildcard has no prefix to enumerate from.
@@ -2502,7 +2505,8 @@ static void search_snii_pattern(const std::map<std::string, std::string>& proper
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(0, reader->query_calls) << value;
     // The scorer enumerates the stem on the source; the reader itself is never asked.
-    auto weight = query->weight(true);
+    // This helper checks normalization and routing, without requesting scoring statistics.
+    auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, nullptr),
                                  binding_key);
@@ -2733,13 +2737,12 @@ TEST_F(FunctionSearchTest, TestSniiScoredLeafRanksByTheEngineBm25) {
     }
 }
 
-// A leaf for which the reader publishes no per-document score must keep the constant that the
-// CLucene path also gives its own constant-score leaves, so that routing scored clauses through a
-// new scorer does not quietly re-rank the unscored ones. The fake reader is what withholds the
-// scores here, so this pins the "nothing published -> BitSetQuery -> 1.0" behaviour; it does not
-// pin which query types the production is_need_similarity_score gate rejects.
-TEST_F(FunctionSearchTest, TestSniiNativeLeafWithoutPublishedScoresKeepsConstantScore) {
+// Scored wildcard leaves read frequencies and statistics through the unified source,
+// even when the old reader query API publishes no per-document scores.
+TEST_F(FunctionSearchTest, TestSniiNativeWildcardUsesSourceScoringStatistics) {
     SniiScoringFixture fixture(43, 4);
+    fixture.reader->fake_source->set_doc_count(4);
+    fixture.reader->fake_source->set_scoring_stats({.doc_count = 4, .token_count = 2});
     fixture.reader->fake_source->add("alpha", {0, 2});
 
     inverted_index::query_v2::QueryPtr query;
@@ -2756,7 +2759,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeLeafWithoutPublishedScoresKeepsConstant
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(nullptr, scorer);
     EXPECT_EQ(0U, scorer->doc());
-    EXPECT_FLOAT_EQ(1.0F, scorer->score());
+    EXPECT_NEAR(std::log(2.0F), scorer->score(), 1e-6F);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 
