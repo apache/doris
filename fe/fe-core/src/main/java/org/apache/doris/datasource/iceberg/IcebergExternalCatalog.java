@@ -36,6 +36,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
@@ -43,6 +44,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,13 +103,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList());
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList(),
+                    getCatalogInitializationSessionContext());
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
         }
+    }
+
+    protected SessionContext getCatalogInitializationSessionContext() {
+        return SessionContext.empty();
     }
 
     @Override
@@ -245,15 +252,16 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return metadataOps.tableExist(dbName, tblName);
+        return ((IcebergMetadataOps) metadataOps).tableExist(ctx, dbName, tblName);
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
         // so the combined set of tables and views is used here.
-        List<String> tableNames = metadataOps.listTableNames(dbName);
-        List<String> viewNames = metadataOps.listViewNames(dbName);
+        IcebergMetadataOps ops = (IcebergMetadataOps) metadataOps;
+        List<String> tableNames = ops.listTableNames(ctx, dbName);
+        List<String> viewNames = ops.listViewNames(ctx, dbName);
         tableNames.addAll(viewNames);
         return tableNames;
     }
@@ -269,9 +277,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         Catalog retiredCatalog = catalog;
+        RESTSessionCatalog retiredRestCatalog = msProperties instanceof IcebergRestProperties
+                ? ((IcebergRestProperties) msProperties).getRestSessionCatalog() : null;
         catalog = null;
         resourceTracker.retireCurrent(() -> {
             closeCatalog(retiredCatalog);
+            closeCatalog(retiredRestCatalog);
             if (retiredExecutor != null) {
                 ThreadPoolManager.shutdownExecutorService(retiredExecutor);
             }
@@ -289,7 +300,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         super.resetToUninitialized(invalidCache);
     }
 
-    private void closeCatalog(Catalog retiredCatalog) {
+    private void closeCatalog(Object retiredCatalog) {
         if (retiredCatalog == null) {
             return;
         }
@@ -332,7 +343,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         }
 
         Table loadTable(String dbName, String tableName) throws Exception {
-            return authenticator.execute(() -> ops.loadTableWithinCatalogGeneration(dbName, tableName));
+            return loadTable(SessionContext.empty(), dbName, tableName);
+        }
+
+        Table loadTable(SessionContext ctx, String dbName, String tableName) throws Exception {
+            return authenticator.execute(() -> ops.loadTableWithinCatalogGeneration(ctx, dbName, tableName));
         }
 
         String getCatalogType() {
@@ -372,6 +387,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    public boolean viewExists(SessionContext ctx, String dbName, String viewName) {
+        return ((IcebergMetadataOps) metadataOps).viewExists(ctx, dbName, viewName);
     }
 
     /**

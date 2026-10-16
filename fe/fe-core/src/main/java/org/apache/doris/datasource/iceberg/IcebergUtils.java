@@ -55,6 +55,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
@@ -1207,10 +1208,14 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergTableWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
     public static Table getQueryScopedIcebergTable(ExternalTable dorisTable) {
+        useSessionCatalog(dorisTable);
         return icebergExternalMetaCache(dorisTable).getQueryScopedIcebergTable(dorisTable);
     }
 
@@ -1277,12 +1282,16 @@ public class IcebergUtils {
 
     /** The action must return derived metadata rather than retain the supplied table. */
     public static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
+        useSessionCatalog(dorisTable);
         return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
     }
 
     /** The action must return metadata derived from one retained table generation. */
     static <T> T withIcebergTableGeneration(
             ExternalTable dorisTable, IcebergExternalMetaCache.TableGenerationAction<T> action) {
+        if (dorisTable.getCatalog() instanceof IcebergUserSessionCatalog) {
+            ((IcebergUserSessionCatalog) dorisTable.getCatalog()).useSessionCatalog(SessionContext.current());
+        }
         return icebergExternalMetaCache(dorisTable).withIcebergTableGeneration(dorisTable, action);
     }
 
@@ -2073,6 +2082,9 @@ public class IcebergUtils {
 
     // read schema from iceberg.schema entry
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
+        if (useSessionCatalog(dorisTable)) {
+            return buildTableSchemaCacheValue(dorisTable, schemaId, loadIcebergTableWithSession(dorisTable));
+        }
         return icebergExternalMetaCache(dorisTable)
                 .getIcebergSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
@@ -2085,6 +2097,13 @@ public class IcebergUtils {
 
     private static IcebergSchemaCacheValue getSchemaCacheValue(
             ExternalTable dorisTable, long schemaId, IcebergSnapshotCacheValue snapshotValue, Table retainedTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return snapshotValue.getCapturedAuthenticator() == null
+                    ? buildTableSchemaCacheValue(dorisTable, schemaId, retainedTable)
+                    : buildTableSchemaCacheValue(dorisTable, schemaId, retainedTable,
+                            snapshotValue.getCapturedAuthenticator(), snapshotValue.isEnableMappingVarbinary(),
+                            snapshotValue.isEnableMappingTimestampTz());
+        }
         if (snapshotValue.getCapturedAuthenticator() == null) {
             return getSchemaCacheValue(dorisTable, schemaId, retainedTable);
         }
@@ -2392,6 +2411,10 @@ public class IcebergUtils {
     }
 
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, IcebergSnapshotCacheValue sv) {
+        if (useSessionCatalog(dorisTable)) {
+            Table icebergTable = sv.getRetainedIcebergTable().orElseGet(() -> loadIcebergTableWithSession(dorisTable));
+            return getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId(), sv, icebergTable);
+        }
         Optional<Table> retainedTable = sv.getRetainedIcebergTable();
         return retainedTable.isPresent()
                 ? getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId(), sv, retainedTable.get())
@@ -2399,12 +2422,14 @@ public class IcebergUtils {
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
+        useSessionCatalog(dorisTable);
         return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
     /** The action must return metadata derived from the snapshot rather than retain its table. */
     public static <T> T withLatestSnapshotCacheValue(
             ExternalTable dorisTable, Function<IcebergSnapshotCacheValue, T> action) {
+        useSessionCatalog(dorisTable);
         return icebergExternalMetaCache(dorisTable).withSnapshotCacheValue(dorisTable, action);
     }
 
@@ -2436,6 +2461,7 @@ public class IcebergUtils {
             ExternalTable dorisTable,
             Optional<TableScanParams> scanParams) {
         if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
+            useSessionCatalog(dorisTable);
             // If a snapshot is specified, use the specified snapshot and the corresponding schema (not latest).
             // Resolve the generation once so the retained query-scoped table and the execution
             // context it is planned under always come from the same catalog generation.
@@ -2482,6 +2508,9 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable, Optional<MvccSnapshot> snapshot) {
+        if (useSessionCatalog(dorisTable) && dorisTable.isView()) {
+            return loadViewSchemaCacheValue(dorisTable, NEWEST_SCHEMA_ID).get().getSchema();
+        }
         return withSnapshotCacheValue(snapshot, dorisTable,
                 cacheValue -> getSchemaCacheValue(dorisTable, cacheValue).getSchema());
     }
@@ -2509,6 +2538,9 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergViewWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
@@ -2626,6 +2658,24 @@ public class IcebergUtils {
             }
             extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
         }
+    }
+
+    private static Table loadIcebergTableWithSession(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
+    }
+
+    private static View loadIcebergViewWithSession(ExternalTable dorisTable) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
+        IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+        return (View) ops.loadView(SessionContext.current(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+    }
+
+    static boolean useSessionCatalog(ExternalTable dorisTable) {
+        // Defer to the catalog's single session decision (IcebergUserSessionCatalog): false when dynamic
+        // identity is off, true when on and the request carries a delegated credential, and it throws when
+        // dynamic identity is on but the request has no credential (no shared identity to borrow).
+        return dorisTable.getCatalog() instanceof IcebergUserSessionCatalog
+                && ((IcebergUserSessionCatalog) dorisTable.getCatalog()).useSessionCatalog(SessionContext.current());
     }
 
     public static boolean isIcebergRowLineageColumn(Column column) {

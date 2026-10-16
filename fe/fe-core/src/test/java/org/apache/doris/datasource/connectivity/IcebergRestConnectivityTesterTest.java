@@ -18,40 +18,95 @@
 package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.rest.RESTCatalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class IcebergRestConnectivityTesterTest {
 
     @Test
-    public void testUsesNormalCatalogInitializationPath() throws Exception {
-        IcebergRestProperties properties = Mockito.mock(IcebergRestProperties.class);
-        RESTCatalog catalog = Mockito.mock(RESTCatalog.class);
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(storageProperties);
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://warehouse/path");
+    public void testSessionCatalogWrapperUsesResolvedWarehouse() throws Exception {
+        RESTSessionCatalog sessionCatalog = sessionCatalog(
+                Collections.singletonMap(CatalogProperties.WAREHOUSE_LOCATION, "s3://warehouse/path"));
+        IcebergRestProperties properties = properties(sessionCatalog);
+        IcebergRestConnectivityTester tester = new IcebergRestConnectivityTester(properties, Collections.emptyList());
 
-        Mockito.when(properties.initializeCatalog("connectivity-test", storagePropertiesList)).thenReturn(catalog);
-        Mockito.when(catalog.properties()).thenReturn(catalogProperties);
-
-        IcebergRestConnectivityTester tester = new IcebergRestConnectivityTester(
-                properties, storagePropertiesList);
         tester.testConnection();
 
-        Mockito.verify(properties).initializeCatalog("connectivity-test", storagePropertiesList);
-        Mockito.verify(catalog).listNamespaces();
-        Mockito.verify(catalog).close();
+        Mockito.verify(sessionCatalog).listNamespaces(Mockito.any(SessionContext.class), Mockito.eq(Namespace.empty()));
+        Mockito.verify(sessionCatalog).close();
+        Assertions.assertNull(properties.getRestSessionCatalog());
         Assertions.assertEquals("s3://warehouse/path", tester.getTestLocation());
+    }
+
+    @Test
+    public void testSessionCatalogWrapperUsesPolarisBaseLocation() throws Exception {
+        RESTSessionCatalog sessionCatalog = sessionCatalog(Collections.singletonMap(
+                "default-base-location", "s3://warehouse/polaris"));
+        IcebergRestProperties properties = properties(sessionCatalog);
+        IcebergRestConnectivityTester tester = new IcebergRestConnectivityTester(properties, Collections.emptyList());
+
+        tester.testConnection();
+
+        Assertions.assertEquals("s3://warehouse/polaris", tester.getTestLocation());
+        Mockito.verify(sessionCatalog).close();
+    }
+
+    @Test
+    public void testCatalogNameIsNotTreatedAsStorageLocation() throws Exception {
+        RESTSessionCatalog sessionCatalog = sessionCatalog(
+                Collections.singletonMap(CatalogProperties.WAREHOUSE_LOCATION, "doris_test"));
+        IcebergRestConnectivityTester tester = new IcebergRestConnectivityTester(
+                properties(sessionCatalog), Collections.emptyList());
+
+        tester.testConnection();
+
+        Assertions.assertNull(tester.getTestLocation());
+        Mockito.verify(sessionCatalog).close();
+    }
+
+    @Test
+    public void testNamespaceFailureClosesSessionCatalog() throws Exception {
+        RESTSessionCatalog sessionCatalog = sessionCatalog(Collections.emptyMap());
+        IllegalStateException failure = new IllegalStateException("REST authentication failed");
+        Mockito.when(sessionCatalog.listNamespaces(Mockito.any(SessionContext.class), Mockito.eq(Namespace.empty())))
+                .thenThrow(failure);
+        IcebergRestProperties properties = properties(sessionCatalog);
+        IcebergRestConnectivityTester tester = new IcebergRestConnectivityTester(properties, Collections.emptyList());
+
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class, tester::testConnection));
+
+        Mockito.verify(sessionCatalog).close();
+        Assertions.assertNull(properties.getRestSessionCatalog());
+    }
+
+    private static RESTSessionCatalog sessionCatalog(Map<String, String> resolvedProperties) {
+        RESTSessionCatalog sessionCatalog = Mockito.mock(RESTSessionCatalog.class,
+                Mockito.withSettings().useConstructor());
+        // Exercise Iceberg's real BaseSessionCatalog.AsCatalog wrapper, which is not a RESTCatalog.
+        Mockito.when(sessionCatalog.asCatalog(Mockito.any(SessionContext.class))).thenCallRealMethod();
+        Mockito.when(sessionCatalog.properties()).thenReturn(resolvedProperties);
+        return sessionCatalog;
+    }
+
+    private static IcebergRestProperties properties(RESTSessionCatalog sessionCatalog) {
+        IcebergRestProperties properties = new IcebergRestProperties(Collections.singletonMap("warehouse", "doris_test")) {
+            @Override
+            protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> catalogProps,
+                    Configuration configuration) {
+                return sessionCatalog;
+            }
+        };
+        properties.initNormalizeAndCheckProps();
+        return properties;
     }
 }
