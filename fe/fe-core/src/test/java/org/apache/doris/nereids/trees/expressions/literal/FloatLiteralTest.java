@@ -156,6 +156,17 @@ public class FloatLiteralTest {
         Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
         Assertions.assertEquals(0, ((LargeIntLiteral) expression).getValue().intValue());
 
+        // a FLOAT that reaches an integral type through a DOUBLE has to keep the binary value,
+        // 1e20f widens to 100000002004087734272 but its shortest printing 1.0E20 is exactly
+        // representable as 100000000000000000000, so the printed round trip loses 2004087734272
+        f1 = new FloatLiteral(1e20f);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals((double) 1e20f, ((DoubleLiteral) expression).getValue());
+        expression = ((DoubleLiteral) expression).uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals("100000002004087734272", ((LargeIntLiteral) expression).getValue().toString());
+
         f1 = new FloatLiteral(Float.NaN);
         FloatLiteral finalF = f1;
         Assertions.assertThrows(CastException.class, () -> finalF.uncheckedCastTo(TinyIntType.INSTANCE));
