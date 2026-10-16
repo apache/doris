@@ -203,7 +203,8 @@ private:
             if (col.name() == SEQUENCE_COL) {
                 _sequence_ordinal = i;
             }
-            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+                col.name() == BeConsts::ROWID_COL) {
                 _rowid_ordinal = i;
             }
             if (col.name() == VERSION_COL) {

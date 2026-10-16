@@ -1551,7 +1551,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     // ranges): the fabricated [0, df) range only counts correctly against a
     // full [0, num_rows) bitmap.
     facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
-    facts.record_rowids = _opts.record_rowids;
+    facts.record_rowids = _schema->rowid_ordinal() >= 0;
     facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
     facts.has_score_runtime = _score_runtime != nullptr;
     // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
@@ -1611,7 +1611,7 @@ bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
     facts.has_virtual_columns = !_virtual_column_exprs.empty();
-    facts.record_rowids = _opts.record_rowids || _schema->rowid_ordinal() >= 0;
+    facts.record_rowids = _schema->rowid_ordinal() >= 0;
     facts.has_read_limit = _opts.read_limit > 0;
     facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
     facts.has_condition_cache_digest = _opts.condition_cache_digest != 0;
