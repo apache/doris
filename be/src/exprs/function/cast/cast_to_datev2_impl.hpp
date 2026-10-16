@@ -548,7 +548,9 @@ FRAC:
                     "invalid timezone name '{}'", std::string {start, ptr});
         }
 
-        static_cast<void>(skip_any_whitespace(ptr, end));
+        if constexpr (!IsStrict) {
+            static_cast<void>(skip_any_whitespace(ptr, end));
+        }
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
                                  "invalid date string '{}', extra characters after timezone",
                                  std::string {ptr, end});
