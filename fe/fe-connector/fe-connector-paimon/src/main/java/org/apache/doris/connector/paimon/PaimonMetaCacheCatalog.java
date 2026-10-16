@@ -211,8 +211,12 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
                 try {
                     cached = tableCache.get(identifier, ignored -> {
                         try {
-                            Table loaded = attachPerTableCaches(super.getTable(identifier));
-                            return new ExpiringValue<>(loaded, nanoTime.getAsLong());
+                            Table loaded = super.getTable(identifier);
+                            if (loaded instanceof FileStoreTable
+                                    && PaimonCatalogOps.CatalogBackedPaimonCatalogOps.restCatalog(wrapped) != null) {
+                                loaded = PaimonSchemaPin.bindRestSchema((FileStoreTable) loaded);
+                            }
+                            return new ExpiringValue<>(attachPerTableCaches(loaded), nanoTime.getAsLong());
                         } catch (TableNotExistException e) {
                             throw new CatalogLoadException(e);
                         }

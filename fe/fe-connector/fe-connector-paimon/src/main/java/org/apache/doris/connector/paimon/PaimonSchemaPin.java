@@ -25,6 +25,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.utils.SnapshotManager;
 
@@ -123,6 +124,29 @@ final class PaimonSchemaPin {
                 }
             }
         }
+    }
+
+    static FileStoreTable bindRestSchema(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    bindRestSchema(pair.wrapped()), bindRestSchema(pair.other()));
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            return PaimonTableDecorators.replaceWrapped(table,
+                    bindRestSchema(((DelegatedFileStoreTable) table).wrapped()));
+        }
+        TableSchema retained = table.schema();
+        TableSchema persisted = table.schemaManager().schema(retained.id());
+        // REST reconstructs TableSchema from Schema, synthesizing timeMillis, version and highestFieldId.
+        // Bind physical identity only on catalog load: rebinding a cached handle could adopt a replacement.
+        if (!retained.copy(Collections.emptyMap()).toSchema()
+                .equals(persisted.copy(Collections.emptyMap()).toSchema())) {
+            throw new DorisConnectorException("Paimon REST schema does not match stored schema "
+                    + retained.id() + "; retry the statement");
+        }
+        // Copy the schema on the existing table to preserve REST FileIO and catalog callbacks/options.
+        return table.copy(persisted.copy(retained.options()));
     }
 
     static void validateRetainedSchema(TableSchema retained, TableSchema persisted) {
