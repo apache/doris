@@ -120,18 +120,25 @@ private:
 
 TEST_F(SchemaColumnsScannerTest, struct_type_string_carries_field_names) {
     TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
-    desc.__set_children(
-            {make_desc("f1", TPrimitiveType::INT), make_desc("f2", TPrimitiveType::STRING)});
+    TColumnDesc original_case = make_desc("metric", TPrimitiveType::INT);
+    original_case.__set_originalName("Metric");
+    original_case.__set_sqlName("Metric");
+    TColumnDesc f2 = make_desc("f2", TPrimitiveType::STRING);
+    f2.__set_sqlName("f2");
+    desc.__set_children({original_case, f2});
 
-    EXPECT_EQ("struct<f1:int(11),f2:string>", type_to_string(desc));
+    EXPECT_EQ("struct<Metric:int(11),f2:string>", type_to_string(desc));
 }
 
 TEST_F(SchemaColumnsScannerTest, nested_struct_type_string_carries_field_names) {
     TColumnDesc element = make_desc("item", TPrimitiveType::STRUCT);
-    element.__set_children({make_desc("deep", TPrimitiveType::INT)});
+    TColumnDesc deep = make_desc("deep", TPrimitiveType::INT);
+    deep.__set_sqlName("deep");
+    element.__set_children({deep});
 
     // An array element has no name of its own, only the struct fields are named.
     TColumnDesc arr = make_desc("arr", TPrimitiveType::ARRAY);
+    arr.__set_sqlName("arr");
     arr.__set_children({element});
 
     TColumnDesc outer = make_desc("outer", TPrimitiveType::STRUCT);
@@ -152,14 +159,19 @@ TEST_F(SchemaColumnsScannerTest, struct_field_name_holding_a_separator_is_quoted
               type_to_string(desc));
 }
 
-TEST_F(SchemaColumnsScannerTest, plain_struct_field_name_stays_bare) {
+TEST_F(SchemaColumnsScannerTest, struct_field_name_needing_quoting) {
     TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
-    desc.__set_children({make_desc("a-b", TPrimitiveType::INT),
-                         make_desc("f 2", TPrimitiveType::INT),
-                         make_desc("order", TPrimitiveType::INT)});
+    TColumnDesc reserved = make_desc("order", TPrimitiveType::INT);
+    reserved.__set_sqlName("`order`");
+    desc.__set_children(
+            {make_desc("a-b", TPrimitiveType::INT), make_desc("f 2", TPrimitiveType::INT), reserved,
+             make_desc("hash#name", TPrimitiveType::INT), make_desc("地区 名", TPrimitiveType::INT),
+             make_desc("a.b", TPrimitiveType::INT)});
 
-    // A hyphen, a space or a keyword carries no meaning in this text, so leave them alone.
-    EXPECT_EQ("struct<a-b:int(11),f 2:int(11),order:int(11)>", type_to_string(desc));
+    EXPECT_EQ(
+            "struct<`a-b`:int(11),`f 2`:int(11),`order`:int(11),`hash#name`:int(11),"
+            "`地区 名`:int(11),`a.b`:int(11)>",
+            type_to_string(desc));
 }
 
 TEST_F(SchemaColumnsScannerTest, empty_struct_type_string) {
