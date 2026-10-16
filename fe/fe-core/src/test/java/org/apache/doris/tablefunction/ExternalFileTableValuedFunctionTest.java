@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructField;
@@ -27,9 +28,16 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTypeNodeType;
 
@@ -37,6 +45,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -45,6 +54,59 @@ import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Test
+    public void testListedFilesCarryTheirModificationTime() throws Exception {
+        // BE keys cached blocks of an external file by path and modification time. Listing files
+        // without their mtime ships every TVF range as mtime 0, so an object overwritten in place
+        // would keep serving the blocks cached from its old content.
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.anyString(),
+                        Mockito.anyLong(), Mockito.anyLong()))
+                .thenReturn(new GlobListing(Arrays.asList(
+                        new FileEntry(Location.of("s3://bucket/dir/a.csv"), 10L, false, 1_700_000_000_123L, null),
+                        new FileEntry(Location.of("s3://bucket/dir/b.csv"), 20L, false, 1_700_000_000_456L, null)),
+                        "bucket", "dir/", "dir/b.csv"));
+        BrokerDesc brokerDesc = Mockito.mock(BrokerDesc.class);
+        ListingTvf tvf = new ListingTvf(brokerDesc);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            factory.when(() -> FileSystemFactory.getFileSystem(brokerDesc)).thenReturn(fs);
+            tvf.parseFile();
+        }
+
+        List<TBrokerFileStatus> statuses = tvf.getFileStatuses();
+        Assertions.assertEquals(2, statuses.size());
+        Assertions.assertEquals(1_700_000_000_123L, statuses.get(0).getModificationTime());
+        Assertions.assertEquals(1_700_000_000_456L, statuses.get(1).getModificationTime());
+    }
+
+    private static final class ListingTvf extends ExternalFileTableValuedFunction {
+        private final BrokerDesc brokerDesc;
+
+        private ListingTvf(BrokerDesc brokerDesc) {
+            this.brokerDesc = brokerDesc;
+        }
+
+        @Override
+        public TFileType getTFileType() {
+            return TFileType.FILE_S3;
+        }
+
+        @Override
+        public String getFilePath() {
+            return "s3://bucket/dir/*.csv";
+        }
+
+        @Override
+        public BrokerDesc getBrokerDesc() {
+            return brokerDesc;
+        }
+
+        @Override
+        public String getTableName() {
+            return "ListingTvf";
+        }
+    }
+
     @Test
     public void testFileSchemaPreservesNestedFieldSpelling() throws Exception {
         ExternalFileTableValuedFunction tvf = Mockito.mock(
@@ -103,6 +165,21 @@ public class ExternalFileTableValuedFunctionTest {
                 AnalysisException.class, () -> tvf.parseCommonProperties(properties));
 
         Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testCsvSchemaUuid() throws Exception {
+        List<Column> columns = Lists.newArrayList();
+        FileFormatUtils.parseCsvSchema(columns, "id:int;u: UUID ;v:uuid");
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(Type.UUID, columns.get(1).getType());
+        Assertions.assertEquals(Type.UUID, columns.get(2).getType());
+        Assertions.assertTrue(columns.get(1).isAllowNull());
+        Assertions.assertEquals("u", columns.get(1).getName());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> FileFormatUtils.parseCsvSchema(Lists.newArrayList(), "u:uuid(16)"));
+        Assertions.assertTrue(exception.getMessage().contains("unsupported column type: uuid(16)"));
     }
 
     @Test
@@ -186,6 +263,25 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assertions.fail();
+        }
+    }
+
+    @Test
+    public void testLogicalTypeMappingCannotBeDisabled() throws AnalysisException {
+        for (String legacyFlag : Arrays.asList(null, "false", "true")) {
+            ExternalFileTableValuedFunction tvf = Mockito.mock(
+                    ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+            if (legacyFlag != null) {
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, legacyFlag);
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, legacyFlag);
+            }
+            Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingVarbinary);
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY));
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
         }
     }
 }

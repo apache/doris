@@ -31,12 +31,14 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -360,10 +362,16 @@ public final class IcebergSchemaBuilder {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Int string: " + value, e);
                 }
+            case TIMESTAMP_NANO:
+                // ADD COLUMN carries the validated SQL datetime, not an epoch integer.
+                if (!value.matches("[+-]?[0-9]+")) {
+                    return Expressions.nanos((Long) IcebergPartitionUtils.parsePartitionValueFromString(
+                            value, type, ZoneOffset.UTC));
+                }
+                return Expressions.nanos(Long.parseLong(value));
             case LONG:
             case TIME:
             case TIMESTAMP:
-            case TIMESTAMP_NANO:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {

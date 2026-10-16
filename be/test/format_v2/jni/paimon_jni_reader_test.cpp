@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -50,9 +51,10 @@ TFileScanRangeParams make_scan_params() {
 }
 
 Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params,
-                   RuntimeState* runtime_state = nullptr) {
+                   RuntimeState* runtime_state = nullptr,
+                   std::vector<ColumnDefinition> projected_columns = {}) {
     return reader->init({
-            .projected_columns = {},
+            .projected_columns = std::move(projected_columns),
             .conjuncts = {},
             .format = FileFormat::JNI,
             .scan_params = scan_params,
@@ -66,6 +68,29 @@ Status build_params(PaimonJniReader* reader, const TFileRangeDesc& range,
                     std::map<std::string, std::string>* params) {
     reader->_current_range = range;
     return reader->build_scanner_params(params);
+}
+
+TEST(PaimonJniReaderTest, PublishesVariantAccessPathsByProjectedColumnPosition) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+    auto scan_params = make_scan_params();
+
+    ColumnDefinition id;
+    id.name = "id";
+    id.type = std::make_shared<DataTypeString>();
+    ColumnDefinition payload;
+    payload.name = "payload";
+    payload.type = std::make_shared<DataTypeVariantV2>();
+    payload.variant_access_paths = {{"name"}, {"profile", "city"}};
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params, nullptr, {id, payload}).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_FALSE(params.contains("variant_access_path.0.0"));
+    EXPECT_EQ(params.at("variant_access_path.1.0"), "$bmFtZQ==");
+    EXPECT_EQ(params.at("variant_access_path.1.1"), "$cHJvZmlsZQ==,$Y2l0eQ==");
 }
 
 TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {

@@ -195,6 +195,7 @@ final class COWIncrementalRelation implements IncrementalRelation {
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
 
+        boolean urlEncoded = HudiScanPlanProvider.urlEncodePartitioning(metaClient);
         Consumer<String> generatorSplit = baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
             splits.add(new HudiScanRange.Builder()
@@ -207,7 +208,8 @@ final class COWIncrementalRelation implements IncrementalRelation {
                     .fileSize(stat.getFileSizeInBytes())
                     .fileFormat(HudiScanPlanProvider.detectFileFormat(baseFile))
                     .partitionValues(
-                            HudiScanPlanProvider.parsePartitionValues(stat.getPartitionPath(), partitionNames))
+                            HudiScanPlanProvider.parsePartitionValues(
+                                    stat.getPartitionPath(), partitionNames, urlEncoded))
                     .build());
         };
 

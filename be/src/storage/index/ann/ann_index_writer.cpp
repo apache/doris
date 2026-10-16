@@ -25,7 +25,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "storage/index/ann/faiss_ann_index.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
 
 namespace doris::segment_v2 {
 static std::string get_or_default(const std::map<std::string, std::string>& properties,

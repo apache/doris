@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
@@ -94,6 +95,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -119,6 +121,7 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+    static final String TABLE_INFO_NAMESPACE = "hms.table-info";
 
     /**
      * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
@@ -436,10 +439,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
-        if (!hmsClient.tableExists(dbName, tableName)) {
+        // Cache raw metadata, deriving handles outside the loader so sibling resolution can use
+        // its own statement memos without nesting inside this computeIfAbsent.
+        HmsTableInfo tableInfo = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_INFO_NAMESPACE, dbName, tableName, () -> {
+                    if (!hmsClient.tableExists(dbName, tableName)) {
+                        // ConcurrentHashMap does not retain null: CTAS must resolve a target after creating it.
+                        return null;
+                    }
+                    return Objects.requireNonNull(hmsClient.getTable(dbName, tableName));
+                });
+        if (tableInfo == null) {
             return Optional.empty();
         }
-        HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
         // Foreign-handle divert: an iceberg-on-HMS or hudi-on-HMS table registered in this HMS catalog is served by
         // the embedded iceberg / hudi SIBLING connector, not by hive. Return the sibling's OWN table handle (the
@@ -611,6 +623,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 

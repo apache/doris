@@ -29,14 +29,17 @@ import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,9 +51,12 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -83,6 +89,10 @@ import java.util.Set;
  * re-filter, so any unrepresentable sub-node collapses the whole expression to {@code null} (the rewrite planner
  * then fails loud rather than silently widening the set of files rewritten). Unlike conflict mode it keeps
  * cross-column {@code OR} / {@code NOT(comparison)} / {@code NE} and drops the structural/UUID narrowing.</p>
+ *
+ * <p>All three modes share the FLOAT/DOUBLE leaves ({@link #buildLeafComparison} / {@link #buildLeafIn}),
+ * which reconcile Doris's row-level float semantics with the total order iceberg prunes files by. See the
+ * banner comment on those methods — getting this wrong silently drops rows, not just performance.</p>
  */
 public class IcebergPredicateConverter {
 
@@ -92,7 +102,12 @@ public class IcebergPredicateConverter {
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
+    // One value to Doris (IEEE: -0.0 == 0.0), two adjacent points in iceberg's total order. See the FLOAT/DOUBLE
+    // banner on buildLeafComparison.
+    private static final List<Object> SIGNED_ZEROS = Collections.unmodifiableList(Arrays.asList(-0.0d, 0.0d));
+
     private final Schema schema;
+    private final Set<Integer> unsafeNanosFields = new LinkedHashSet<>();
     private final ZoneId sessionZone;
     // The conversion matrix. SCAN = scan-time pushdown (BE re-filters, so widening is safe). CONFLICT = O5-2
     // write-time optimistic conflict detection (no-missed-conflict, so widening is also safe) -- a port of
@@ -100,6 +115,7 @@ public class IcebergPredicateConverter {
     // so strictly all-or-nothing/precise) -- mirrors IcebergNereidsUtils.convertNereidsToIcebergExpression. The
     // shared leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
     private final Mode mode;
+    private final boolean requireExact;
 
     /** Conversion matrix selector. See the field comment and the class javadoc. */
     public enum Mode { SCAN, CONFLICT, REWRITE }
@@ -114,9 +130,47 @@ public class IcebergPredicateConverter {
     }
 
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode) {
+        this(schema, sessionZone, mode, false);
+    }
+
+    private IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode, boolean requireExact) {
+        this.requireExact = requireExact;
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
         this.mode = mode;
+    }
+
+    public static IcebergPredicateConverter forTable(Table table, Schema schema, ZoneId zone, Mode mode) {
+        IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, zone, mode);
+        converter.unsafeNanosFields.addAll(unsafeNanosFields(table, schema));
+        return converter;
+    }
+
+    static Set<Integer> unsafeNanosFields(Table table, Schema schema) {
+        Set<Integer> unsafeFields = new LinkedHashSet<>();
+        Map<Integer, Schema> history = table.schemas();
+        // Iceberg allocates schema IDs from zero. Gaps mean cleanup removed type history, not
+        // necessarily its data files; without that history any nanos field may have DATE bounds.
+        int maxSchemaId = history.keySet().stream().mapToInt(Integer::intValue).max().orElse(-1);
+        boolean incompleteHistory = history.isEmpty()
+                || history.size() != (long) maxSchemaId + 1;
+        for (Types.NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+            if (field.type().typeId() != TypeID.TIMESTAMP_NANO) {
+                continue;
+            }
+            if (incompleteHistory) {
+                unsafeFields.add(field.fieldId());
+                continue;
+            }
+            for (Schema historical : history.values()) {
+                Type oldType = historical.findType(field.fieldId());
+                if (oldType != null && oldType.typeId() == TypeID.DATE) {
+                    unsafeFields.add(field.fieldId());
+                    break;
+                }
+            }
+        }
+        return unsafeFields;
     }
 
     /**
@@ -199,7 +253,7 @@ public class IcebergPredicateConverter {
         for (ConnectorExpression child : and.getConjuncts()) {
             Expression c = convertSingle(child);
             if (c == null) {
-                if (mode == Mode.REWRITE) {
+                if (mode == Mode.REWRITE || requireExact) {
                     return null;
                 }
                 continue;
@@ -223,7 +277,10 @@ public class IcebergPredicateConverter {
     }
 
     private Expression buildNot(ConnectorNot not) {
-        Expression child = convertSingle(not.getOperand());
+        // Negating a widened operand narrows the result and can permanently prune matching files.
+        IcebergPredicateConverter exact = new IcebergPredicateConverter(schema, sessionZone, mode, true);
+        exact.unsafeNanosFields.addAll(unsafeNanosFields);
+        Expression child = exact.convertSingle(not.getOperand());
         return child == null ? null : Expressions.not(child);
     }
 
@@ -249,23 +306,7 @@ public class IcebergPredicateConverter {
             }
             return null;
         }
-        switch (cmp.getOperator()) {
-            case EQ:
-            case EQ_FOR_NULL:
-                return Expressions.equal(colName, value);
-            case NE:
-                return Expressions.not(Expressions.equal(colName, value));
-            case GE:
-                return Expressions.greaterThanOrEqual(colName, value);
-            case GT:
-                return Expressions.greaterThan(colName, value);
-            case LE:
-                return Expressions.lessThanOrEqual(colName, value);
-            case LT:
-                return Expressions.lessThan(colName, value);
-            default:
-                return null;
-        }
+        return buildLeafComparison(field.type(), colName, cmp.getOperator(), value);
     }
 
     private Expression buildIn(ConnectorIn in) {
@@ -289,7 +330,191 @@ public class IcebergPredicateConverter {
             }
             values.add(value);
         }
-        return in.isNegated() ? Expressions.notIn(colName, values) : Expressions.in(colName, values);
+        return buildLeafIn(field.type(), colName, values, in.isNegated());
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════════════════════════════
+    // FLOAT/DOUBLE leaves: Doris row semantics vs the total order iceberg prunes files by.
+    //
+    // Doris evaluates a ROW with "NaN is greater than everything, NaN = NaN" plus IEEE zero equality
+    // (-0.0 == 0.0). Iceberg prunes a FILE with Comparators.naturalOrder() (Double.compare), where NaN is
+    // not in the bounds at all -- the spec says "NaNs are not permitted as lower or upper bounds", they are
+    // recorded separately in nan_value_counts -- and -0.0 sorts strictly before +0.0. Handing iceberg a
+    // literal translation therefore prunes files that do hold matching rows, and a pruned file never becomes
+    // a split, so BE's residual filter cannot recover those rows: the query silently returns too few rows.
+    //
+    // The leaves below do not merely widen, they emit the expression EQUIVALENT to the Doris predicate under
+    // iceberg's order, and they spell out the NaN half on BOTH sides: a comparison Doris matches NaN with gets
+    // `OR isNaN`, one it does not gets `AND notNaN`. That symmetry is load-bearing, not decoration -- De Morgan
+    // maps each form onto the other, so `NOT` composes at any nesting depth. Leaving the `AND notNaN` off would
+    // still read correctly row by row, yet iceberg's RewriteNot would lower not(lessThan(d, 5)) to a BARE
+    // gtEq(d, 5) whose file-level evaluator prunes a {1.0, NaN} file -- the very bug, back through the negation.
+    // notNaN costs no pruning either: it only rules out a file that is entirely NaN.
+    //
+    // Cost: InclusiveMetricsEvaluator.isNaN only prunes a file that reports nan_value_count == 0, so files
+    // whose metrics omit NaN counts -- including every file Doris writes today, IcebergWriterHelper passes a
+    // null nanValueCounts -- stop being pruned by a float range predicate. This is the trade parquet-java and
+    // parquet-cpp already make ("stats may hold NaN -> do not prune"); writers that do report NaN counts
+    // (spark, flink, iceberg-java) keep pruning in full.
+    // ════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    /**
+     * {@code col OP value}, shared by all three modes. A non-floating column gets the plain 1:1 mapping; a
+     * FLOAT/DOUBLE column gets the NaN / signed-zero reconciliation described above.
+     */
+    private static Expression buildLeafComparison(Type type, String colName,
+            ConnectorComparison.Operator op, Object value) {
+        if (!isFloating(type)) {
+            return buildPlainComparison(colName, op, value);
+        }
+        // On a floating column extractIcebergLiteral only ever yields a Number: Double/Float from a float
+        // literal, Double from a decimal literal, Integer/Long from an integer one (`d > 0`).
+        double v = ((Number) value).doubleValue();
+        if (Double.isNaN(v)) {
+            // Expressions.*(col, NaN) throws ("Cannot create expression literal from NaN") -- iceberg models a
+            // NaN literal only through the unary isNaN/notNaN. Doris: NaN is the greatest value, NaN = NaN.
+            //
+            // notNaN is the one arm that needs a NULL guard: iceberg reads notNaN(null) as TRUE
+            // (Evaluator: !NaNUtil.isNaN(value)), while Doris leaves `NULL != NaN` / `NULL < NaN` UNKNOWN,
+            // so a null row does not match. isNaN and notNull are already false for null. Without the guard
+            // a REWRITE, whose filter has no downstream re-filter, would pull in a null-only file that holds
+            // no matching row at all.
+            switch (op) {
+                case EQ:
+                case EQ_FOR_NULL:
+                case GE:
+                    return Expressions.isNaN(colName);
+                case NE:
+                case LT:
+                    return andNotNull(colName, Expressions.notNaN(colName));
+                case GT:
+                    return Expressions.alwaysFalse();
+                case LE:
+                    return Expressions.notNull(colName);
+                default:
+                    return null;
+            }
+        }
+        switch (op) {
+            case EQ:
+            case EQ_FOR_NULL:
+                return andNotNaN(colName, v == 0.0d
+                        ? Expressions.in(colName, SIGNED_ZEROS) : Expressions.equal(colName, value));
+            case NE:
+                return orIsNaN(colName, v == 0.0d
+                        ? Expressions.notIn(colName, SIGNED_ZEROS)
+                        : Expressions.not(Expressions.equal(colName, value)));
+            case GE:
+                // `d >= ±0.0` matches -0.0 too -> bound at -0.0. NaN satisfies >= every literal.
+                return orIsNaN(colName, Expressions.greaterThanOrEqual(colName, zeroBound(v, value, -0.0d)));
+            case GT:
+                // `d > ±0.0` matches neither zero -> bound at +0.0. NaN satisfies > every literal.
+                return orIsNaN(colName, Expressions.greaterThan(colName, zeroBound(v, value, 0.0d)));
+            case LE:
+                // `d <= ±0.0` matches +0.0 too -> bound at +0.0.
+                return andNotNaN(colName, Expressions.lessThanOrEqual(colName, zeroBound(v, value, 0.0d)));
+            case LT:
+                // `d < ±0.0` matches neither zero -> bound at -0.0.
+                return andNotNaN(colName, Expressions.lessThan(colName, zeroBound(v, value, -0.0d)));
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * {@code col IN (values)} / {@code col NOT IN (values)}, shared by all three modes. On a FLOAT/DOUBLE
+     * column a zero element expands to both signed zeros, a NaN element is lifted out into an isNaN/notNaN
+     * arm (iceberg rejects a NaN literal), and NOT IN additionally keeps NaN-bearing files, because Doris
+     * reads `NaN != v` as true.
+     */
+    private static Expression buildLeafIn(Type type, String colName, List<Object> values, boolean negated) {
+        if (!isFloating(type)) {
+            return negated ? Expressions.notIn(colName, values) : Expressions.in(colName, values);
+        }
+        List<Object> literals = new ArrayList<>(values.size() + 1);
+        boolean hasNaN = false;
+        boolean hasZero = false;
+        for (Object value : values) {
+            double v = ((Number) value).doubleValue();
+            if (Double.isNaN(v)) {
+                hasNaN = true;
+            } else if (v == 0.0d) {
+                hasZero = true;
+            } else {
+                literals.add(value);
+            }
+        }
+        if (hasZero) {
+            literals.addAll(SIGNED_ZEROS);
+        }
+        if (negated) {
+            // A listed NaN excludes NaN rows; otherwise NaN rows satisfy NOT IN. iceberg's and()/or() fold the
+            // alwaysTrue/alwaysFalse identity away, so `d NOT IN (NaN)` comes out as and(notNaN, notNull) --
+            // the same NULL guard the NaN-literal comparison needs, since notNaN(null) reads as TRUE in
+            // iceberg while Doris leaves `NULL NOT IN (NaN)` UNKNOWN.
+            Expression excluded = literals.isEmpty()
+                    ? Expressions.alwaysTrue() : Expressions.notIn(colName, literals);
+            return hasNaN
+                    ? andNotNull(colName, Expressions.and(excluded, Expressions.notNaN(colName)))
+                    : orIsNaN(colName, excluded);
+        }
+        Expression included = literals.isEmpty()
+                ? Expressions.alwaysFalse() : andNotNaN(colName, Expressions.in(colName, literals));
+        return hasNaN ? orIsNaN(colName, included) : included;
+    }
+
+    // The plain 1:1 mapping, i.e. what every mode emitted for every column before the FLOAT/DOUBLE leaves.
+    private static Expression buildPlainComparison(String colName, ConnectorComparison.Operator op,
+            Object value) {
+        switch (op) {
+            case EQ:
+            case EQ_FOR_NULL:
+                return Expressions.equal(colName, value);
+            case NE:
+                return Expressions.not(Expressions.equal(colName, value));
+            case GE:
+                return Expressions.greaterThanOrEqual(colName, value);
+            case GT:
+                return Expressions.greaterThan(colName, value);
+            case LE:
+                return Expressions.lessThanOrEqual(colName, value);
+            case LT:
+                return Expressions.lessThan(colName, value);
+            default:
+                return null;
+        }
+    }
+
+    private static boolean isFloating(Type type) {
+        TypeID id = type.typeId();
+        return id == TypeID.FLOAT || id == TypeID.DOUBLE;
+    }
+
+    // iceberg orders -0.0 strictly before +0.0, so bounding at the wrong zero drops the other one. Pick the
+    // signed zero whose total-order bound covers exactly the IEEE matching set; pass other literals through.
+    private static Object zeroBound(double v, Object value, double signedZero) {
+        return v == 0.0d ? signedZero : value;
+    }
+
+    // Doris matches NaN rows for this comparison, but iceberg keeps NaN out of the file bounds entirely --
+    // this arm is what stops a NaN-bearing file from being pruned.
+    private static Expression orIsNaN(String colName, Expression expr) {
+        return Expressions.or(expr, Expressions.isNaN(colName));
+    }
+
+    // Doris does NOT match NaN rows for this comparison. Saying so explicitly is redundant going forward (the
+    // bounds already exclude NaN) but is exactly what makes the leaf self-dual: De Morgan turns
+    // and(pred, notNaN) into or(!pred, isNaN), so a NOT wrapping this leaf still keeps NaN-bearing files
+    // instead of collapsing to a bare range predicate. See the banner above.
+    private static Expression andNotNaN(String colName, Expression expr) {
+        return Expressions.and(expr, Expressions.notNaN(colName));
+    }
+
+    // Only needed where the emitted arm is a bare notNaN: iceberg evaluates notNaN(null) as TRUE, while Doris
+    // leaves a comparison against NULL UNKNOWN, so the row does not match. Every other leaf already excludes
+    // null on its own -- a range/equality bound is false for null, and isNaN/notNull are false for null.
+    private static Expression andNotNull(String colName, Expression expr) {
+        return Expressions.and(expr, Expressions.notNull(colName));
     }
 
     private Types.NestedField getPushdownField(String colName) {
@@ -297,7 +522,10 @@ public class IcebergPredicateConverter {
                 || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(colName)) {
             return null;
         }
-        return schema.caseInsensitiveFindField(colName);
+        Types.NestedField field = schema.caseInsensitiveFindField(colName);
+        // Iceberg 1.11 widens retained four-byte DATE bounds to unscaled longs. Pruning those
+        // epoch-day bounds with nanosecond predicates can discard matching files in every planner.
+        return field != null && unsafeNanosFields.contains(field.fieldId()) ? null : field;
     }
 
     /**
@@ -308,7 +536,9 @@ public class IcebergPredicateConverter {
      * and float from double, both flattened to one Java type) is read from {@link ConnectorLiteral#getType()}.
      */
     private Object extractIcebergLiteral(Type icebergType, ConnectorLiteral literal) {
-        if (literal.isNull()) {
+        if (literal.isNull() || isUuid(icebergType)) {
+            // UUID bounds can use a different ordering from Iceberg's evaluator, pruning even equality matches.
+            // Keep value predicates as Doris residuals; null-count predicates remain safe to push.
             return null;
         }
         Object value = literal.getValue();
@@ -329,6 +559,8 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return date.toString();
+                case TIMESTAMP_NANO:
+                    return toNanos(date.atStartOfDay(), icebergType);
                 case TIMESTAMP:
                     return toMicros(date.atStartOfDay(), icebergType);
                 default:
@@ -340,8 +572,11 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return dorisDateTimeString(dateTime);
+                case TIMESTAMP_NANO:
+                    return toNanos(dateTime, icebergType);
                 case TIMESTAMP:
-                    return toMicros(dateTime, icebergType);
+                    return toMicros(dateTime, icebergType,
+                            "TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName()));
                 default:
                     return null;
             }
@@ -422,6 +657,9 @@ public class IcebergPredicateConverter {
         } else if (value instanceof String) {
             String string = (String) value;
             switch (id) {
+                case TIMESTAMP_NANO:
+                    LocalDateTime parsedNs = parseDorisDateTime(string);
+                    return parsedNs == null ? null : toNanos(parsedNs, icebergType);
                 case TIMESTAMP:
                     if (mode == Mode.SCAN) {
                         // Legacy IcebergUtils.extractDorisLiteral returns the raw string for a TIMESTAMP column and
@@ -479,9 +717,28 @@ public class IcebergPredicateConverter {
     // Epoch micros of a wall-clock datetime, interpreted in the session zone for zone-adjusted timestamps
     // (timestamptz) or UTC otherwise (mirrors legacy DateLiteral.getUnixTimestampWithMicroseconds).
     private long toMicros(LocalDateTime dateTime, Type icebergType) {
-        ZoneId zone = ((Types.TimestampType) icebergType).shouldAdjustToUTC() ? sessionZone : ZoneOffset.UTC;
+        return toMicros(dateTime, icebergType, false);
+    }
+
+    private long toMicros(LocalDateTime dateTime, Type icebergType, boolean utcCarrier) {
+        // TIMESTAMPTZ literals already carry UTC fields; applying the session zone shifts the predicate.
+        ZoneId zone = !utcCarrier && ((Types.TimestampType) icebergType).shouldAdjustToUTC()
+                ? sessionZone : ZoneOffset.UTC;
         Instant instant = dateTime.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    }
+
+    private static Literal<Long> toNanos(LocalDateTime dateTime, Type icebergType) {
+        if (((Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
+            return null;
+        }
+        try {
+            // A raw Long is a microsecond literal in Iceberg; preserve the nanosecond unit explicitly.
+            // Unzoned values use a UTC wall-clock carrier, never the session zone.
+            return Expressions.nanos(IcebergPartitionUtils.toEpochNanos(dateTime));
+        } catch (ArithmeticException e) {
+            return null;
+        }
     }
 
     // Parse a Doris-format datetime string ("yyyy-MM-dd HH:mm:ss[.fraction]") -- or a date-only string, taken
@@ -553,7 +810,7 @@ public class IcebergPredicateConverter {
                 Expression right = checkConversion(andExpr.right());
                 if (left != null && right != null) {
                     return andExpr;
-                } else if (mode == Mode.REWRITE) {
+                } else if (mode == Mode.REWRITE || requireExact) {
                     // all-or-nothing: a single unbindable arm fails the whole AND (no silent widen for rewrite).
                     return null;
                 } else if (left != null) {
@@ -704,7 +961,7 @@ public class IcebergPredicateConverter {
         if (isUuid(type) && !values.isEmpty()) {
             return null;
         }
-        Expression valuesExpr = values.isEmpty() ? null : Expressions.in(field.name(), values);
+        Expression valuesExpr = values.isEmpty() ? null : buildLeafIn(type, field.name(), values, false);
         Expression nullExpr = hasNull ? Expressions.isNull(field.name()) : null;
         return combineOr(nullExpr, valuesExpr);
     }
@@ -732,7 +989,8 @@ public class IcebergPredicateConverter {
         }
         String colName = field.name();
         return Expressions.and(
-                Expressions.greaterThanOrEqual(colName, lo), Expressions.lessThanOrEqual(colName, hi));
+                buildLeafComparison(type, colName, ConnectorComparison.Operator.GE, lo),
+                buildLeafComparison(type, colName, ConnectorComparison.Operator.LE, hi));
     }
 
     private Expression buildConflictComparison(ConnectorComparison cmp) {
@@ -774,15 +1032,11 @@ public class IcebergPredicateConverter {
         }
         switch (cmp.getOperator()) {
             case EQ:
-                return Expressions.equal(colName, value);
             case GT:
-                return Expressions.greaterThan(colName, value);
             case GE:
-                return Expressions.greaterThanOrEqual(colName, value);
             case LT:
-                return Expressions.lessThan(colName, value);
             case LE:
-                return Expressions.lessThanOrEqual(colName, value);
+                return buildLeafComparison(type, colName, cmp.getOperator(), value);
             default:
                 // NE / EQ_FOR_NULL are not part of the legacy conflict matrix -> dropped.
                 return null;
@@ -877,7 +1131,8 @@ public class IcebergPredicateConverter {
         }
         String colName = field.name();
         return Expressions.and(
-                Expressions.greaterThanOrEqual(colName, lo), Expressions.lessThanOrEqual(colName, hi));
+                buildLeafComparison(field.type(), colName, ConnectorComparison.Operator.GE, lo),
+                buildLeafComparison(field.type(), colName, ConnectorComparison.Operator.LE, hi));
     }
 
     private static Expression combineOr(Expression left, Expression right) {

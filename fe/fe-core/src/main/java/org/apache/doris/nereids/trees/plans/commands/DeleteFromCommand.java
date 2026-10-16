@@ -142,8 +142,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
             return;
         }
@@ -499,11 +498,15 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
+    }
+
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(
+                table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
     }
 
     private OlapTable getTargetTable(ConnectContext ctx) {

@@ -28,8 +28,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/normalizer/custom_normalizer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/normalizer/custom_normalizer.h"
 
 namespace doris {
 
@@ -55,6 +55,13 @@ public:
             const std::string& name,
             const std::map<std::string, std::string>& outer_char_filter_map = {},
             std::string* resolved_name = nullptr, std::string* legacy_name = nullptr);
+    // The per-character part of a named analyzer or normalizer, which prefix and wildcard terms
+    // go through instead of analysis: its char filters and the token filters that neither split
+    // nor drop tokens. nullptr for an analyzer that has neither.
+    AnalyzerPtr get_normalizer_by_name(const std::string& name);
+
+    // Whether the name is one of the normalizers built into Doris rather than a policy.
+    static bool is_builtin_normalizer(const std::string& name);
 
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
@@ -71,7 +78,6 @@ private:
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
 
-    bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
     const TIndexPolicy* find_policy_by_name_locked(const std::string& name) const;
@@ -90,6 +96,7 @@ private:
     constexpr static auto PROP_TYPE = "type";
 
     static const std::unordered_set<std::string> BUILTIN_NORMALIZERS;
+    static const std::unordered_set<std::string> PER_CHARACTER_TOKEN_FILTERS;
 
     std::shared_mutex _mutex;
 

@@ -1286,9 +1286,8 @@ inline bool numeric_equal(const JsonbValue* lhs, const JsonbValue* rhs) {
 }
 
 inline bool array_contains_value(const ArrayVal* target_array, const JsonbValue* candidate) {
-    const int target_num = target_array->numElem();
-    for (int i = 0; i < target_num; ++i) {
-        if (target_array->get(i)->contains(candidate)) {
+    for (auto it = target_array->begin(); it < target_array->end(); ++it) {
+        if (it->contains(candidate)) {
             return true;
         }
     }
@@ -1296,9 +1295,8 @@ inline bool array_contains_value(const ArrayVal* target_array, const JsonbValue*
 }
 
 inline bool array_contains_array(const ArrayVal* target_array, const ArrayVal* candidate_array) {
-    const int candidate_num = candidate_array->numElem();
-    for (int i = 0; i < candidate_num; ++i) {
-        if (!array_contains_value(target_array, candidate_array->get(i))) {
+    for (auto it = candidate_array->begin(); it < candidate_array->end(); ++it) {
+        if (!array_contains_value(target_array, &*it)) {
             return false;
         }
     }

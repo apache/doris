@@ -65,7 +65,7 @@ abstract class IvmAggArrayProcessor extends IvmAggFunctionProcessor {
     @Override
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
-        Slot oldArray = applyContext.rawMvSlot(target.getVisibleSlot().getName());
+        Slot oldArray = applyContext.rawMvSlot(target.getValueStateColumnName());
         Expression empty = ctx.emptyArrayLiteral(target.getVisibleSlot().getDataType());
         // The old MV side is genuinely NULL for groups that appear only in the delta (new groups).
         // The ins/del transient columns can never be NULL -- every delta group holds at least one

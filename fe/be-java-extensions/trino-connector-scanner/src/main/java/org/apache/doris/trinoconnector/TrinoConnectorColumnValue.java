@@ -43,6 +43,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 public class TrinoConnectorColumnValue implements ColumnValue {
@@ -130,6 +131,13 @@ public class TrinoConnectorColumnValue implements ColumnValue {
         return Decimals.readBigDecimal((DecimalType) trinoType, block, position);
     }
 
+    @Override
+    public java.util.UUID getUuid() {
+        // Trino stores UUIDs in a fixed-width block with its own byte-order convention.
+        return io.trino.spi.type.UuidType.trinoUuidToJavaUuid(
+                io.trino.spi.type.UuidType.UUID.getSlice(block, position));
+    }
+
     // block is VariableWidthBlock
     @Override
     public String getString() {
@@ -171,7 +179,8 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getTimeStampTz() {
         Object o = trinoType.getObjectValue(connectorSession, block, position);
-        return ((SqlTimestampWithTimeZone) o).toZonedDateTime().toLocalDateTime();
+        // JNI encodes UTC components; dropping the source zone would shift the instant.
+        return LocalDateTime.ofInstant(((SqlTimestampWithTimeZone) o).toZonedDateTime().toInstant(), ZoneOffset.UTC);
     }
 
     @Override

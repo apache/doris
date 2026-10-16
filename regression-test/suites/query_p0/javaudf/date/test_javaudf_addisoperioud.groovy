@@ -27,6 +27,7 @@ suite("nereids_test_javaudf_addisoperioud") {
     File path = new File("${context.file.parent}")
     def jarPath = """${context.file.parent}/../../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

@@ -88,6 +88,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -1371,6 +1372,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                                        output_exprs);
         break;
     }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(next_sink_operator_id(), row_desc,
+                                                           output_exprs);
+        break;
+    }
     case TDataSinkType::JDBC_TABLE_SINK: {
         if (!thrift_sink.__isset.jdbc_table_sink) {
             return Status::InternalError("Missing data jdbc sink.");
@@ -1722,7 +1731,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         }
 
         // Create source operator (goes on the current / downstream pipeline).
-        op = std::make_shared<BucketedAggSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        auto bucketed_agg_source = std::make_shared<BucketedAggSourceOperatorX>(
+                pool, tnode, next_operator_id(), descs);
+        op = bucketed_agg_source;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
         // Create a new pipeline for the sink side.
@@ -1734,8 +1745,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         // Create sink operator.
-        sink_ops.push_back(std::make_shared<BucketedAggSinkOperatorX>(
-                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        auto bucketed_agg_sink = std::make_shared<BucketedAggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs);
+        bucketed_agg_source->set_sink_operator(bucketed_agg_sink);
+        sink_ops.push_back(bucketed_agg_sink);
         RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
 
@@ -2592,7 +2605,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    const bool requires_external_file_ack =
+            params.__isset.iceberg_commit_datas || params.__isset.paimon_commit_messages;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {

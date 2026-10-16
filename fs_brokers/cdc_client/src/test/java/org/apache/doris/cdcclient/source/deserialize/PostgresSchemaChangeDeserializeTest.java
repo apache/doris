@@ -21,6 +21,8 @@ import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.doris.cdcclient.common.Constants;
@@ -35,6 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.sql.Types;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -106,16 +109,130 @@ class PostgresSchemaChangeDeserializeTest {
     }
 
     @Test
-    void relationModifyColumnType_updatesBaselineWithoutDdl() throws Exception {
+    void relationModifyColumnTypeRequiresConfirmation() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer =
-                newDeserializer(tableWith(column("id", "int4", true, null)));
-        Table fresh = tableWith(column("id", "int8", true, null));
+                newDeserializer(
+                        tableWith(column("id", "int4", true, null).edit().nativeType(23).create()));
+        Table fresh = tableWith(column("id", "int8", true, null).edit().nativeType(20).create());
 
         DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNotNull(result.getUnsupportedReason());
+        assertTrue(result.getUnsupportedReason().contains("int4 to int8"));
         assertTrue(result.getDdls().isEmpty(), "type change must not emit DDL");
         assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void relationTypeChangeWithSameDorisMappingRequiresConfirmation() throws Exception {
+        // Both text and uuid map to Doris STRING, but the source type change needs confirmation.
+        PostgresDebeziumJsonDeserializer deserializer =
+                newDeserializer(
+                        tableWith(column("id", "text", true, null).edit().nativeType(25).create()));
+        Table fresh = tableWith(column("id", "uuid", true, null).edit().nativeType(2950).create());
+
+        DeserializeResult result =
+                deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertNotNull(result.getUnsupportedReason());
+        assertTrue(result.getUnsupportedReason().contains("text to uuid"));
+        assertTrue(result.getSchemaChanges().isEmpty());
+    }
+
+    @Test
+    void relationSameNativeTypeParametersDoNotRequireConfirmation() throws Exception {
+        Column before =
+                column("id", "numeric", true, null).edit().nativeType(1700).length(45).scale(2).create();
+        for (Column after : List.of(before.edit().length(46).create(), before.edit().scale(3).create())) {
+            PostgresDebeziumJsonDeserializer deserializer = newDeserializer(tableWith(before));
+            DeserializeResult result =
+                    deserializer.deserialize(CONTEXT, schemaRecord(tableWith(after)));
+
+            assertNull(result.getUnsupportedReason());
+            assertTrue(result.getSchemaChanges().isEmpty());
+            assertEquals(tableWith(after), result.getUpdatedSchemas().get(TABLE).getTable());
+        }
+    }
+
+    @Test
+    void relationSameNativeTypeWithDifferentNamesDoesNotRequireConfirmation() throws Exception {
+        Column before = column("id", "serial", true, null).edit().nativeType(23).create();
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(tableWith(before));
+
+        DeserializeResult result =
+                deserializer.deserialize(
+                        CONTEXT, schemaRecord(tableWith(before.edit().type("int4").create())));
+
+        assertNull(result.getUnsupportedReason());
+        assertTrue(result.getSchemaChanges().isEmpty());
+    }
+
+    @Test
+    void relationNativeTypeOnlyChangeRequiresConfirmation() throws Exception {
+        Column before = column("id", "custom_type", true, null).edit().nativeType(16384).create();
+        Table fresh = tableWith(before.edit().nativeType(16385).create());
+        // Debezium Table.equals() does not compare native type IDs.
+        assertEquals(tableWith(before), fresh);
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(tableWith(before));
+
+        DeserializeResult result =
+                deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertNotNull(result.getUnsupportedReason());
+        assertTrue(result.getUnsupportedReason().contains("OID 16384 -> 16385"));
+        assertTrue(result.getSchemaChanges().isEmpty());
+    }
+
+    @Test
+    void relationExcludedNativeTypeChangeDoesNotRequireConfirmation() throws Exception {
+        Column before = column("id", "int4", true, null).edit().nativeType(23).create();
+        Table fresh = tableWith(before.edit().nativeType(20).create());
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(tableWith(before));
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("id"));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
+        assertTrue(result.getSchemaChanges().isEmpty());
+        assertEquals(20, result.getUpdatedSchemas().get(TABLE).getTable().columnWithName("id").nativeType());
+        assertEquals(23, deserializer.getTableSchemas().get(TABLE).getTable().columnWithName("id").nativeType());
+    }
+
+    @Test
+    void relationPrimaryKeyChangeRequiresConfirmation() throws Exception {
+        Table baseline = storedTable("id", "name").edit().setPrimaryKeyNames("id").create();
+        Table fresh = baseline.edit().setPrimaryKeyNames("name").create();
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNotNull(result.getUnsupportedReason());
+        assertTrue(result.getUnsupportedReason().contains("Primary key changes"));
+        assertTrue(result.getSchemaChanges().isEmpty());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void ignoreReturnsUpdatedSchemasWithoutDdlOrConfirmation() throws Exception {
+        Table baseline = storedTable("id", "name");
+        Map<String, String> context = new HashMap<>(CONTEXT);
+        context.put(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, "ignore");
+        for (Table fresh : List.of(
+                storedTable("id", "name", "age"), storedTable("id"), storedTable("id", "nick"))) {
+            PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+
+            DeserializeResult result = deserializer.deserialize(context, schemaRecord(fresh));
+
+            assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+            assertNull(result.getUnsupportedReason());
+            assertTrue(result.getSchemaChanges().isEmpty());
+            assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+            assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+        }
     }
 
     @Test
@@ -158,15 +275,56 @@ class PostgresSchemaChangeDeserializeTest {
     }
 
     @Test
-    void relationSimultaneousAddAndDrop_skipsDdlToAvoidRenameDataLoss() throws Exception {
+    void relationSimultaneousAddAndDropRequiresConfirmationWithoutApplyingBaseline() throws Exception {
         // stored [id,name]; Relation [id,nick] -> name dropped + nick added -> treated as RENAME.
-        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
+        Table baseline = storedTable("id", "name");
+        Table fresh = storedTable("id", "nick");
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "nick")));
+                deserializer.deserialize(CONTEXT, schemaRecord(fresh));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNotNull(result.getUnsupportedReason());
+        assertTrue(result.getUnsupportedReason().contains("rename"));
         assertTrue(result.getDdls().isEmpty(), "rename must not emit DDL");
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void relationRenameAcrossExcludedColumnsRequiresConfirmation() throws Exception {
+        Table baseline = storedTable("id", "name");
+        Table fresh = storedTable("id", "secret");
+        for (String excluded : List.of("name", "secret")) {
+            PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+            deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of(excluded));
+
+            DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+            assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+            assertNotNull(result.getUnsupportedReason());
+            assertTrue(result.getUnsupportedReason().contains("rename"));
+            assertTrue(result.getDdls().isEmpty(), "rename must not emit a partial ADD or DROP");
+            assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+            assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+        }
+    }
+
+    @Test
+    void relationRenameBetweenExcludedColumnsSkipsDdl() throws Exception {
+        Table baseline = storedTable("id", "name");
+        Table fresh = storedTable("id", "secret");
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("name", "secret"));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
+        assertTrue(result.getDdls().isEmpty());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
     }
 
     @Test
@@ -229,6 +387,7 @@ class PostgresSchemaChangeDeserializeTest {
                 deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name", "age")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
         assertTrue(result.getDdls().isEmpty(), "excluded ADD column must not emit DDL");
         // baseline still advances so the excluded column is not re-detected on every Relation
         assertTrue(result.getUpdatedSchemas().containsKey(TABLE));
@@ -244,6 +403,7 @@ class PostgresSchemaChangeDeserializeTest {
                 deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
         assertTrue(result.getDdls().isEmpty(), "excluded DROP column must not emit DDL");
     }
 

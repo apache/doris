@@ -35,7 +35,7 @@
 #include "common/status.h" // for Status
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/segment/common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -224,14 +224,10 @@ public:
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
-protected:
-    DataTypePtr _data_type;
-
 private:
     TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
-    std::vector<uint8_t> _null_bitmap;
 };
 
 class FlushPageCallback {
@@ -399,7 +395,9 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("struct writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -511,7 +509,8 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows,
+                             bool is_null); // U+5199 U+5165 num_rowsU+4E2A nullU+6807 U+8BB0
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
@@ -541,7 +540,9 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("map writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
