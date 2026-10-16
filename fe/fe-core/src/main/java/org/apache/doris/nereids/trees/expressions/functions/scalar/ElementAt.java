@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
@@ -112,11 +113,15 @@ public class ElementAt extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         // Struct field access (the former struct_element) only accepts a constant int/string index,
         // since the selected field — and therefore the result type — must be known at analysis time.
-        if (child(0).getDataType() instanceof StructType) {
+        if (getArgument(0).getDataType() instanceof StructType) {
             Expression field = getArgument(1);
             if (!(field instanceof StringLikeLiteral || field instanceof IntegerLikeLiteral)) {
                 throw new AnalysisException("element_at over a struct only allows a constant int or"
                         + " string second parameter: " + this.toSql());
+            }
+        } else if (getArgument(0).getDataType().isFileType()) {
+            if (!(getArgument(1) instanceof StringLikeLiteral)) {
+                throw new AnalysisException("element_at over FILE requires a constant public field name");
             }
         }
     }
@@ -127,12 +132,10 @@ public class ElementAt extends ScalarFunction
         if (arg0Type instanceof NullType) {
             return ImmutableList.of(
                     FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType()));
-        }
-        if (arg0Type instanceof StructType) {
+        } else if (arg0Type instanceof StructType) {
             return ImmutableList.of(FunctionSignature.ret(structFieldType((StructType) arg0Type))
                     .args(arg0Type, child(1).getDataType()));
-        }
-        if (arg0Type instanceof VariantType) {
+        } else if (arg0Type instanceof VariantType) {
             DataType selectorType = child(1).getDataType();
             if (selectorType.isIntegralType() || selectorType.isBooleanType()) {
                 return ImmutableList.of(VARIANT_INDEX_SIGNATURE);
@@ -140,6 +143,9 @@ public class ElementAt extends ScalarFunction
             if (selectorType.isStringLikeType()) {
                 return ImmutableList.of(VARIANT_KEY_SIGNATURE);
             }
+        } else if (arg0Type.isFileType()) {
+            return ImmutableList.of(FunctionSignature.ret(structFieldType(((FileType) arg0Type).publicStructType()))
+                    .args(arg0Type, child(1).getDataType()));
         }
         return SIGNATURES;
     }

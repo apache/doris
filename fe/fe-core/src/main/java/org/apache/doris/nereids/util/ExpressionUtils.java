@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -132,6 +133,27 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /** Reject FILE values in SQL keys that require comparison, ordering, or hashing. */
+    public static void checkFileKey(Expression value, String operation) {
+        if (value.getDataType().typeContainsFile()) {
+            throw new AnalysisException(operation + " does not support FILE or a type containing FILE: "
+                    + value.getDataType().toSql());
+        }
+    }
+
+    /** Called by the existing recursive expression type check, without a second plan traversal. */
+    public static void checkFileExpression(Expression expression) {
+        if (expression instanceof InSubquery) {
+            InSubquery in = (InSubquery) expression;
+            checkFileKey(in.getCompareExpr(), "IN");
+            checkFileKey(in.getSubqueryOutput(), "IN");
+        } else if (expression instanceof WindowExpression) {
+            WindowExpression window = (WindowExpression) expression;
+            window.getPartitionKeys().forEach(key -> checkFileKey(key, "window PARTITION BY"));
+            window.getOrderKeys().forEach(key -> checkFileKey(key.child(), "window ORDER BY"));
+        }
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
