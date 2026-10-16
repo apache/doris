@@ -56,6 +56,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -103,6 +104,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private boolean partitionInit = false;
     private List<HivePartition> prunedPartitions;
+    private Boolean batchMode;
     private boolean fileCountBatch;
     private long estimatedFileCount;
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
@@ -247,8 +249,14 @@ public class HiveScanNode extends FileQueryScanNode {
         ConnectContext context = ConnectContext.get();
         StatementContext statement = context == null ? null : context.getStatementContext();
         if (statement != null) {
-            // EXPLAIN has no BE consumer; statement cleanup must cancel its bounded producers.
-            statement.getOrRegisterStatementResource(this, () -> (Closeable) this::stop);
+            StmtExecutor executor = context.getExecutor();
+            statement.getOrRegisterStatementResource(this, () -> (Closeable) () -> {
+                // A deferred Flight query still fetches splits after statement handling ends.
+                // Its coordinator owns cleanup; abandoned planning and EXPLAIN stop here.
+                if (executor == null || !executor.isDeferredForArrowFlight()) {
+                    stop();
+                }
+            });
         }
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
@@ -258,8 +266,10 @@ public class HiveScanNode extends FileQueryScanNode {
                 .hive(hmsTable.getCatalog().getId());
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String broker = hmsTable.getCatalog().bindBrokerName();
-        int producers = fileCountBatch ? 1
-                : Math.min(prunedPartitions.size(), Config.max_external_cache_loader_thread_pool_size);
+        // Without the file cache, the eager path listed partitions concurrently. Keep that overlap.
+        boolean parallelListing = !fileCountBatch || Config.max_external_file_cache_num <= 0;
+        int producers = parallelListing
+                ? Math.min(prunedPartitions.size(), Config.max_external_cache_loader_thread_pool_size) : 1;
         AtomicInteger nextPartition = new AtomicInteger();
         AtomicInteger remaining = new AtomicInteger(producers);
         long started = System.currentTimeMillis();
@@ -350,6 +360,13 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public boolean isBatchMode() {
+        if (batchMode == null) {
+            batchMode = selectBatchMode();
+        }
+        return batchMode;
+    }
+
+    private boolean selectBatchMode() {
         if (!sessionVariable.getEnableExternalTableBatchMode() || tableSample != null
                 || hmsTable.isHiveTransactionalTable()) {
             return false;

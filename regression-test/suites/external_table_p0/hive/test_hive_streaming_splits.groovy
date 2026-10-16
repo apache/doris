@@ -65,6 +65,16 @@ suite("test_hive_streaming_splits", "p0,external") {
             sql """insert into streaming_partitioned
                 select number + ${file * 10}, ${file}, ${file % 3 + 1} from numbers('number'='10')"""
         }
+        // A cold file-count hint selects streaming even when the loaded table is below the threshold.
+        sql "set num_files_in_batch_mode=1024"
+        sql "set num_partitions_in_batch_mode=1024"
+        sql "refresh table streaming_unpartitioned"
+        explain {
+            verbose true
+            sql "select * from streaming_unpartitioned limit 10"
+            contains "(approximate)inputSplitNum"
+        }
+        sql "set num_files_in_batch_mode=1"
         def checkResults = { String label ->
             quickTest("${label}_unpartitioned_aggregate", """select count(*), sum(id), count(distinct id), sum(file_id)
                 from streaming_unpartitioned""", true)

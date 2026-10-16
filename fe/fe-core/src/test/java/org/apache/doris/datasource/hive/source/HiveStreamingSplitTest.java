@@ -38,9 +38,12 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -77,12 +80,7 @@ public class HiveStreamingSplitTest {
             Assertions.assertEquals(2, f.listings.get());
             f.release.countDown();
             List<Long> actual = f.drain();
-            Set<Long> expected = new HashSet<>();
-            for (int p = 0; p < 8; p++) {
-                for (int offset = 0; offset < 17; offset++) {
-                    expected.add(p * 100L + offset);
-                }
-            }
+            Set<Long> expected = expectedRanges(8);
             Assertions.assertEquals(expected.size(), actual.size());
             Assertions.assertEquals(expected, new HashSet<>(actual));
         }
@@ -104,12 +102,68 @@ public class HiveStreamingSplitTest {
     }
 
     @Test
-    void stoppingBeforeConsumptionClosesProducersWithoutListingAllPartitions() throws Exception {
+    void unknownFileCountKeepsParallelListingsWhenFileCacheIsDisabled() throws Exception {
+        long previousFileCacheLimit = Config.max_external_file_cache_num;
+        try (Fixture f = new Fixture(8, 1024)) {
+            Config.max_external_file_cache_num = 0;
+            Mockito.when(f.cache.getCachedFileCount(Mockito.anyList())).thenReturn(-1L);
+            Assertions.assertTrue(f.node.isBatchMode());
+            f.node.startSplit(1);
+            Assertions.assertTrue(f.entered.await(10, TimeUnit.SECONDS),
+                    "The file-only route must preserve concurrent uncached partition listings");
+            Assertions.assertEquals(2, f.listings.get());
+            Assertions.assertEquals(2, f.peak.get());
+            f.release.countDown();
+            List<Long> actual = f.drain();
+            Set<Long> expected = expectedRanges(8);
+            Assertions.assertEquals(expected.size(), actual.size());
+            Assertions.assertEquals(expected, new HashSet<>(actual));
+            Assertions.assertTrue(f.peak.get() <= 2);
+            Mockito.verify(f.cache, Mockito.atLeastOnce()).getFilesByPartitions(Mockito.anyList(),
+                    Mockito.eq(false), Mockito.eq(false), Mockito.isNull(), Mockito.eq(f.table));
+        } finally {
+            Config.max_external_file_cache_num = previousFileCacheLimit;
+        }
+    }
+
+    @Test
+    void coldSmallTableKeepsBatchRangesWhenRenderingVerboseExplain() throws Exception {
+        try (Fixture f = new Fixture(1, 1024)) {
+            Mockito.when(f.cache.getCachedFileCount(Mockito.anyList()))
+                    .thenAnswer(call -> f.listings.get() == 0 ? -1L : 1L);
+            f.release.countDown();
+            f.node.createScanRangeLocations();
+            Assertions.assertEquals(1, f.listings.get());
+            Assertions.assertTrue(f.node.getNodeExplainString("", TExplainLevel.VERBOSE)
+                    .contains("(approximate)inputSplitNum"));
+            Assertions.assertEquals(17, f.drain().size());
+            Mockito.verify(f.cache).getCachedFileCount(Mockito.anyList());
+        }
+    }
+
+    @Test
+    void synchronousModeStaysSelectedAfterFileCacheEviction() throws Exception {
+        try (Fixture f = new Fixture(1, 1024)) {
+            Mockito.when(f.cache.getCachedFileCount(Mockito.anyList())).thenReturn(1L, -1L);
+            Assertions.assertFalse(f.node.isBatchMode());
+            Assertions.assertFalse(f.node.isBatchMode());
+            Mockito.verify(f.cache).getCachedFileCount(Mockito.anyList());
+        }
+    }
+
+    @Test
+    void statementCleanupStopsAbandonedPlanningWithoutListingAllPartitions() throws Exception {
         try (Fixture f = new Fixture(100, 2)) {
+            f.context.setExecutor(Mockito.mock(StmtExecutor.class));
             Assertions.assertTrue(f.node.isBatchMode());
             f.node.startSplit(1);
             Assertions.assertTrue(f.entered.await(10, TimeUnit.SECONDS));
-            f.node.stop();
+            SplitAssignment assignment = (SplitAssignment) f.getAssignment();
+            SplitSource source = new SplitSource(f.backend, assignment, 10000);
+            f.manager.registerSplitSource(source);
+            f.statement.close();
+            Assertions.assertTrue(assignment.isStop());
+            Assertions.assertNull(f.manager.getSplitSource(source.getUniqueId()));
             f.release.countDown();
             f.executor.shutdown();
             Assertions.assertTrue(f.executor.awaitTermination(10, TimeUnit.SECONDS));
@@ -118,14 +172,44 @@ public class HiveStreamingSplitTest {
     }
 
     @Test
+    void deferredFlightScanSurvivesStatementCleanupAndContinuesFetching() throws Exception {
+        try (Fixture f = new Fixture(8, 2)) {
+            StmtExecutor owner = Mockito.mock(StmtExecutor.class);
+            f.context.setExecutor(owner);
+            Assertions.assertTrue(f.node.isBatchMode());
+            f.node.startSplit(1);
+            Assertions.assertTrue(f.entered.await(10, TimeUnit.SECONDS));
+            SplitAssignment assignment = (SplitAssignment) f.getAssignment();
+            SplitSource source = new SplitSource(f.backend, assignment, 10000);
+            f.manager.registerSplitSource(source);
+            // Deferral is decided after planning, before GetFlightInfo returns.
+            Mockito.when(owner.isDeferredForArrowFlight()).thenReturn(true);
+            f.statement.close();
+            Assertions.assertFalse(assignment.isStop());
+            Assertions.assertSame(source, f.manager.getSplitSource(source.getUniqueId()));
+            f.release.countDown();
+            List<Long> actual = f.drain(source);
+            Set<Long> expected = expectedRanges(8);
+            Assertions.assertEquals(expected.size(), actual.size());
+            Assertions.assertEquals(expected, new HashSet<>(actual));
+            f.node.stop();
+            Assertions.assertNull(f.manager.getSplitSource(source.getUniqueId()));
+        }
+    }
+
+    @Test
     void sampledTransactionalAndDisabledScansKeepSynchronousPlanning() throws Exception {
         try (Fixture f = new Fixture(2, 1)) {
             f.variables.enableExternalTableBatchMode = false;
             Assertions.assertFalse(f.node.isBatchMode());
-            f.variables.enableExternalTableBatchMode = true;
+            Mockito.verifyNoInteractions(f.cache);
+        }
+        try (Fixture f = new Fixture(2, 1)) {
             Mockito.when(f.table.isHiveTransactionalTable()).thenReturn(true);
             Assertions.assertFalse(f.node.isBatchMode());
-            Mockito.when(f.table.isHiveTransactionalTable()).thenReturn(false);
+            Mockito.verifyNoInteractions(f.cache);
+        }
+        try (Fixture f = new Fixture(2, 1)) {
             f.node.setTableSample(new org.apache.doris.analysis.TableSample(true, 10L, 0L));
             Assertions.assertFalse(f.node.isBatchMode());
             Mockito.verifyNoInteractions(f.cache);
@@ -149,6 +233,16 @@ public class HiveStreamingSplitTest {
         }
     }
 
+    private static Set<Long> expectedRanges(int partitions) {
+        Set<Long> expected = new HashSet<>();
+        for (int p = 0; p < partitions; p++) {
+            for (int offset = 0; offset < 17; offset++) {
+                expected.add(p * 100L + offset);
+            }
+        }
+        return expected;
+    }
+
     private static void field(Object target, String name, Object value) throws Exception {
         for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
             try {
@@ -170,6 +264,7 @@ public class HiveStreamingSplitTest {
             super(new PlanNodeId(0), descriptor(table), false, variables, null, ScanContext.EMPTY);
             this.partitions = partitions;
             fileSplitter = new FileSplitter(8, 8, 0);
+            params = new TFileScanRangeParams();
         }
 
         private static TupleDescriptor descriptor(HMSExternalTable table) {
@@ -181,6 +276,11 @@ public class HiveStreamingSplitTest {
         @Override
         protected List<HivePartition> getPartitions() {
             return partitions;
+        }
+
+        @Override
+        public List<String> getPathPartitionKeys() {
+            return Collections.emptyList();
         }
 
         void initializeAssignment() {
@@ -201,6 +301,7 @@ public class HiveStreamingSplitTest {
         final SessionVariable variables = new SessionVariable();
         final HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
         final HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+        final SplitSourceManager manager = new SplitSourceManager();
         final Backend backend = new Backend(1, "localhost", 0);
         final ExecutorService executor = Executors.newFixedThreadPool(2);
         final CountDownLatch entered = new CountDownLatch(2);
@@ -232,7 +333,7 @@ public class HiveStreamingSplitTest {
             org.apache.doris.catalog.Env env = Mockito.mock(org.apache.doris.catalog.Env.class);
             ExternalMetaCacheMgr mgr = Mockito.mock(ExternalMetaCacheMgr.class);
             Mockito.when(env.getExtMetaCacheMgr()).thenReturn(mgr);
-            Mockito.when(env.getSplitSourceManager()).thenReturn(Mockito.mock(SplitSourceManager.class));
+            Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
             Mockito.when(mgr.hive(Mockito.anyLong())).thenReturn(cache);
             Mockito.when(mgr.getScheduleExecutor()).thenReturn(executor);
             mockedEnv = Mockito.mockStatic(org.apache.doris.catalog.Env.class);
@@ -244,6 +345,8 @@ public class HiveStreamingSplitTest {
             }
             node = new TestNode(table, variables, partitions);
             FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+            Mockito.when(policy.numBackends()).thenReturn(1);
+            Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(backend));
             Mockito.when(policy.computeScanRangeAssignment(Mockito.anyList())).thenAnswer(call -> {
                 Multimap<Backend, Split> assigned = LinkedListMultimap.create();
                 for (Split split : call.<List<Split>>getArgument(0)) {
@@ -283,7 +386,10 @@ public class HiveStreamingSplitTest {
 
         List<Long> drain() throws Exception {
             SplitAssignment assignment = (SplitAssignment) getAssignment();
-            SplitSource source = new SplitSource(backend, assignment, 10000);
+            return drain(new SplitSource(backend, assignment, 10000));
+        }
+
+        List<Long> drain(SplitSource source) throws Exception {
             List<Long> identities = new ArrayList<>();
             while (true) {
                 List<TScanRangeLocations> batch = source.getNextBatch(3);
