@@ -186,4 +186,38 @@ public class IcebergTimestampNsTest {
             Assertions.assertFalse(IcebergUtils.isValidRelatedTable(createTable(schema, spec)));
         }
     }
+
+    @Test
+    public void lossyTimestampCastsRemainResidual() throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        SlotRef slot = new SlotRef(null, "ts");
+        slot.setType(Type.TIMESTAMP_NS);
+        org.apache.doris.analysis.CastExpr cast = new org.apache.doris.analysis.CastExpr(
+                org.apache.doris.catalog.ScalarType.createDatetimeV2Type(6), slot, null);
+        StringLiteral value = new StringLiteral("2024-01-02 03:04:05.123457");
+        // The rounded equality can match nanos that an exact Iceberg predicate would prune.
+        Assertions.assertNull(IcebergUtils.convertToIcebergExpr(
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, cast, value), schema));
+        Assertions.assertNull(IcebergUtils.convertToIcebergExpr(
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, value, cast), schema));
+        for (boolean notIn : new boolean[] {false, true}) {
+            Assertions.assertNull(IcebergUtils.convertToIcebergExpr(new org.apache.doris.analysis.InPredicate(
+                    cast, Collections.singletonList(value), notIn), schema));
+        }
+        Assertions.assertNotNull(IcebergUtils.convertToIcebergExpr(
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, slot, value), schema));
+        Assertions.assertNotNull(IcebergUtils.convertToIcebergExpr(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new org.apache.doris.analysis.CastExpr(Type.TIMESTAMP_NS, slot, null), value), schema));
+    }
+
+    @Test
+    public void compactStaticPartitionLiteralsUseSinkParsing() {
+        Assertions.assertEquals(IcebergTimestampUtils.parseNanos("2024-01-02", ZoneOffset.UTC),
+                IcebergTimestampUtils.parseNanos("20240102", ZoneOffset.UTC));
+        Assertions.assertEquals(IcebergTimestampUtils.parseNanos("2024-01-02 03:04:05", ZoneOffset.UTC),
+                IcebergTimestampUtils.parseNanos("20240102030405", ZoneOffset.UTC));
+        Assertions.assertEquals(IcebergTimestampUtils.parseNanos("2024-01-02 03:04:05.123456790", ZoneOffset.UTC),
+                IcebergTimestampUtils.parseNanos("2024-01-02 03:04:05.1234567895", ZoneOffset.UTC));
+    }
+
 }

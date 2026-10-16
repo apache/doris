@@ -49,6 +49,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
@@ -2355,17 +2356,17 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
 }
 
-TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
+TEST_F(NewParquetReaderTest, RawByteArrayMappingIgnoresLegacyOption) {
     write_unannotated_binary_parquet_file(_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
-    auto string_reader = create_reader();
-    const auto string_init_status = string_reader->init(&state);
-    ASSERT_TRUE(string_init_status.ok()) << string_init_status;
-    std::vector<format::ColumnDefinition> string_schema;
-    ASSERT_TRUE(string_reader->get_schema(&string_schema).ok());
-    ASSERT_EQ(string_schema.size(), 1);
-    EXPECT_EQ(remove_nullable(string_schema[0].type)->get_primitive_type(), TYPE_STRING);
+    auto default_reader = create_reader();
+    const auto default_init_status = default_reader->init(&state);
+    ASSERT_TRUE(default_init_status.ok()) << default_init_status;
+    std::vector<format::ColumnDefinition> default_schema;
+    ASSERT_TRUE(default_reader->get_schema(&default_schema).ok());
+    ASSERT_EQ(default_schema.size(), 1);
+    EXPECT_EQ(remove_nullable(default_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     RuntimeProfile binary_profile("raw_binary_mapping_profile");
     auto binary_reader =
@@ -2375,7 +2376,7 @@ TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
     std::vector<format::ColumnDefinition> binary_schema;
     ASSERT_TRUE(binary_reader->get_schema(&binary_schema).ok());
     ASSERT_EQ(binary_schema.size(), 1);
-    // The explicit VARBINARY mapping must remain available for scans whose table contract asks for it.
+    // The legacy option cannot reinterpret raw bytes as text.
     EXPECT_EQ(remove_nullable(binary_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -3801,7 +3802,7 @@ TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
     EXPECT_EQ(decimals.get_element(1), Decimal128V3(-1));
     EXPECT_EQ(decimals.get_element(3), Decimal128V3(-987654321));
 
-    const auto& fixed_values = assert_cast<const ColumnString&>(
+    const auto& fixed_values = assert_cast<const ColumnVarbinary&>(
             assert_cast<const ColumnNullable&>(*output[1]).get_nested_column());
     ASSERT_EQ(fixed_values.size(), ROW_COUNT);
     EXPECT_EQ(fixed_values.get_data_at(0).to_string(), "ABCD");
@@ -5212,8 +5213,9 @@ TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionary
     EXPECT_EQ(total_rows, 6);
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 5);
-    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    // The fixed binary file leaf now has VARBINARY semantics and stays on residual filtering.
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 4);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 1);
     EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
 }
 

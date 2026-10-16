@@ -410,11 +410,11 @@ public class IcebergUtils {
                 case LT:
                 case EQ_FOR_NULL:
                     BinaryPredicate eq = (BinaryPredicate) expr;
-                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
+                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0), schema);
                     LiteralExpr literalExpr = null;
                     if (slotRef == null && eq.getChild(0).isLiteral()) {
                         literalExpr = (LiteralExpr) eq.getChild(0);
-                        slotRef = convertDorisExprToSlotRef(eq.getChild(1));
+                        slotRef = convertDorisExprToSlotRef(eq.getChild(1), schema);
                     } else if (eq.getChild(1).isLiteral()) {
                         literalExpr = (LiteralExpr) eq.getChild(1);
                     }
@@ -466,7 +466,7 @@ public class IcebergUtils {
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
-            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
+            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0), schema);
             if (slotRef == null) {
                 return null;
             }
@@ -573,7 +573,8 @@ public class IcebergUtils {
             try {
                 // Iceberg treats raw Long literals as micros; preserve the unit explicitly.
                 return Expressions.nanos(IcebergTimestampUtils.parseNanos(expr.getStringValue(), ZoneOffset.UTC));
-            } catch (IllegalArgumentException | ArithmeticException | java.time.DateTimeException e) {
+            } catch (IllegalArgumentException | ArithmeticException | java.time.DateTimeException
+                    | org.apache.doris.nereids.exceptions.AnalysisException e) {
                 return null;
             }
         }
@@ -698,13 +699,19 @@ public class IcebergUtils {
         return null;
     }
 
-    private static SlotRef convertDorisExprToSlotRef(Expr expr) {
+    private static SlotRef convertDorisExprToSlotRef(Expr expr, Schema schema) {
         SlotRef slotRef = null;
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
         } else if (expr instanceof CastExpr) {
             if (expr.getChild(0) instanceof SlotRef) {
                 slotRef = (SlotRef) expr.getChild(0);
+                Types.NestedField field = getPushdownField(schema, slotRef.getColumnName());
+                // Rounding a nanos column changes which rows match; stripping that cast can prune matches.
+                if (field != null && field.type().typeId() == TypeID.TIMESTAMP_NANO
+                        && !expr.getType().equals(Type.TIMESTAMP_NS)) {
+                    return null;
+                }
             }
         }
         return slotRef;

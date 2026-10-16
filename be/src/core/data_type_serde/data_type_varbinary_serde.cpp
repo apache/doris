@@ -317,6 +317,47 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeVarbinarySerDe::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    // Keep binary payloads intact; selected rows and NULL placeholders must stay aligned.
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
+    const auto* batch = dynamic_cast<const orc::StringVectorBatch*>(view.batch);
+    DORIS_CHECK(batch != nullptr);
+    const auto* encoded_batch = dynamic_cast<const orc::EncodedStringVectorBatch*>(batch);
+    const bool is_encoded = encoded_batch != nullptr && encoded_batch->isEncoded;
+    if (is_encoded) {
+        DORIS_CHECK(encoded_batch->dictionary != nullptr);
+    }
+    auto& binary_column = assert_cast<ColumnVarbinary&>(column);
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    binary_column.reserve(binary_column.size() + rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*batch, source_row)) {
+            binary_column.insert_default();
+            continue;
+        }
+        char* data = nullptr;
+        int64_t length = 0;
+        if (is_encoded) {
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+        } else {
+            data = batch->data[source_row];
+            length = batch->length[source_row];
+        }
+        if (length < 0) {
+            return Status::Corruption("Invalid negative ORC binary length {}", length);
+        }
+        if (length > 0 && data == nullptr) {
+            return Status::Corruption("Missing ORC binary payload");
+        }
+        binary_column.insert_data(length == 0 ? "" : data, cast_set<size_t>(length));
+    }
+    return Status::OK();
+}
+
 Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,

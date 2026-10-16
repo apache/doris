@@ -51,6 +51,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
@@ -1693,7 +1694,8 @@ public:
                                size_t count, ColumnPtr& result_column) const override {
         const auto& nullable_column =
                 assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
-        const auto& input = assert_cast<const ColumnString&>(nullable_column.get_nested_column());
+        // Residual test comparisons apply to raw bytes in both string and binary columns.
+        const auto& input = nullable_column.get_nested_column();
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -4764,7 +4766,7 @@ TEST_F(NewOrcReaderTest, UuidBinaryRequiresLogicalTypeAttribute) {
     auto reader = create_reader();
     auto binary = ::orc::createPrimitiveType(::orc::BINARY);
     EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
-              TYPE_STRING);
+              TYPE_VARBINARY);
     binary->setAttribute("doris.logical_type", "uuid");
     EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
               TYPE_UUID);
@@ -8114,7 +8116,7 @@ TEST_F(NewOrcReaderTest, SargBinaryVarbinaryLiteralConjunctPrunesRowGroups) {
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
-    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
@@ -8172,7 +8174,7 @@ TEST_F(NewOrcReaderTest, SargExceptionsFallBackToResidualScan) {
         if (add_real_residual_filter) {
             request->conjuncts.push_back(
                     VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
-                            0, std::make_shared<DataTypeString>(), "aaa_1050", "value")));
+                            0, std::make_shared<DataTypeVarbinary>(), "aaa_1050", "value")));
         }
         *open_status = reader->open(request);
         if (!open_status->ok()) {
@@ -8190,7 +8192,7 @@ TEST_F(NewOrcReaderTest, SargExceptionsFallBackToResidualScan) {
             const auto& values_nullable =
                     assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
             const auto& values =
-                    assert_cast<const ColumnString&>(values_nullable.get_nested_column());
+                    assert_cast<const ColumnVarbinary&>(values_nullable.get_nested_column());
             for (size_t row = 0; row < rows; ++row) {
                 ASSERT_FALSE(values_nullable.is_null_at(row));
                 result_values->push_back(values.get_data_at(row).to_string());
@@ -8283,7 +8285,7 @@ TEST_F(NewOrcReaderTest, SargBinaryCastFromVarbinaryToStringConjunctPrunesRowGro
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
-    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
@@ -10456,6 +10458,34 @@ TEST_F(NewOrcReaderTest, ReadsOnlyRequestedAbsoluteFileRows) {
     EXPECT_EQ(ids, std::vector<int32_t>({1, 3, 5}));
 }
 
+TEST_F(NewOrcReaderTest, NestedBinarySchemaRetainsBinarySemantics) {
+    auto type = ::orc::Type::buildTypeFromString(
+            "struct<b:binary,s:string,a:array<binary>,m:map<string,binary>,r:struct<b:binary>>");
+    MemoryOutputStream stream(1024);
+    ::orc::WriterOptions options;
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    writer->close();
+    const auto path = (_test_dir / "nested_binary.orc").string();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    out.close();
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 5);
+    EXPECT_EQ(schema[0].type->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(schema[1].type->get_primitive_type(), TYPE_STRING);
+    const auto& array = assert_cast<const DataTypeArray&>(*remove_nullable(schema[2].type));
+    EXPECT_EQ(array.get_nested_type()->get_primitive_type(), TYPE_VARBINARY);
+    const auto& map = assert_cast<const DataTypeMap&>(*remove_nullable(schema[3].type));
+    EXPECT_EQ(map.get_key_type()->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(map.get_value_type()->get_primitive_type(), TYPE_VARBINARY);
+    const auto& structure = assert_cast<const DataTypeStruct&>(*remove_nullable(schema[4].type));
+    EXPECT_EQ(structure.get_elements()[0]->get_primitive_type(), TYPE_VARBINARY);
+}
+
 TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     const auto primitive_file_path = (_test_dir / "primitive.orc").string();
     write_primitive_orc_file(primitive_file_path);
@@ -10475,7 +10505,7 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     EXPECT_EQ(remove_nullable(schema[5].type)->get_primitive_type(), TYPE_FLOAT);
     EXPECT_EQ(remove_nullable(schema[6].type)->get_primitive_type(), TYPE_DOUBLE);
     EXPECT_EQ(remove_nullable(schema[7].type)->get_primitive_type(), TYPE_STRING);
-    EXPECT_EQ(remove_nullable(schema[8].type)->get_primitive_type(), TYPE_STRING);
+    ASSERT_EQ(remove_nullable(schema[8].type)->get_primitive_type(), TYPE_VARBINARY);
     EXPECT_EQ(remove_nullable(schema[9].type)->get_primitive_type(), TYPE_VARCHAR);
     EXPECT_EQ(remove_nullable(schema[10].type)->get_primitive_type(), TYPE_CHAR);
     EXPECT_EQ(remove_nullable(schema[11].type)->get_primitive_type(), TYPE_DATEV2);
@@ -10530,7 +10560,7 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     const auto& string_values = assert_cast<const ColumnString&>(
             assert_cast<const ColumnNullable&>(*block.get_by_position(7).column)
                     .get_nested_column());
-    const auto& binary_values = assert_cast<const ColumnString&>(
+    const auto& binary_values = assert_cast<const ColumnVarbinary&>(
             assert_cast<const ColumnNullable&>(*block.get_by_position(8).column)
                     .get_nested_column());
     const auto& varchar_values = assert_cast<const ColumnString&>(

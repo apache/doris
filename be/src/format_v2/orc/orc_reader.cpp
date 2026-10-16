@@ -1242,7 +1242,7 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         } else if (_enable_mapping_varbinary) {
             data_type = std::make_shared<DataTypeVarbinary>();
         } else {
-            data_type = std::make_shared<DataTypeString>();
+            data_type = std::make_shared<DataTypeVarbinary>();
         }
         break;
     case ::orc::TypeKind::VARCHAR:
