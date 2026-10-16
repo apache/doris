@@ -178,6 +178,7 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
             ${paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties}
         );
     """
+    Throwable paimon_fs_failure = null
     try {
         sql "switch ${paimon_fs_seed_catalog};"
         sql "CREATE DATABASE ${paimon_fs_db};"
@@ -192,11 +193,22 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
         testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,"2",false)
         testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,"2",true)
         testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,"2",false)
+    } catch (Throwable failure) {
+        paimon_fs_failure = failure
+        throw failure
     } finally {
-        sql "switch ${paimon_fs_seed_catalog};"
-        sql "DROP TABLE IF EXISTS ${paimon_fs_db}.${paimon_fs_table};"
-        sql "DROP DATABASE IF EXISTS ${paimon_fs_db} FORCE;"
-        sql "DROP CATALOG IF EXISTS ${paimon_fs_seed_catalog};"
+        try {
+            sql "switch ${paimon_fs_seed_catalog};"
+            sql "DROP TABLE IF EXISTS ${paimon_fs_db}.${paimon_fs_table};"
+            sql "DROP DATABASE IF EXISTS ${paimon_fs_db} FORCE;"
+            sql "DROP CATALOG IF EXISTS ${paimon_fs_seed_catalog};"
+        } catch (Throwable cleanup_failure) {
+            if (paimon_fs_failure != null) {
+                paimon_fs_failure.addSuppressed(cleanup_failure)
+            } else {
+                throw cleanup_failure
+            }
+        }
     }
 
     //**************** ICEBERG FILESYSTEM ON OSS_HDFS *******************/
