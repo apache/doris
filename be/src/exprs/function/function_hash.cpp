@@ -303,7 +303,16 @@ const char* murmur_hash3_get_name_type_bigint_v2_for_test() {
 
 template <PrimitiveType ReturnType>
 struct XxHashImpl {
-    static constexpr auto name = ReturnType == TYPE_INT ? "xxhash_32" : "xxhash_64";
+    static constexpr auto get_name() {
+        if constexpr (ReturnType == TYPE_INT) {
+            return "xxhash_32";
+        } else if constexpr (ReturnType == TYPE_BIGINT) {
+            return "xxhash_64";
+        } else {
+            return "xxhash_128";
+        }
+    }
+    static constexpr auto name = get_name();
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
@@ -341,10 +350,14 @@ struct XxHashImpl {
                     col_to_data[i] = HashUtil::xxHash32WithSeed(
                             reinterpret_cast<const char*>(&data[current_offset]),
                             offsets[i] - current_offset, col_to_data[i]);
-                } else {
+                } else if constexpr (ReturnType == TYPE_BIGINT) {
                     col_to_data[i] = HashUtil::xxHash64WithSeed(
                             reinterpret_cast<const char*>(&data[current_offset]),
                             offsets[i] - current_offset, col_to_data[i]);
+                } else {
+                    col_to_data[i] = HashUtil::xxHash128WithSeed(
+                            reinterpret_cast<const char*>(&data[current_offset]),
+                            offsets[i] - current_offset, static_cast<std::uint64_t>(col_to_data[i]));
                 }
                 current_offset = offsets[i];
             }
@@ -355,20 +368,23 @@ struct XxHashImpl {
                 if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] =
                             HashUtil::xxHash32WithSeed(value.data(), value.size(), col_to_data[i]);
-                } else {
+                } else if constexpr (ReturnType == TYPE_BIGINT) {
                     col_to_data[i] =
                             HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
+                } else {
+                    col_to_data[i] =
+                            HashUtil::xxHash128WithSeed(value.data(), value.size(), static_cast<std::uint64_t>(col_to_data[i]));
                 }
             }
         } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(column)) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto data_ref = vb_col->get_data_at(i);
                 if constexpr (ReturnType == TYPE_INT) {
-                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
-                                                                col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size, col_to_data[i]);
+                } else if constexpr (ReturnType == TYPE_BIGINT) {
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size, col_to_data[i]);
                 } else {
-                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
-                                                                col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash128WithSeed(data_ref.data, data_ref.size, static_cast<std::uint64_t>(col_to_data[i]));
                 }
             }
         } else {
@@ -382,6 +398,7 @@ struct XxHashImpl {
 
 using FunctionXxHash_32 = FunctionVariadicArgumentsBase<DataTypeInt32, XxHashImpl<TYPE_INT>>;
 using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImpl<TYPE_BIGINT>>;
+using FunctionXxHash_128 = FunctionVariadicArgumentsBase<DataTypeInt128, XxHashImpl<TYPE_LARGEINT>>;
 
 void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
@@ -393,5 +410,6 @@ void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
     factory.register_alias("xxhash_64", "xxhash3_64");
+    factory.register_function<FunctionXxHash_128>();
 }
 } // namespace doris
