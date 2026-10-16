@@ -162,6 +162,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 };
 
         private final Map<ExprId, ExprId> replaceMap;
+        private final DefaultExpressionRewriter<Map<ExprId, ExprId>> structuralReplacer;
         private DefaultExpressionRewriter<Map<ExprId, ExprId>> replacer;
 
         /**
@@ -174,6 +175,15 @@ public class ExprIdRewriter extends ExpressionRewrite {
             } else {
                 replacer = SLOT_REPLACER;
             }
+            // children first: the id replacement of a node must not stop the traversal, e.g. an Alias keeps its own
+            // exprId while a slot of the expression below it is renamed
+            this.structuralReplacer = new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                @Override
+                public Expression visit(Expression expr, Map<ExprId, ExprId> replaceMap) {
+                    Expression withRewrittenChildren = rewriteChildren(this, expr, replaceMap);
+                    return withRewrittenChildren.accept(replacer, replaceMap);
+                }
+            };
         }
 
         public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
@@ -188,16 +198,6 @@ public class ExprIdRewriter extends ExpressionRewrite {
          * a slot which the rewritten child does not output any more.
          */
         public Expression replaceExprIds(Expression expression) {
-            // children first: the id replacement of a node must not stop the traversal, e.g. an Alias keeps its own
-            // exprId while a slot of the expression below it is renamed
-            DefaultExpressionRewriter<Map<ExprId, ExprId>> structuralReplacer =
-                    new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
-                        @Override
-                        public Expression visit(Expression expr, Map<ExprId, ExprId> replaceMap) {
-                            Expression withRewrittenChildren = rewriteChildren(this, expr, replaceMap);
-                            return withRewrittenChildren.accept(replacer, replaceMap);
-                        }
-                    };
             return expression.accept(structuralReplacer, replaceMap);
         }
 
