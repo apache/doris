@@ -186,9 +186,9 @@ public class BaseTableInfo {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) throws Exception {
+    public boolean compatible(CatalogMgr catalogMgr) throws Exception {
         if (!StringUtils.isEmpty(ctlName)) {
-            return;
+            return false;
         }
         // should not get meta from external catalog when replay, because the timeout period may be very long
         if (ctlId != InternalCatalog.INTERNAL_CATALOG_ID) {
@@ -205,6 +205,7 @@ public class BaseTableInfo {
             this.ctlName = catalog.getName();
             this.dbName = db.getFullName();
             this.tableName = table.getName();
+            return true;
         } catch (AnalysisException e) {
             String msg = String.format(
                     "Failed to get name based on id during compatibility process, ctlId: %s, dbId: %s, tableId: %s",
