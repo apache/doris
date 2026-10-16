@@ -79,6 +79,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
@@ -296,6 +297,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             // literal. Also preserve cast(null as dataType) for callers such as CTAS.
             if (!CheckCast.check(cast.child().getDataType(), cast.getDataType(),
                     cast.isStrict() || SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
+                return true;
+            }
+            // FoldConstantRuleOnFE leaves a cast of VARBINARY bytes for BE when no FE string literal can carry
+            // its result (see VarBinaryLiteral.castValueToString). Folding the cast here would build that literal
+            // from the BE result anyway: getResultExpression decodes invalid UTF-8 as U+FFFD, and FE string
+            // code treats a NUL byte or a supplementary character unlike BE.
+            if (TypeCoercionUtils.hasVarBinaryType(cast.child().getDataType())) {
                 return true;
             }
         }
