@@ -179,6 +179,17 @@ size_t ColumnSpatial::filter(const IColumn::Filter& filter) {
     return retained;
 }
 
+void ColumnSpatial::erase(size_t start, size_t length) {
+    // Analytic trimming removes row ranges; move only views so retained WKB keeps its arena.
+    // Match ColumnVector: empty/out-of-range requests are no-ops and long ranges are clipped.
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+    std::move(_data.begin() + start + length, _data.end(), _data.begin() + start);
+    _data.resize(size() - length);
+}
+
 MutableColumnPtr ColumnSpatial::permute(const IColumn::Permutation& perm, size_t limit) const {
     limit = limit ? std::min(size(), limit) : size();
     if (perm.size() < limit) {

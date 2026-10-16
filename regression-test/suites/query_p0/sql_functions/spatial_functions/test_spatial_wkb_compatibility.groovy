@@ -52,4 +52,54 @@ suite("test_spatial_wkb_compatibility") {
         sql "select ST_Touches(ST_GeogFromWKB('0102000000020000000000000000406540000000000000000000000000004065c00000000000000000'), ST_GeogFromWKB('0102000000020000000000000000406540000000000000000000000000004065c00000000000000000'))"
         exception "does not support this Geography shape pair"
     }
+    // Exercise one spatial key: two keys take a different serialized-key dispatch path.
+    [geometry: "ST_GeometryFromWKBTyped", geography: "ST_GeogFromWKB"].each { kind, constructor ->
+        def point1 = "0101000000000000000000F03F0000000000000040"
+        def point2 = "010100000000000000000008400000000000001040"
+        def point3 = "010100000000000000000014400000000000001840"
+        def nullableShapes = """select number as id, ${constructor}(case number % 3
+            when 0 then null when 1 then '${point1}' else '${point2}' end) as shape
+            from numbers("number" = "6")"""
+        "order_qt_single_group_${kind}"("""with shapes as (${nullableShapes})
+            select ST_AsText(shape), count(*) from shapes group by shape""")
+        "order_qt_single_distinct_${kind}"("""with shapes as (${nullableShapes})
+            select ST_AsText(shape) from (select distinct shape from shapes) d""")
+        // The shared key dispatcher is also used by nullable and NULL-safe equijoins.
+        "qt_single_join_${kind}"("""with shapes as (${nullableShapes})
+            select count(*) from shapes l join shapes r on l.shape = r.shape""")
+        "qt_single_null_safe_join_${kind}"("""with shapes as (${nullableShapes})
+            select count(*) from shapes l join shapes r on l.shape <=> r.shape""")
+
+        // Keep two WHEN clauses and distinct input columns so CASE survives CaseWhenToIf.
+        "order_qt_case_materialization_${kind}"("""with shapes as (
+            select number as id,
+                ${constructor}(if(number % 2 = 0, '${point1}', '${point2}')) as g1,
+                ${constructor}(if(number % 2 = 0, '${point2}', '${point3}')) as g2,
+                ${constructor}(if(number % 2 = 0, '${point3}', '${point1}')) as g3,
+                ${constructor}(if(number % 2 = 0, null, '${point2}')) as nullable_g
+            from numbers("number" = "6"))
+            select id,
+                ST_AsText(case when id % 3 = 0 then g1 when id % 3 = 1 then g2 else g3 end),
+                ST_AsText(case when id % 3 = 0 then g1 when id % 3 = 1 then nullable_g else g3 end),
+                ST_AsText(case when id % 3 = 0 then ${constructor}('${point1}')
+                    when id % 3 = 1 then ${constructor}(null) else ${constructor}('${point3}') end)
+            from shapes""")
+
+        // 300 one-row batches cross the production analytic trim frontier of 257 blocks.
+        def windowShape = { id -> """${constructor}(case when (${id}) % 7 = 0 then null
+            when (${id}) % 2 = 0 then '${point1}' else '${point2}' end)""" }
+        "qt_window_trim_${kind}"("""select /*+ SET_VAR(batch_size=1, parallel_pipeline_task_num=1) */
+            count(*), count(first_shape), count(last_shape),
+            sum(if(ST_AsText(first_shape) <=> ST_AsText(expected_first), 0, 1)),
+            sum(if(ST_AsText(last_shape) <=> ST_AsText(expected_last), 0, 1))
+            from (select number,
+                first_value(${windowShape('number')}) over
+                    (order by number rows between 1 preceding and current row) as first_shape,
+                last_value(${windowShape('number')}) over
+                    (order by number rows between 1 preceding and current row) as last_shape,
+                ${windowShape('if(number = 0, 0, number - 1)')} as expected_first,
+                ${windowShape('number')} as expected_last
+                from numbers("number" = "300")) w""")
+    }
+
 }

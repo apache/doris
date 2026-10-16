@@ -430,15 +430,9 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
 
 std::unique_ptr<GeoShape> GeoShape::from_wkb_bytes(const char* data, size_t size,
                                                    GeoParseStatus& status) {
-    static constexpr char HEX[] = "0123456789ABCDEF";
-    std::string hex;
-    hex.reserve(size * 2);
-    for (size_t i = 0; i < size; ++i) {
-        const auto byte = static_cast<unsigned char>(data[i]);
-        hex.push_back(HEX[byte >> 4]);
-        hex.push_back(HEX[byte & 0x0F]);
-    }
-    return from_wkb(hex.data(), hex.size(), status);
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb_bytes(data, size, shape);
+    return shape;
 }
 
 std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {

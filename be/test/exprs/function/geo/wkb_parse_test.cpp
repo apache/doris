@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cmath>
 #include <memory>
 #include <sstream>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/string_hex_util.h"
 
 namespace doris {
 
@@ -35,6 +37,67 @@ public:
     WkbParseTest() = default;
     ~WkbParseTest() override = default;
 };
+
+TEST_F(WkbParseTest, ByteShapesMatchLegacyHexAndOwnCoordinates) {
+    const std::vector<std::string> cases {
+            "0101000000000000000000F03F0000000000000040",
+            "00000000013FF00000000000004000000000000000",
+            "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
+            "01030000000100000005000000000000000000f0bf000000000000f0bf000000000000f03f000000000000"
+            "f0bf000000000000f03f000000000000f03f000000000000f0bf000000000000f03f000000000000f0bf00"
+            "0000000000f0bf",
+            "010200000002000000000000000000f03f000000000000004000000000000008400000000000001040",
+            "00000000030000000100000005bff0000000000000bff00000000000003ff0000000000000bff000000000"
+            "00003ff00000000000003ff0000000000000bff00000000000003ff0000000000000bff0000000000000bf"
+            "f0000000000000",
+            "0000000002000000023ff0000000000000400000000000000040080000000000004010000000000000",
+            "010300000000000000"};
+    for (const auto& hex : cases) {
+        std::string bytes(hex.size() / 2, '\0');
+        ASSERT_EQ(string_hex::hex_decode(hex.data(), hex.size(), bytes.data()), bytes.size());
+        GeoParseStatus byte_status;
+        auto byte_shape = GeoShape::from_wkb_bytes(bytes.data(), bytes.size(), byte_status);
+        GeoParseStatus hex_status;
+        auto hex_shape = GeoShape::from_wkb(hex.data(), hex.size(), hex_status);
+        ASSERT_EQ(byte_status, GEO_PARSE_OK);
+        ASSERT_EQ(hex_status, GEO_PARSE_OK);
+        ASSERT_NE(byte_shape, nullptr);
+        ASSERT_NE(hex_shape, nullptr);
+        const auto expected = hex_shape->as_wkt();
+        bytes.assign(bytes.size(), '\0');
+        EXPECT_EQ(byte_shape->as_wkt(), expected);
+    }
+}
+
+TEST_F(WkbParseTest, ByteShapeParserRejectsTruncatedAndUnsupportedShapes) {
+    for (const std::string hex : {"", "FF01000000", "010200000002000000000000000000F03F",
+                                  "01030000000100000005000000", "010400000000000000"}) {
+        std::string bytes(hex.size() / 2, '\0');
+        ASSERT_EQ(string_hex::hex_decode(hex.data(), hex.size(), bytes.data()), bytes.size());
+        GeoParseStatus status;
+        EXPECT_EQ(GeoShape::from_wkb_bytes(bytes.data(), bytes.size(), status), nullptr);
+        EXPECT_EQ(status, GEO_PARSE_WKB_SYNTAX_ERROR);
+    }
+}
+
+TEST_F(WkbParseTest, ByteShapeParserHandlesLargeLine) {
+    std::string bytes("\x01\x02\x00\x00\x00\x00\x10\x00\x00", 9);
+    for (size_t i = 0; i < 4096; ++i) {
+        for (const double coordinate : {-1.0 + static_cast<double>(i) / 4096, 0.0}) {
+            const auto bits = std::bit_cast<uint64_t>(coordinate);
+            for (size_t byte = 0; byte < sizeof(double); ++byte) {
+                bytes.push_back(static_cast<char>((bits >> (8 * byte)) & 0xff));
+            }
+        }
+    }
+    for (size_t iteration = 0; iteration < 16; ++iteration) {
+        GeoParseStatus status;
+        auto shape = GeoShape::from_wkb_bytes(bytes.data(), bytes.size(), status);
+        ASSERT_EQ(status, GEO_PARSE_OK);
+        ASSERT_NE(shape, nullptr);
+        EXPECT_EQ(shape->num_points(), 4096);
+    }
+}
 
 TEST_F(WkbParseTest, parse_point_little_endian_ndr) {
     std::string hex_wkb = "0101000000000000000000F03F0000000000000040";

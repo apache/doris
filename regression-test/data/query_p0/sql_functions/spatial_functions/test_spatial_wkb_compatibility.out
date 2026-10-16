@@ -32,3 +32,57 @@ true	false	true	true	true
 -- !geography_cardinal_bearings --
 0	3.14159265359	1.570796326795	3.14159265359
 
+-- !single_group_geometry --
+\N	2
+POINT (1 2)	2
+POINT (3 4)	2
+
+-- !single_distinct_geometry --
+\N
+POINT (1 2)
+POINT (3 4)
+
+-- !single_join_geometry --
+8
+
+-- !single_null_safe_join_geometry --
+12
+
+-- !case_materialization_geometry --
+0	POINT (1 2)	POINT (1 2)	POINT (1 2)
+1	POINT (5 6)	POINT (3 4)	\N
+2	POINT (5 6)	POINT (5 6)	POINT (5 6)
+3	POINT (3 4)	POINT (3 4)	POINT (1 2)
+4	POINT (3 4)	\N	\N
+5	POINT (1 2)	POINT (1 2)	POINT (5 6)
+
+-- !window_trim_geometry --
+300	256	257	0	0
+
+-- !single_group_geography --
+\N	2
+POINT (1 2)	2
+POINT (3 4)	2
+
+-- !single_distinct_geography --
+\N
+POINT (1 2)
+POINT (3 4)
+
+-- !single_join_geography --
+8
+
+-- !single_null_safe_join_geography --
+12
+
+-- !case_materialization_geography --
+0	POINT (1 2)	POINT (1 2)	POINT (1 2)
+1	POINT (5 6)	POINT (3 4)	\N
+2	POINT (5 6)	POINT (5 6)	POINT (5 6)
+3	POINT (3 4)	POINT (3 4)	POINT (1 2)
+4	POINT (3 4)	\N	\N
+5	POINT (1 2)	POINT (1 2)	POINT (5 6)
+
+-- !window_trim_geography --
+300	256	257	0	0
+

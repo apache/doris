@@ -42,6 +42,9 @@ constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
 class WkbParse {
 public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
+    // Build supported calculation shapes from validated typed WKB without payload copies.
+    static GeoParseStatus parse_wkb_bytes(const char* data, size_t size,
+                                          std::unique_ptr<GeoShape>& shape);
     static GeoParseStatus validate_wkb_bytes(const char* data, size_t size,
                                              bool geographic = false);
     static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row);

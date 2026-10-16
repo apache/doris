@@ -122,6 +122,35 @@ TEST(DataTypeSpatialTest, MutableNullableFilterRetainsPayloadArena) {
     EXPECT_EQ(payload, nested.get_data_at(1).to_string());
 }
 
+static void check_spatial_erasure(PrimitiveType primitive, bool nullable) {
+    const auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+    const auto type = nullable ? make_nullable(spatial) : spatial;
+    auto column = type->create_column();
+    const std::string first(4096, 'a');
+    const std::string last(4096, 'b');
+    column->insert_data(first.data(), first.size());
+    column->insert_default();
+    column->insert_data(last.data(), last.size());
+    column->erase(0, 1);
+    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(column->is_null_at(0), nullable);
+    EXPECT_EQ(column->get_data_at(1).to_string(), last);
+    column->erase(0, 1);
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_data_at(0).to_string(), last);
+    column->erase(0, 1);
+    EXPECT_EQ(column->size(), 0);
+    column->insert_data(first.data(), first.size());
+    EXPECT_EQ(column->get_data_at(0).to_string(), first);
+}
+
+TEST(DataTypeSpatialTest, ErasureRetainsSpatialAndNullablePayloads) {
+    check_spatial_erasure(TYPE_GEOMETRY, false);
+    check_spatial_erasure(TYPE_GEOGRAPHY, false);
+    check_spatial_erasure(TYPE_GEOMETRY, true);
+    check_spatial_erasure(TYPE_GEOGRAPHY, true);
+}
+
 TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {
     auto geometry_desc = create_type_desc(TYPE_GEOMETRY);
     geometry_desc.types[0].scalar_type.__set_spatial_crs("EPSG:3857");

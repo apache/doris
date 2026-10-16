@@ -116,6 +116,7 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
+    void erase(size_t start, size_t length) override;
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
     void insert_many_strings(const StringRef* strings, size_t num) override;

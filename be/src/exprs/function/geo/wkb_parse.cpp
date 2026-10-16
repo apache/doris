@@ -375,6 +375,23 @@ GeoParseStatus WkbParse::initialize_context(const char* data, size_t size, WkbPa
     return GEO_PARSE_OK;
 }
 
+GeoParseStatus WkbParse::parse_wkb_bytes(const char* data, size_t size,
+                                         std::unique_ptr<GeoShape>& shape) {
+    WkbParseContext ctx;
+    const auto status = initialize_context(data, size, &ctx);
+    // Empty input or an invalid byte-order header cannot initialize the byte reader.
+    if (status != GEO_PARSE_OK) {
+        return status;
+    }
+    auto parsed = readGeometry(ctx);
+    // Invalid line/ring coordinate lists and unsupported kinds cannot produce an S2 shape.
+    if (!parsed) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    shape = std::move(parsed);
+    return GEO_PARSE_OK;
+}
+
 GeoParseStatus WkbParse::read_geometry_type(WkbParseContext& ctx, uint32_t* type) {
     return read_wkb_type(ctx, type);
 }
