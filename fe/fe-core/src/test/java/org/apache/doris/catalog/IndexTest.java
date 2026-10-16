@@ -51,6 +51,8 @@ public class IndexTest {
         Index parsed = new Index(4, "parsed", Collections.singletonList("col"),
                 IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "english"), "");
         Assert.assertEquals("true", parsed.getProperties().get("support_phrase"));
+        Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(
+                Collections.singletonMap("parser", "english")));
 
         Index analyzed = new Index(5, "analyzed", Collections.singletonList("col"),
                 IndexDef.IndexType.INVERTED, Collections.singletonMap("analyzer", "english"), "");

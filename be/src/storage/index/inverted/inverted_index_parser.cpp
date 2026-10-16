@@ -108,11 +108,7 @@ std::string get_parser_phrase_support_string_from_properties(
         it != properties.end()) {
         return it->second;
     }
-    const auto analyzer = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
-    return get_parser_string_from_properties(properties) != INVERTED_INDEX_PARSER_NONE ||
-                           (analyzer != properties.end() && !analyzer->second.empty())
-                   ? INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
-                   : INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
 }
 
 bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties) {
