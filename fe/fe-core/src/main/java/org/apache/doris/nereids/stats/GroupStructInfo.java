@@ -128,6 +128,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * traversal, with a visited set to guard shared sub graphs such as CTE). Groups whose content is not
  * supported (e.g. contains TVF / CTE consumer, or the head operator is not one of the supported
  * kinds) are {@link #isValid() invalid} and callers must fall back to the legacy behavior.
+ *
+ * <p>This description is always built by the FE from the plan it is looking at, and every string it can
+ * produce is one of its renderings: {@link #getCanonical(LiteralMode)} is the text EXPLAIN prints and a
+ * user may paste into {@code HBO SET STATISTICS ... STRUCT='...'}, {@link #getShape(LiteralMode)} is the
+ * same text without the data state of the scans, and {@link #getFingerprint(LiteralMode)} is the sha256
+ * of that shape. Nothing is ever parsed to produce a fingerprint - in particular the text a user pasted
+ * is only compared with the fingerprint next to it, never taken as its source.
  */
 public class GroupStructInfo {
     /**

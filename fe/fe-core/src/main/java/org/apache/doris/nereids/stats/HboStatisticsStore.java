@@ -143,6 +143,9 @@ public class HboStatisticsStore {
             ensureTable();
             HboPlanStatisticsManager.PinnedType statsType = type == null
                     ? HboPlanStatisticsManager.PinnedType.EXACT : type;
+            // an empty struct_info records no data state: the freshness comparison reports unknown for such
+            // an entry and the pinned lookup index has no relation key for it, which is why the pinned scope
+            // of HBO SET requires the canonical string (see HboStatisticsCommand)
             String struct = truncateUtf8(structCanonical == null ? "" : structCanonical, STRUCT_MAX_BYTES);
             // the fingerprint kind is only known after the entry was applied once, so the stored
             // value stays UNKNOWN (it is reported by HBO SHOW from the in-memory entry)

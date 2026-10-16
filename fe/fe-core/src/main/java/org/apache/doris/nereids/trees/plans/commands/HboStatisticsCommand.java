@@ -59,11 +59,26 @@ import java.util.regex.Pattern;
  * the {@code struct=} value of EXPLAIN therefore also records what the injected value was measured
  * on.
  *
- * <p>{@code STRUCT} is optional for the learned scope: an entry without it records no data state,
- * so the read side applies it without comparing it with the data state of the query and reports its
- * state as {@code unknown}. A pinned entry requires it, because the lookup index of the pinned
- * entries is keyed by the relations of their struct info - an entry without one would make the pre
- * filter of every group a no-op instead of being filtered by the relations it reads.
+ * <p>A full statement carries two things which the same description of the node produces. The
+ * <b>fingerprint</b> is the {@code sha256} of the shape the FE computes from the plan while it
+ * optimizes; it is the key an entry is looked up by. The <b>canonical string</b> is the text EXPLAIN
+ * prints next to that fingerprint, and it is what a user copies into {@code STRUCT}. It is a rendering
+ * of the description, not the input of the fingerprint: when this statement runs there is no plan for
+ * the named fingerprint and no way to build one (a fingerprint is a one way hash, not an index), so
+ * only the user can bring the description along.
+ *
+ * <p>A pinned entry requires it, for three reasons. The type of the entry is validated against the
+ * description (a {@code TYPE=JOIN_EXPANSION} entry must name a {@code JE{...}} condition canonical and a
+ * {@code TYPE=FILTER_SMALL} entry a filter root). The scan tokens of the description are the data state
+ * the read side compares with the query before applying the entry (see
+ * {@link org.apache.doris.nereids.stats.HboStructFreshness}). And the relations those tokens name are
+ * the key of the pinned lookup index - an entry without relations would make the pre filter of every
+ * group a no-op instead of being filtered by the tables it reads.
+ *
+ * <p>The learned scope accepts a missing {@code STRUCT}: such an entry records no data state, so it is
+ * applied without a freshness comparison and its state is reported as {@code unknown}. That is
+ * acceptable for a measurement, which a later publish overwrites, and it is why the pinned scope - whose
+ * entries are authoritative over the measurements - does not allow it.
  */
 public class HboStatisticsCommand extends Command {
 
