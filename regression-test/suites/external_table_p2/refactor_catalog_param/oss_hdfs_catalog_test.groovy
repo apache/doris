@@ -160,20 +160,44 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
     testQuery("paimon_dlf_oss_hdfs_new_catalog2",paimon_dlf_new_catalog_properties2 ,query_table_paimon_dlf,query_count_paimon_dlf,false)
 
     //**************** Paimon FILESYSTEM ON OSS_HDFS *******************/
-    String paimon_fs_warehouse = context.config.otherConfigs.get("paimonFsWarehouseOnOssHdfs")
-    String query_table_paimon_fs = context.config.otherConfigs.get("paimonFsWarehouseOnOssHdfsQueryTable")
-    String query_count_paimon_fs = context.config.otherConfigs.get("paimonFsWarehouseOnOssHdfsQueryCount")
+    // Create the Paimon data for this run. The old fixed warehouse could be
+    // missing its database, which made every catalog-parameter variant fail
+    // before it tested the OSS-HDFS reader.
+    String paimon_fs_suffix = "${System.currentTimeMillis()}${ThreadLocalRandom.current().nextInt(1000)}"
+    String paimon_fs_warehouse = "oss://${oss_hdfs_parent_path}/paimon-fs-warehouse/${paimon_fs_suffix}"
+    String paimon_fs_db = "paimon_fs_oss_hdfs_${paimon_fs_suffix}"
+    String paimon_fs_table = "external_test_table"
+    String paimon_fs_seed_catalog = "paimon_fs_oss_hdfs_seed_${paimon_fs_suffix}"
     String paimon_file_system_catalog_properties = """
      'type'='paimon',
      'paimon.catalog.type'='filesystem',
      'warehouse'='${paimon_fs_warehouse}',
     """
-    testQuery("paimon_fs_oss_hdfs_catalog",paimon_file_system_catalog_properties + old_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,true)
-    testQuery("paimon_fs_oss_hdfs_catalog",paimon_file_system_catalog_properties + old_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,false)
-    testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,true)
-    testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,false)
-    testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,true)
-    testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,false)
+    sql """
+        CREATE CATALOG ${paimon_fs_seed_catalog} PROPERTIES (
+            ${paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties}
+        );
+    """
+    try {
+        sql "switch ${paimon_fs_seed_catalog};"
+        sql "CREATE DATABASE ${paimon_fs_db};"
+        sql "use ${paimon_fs_db};"
+        sql "CREATE TABLE ${paimon_fs_table} (id INT NULL, name STRING NULL) ENGINE=paimon;"
+        sql "INSERT INTO ${paimon_fs_table} VALUES (1, 'a'), (2, 'b');"
+
+        String query_table_paimon_fs = "${paimon_fs_db}.${paimon_fs_table}"
+        testQuery("paimon_fs_oss_hdfs_catalog",paimon_file_system_catalog_properties + old_oss_hdfs_storage_properties,query_table_paimon_fs,"2",true)
+        testQuery("paimon_fs_oss_hdfs_catalog",paimon_file_system_catalog_properties + old_oss_hdfs_storage_properties,query_table_paimon_fs,"2",false)
+        testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,"2",true)
+        testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,"2",false)
+        testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,"2",true)
+        testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,"2",false)
+    } finally {
+        sql "switch ${paimon_fs_seed_catalog};"
+        sql "DROP TABLE IF EXISTS ${paimon_fs_db}.${paimon_fs_table};"
+        sql "DROP DATABASE IF EXISTS ${paimon_fs_db} FORCE;"
+        sql "DROP CATALOG IF EXISTS ${paimon_fs_seed_catalog};"
+    }
 
     //**************** ICEBERG FILESYSTEM ON OSS_HDFS *******************/
     String iceberg_file_system_catalog_properties = """
