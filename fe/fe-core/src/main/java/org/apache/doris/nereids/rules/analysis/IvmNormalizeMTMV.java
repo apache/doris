@@ -135,6 +135,10 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      * is created with {@code ivm_force_mow}, which is the user's way to ask for the model that
      * retracts: this is the one place creation reads it, and afterwards the model is what the MV's
      * own key type says.
+     *
+     * <p>When it does qualify, the detail model is the cheaper of the two, and building it is what makes
+     * the judgment worth making at all: what it saves is in
+     * {@link org.apache.doris.catalog.MTMV#isIvmAppendOnlyDupTable}.
      */
     private KeysType judgeKeysType(Plan plan, IvmRewriteContext rewriteContext) {
         if (rewriteContext.isForceMow()) {

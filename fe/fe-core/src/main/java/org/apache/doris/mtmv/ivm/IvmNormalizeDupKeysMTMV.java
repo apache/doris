@@ -53,6 +53,9 @@ import java.util.Set;
  * not support is rejected here as well, and a shape it supports only through the row-id path is
  * rejected by name below.
  *
+ * <p>What such an MV saves over the unique-key model, which is what makes it worth building the query
+ * this way at all, is in {@link org.apache.doris.catalog.MTMV#isIvmAppendOnlyDupTable}.
+ *
  * <p>The rewriter carries no state of its own: what the traversal needs is the statement's excluded
  * trigger tables, which is also all the scan check below reads, so they are the rewriter's context.
  */

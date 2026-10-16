@@ -294,6 +294,16 @@ public class MTMV extends OlapTable {
     /**
      * Whether this MV is an IVM MV built as a plain DUP detail table, that is one whose table model
      * is a detail table a refresh only ever appends to.
+     *
+     * <p>The model exists because a query that is append-only never needs what the unique-key model
+     * maintains for it: the rows of such an MV are the query's own, and a refresh only appends what its
+     * base tables appended, so there is nothing to retract or update. What it saves is the three costs of
+     * maintaining that possibility anyway -- the write path appends instead of upserting (no merge-on-write
+     * deduplication or delete-bitmap probing, and no per-row row-id to compute during the refresh), the
+     * table carries neither the IVM hidden columns (row-id, dml factor, agg count, aggregation state) nor
+     * the merge-on-write ones (delete sign, version, skip bitmap, primary-key index), and having no layout
+     * for a signature to pin down, its refresh cannot fail with PLAN_SIGNATURE_MISMATCH when another
+     * optimizer rule, or a newer version's rules, reshape the MV's query plan.
      */
     public boolean isIvmAppendOnlyDupTable() {
         return isIvm() && getKeysType() == KeysType.DUP_KEYS;

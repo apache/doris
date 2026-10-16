@@ -22,6 +22,11 @@ in `IvmInfo`.
   join. Such an MV holds the query's own rows: no IVM hidden column, no merge-on-write property, no sequence
   column, no plan signature, and a refresh that only appends. `IvmNormalizeDupKeysMTMV` checks the query, and
   `IvmDupDeltaRewriter` builds its delta, which is the query rewritten to read each base table's stream.
+  This is the cheaper model, which is why it is worth judging for: a refresh appends rows instead of
+  upserting them (no merge-on-write deduplication or delete-bitmap probing, and no per-row row-id to compute),
+  the table carries neither the IVM hidden columns nor the merge-on-write ones, and with no layout for a
+  signature to pin down, a refresh cannot fail with `PLAN_SIGNATURE_MISMATCH` because another optimizer rule,
+  or a newer version's rules, reshaped the MV's query plan.
 
 What follows from the detail model, including where a user can see the difference:
 
