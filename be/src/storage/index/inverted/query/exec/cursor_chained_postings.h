@@ -135,4 +135,9 @@ Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
 Status chain_cursors(std::span<PostingsCursor* const> cursors,
                      const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
 
+// Appends to `sink` the rows every one of `cursors` holds, a batch of at most 2^16 rows of the
+// cheapest cursor at a time, which the others narrow, so no list holds more than a batch. Each
+// cursor is read in order, which suits a source that reads on demand.
+Status stream_cursors(std::span<PostingsCursor* const> cursors, DocIdSink& sink);
+
 } // namespace doris::index_query

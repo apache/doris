@@ -649,9 +649,10 @@ TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
 }
 
-// An unscored conjunction chains its terms on a source reading them one at a time too: the
-// chain seeks the blocks the cheaper terms' rows fall in, and the source has no round to fetch.
-TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceChainsItsTermsToo) {
+// An unscored conjunction on a source reading its terms one at a time streams them a window of
+// rows at a time, so each term may be asked for any of its rows, and the source has no round to
+// fetch.
+TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceStreamsItsTerms) {
     auto streamed = source(false);
     const auto rows = evaluate(
             [&] {
@@ -661,14 +662,12 @@ TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceChainsItsTermsToo) {
     EXPECT_EQ(rows.true_rows, roaring::Roaring::bitmapOf(2, 3U, 8U));
     EXPECT_EQ(rows.null_rows, roaring::Roaring::bitmapOf(2, 40U, 41U));
     EXPECT_EQ(streamed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b", "c"}}));
-    ASSERT_EQ(streamed->prefetches["c"].size(), 1U);
-    EXPECT_TRUE(streamed->prefetches["c"][0].whole);
-    ASSERT_EQ(streamed->prefetches["b"].size(), 1U);
-    EXPECT_EQ(streamed->prefetches["b"][0].candidates, (std::vector<uint32_t> {3, 8, 20}));
-    ASSERT_EQ(streamed->prefetches["a"].size(), 1U);
-    EXPECT_EQ(streamed->prefetches["a"][0].candidates, (std::vector<uint32_t> {3, 8}));
+    for (const char* term : {"a", "b", "c"}) {
+        ASSERT_EQ(streamed->prefetches[term].size(), 1U);
+        EXPECT_TRUE(streamed->prefetches[term][0].whole);
+    }
     EXPECT_EQ(streamed->fetches, 0U);
-    // A disjunction on it still streams.
+    // A disjunction on it opens its terms one at a time.
     auto any = source(false);
     evaluate([&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); }, any);
     EXPECT_TRUE(any->opened_together.empty());

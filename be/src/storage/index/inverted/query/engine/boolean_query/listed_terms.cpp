@@ -116,6 +116,13 @@ index_query::TruthSet ListedTerms::conjunction(const std::vector<uint32_t>* cand
         THROW_IF_ERROR(index_query::list_blocks(*narrowing.front(), sink));
         return result;
     }
+    // A source reading on demand intersects the terms a batch of rows at a time, straight into
+    // the result, instead of listing every row of the cheapest term first.
+    if (candidates == nullptr && !_source->batches_reads()) {
+        index_query::RoaringDocIdSink sink(result.true_rows);
+        THROW_IF_ERROR(index_query::stream_cursors(narrowing, sink));
+        return result;
+    }
     std::vector<uint32_t> docs;
     THROW_IF_ERROR(index_query::chain_cursors(narrowing, candidates, &docs));
     result.true_rows.addMany(docs.size(), docs.data());
