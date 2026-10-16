@@ -286,9 +286,6 @@ public enum PrimitiveType {
     }
 
     public TPrimitiveType toThrift() {
-        if (this == FILE) {
-            FileType.checkExecutionVersion();
-        }
         return thriftType;
     }
 

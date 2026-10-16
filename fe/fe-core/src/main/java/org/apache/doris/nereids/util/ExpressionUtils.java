@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.FileType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -55,7 +53,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -145,29 +142,8 @@ public class ExpressionUtils {
         }
     }
 
-    /** Validate the execution version for a FILE-containing value. */
-    public static void checkFileExecutionVersion(Expression expression) {
-        if (expression instanceof Alias) {
-            checkFileExecutionVersion(expression.child(0));
-            return;
-        }
-        // Arithmetic results cannot contain FILE; their types may depend on persisted session variables.
-        if (expression instanceof BinaryArithmetic || expression instanceof WindowFrame) {
-            return;
-        }
-        if (!expression.getDataType().typeContainsFile()) {
-            return;
-        }
-        try {
-            FileType.checkExecutionVersion();
-        } catch (IllegalStateException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-    }
-
     /** Called by the existing recursive expression type check, without a second plan traversal. */
     public static void checkFileExpression(Expression expression) {
-        checkFileExecutionVersion(expression);
         if (expression instanceof InSubquery) {
             InSubquery in = (InSubquery) expression;
             checkFileKey(in.getCompareExpr(), "IN");
