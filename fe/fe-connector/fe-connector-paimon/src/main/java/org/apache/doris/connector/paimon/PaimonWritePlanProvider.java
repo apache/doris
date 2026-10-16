@@ -60,6 +60,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
@@ -367,10 +368,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     /**
      * Routes each row to the writer that owns its partition and bucket, which BE computes from the row's routing
-     * values. With {@code charPadding} on, the writer pads a CHAR value before Paimon computes the partition and the
-     * bucket of the row, while BE would hash the unpadded value, and several writers would write and compact the
-     * same bucket. A CHAR routing field then cannot be routed natively: this returns null, and the table gets the
-     * distribution of a table whose routing fields BE cannot hash, a single writer for a primary-key table.
+     * values. The writer pads the CHAR values of the fields {@link PaimonWriteBinding#charPaddedFields} names before
+     * Paimon computes the partition and the bucket of the row, while BE would hash the unpadded values, and several
+     * writers would write and compact the same bucket. Such a routing field cannot be routed natively: this returns
+     * null, and the table gets the distribution of a table whose routing fields BE cannot hash, a single writer for
+     * a primary-key table. A CHAR field that the writer leaves alone, such as the bucket key of a table that writes
+     * ORC files, is routed natively.
      */
     private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table, boolean charPadding) {
         if (table.bucketMode() != BucketMode.HASH_FIXED) {
@@ -388,10 +391,11 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         List<String> routeColumns = new ArrayList<>();
         Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Predicate<String> charPaddedFields = PaimonWriteBinding.charPaddedFields(schema, charPadding);
         List<Integer> partitionIndexes = appendRouteFields(
-                schema.partitionKeys(), fields, routeColumns, routeIndexes, charPadding);
+                schema.partitionKeys(), fields, routeColumns, routeIndexes, charPaddedFields);
         List<Integer> bucketIndexes = appendRouteFields(
-                schema.bucketKeys(), fields, routeColumns, routeIndexes, charPadding);
+                schema.bucketKeys(), fields, routeColumns, routeIndexes, charPaddedFields);
         if (partitionIndexes == null || bucketIndexes == null || bucketIndexes.isEmpty()) {
             return null;
         }
@@ -409,12 +413,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     private List<Integer> appendRouteFields(List<String> fieldNames,
             Map<String, DataField> fields, List<String> routeColumns,
-            Map<String, Integer> routeIndexes, boolean charPadding) {
+            Map<String, Integer> routeIndexes, Predicate<String> charPaddedFields) {
         List<Integer> indexes = new ArrayList<>();
         for (String fieldName : fieldNames) {
             DataField field = fields.get(fieldName);
             if (field == null || field.defaultValue() != null
-                    || !supportsNativeRouting(field.type().getTypeRoot(), charPadding)) {
+                    || !supportsNativeRouting(field.type().getTypeRoot(), charPaddedFields.test(field.name()))) {
                 return null;
             }
             Integer index = routeIndexes.get(fieldName);
@@ -428,10 +432,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         return indexes;
     }
 
-    private boolean supportsNativeRouting(DataTypeRoot type, boolean charPadding) {
+    private boolean supportsNativeRouting(DataTypeRoot type, boolean charPadded) {
         switch (type) {
             case CHAR:
-                return !charPadding;
+                return !charPadded;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:

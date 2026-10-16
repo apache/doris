@@ -50,10 +50,26 @@
 [ab]	2	20
 [abc]	3	60
 
+-- !bucketed_route_plan --
+PhysicalConnectorTableSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject
+------PhysicalTVFRelation
+
 -- !bucketed_padded --
 100	100	3	3
 
 -- !bucketed_compaction_committed --
+1	APPEND	\N
+2	COMPACT	100
+
+-- !orc_bucketed_route_plan --
+PhysicalConnectorTableSink
+--PhysicalDistribute[DistributionSpecExternalTableSinkHashPartitioned]
+----PhysicalProject
+------PhysicalTVFRelation
+
+-- !orc_bucketed_compaction_committed --
 1	APPEND	\N
 2	COMPACT	100
 

@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataType;
@@ -36,9 +37,11 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 
 /** Statement-scoped Paimon write target shared by sink planning and transaction commit. */
 final class PaimonWriteBinding {
@@ -114,9 +117,8 @@ final class PaimonWriteBinding {
     /**
      * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
-     * column type, and padded as the BE writer pads the rows' CHAR values when {@code charPadding} is on: Paimon
-     * parses a partition value without padding it. Like the writer, this leaves the table's {@code rowkind.field}
-     * unpadded. A binary column can only be statically overwritten with NULL.
+     * column type, and padded as the BE writer pads the CHAR values of the rows ({@link #charPaddedFields}): Paimon
+     * parses a partition value without padding it. A binary column can only be statically overwritten with NULL.
      */
     static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
             boolean charPadding) {
@@ -144,7 +146,7 @@ final class PaimonWriteBinding {
         }
         CoreOptions options = CoreOptions.fromMap(table.options());
         String defaultPartitionName = options.partitionDefaultName();
-        String rowKindField = options.rowkindField().orElse(null);
+        Predicate<String> charPaddedFields = charPaddedFields(table.schema(), charPadding);
         Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> requested : requestedColumns.entrySet()) {
@@ -160,7 +162,7 @@ final class PaimonWriteBinding {
             if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
                 value = toSdkLocalTime(canonicalName, value);
             }
-            if (charPadding && type.getTypeRoot() == DataTypeRoot.CHAR && !canonicalName.equals(rowKindField)) {
+            if (type.getTypeRoot() == DataTypeRoot.CHAR && charPaddedFields.test(canonicalName)) {
                 value = padChar(value, ((CharType) type).getLength());
             }
             if (defaultPartitionName.equals(value)) {
@@ -173,6 +175,25 @@ final class PaimonWriteBinding {
             result.put(canonicalName, value);
         }
         return result;
+    }
+
+    /**
+     * The fields whose CHAR values the BE writer pads, as PaimonWriteSchema.create decides it: with {@code charPadding}
+     * on, every field but the table's {@code rowkind.field}, from whose value Paimon decodes the row kind, and of a
+     * table that writes ORC files only the partition fields. ORC pads every CHAR value it writes and strips the
+     * trailing spaces from one it reads, so the writer leaves the other fields of such a table alone. Keep in sync
+     * with PaimonWriteSchema.create and PaimonWriteSchema.writesOrcFiles in be-java-extensions/paimon-scanner.
+     */
+    static Predicate<String> charPaddedFields(TableSchema schema, boolean charPadding) {
+        if (!charPadding) {
+            return field -> false;
+        }
+        CoreOptions options = CoreOptions.fromMap(schema.options());
+        String rowKindField = options.rowkindField().orElse(null);
+        boolean orcFiles = CoreOptions.FILE_FORMAT_ORC.equals(options.formatType())
+                || options.fileFormatPerLevel().containsValue(CoreOptions.FILE_FORMAT_ORC);
+        List<String> partitionKeys = schema.partitionKeys();
+        return field -> !field.equals(rowKindField) && (!orcFiles || partitionKeys.contains(field));
     }
 
     /**

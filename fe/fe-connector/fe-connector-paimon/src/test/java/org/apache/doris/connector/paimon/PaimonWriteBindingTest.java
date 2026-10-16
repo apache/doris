@@ -255,6 +255,19 @@ public class PaimonWriteBindingTest {
     }
 
     @Test
+    public void staticCharPartitionOfAnOrcTableIsPaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // The BE writer leaves the CHAR values of a table that writes ORC files unpadded, since ORC pads them
+        // itself, but for the partition values, which Paimon reads back as they are stored. MUTATION: leaving every
+        // field of an ORC table unpadded -> red.
+        FileStoreTable table = partitionedTable(warehouse,
+                Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "orc"),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+
+        Assertions.assertEquals("a  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), true).get("part"));
+    }
+
+    @Test
     public void staticRowKindFieldPartitionIsLeftUnpaddedAsTheRowsAre(@TempDir Path warehouse) {
         // The BE writer does not pad the value of the table's rowkind.field, which Paimon reads as a row kind as it
         // is, so the rows of a CHAR(3) rowkind.field partition column carry '+I'. A padded '+I ' would name

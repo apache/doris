@@ -107,6 +107,17 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'file.format' = 'orc'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_bucketed_fc;
+        CREATE TABLE paimon.${dbName}.t_char_orc_bucketed_fc (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc',
+            'changelog-producer' = 'full-compaction'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_key;
         CREATE TABLE paimon.${dbName}.t_char_rowkind_key (
             c CHAR(3), rk STRING, v INT
@@ -364,11 +375,15 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         sql """UPDATE t_char_orc_bucketed SET v = v * 10 WHERE v IN (2, 6)"""
         order_qt_orc_dml_reaches_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_bucketed"""
 
-        // BE cannot route a CHAR bucket key by Paimon's bucket while padding is on, since it would hash the
+        // BE cannot route a CHAR bucket key that the writer pads by Paimon's bucket, since it would hash the
         // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
         // the bucket, and Paimon would give up committing the compaction, and with it the changelog, after the
         // rows were committed. The write goes to one writer instead, and both snapshots are committed.
         sql """set parallel_pipeline_task_num = 4"""
+        qt_bucketed_route_plan """
+            EXPLAIN SHAPE PLAN INSERT INTO t_char_bucketed
+            SELECT cast(number AS STRING), cast(number AS INT) FROM numbers("number" = "100")
+        """
         sql """INSERT INTO t_char_bucketed
             SELECT cast(number AS STRING), cast(number AS INT) FROM numbers("number" = "100")"""
         sql """set parallel_pipeline_task_num = 0"""
@@ -377,6 +392,21 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         """
         order_qt_bucketed_compaction_committed """
             SELECT snapshot_id, commit_kind, changelog_record_count FROM t_char_bucketed\$snapshots
+        """
+
+        // The writer leaves the CHAR bucket key of an ORC table unpadded, as ORC pads it itself, so BE routes the
+        // rows to the four bucket writers by the bytes the writer writes: each bucket still has one writer, and both
+        // snapshots of the full-compaction table are committed.
+        sql """set parallel_pipeline_task_num = 4"""
+        qt_orc_bucketed_route_plan """
+            EXPLAIN SHAPE PLAN INSERT INTO t_char_orc_bucketed_fc
+            SELECT cast(number AS STRING), cast(number AS INT) FROM numbers("number" = "100")
+        """
+        sql """INSERT INTO t_char_orc_bucketed_fc
+            SELECT cast(number AS STRING), cast(number AS INT) FROM numbers("number" = "100")"""
+        sql """set parallel_pipeline_task_num = 0"""
+        order_qt_orc_bucketed_compaction_committed """
+            SELECT snapshot_id, commit_kind, changelog_record_count FROM t_char_orc_bucketed_fc\$snapshots
         """
 
         // Paimon takes the row kind from the value of the rowkind.field as it is, so that value is not padded:

@@ -288,6 +288,42 @@ public class PaimonWritePlanProviderTest {
                 Collections.singletonList("part"), Collections.emptyMap(), false).getPartitionFunction());
     }
 
+    @Test
+    public void charRouteFieldsThatTheWriterLeavesUnpaddedAreRoutedNatively() {
+        // ORC pads every CHAR value it writes, so the writer pads only the partition values of a table that writes
+        // ORC files, and it never pads the table's rowkind.field. BE hashes the bytes the writer writes for such a
+        // field, so the table keeps its parallel bucket writers while padding is on. MUTATION: falling back for
+        // every CHAR routing field while padding is on, or ignoring file.format.per.level, or the rowkind.field
+        // -> red; routing the CHAR partition field of an ORC table natively -> red.
+        List<DataField> charKey = Arrays.asList(
+                new DataField(0, "c", DataTypes.CHAR(3).notNull()),
+                new DataField(1, "v", DataTypes.INT()));
+        Map<String, String> orc = new HashMap<>();
+        orc.put(CoreOptions.BUCKET.key(), "4");
+        orc.put(CoreOptions.FILE_FORMAT.key(), "orc");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey, Collections.emptyList(),
+                Collections.singletonList("c"), orc, BucketMode.HASH_FIXED, true).getPartitionFunction());
+        Map<String, String> orcAtALevel = new HashMap<>();
+        orcAtALevel.put(CoreOptions.BUCKET.key(), "4");
+        orcAtALevel.put(CoreOptions.FILE_FORMAT_PER_LEVEL.key(), "5:orc");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey, Collections.emptyList(),
+                Collections.singletonList("c"), orcAtALevel, BucketMode.HASH_FIXED, true).getPartitionFunction());
+
+        // A table partitioned by a CHAR field and bucketed by id.
+        List<DataField> charPartition = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT().notNull()),
+                new DataField(1, "p", DataTypes.CHAR(3).notNull()));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(charPartition,
+                Collections.singletonList("p"), Arrays.asList("id", "p"), orc, BucketMode.HASH_FIXED, true)
+                .getMode());
+        Map<String, String> rowKindPartition = new HashMap<>();
+        rowKindPartition.put(CoreOptions.BUCKET.key(), "4");
+        rowKindPartition.put(CoreOptions.ROWKIND_FIELD.key(), "p");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charPartition,
+                Collections.singletonList("p"), Arrays.asList("id", "p"), rowKindPartition, BucketMode.HASH_FIXED,
+                true).getPartitionFunction());
+    }
+
     private static ConnectorWriteDistribution.Mode writeDistribution(List<String> partitionKeys,
             List<String> primaryKeys, Map<String, String> options, BucketMode expectedBucketMode) {
         List<DataField> fields = Arrays.asList(
