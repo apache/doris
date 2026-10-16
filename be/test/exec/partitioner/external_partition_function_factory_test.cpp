@@ -129,4 +129,30 @@ TEST(ExternalPartitionFunctionFactoryTest, ReadsBranch41PaimonFixedBucketEncodin
     EXPECT_EQ(function->partition_count(), 3);
 }
 
+TEST(ExternalPartitionFunctionFactoryTest, IcebergTransformValidatesOptions) {
+    auto create = [](const std::map<std::string, std::string>* options) {
+        TExternalTableSinkHashPartitionInfo info;
+        info.__set_partition_function("iceberg_transform");
+        if (options != nullptr) {
+            info.__set_partition_function_options(*options);
+        }
+        info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
+        std::unique_ptr<PartitionFunction> function;
+        return create_external_partition_function(info, 3, ShuffleHashMethod::CRC32, {}, &function);
+    };
+
+    EXPECT_NE(create(nullptr).to_string().find("requires options"), std::string::npos);
+    const std::map<std::string, std::string> extra_option {{"transforms", "identity"},
+                                                           {"unexpected", "value"}};
+    EXPECT_NE(create(&extra_option).to_string().find("requires exactly the transforms option"),
+              std::string::npos);
+    const std::map<std::string, std::string> empty_transform {{"transforms", "identity,,day"}};
+    EXPECT_NE(create(&empty_transform).to_string().find("Empty Iceberg partition transform"),
+              std::string::npos);
+    // One transform per route expression; this call routes no expressions.
+    const std::map<std::string, std::string> one_transform {{"transforms", "bucket[16]"}};
+    EXPECT_NE(create(&one_transform).to_string().find("does not match partition expression count"),
+              std::string::npos);
+}
+
 } // namespace doris

@@ -49,10 +49,37 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobOffsetPersistenceTest {
+
+    @Test
+    public void testAlterValidatesServerIdAgainstMergedParallelismBeforeMutation() {
+        for (Map<String, String> update : List.of(
+                Collections.singletonMap(DataSourceConfigKeys.SERVER_ID, "5400-5401"),
+                Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "5"))) {
+            TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
+            job.setJobStatus(JobStatus.PAUSED);
+            Map<String, String> original = new HashMap<>();
+            original.put(DataSourceConfigKeys.SERVER_ID, "5400-5403");
+            original.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
+            Deencapsulation.setField(job, "sourceProperties", original);
+            AlterJobCommand command = new AlterJobCommand("test_job", Collections.emptyMap(), null,
+                    "mysql", null, update, Collections.singletonMap("replication_num", "3"));
+
+            IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> job.alterJob(command));
+
+            Assertions.assertTrue(exception.getMessage().contains("server_id range size"));
+            Assertions.assertEquals(original, job.getSourceProperties());
+            Assertions.assertTrue(job.getTargetProperties().isEmpty());
+            Assertions.assertEquals(0, job.journalCount);
+            ReentrantReadWriteLock lock = Deencapsulation.getField(job, "lock");
+            Assertions.assertFalse(lock.isWriteLocked());
+        }
+    }
 
     @Test
     public void testAlterChecksStatusAndPersistsUnderJobLock() throws Exception {
@@ -223,12 +250,42 @@ public class StreamingInsertJobOffsetPersistenceTest {
             Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
 
             long beforeFinish = System.currentTimeMillis();
+            Deencapsulation.setField(job, "tolerateSchemaChange", true);
             job.onStreamTaskSuccess(task);
 
+            Assertions.assertFalse(job.isTolerateSchemaChange());
             Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
             Assertions.assertTrue(job.getFinishTimeMs() >= beforeFinish);
             Assertions.assertEquals(1, job.journalCount);
             Mockito.verify(callbackFactory).removeCallback(9001L);
+        }
+    }
+
+    @Test
+    public void testSuccessfulTaskClearsSchemaChangeToleranceBeforeNextTask() throws Exception {
+        TestStreamingInsertJob job = Mockito.spy(newJob(new JdbcSourceOffsetProvider(), 1017L));
+        NoopStreamingMultiTblTask task = Deencapsulation.getField(job, "runningStreamTask");
+        NoopStreamingMultiTblTask nextTask = new NoopStreamingMultiTblTask(1018L);
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(job.isTolerateSchemaChange());
+            return nextTask;
+        }).when(job).createStreamingTask();
+        Deencapsulation.setField(job, "tolerateSchemaChange", true);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            JobManager<?, ?> jobManager = Mockito.mock(JobManager.class);
+            StreamingTaskManager streamingTaskManager = Mockito.mock(StreamingTaskManager.class);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getJobManager()).thenReturn(jobManager);
+            Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
+
+            job.onStreamTaskSuccess(task);
+
+            Assertions.assertFalse(job.isTolerateSchemaChange());
+            Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+            Assertions.assertSame(nextTask, Deencapsulation.getField(job, "runningStreamTask"));
+            Mockito.verify(streamingTaskManager).removeRunningTask(task);
         }
     }
 
@@ -447,6 +504,11 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
     private static class TestStreamingInsertJob extends StreamingInsertJob {
         private int journalCount;
+
+        @Override
+        protected void logUpdateOperation(String persistInfo) {
+            journalCount++;
+        }
 
         @Override
         public void logUpdateOperation() {

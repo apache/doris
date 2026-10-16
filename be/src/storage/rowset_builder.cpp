@@ -256,7 +256,8 @@ Status RowsetBuilder::init() {
               tmp_pending_rowset_ids.begin() + 1);
     _pending_rs_guard = _engine.pending_local_rowsets().add(tmp_pending_rowset_ids);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     _is_init = true;
     return Status::OK();
@@ -267,6 +268,7 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
 
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.db_id = _req.table_schema_param->db_id();
     context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
@@ -413,13 +415,17 @@ Status RowsetBuilder::commit_txn() {
     return Status::OK();
 }
 
-Status BaseRowsetBuilder::cancel() {
+Status BaseRowsetBuilder::cancel(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
     if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
+        _calc_delete_bitmap_token->cancel(st);
+    }
+    // Flush-time bitmap work belongs to the rowset writer, not the builder token.
+    if (_rowset_writer != nullptr) {
+        _rowset_writer->cancel_calc_delete_bitmap(st);
     }
     _is_cancelled = true;
     return Status::OK();
@@ -596,6 +602,12 @@ Status GroupRowsetBuilder::submit_calc_delete_bitmap_task() {
 
 Status GroupRowsetBuilder::wait_calc_delete_bitmap() {
     return _txn_rs_builder->wait_calc_delete_bitmap();
+}
+
+Status GroupRowsetBuilder::cancel(const Status& st) {
+    RETURN_IF_ERROR(_txn_rs_builder->cancel(st));
+    RETURN_IF_ERROR(_row_binlog_rowset_builder->cancel(st));
+    return BaseRowsetBuilder::cancel(st);
 }
 
 Status GroupRowsetBuilder::commit_txn() {

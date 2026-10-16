@@ -439,6 +439,8 @@ final class IcebergWriteSchemaContext {
                 return binarySql(byteBufferBytes((ByteBuffer) value), enableMappingVarbinary);
             case DATE:
                 return quote(LocalDate.ofEpochDay(((Integer) value).longValue()).toString());
+            case TIMESTAMP_NANO:
+                // Identity formatting preserves all nine digits, including negative epoch fractions.
             case TIMESTAMP:
                 String timestamp = Transforms.identity(type).toHumanString(type, value).replace('T', ' ');
                 // Zoned defaults retain their offset regardless of the legacy catalog flag.

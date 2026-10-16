@@ -32,6 +32,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
@@ -52,8 +53,7 @@ static const int64_t micro_to_nano_second = 1000;
 
 namespace {
 
-Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
-                                   const cctz::time_zone& timezone) {
+Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
         return Status::InternalError("Unexpected ORC timestamp batch type {}",
@@ -72,9 +72,10 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
+        const int64_t seconds = orc_batch->data[source_row];
         orc_serde_utils::RoundedOrcTimestamp timestamp;
         auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
-                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+                seconds, orc_batch->nanoseconds[source_row], &timestamp);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;
@@ -84,8 +85,9 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         // Instant carry precedes timezone conversion; plain TIMESTAMP carry stays in civil time
         // so rounding cannot jump across a daylight-saving gap or fold.
         status = orc_serde_utils::orc_timestamp_to_datetime(
-                is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
-                timestamp.microseconds, timezone, !is_timestamp_instant && timestamp.carry, &value);
+                is_timestamp_instant ? timestamp.seconds : seconds, timestamp.microseconds,
+                orc_view.timestamp_context->timezone_for(*orc_view.file_type, seconds),
+                !is_timestamp_instant && timestamp.carry, &value);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;
@@ -1045,11 +1047,11 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     DORIS_CHECK(view.batch != nullptr);
     const auto kind = view.file_type->getKind();
     DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
-    DORIS_CHECK(view.timezone != nullptr);
+    DORIS_CHECK(view.timestamp_context != nullptr);
     if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    return decode_timestamp_orc_values(column, view, *view.timezone);
+    return decode_timestamp_orc_values(column, view);
 }
 
 } // namespace doris

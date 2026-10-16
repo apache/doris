@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.GlobPattern;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
@@ -257,7 +258,8 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
         // BrokerLoadPendingTask passes paths with glob characters (e.g. _*).
         // Hadoop's listStatusIterator does not expand globs; use globStatus instead.
         if (containsGlob(locationStr)) {
-            Path path = new Path(locationStr);
+            // Hadoop supports brace alternatives, but not Broker Load's numeric range syntax.
+            Path path = new Path(GlobPattern.expandNumericRanges(locationStr));
             org.apache.hadoop.fs.FileSystem hfs = getHadoopFs(path);
             FileStatus[] statuses = authenticator.doAs(() -> hfs.globStatus(path));
             if (statuses == null) {
@@ -277,7 +279,7 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     }
 
     private static boolean containsGlob(String path) {
-        return path.contains("*") || path.contains("?") || path.contains("[");
+        return path.contains("*") || path.contains("?") || path.contains("[") || path.contains("{");
     }
 
     @Override
@@ -309,7 +311,7 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
-        Path hadoopPath = new Path(path.toString());
+        Path hadoopPath = new Path(GlobPattern.expandNumericRanges(path.toString()));
         org.apache.hadoop.fs.FileSystem hfs = getHadoopFs(hadoopPath);
         boolean isGlob = containsGlob(path.toString());
         FileStatus[] statuses = authenticator.doAs(() ->

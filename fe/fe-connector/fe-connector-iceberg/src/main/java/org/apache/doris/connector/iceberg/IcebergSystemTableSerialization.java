@@ -26,7 +26,14 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
-/** Keeps the Java-serialized Iceberg system-table task wire compatible with Iceberg 1.10.1. */
+/**
+ * Keeps the Java-serialized Iceberg system-table task wire compatible with Iceberg 1.10.1.
+ *
+ * <p>That only covers Schema, the one class whose UID 1.11 changed. Iceberg 1.12 changed the serialized form of
+ * classes every task carries (BaseFile, PartitionData and their anonymous inner classes), so a task cannot cross
+ * between 1.11 and 1.12: Iceberg system tables are unavailable while FE and BE run different Iceberg versions,
+ * and the BE reader reports that instead of a bare InvalidClassException.
+ */
 final class IcebergSystemTableSerialization {
     static final long ICEBERG_1_10_1_SCHEMA_UID = 6812231194765760118L;
     private static final long ICEBERG_1_11_0_SCHEMA_UID = -1265875184407129845L;
@@ -56,7 +63,7 @@ final class IcebergSystemTableSerialization {
 
     private static void rewriteSchemaUid(byte[] bytes, long fromUid, long toUid) {
         // The 1.10 and 1.11 Schema classes have identical serialized fields. Pinning only this known descriptor
-        // to the legacy UID lets old and new BE readers share one task wire while future layouts fail closed.
+        // to the legacy UID lets 1.10 and 1.11 BE readers share one task wire while future layouts fail closed.
         if (LOCAL_SCHEMA_UID != ICEBERG_1_11_0_SCHEMA_UID) {
             throw new IllegalStateException("Unsupported Iceberg Schema serialVersionUID: " + LOCAL_SCHEMA_UID);
         }

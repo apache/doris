@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -451,8 +452,9 @@ public class IcebergScanPlanProviderTest {
                 estimate.getMessage());
 
         DorisConnectorException lazy = Assertions.assertThrows(DorisConnectorException.class, () -> {
-            try (ConnectorSplitSource source = provider.streamSplits(
-                    emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L)) {
+            try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .filter(Optional.empty()).limit(-1L).build())) {
                 source.hasNext();
             }
         });
@@ -1120,9 +1122,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
                 IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (ConnectorSplitSource source = provider.streamSplits(
-                new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty(), -1L)) {
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build())) {
             while (source.hasNext()) {
                 ranges.add(source.next());
             }
@@ -1455,8 +1457,8 @@ public class IcebergScanPlanProviderTest {
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.streamSplits(session,
-                        new IcebergTableHandle("db1", "stream_metadata"), columns,
-                        Optional.empty(), -1L));
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata"), columns)
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
                 "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
                         + "actual reader is JNI",
@@ -1473,8 +1475,8 @@ public class IcebergScanPlanProviderTest {
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.streamSplits(session,
-                        new IcebergTableHandle("db1", "stream_metadata_v2"), columns,
-                        Optional.empty(), -1L));
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata_v2"), columns)
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
                 "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
                 ex.getMessage());
@@ -1844,8 +1846,9 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1L,
                 provider.streamingSplitEstimate(session, handle, Optional.empty(), false),
                 "schema-carrier planning must not retain tasks or disable streaming batch dispatch");
-        try (ConnectorSplitSource source = provider.streamSplits(
-                session, handle, Collections.emptyList(), Optional.empty(), -1L)) {
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build())) {
             Assertions.assertTrue(source.hasNext(),
                     "the first split must be dispatchable without draining all remaining byte splits");
             Assertions.assertEquals(0L, source.next().getStart());
@@ -2468,8 +2471,9 @@ public class IcebergScanPlanProviderTest {
                         provider.streamingSplitEstimate(batchSession(2, true), handle, filter, false),
                         "the nonmatching manifest must not enable streaming at a two-file threshold");
             }
-            List<ConnectorScanRange> streamed = drain(provider.streamSplits(
-                    batchSession(1, true), handle, Collections.emptyList(), filter, -1L));
+            List<ConnectorScanRange> streamed = drain(provider.streamSplits(batchSession(1, true),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .filter(filter).limit(-1L).build()));
             Assertions.assertEquals(sortedPaths(ranges), sortedPaths(streamed));
         }
     }
@@ -2496,6 +2500,60 @@ public class IcebergScanPlanProviderTest {
         assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
     }
 
+    @Test
+    public void cachedStreamingScansKeepPartitionTypesAcrossIntToBigintPromotion() throws IOException {
+        // WHY: the manifest cache shares one decoded manifest across scans, but a scan pinned to the schema before an
+        // INT -> BIGINT promotion of an identity partition binds its residual to INT, while a current scan binds it to
+        // LONG. Values decoded for one binding must not reach the other: the historical scan failed with
+        // "Wrong class, expected java.lang.Integer, but was java.lang.Long" (and the reverse for the current scan).
+        // The position delete in p=1 runs the same partitions through the delete index. MUTATION: reading cached
+        // manifests with table.specs() (or the manifest's own spec) for every scan -> one of the two orders -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("promoted_partition", schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        String location = "s3://b/db/promoted_partition/";
+        table.newRowDelta()
+                .addRows(dataFile(table.spec(), location + "old.parquet", 1024, null, "p=1"))
+                .addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                        .ofPositionDeletes()
+                        .withPath(location + "old-deletes.parquet")
+                        .withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(128L)
+                        .withRecordCount(1L)
+                        .withPartitionPath("p=1")
+                        .build())
+                .commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), location + "new.parquet", 1024, null, "p=2")).commit();
+
+        IcebergTableHandle historical = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        IcebergTableHandle current = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        ConnectorExpression intFilter = eqInt("p", 1);
+        ConnectorExpression bigintFilter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("p", ConnectorType.of("BIGINT")),
+                new ConnectorLiteral(ConnectorType.of("BIGINT"), 1L));
+
+        for (boolean historicalFirst : new boolean[] {true, false}) {
+            IcebergScanPlanProvider provider =
+                    manifestProvider(manifestCacheProps(), table, new IcebergManifestCache());
+            for (int i = 0; i < 2; i++) {
+                boolean scanHistorical = (i == 0) == historicalFirst;
+                List<ConnectorScanRange> ranges = drain(provider.streamSplits(batchSession(1, true),
+                        ConnectorScanRequest.builder(scanHistorical ? historical : current, Collections.emptyList())
+                                .filter(Optional.of(scanHistorical ? intFilter : bigintFilter)).limit(-1L).build()));
+                Assertions.assertEquals(Collections.singletonList(location + "old.parquet"), sortedPaths(ranges),
+                        (scanHistorical ? "historical" : "current") + " scan, historical first=" + historicalFirst);
+            }
+        }
+    }
+
     private static void assertHistoricalStreamingDispatch(
             Table table, long historicalSnapshotId, int historicalSchemaId) throws IOException {
         IcebergTableHandle handle = new IcebergTableHandle("db1", "historical_batch_estimate")
@@ -2505,8 +2563,9 @@ public class IcebergScanPlanProviderTest {
         Optional<ConnectorExpression> filter = Optional.of(eqInt("x", 1));
 
         Assertions.assertEquals(1L, provider.streamingSplitEstimate(session, handle, filter, false));
-        List<ConnectorScanRange> ranges = drain(provider.streamSplits(
-                session, handle, Collections.emptyList(), filter, -1L));
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(filter).limit(-1L).build()));
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("old.parquet"));
     }
@@ -2550,7 +2609,8 @@ public class IcebergScanPlanProviderTest {
                 new IcebergTableHandle("db1", "t1"), Optional.empty(), false),
                 "the pre-pin batch decision must observe the concurrent first append");
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                emptyRead, Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertTrue(ranges.isEmpty(),
                 "the post-pin streaming path must preserve the explicitly empty read boundary");
     }
@@ -3071,7 +3131,8 @@ public class IcebergScanPlanProviderTest {
         // streamed counterpart of planScan's eager enumeration.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Set<String> paths = ranges.stream()
                 .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
         Assertions.assertEquals(
@@ -3089,7 +3150,8 @@ public class IcebergScanPlanProviderTest {
         IcebergTableHandle scoped = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
                 ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f3.parquet"));
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                scoped, Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(scoped, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Set<String> paths = ranges.stream()
                 .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
         Assertions.assertEquals(
@@ -3103,7 +3165,8 @@ public class IcebergScanPlanProviderTest {
         // guard in next() -> NPE/wrong instead of NoSuchElementException -> red.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build());
         while (source.hasNext()) {
             source.next();
         }
@@ -3118,7 +3181,8 @@ public class IcebergScanPlanProviderTest {
         // underlying planFiles() iterable. MUTATION: dropping the `iterator != null` guard in close() -> NPE -> red.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         ConnectorSplitSource source = provider.streamSplits(emptySession(),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build());
         Assertions.assertDoesNotThrow(source::close);
     }
 
@@ -3767,12 +3831,16 @@ public class IcebergScanPlanProviderTest {
 
         // Cache OFF: the streaming SDK planFiles() path (the pre-PERF-04 behavior).
         List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
         // Cache ON: streaming must now read manifests THROUGH the cache and yield the SAME files (PERF-04 C17).
         // MUTATION: streaming still bypasses the cache (scan.planFiles()) -> cache stays empty -> red.
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
 
         Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
         Assertions.assertEquals(3, cached.size());
@@ -3791,10 +3859,14 @@ public class IcebergScanPlanProviderTest {
         Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
 
         List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
-                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(wherePeq1).limit(-1L).build()));
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(wherePeq1).limit(-1L).build()));
 
         // Partition prune (ManifestEvaluator + residual) keeps only p=1 in BOTH paths. MUTATION: the lazy iterator
         // dropping the residual/metrics prune -> p=2 leaks in -> sizes differ -> red.
@@ -3820,7 +3892,9 @@ public class IcebergScanPlanProviderTest {
 
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(3, cached.size(), "the lazy iterator must flat-map across all data manifests");
     }
 
@@ -3999,8 +4073,9 @@ public class IcebergScanPlanProviderTest {
         IcebergManifestCache cache = new IcebergManifestCache();
 
         List<ConnectorScanRange> ranges = drain(manifestProvider(manifestCacheProps(), reloaded, cache)
-                .streamSplits(emptySession(), new IcebergTableHandle("db1", "dropped_cache_key"),
-                        Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "dropped_cache_key"), Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
 
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertEquals(1, deleteCount(ranges.get(0)));
@@ -4043,6 +4118,85 @@ public class IcebergScanPlanProviderTest {
                 "the new field's initial default matches old files and must not be pruned by retired-field stats");
         Assertions.assertEquals(1, cache.size(), "the assertion must exercise the manifest-cache path");
         Assertions.assertEquals(0L, cache.takeStats("q")[2], "the cache path must not fall back to the SDK");
+    }
+
+    @Test
+    public void promotedDateBoundsDoNotPruneNanosecondMatches() {
+        Schema oldSchema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()),
+                Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+        Table table = createTable("promoted_date", oldSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        Map<Integer, ByteBuffer> bounds = new HashMap<>();
+        bounds.put(1, Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        bounds.put(2, Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("/data/retained-date.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds))
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        org.apache.iceberg.TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = operations.current();
+        // Publish the v3 promotion directly: retained manifests still encode DATE bounds in days.
+        operations.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base)
+                .setCurrentSchema(new Schema(
+                        Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()),
+                        Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(3, "fresh", Types.TimestampNanoType.withoutZone())), 3).build());
+        table.refresh();
+        ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 00:00:00"));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            IcebergPredicateConverter converter = IcebergPredicateConverter.forTable(
+                    table, table.schema(), java.time.ZoneOffset.UTC, mode);
+            Assertions.assertTrue(converter.convert(filter).isEmpty());
+            Assertions.assertEquals(1, converter.convert(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("fresh", ConnectorType.of("TIMESTAMP_NS")),
+                    new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 00:00:00"))).size(),
+                    "fields without historical DATE bounds must retain pushdown");
+        }
+        // Metadata cleanup may drop the writing schema while the retained snapshot still uses its file.
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("/data/new-nanos.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1000)
+                .retainLast(1).cleanExpiredMetadata(true).commit();
+        table.refresh();
+        Assertions.assertTrue(table.schemas().values().stream()
+                .noneMatch(retained -> Types.DateType.get().equals(retained.findType(1))));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            Assertions.assertTrue(IcebergPredicateConverter.forTable(
+                    table, table.schema(), java.time.ZoneOffset.UTC, mode).convert(filter).isEmpty(),
+                    "schema cleanup must not re-enable unsafe DATE bound pruning in " + mode);
+        }
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "promoted_date"), Collections.emptyList())
+                .filter(Optional.of(filter)).build();
+        List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
+                .planScan(emptySession(), request);
+        Assertions.assertEquals(2, sdk.size(), "SDK planning must preserve the matching DATE file after cleanup");
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(emptySession(), request);
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertTrue(cache.size() > 0);
+        Assertions.assertEquals(0L, cache.takeStats("q")[2], "must exercise cached planning without fallback");
+        ConnectorExpression negated = new ConnectorNot(new ConnectorAnd(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                        new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-03")),
+                new ConnectorComparison(ConnectorComparison.Operator.GT,
+                        new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                        new ConnectorLiteral(ConnectorType.of("INT"), 0)))));
+        ConnectorScanRequest notRequest = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "promoted_date"), Collections.emptyList())
+                .filter(Optional.of(negated)).build();
+        // The retained Jan 2 / id=1 file matches NOT(ts=Jan 3 AND id>0).
+        Assertions.assertEquals(2, new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
+                .planScan(emptySession(), notRequest).size());
+        Assertions.assertEquals(2, manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(emptySession(), notRequest).size());
     }
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---

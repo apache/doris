@@ -336,7 +336,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
+            row_store_read_struct.serdes.emplace_back(slots[i].type()->get_serde());
             row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
             row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
         }

@@ -87,6 +87,16 @@ public class CloudInsertProfileRetryTest extends TestWithFeService {
             "MERGE_SUCCESS_EMPTY_WITH_SESSION_REVERT"})
     @ResourceLock("global")
     public void testInsertProfileRemainsOpenUntilOuterRetryDecision(String caseName, @TempDir Path storage) throws Exception {
+        // Keep the periodic storage thread from releasing the finished profile before assertions.
+        // The explicit backgroundStorage probe below still exercises storage eligibility during retry.
+        ProfileManager manager = new TestProfileManager();
+        try (MockedStatic<ProfileManager> managers = Mockito.mockStatic(ProfileManager.class)) {
+            managers.when(ProfileManager::getInstance).thenReturn(manager);
+            runInsertProfileRetryCase(caseName, storage, manager);
+        }
+    }
+
+    private void runInsertProfileRetryCase(String caseName, Path storage, ProfileManager manager) throws Exception {
         boolean merge = caseName.startsWith("MERGE_");
         String outcome = merge ? caseName.substring("MERGE_".length()) : caseName;
         boolean realExecution = merge && "SUCCESS_EMPTY_WITH_SESSION_REVERT".equals(outcome);
@@ -127,7 +137,6 @@ public class CloudInsertProfileRetryTest extends TestWithFeService {
             executor.setParsedStmt(adapter);
         }
         Profile profile = executor.getProfile();
-        ProfileManager manager = ProfileManager.getInstance();
         NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
         Mockito.when(planner.getPhysicalRelations()).thenReturn(Collections.emptyList());
         OlapTable table = Mockito.mock(OlapTable.class);
@@ -398,6 +407,9 @@ public class CloudInsertProfileRetryTest extends TestWithFeService {
             connectContext.setSessionVariable(oldSession);
             connectContext.setThreadLocalInfo();
         }
+    }
+
+    private static class TestProfileManager extends ProfileManager {
     }
 
     private static TQueryProfile completeBackendReport(TUniqueId queryId) {

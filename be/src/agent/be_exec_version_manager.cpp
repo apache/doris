@@ -156,8 +156,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support Paimon table writes.
 // 17: start from master
 //   a. use exact logical frames for map_agg_v2 aggregate state serialization.
+// 18: start from master
+//   a. support Iceberg partition transform routing in the external sink exchange.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION;
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_ICEBERG_TRANSFORM_ROUTING_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_alternative_map {};

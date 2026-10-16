@@ -137,6 +137,7 @@ public:
 
 #ifdef BE_TEST
         size_t metadata_comparisons_for_test() const noexcept;
+        size_t validation_scratch_capacity_for_test() const noexcept;
 #endif
 
     private:
