@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/config.h"
+#include "format/parquet_metadata_memory.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -46,13 +47,22 @@ namespace doris::format::parquet {
 
 constexpr size_t V2_PARQUET_FOOTER_SIZE = 8;
 
-NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size)
-        : _metadata(std::move(metadata)), _parsed_size(parsed_size) {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(get_mem_size());
+NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata)
+        : _metadata(std::move(metadata)) {
+    _mem_size = sizeof(*this) + parquet_metadata_dynamic_size(_metadata);
+    _tracked_mem_size = _mem_size;
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(_tracked_mem_size);
 }
 
 NativeParquetMetadata::~NativeParquetMetadata() {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->release(get_mem_size());
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_tracked_mem_size);
+}
+
+void NativeParquetMetadata::release_memory_tracking() const {
+    // The cache's tracked value now owns this charge. Active uncached readers keep the
+    // parquet tracker charge; cached values must not be counted by both limiters.
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_tracked_mem_size);
+    _tracked_mem_size = 0;
 }
 
 Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
@@ -61,7 +71,12 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
     _schema.set_enable_mapping_varbinary(enable_mapping_varbinary);
     _schema.set_enable_mapping_timestamp_tz(enable_mapping_timestamp_tz);
     _schema.set_preserve_binary_uuid(preserve_binary_uuid);
-    RETURN_IF_ERROR(_schema.parse_from_thrift(_metadata.schema));
+    auto schema_status = _schema.parse_from_thrift(_metadata.schema);
+    const size_t schema_size = _schema.estimated_memory_size();
+    _mem_size += schema_size;
+    _tracked_mem_size += schema_size;
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(schema_size);
+    RETURN_IF_ERROR(schema_status);
     // Native readers address projected leaves by stable DFS IDs. Assign them only on the private
     // v2 schema object so v1's cached schema lifecycle and numbering remain untouched.
     _schema.assign_ids();
@@ -249,8 +264,7 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
     tparquet::FileMetaData thrift_metadata;
     RETURN_IF_ERROR(deserialize_thrift_msg(serialized_metadata.data(), &thrift_size, true,
                                            &thrift_metadata));
-    auto parsed =
-            std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata), serialized_size);
+    auto parsed = std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata));
     RETURN_IF_ERROR(parsed->init_schema(enable_mapping_varbinary, enable_mapping_timestamp_tz,
                                         preserve_binary_uuid));
     *footer_size = V2_PARQUET_FOOTER_SIZE + serialized_size;
@@ -317,9 +331,13 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         }
         ++native_footer_read_calls;
         if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
-            meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
-                               &native_meta_cache_handle);
-            native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
+            if (meta_cache->insert(meta_cache_key, native_metadata_owner, &native_meta_cache_handle,
+                                   native_metadata_owner->get_mem_size())) {
+                native_meta_cache_handle.data<NativeParquetMetadata>()->release_memory_tracking();
+            }
+            native_metadata = native_metadata_owner
+                                      ? native_metadata_owner.get()
+                                      : native_meta_cache_handle.data<NativeParquetMetadata>();
         } else {
             native_metadata = native_metadata_owner.get();
         }

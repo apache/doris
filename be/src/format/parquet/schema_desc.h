@@ -145,6 +145,7 @@ public:
     void get_column_names(std::unordered_set<std::string>* names) const;
 
     std::string debug_string() const;
+    size_t estimated_memory_size() const;
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
