@@ -51,6 +51,7 @@
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
+#include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
