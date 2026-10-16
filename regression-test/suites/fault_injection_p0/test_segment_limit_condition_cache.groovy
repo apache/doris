@@ -57,6 +57,13 @@ suite("test_segment_limit_condition_cache", "nonConcurrent") {
     // Both switches are randomized in fuzzy runs; this case needs both on.
     sql "SET enable_condition_cache = true"
     sql "SET enable_segment_limit_pushdown = true"
+    // Disable TopN runtime filters so the queries exercise storage TopN and condition cache.
+    sql "SET topn_filter_ratio = 0"
+    explain {
+        sql "SELECT k, v FROM ${tbl} WHERE abs(v) > 0 ORDER BY k LIMIT 1"
+        contains "SORT LIMIT: 1"
+        notContains "TOPN filter targets"
+    }
 
     // Each case runs the TopN first, then the same predicate without LIMIT.
     qt_topn_asc "SELECT k, v FROM ${tbl} WHERE abs(v) > 0 ORDER BY k LIMIT 1"
