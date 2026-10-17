@@ -98,13 +98,12 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
     if (!_file_writer) {
         return;
     }
-    // The part is dropped without a footer and without close(): an unclosed writer publishes
-    // nothing, and aborting waits for its in-flight uploads, so no object can appear after the
-    // SpillFile deleted its prefix.
+    // Drop the part without a footer or close(). Destruction waits for in-flight uploads
+    // without publishing the object, before the SpillFile deletes its prefix. Incomplete
+    // multipart uploads are left to the bucket lifecycle rule.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     if (_data_dir->is_remote()) {
         _account_remote_part(writer.get(), /*closed=*/false);
-        _abort_remote_part(writer.get());
     }
     writer.reset();
     _advance_part();
@@ -197,11 +196,9 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     if (!status.ok()) {
         // A part that failed before close() (an append failed or the query was cancelled) must
         // not be published, so it is not closed; close() itself may also fail before its
-        // uploads are done. Aborting waits for every in-flight upload in both cases, so
-        // nothing is uploaded after the multipart upload is aborted.
-        if (_data_dir->is_remote()) {
-            _abort_remote_part(writer.get());
-        }
+        // uploads are done. Destruction waits for every in-flight upload in both cases,
+        // before the SpillFile can delete its prefix. Incomplete multipart uploads are left
+        // to the bucket lifecycle rule.
         writer.reset();
     }
 
@@ -314,19 +311,6 @@ void SpillFileWriter::_advance_part() {
     _part_meta.clear();
     _part_upload_ns = 0;
     _part_append_status = Status::OK();
-}
-
-void SpillFileWriter::_abort_remote_part(io::FileWriter* writer) {
-    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer);
-    DORIS_CHECK(s3_writer != nullptr)
-            << "remote spill part is not an S3 file: " << _current_part_path;
-    // A spill part is never completed by anyone else, and deleting the prefix does not remove
-    // the parts of an unfinished multipart upload, which stay billed until the bucket's
-    // lifecycle rule drops them.
-    auto status = s3_writer->abort();
-    if (!status.ok()) {
-        LOG(WARNING) << "failed to abort spill part " << _current_part_path << ": " << status;
-    }
 }
 
 Status SpillFileWriter::_rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file) {
