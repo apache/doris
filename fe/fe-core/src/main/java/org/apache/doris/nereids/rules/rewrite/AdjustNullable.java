@@ -33,8 +33,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -289,24 +291,60 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
         List<Boolean> inputNullable = null;
         if (!setOperation.children().isEmpty()) {
-            inputNullable = Lists.newArrayListWithCapacity(setOperation.getOutputs().size());
-            for (int i = 0; i < setOperation.getOutputs().size(); i++) {
-                inputNullable.add(false);
+            // whether the output column can be null depends on the semantics of the set operation:
+            // - union: a row is in the result if it appears in any child, so the column can be null if any
+            //   child column can be null;
+            // - intersect: a row is in the result only if it appears in every child, so the column can be
+            //   null only if every child column can be null;
+            // - except: the result is a subset of the left child(child(0)), so the column can be null only
+            //   if the left child column can be null.
+            boolean isIntersect = setOperation instanceof LogicalIntersect;
+            boolean isExcept = setOperation instanceof LogicalExcept;
+            int outputSize = setOperation.getOutputs().size();
+            inputNullable = Lists.newArrayListWithCapacity(outputSize);
+            List<Boolean> foundAllChildren = Lists.newArrayListWithCapacity(outputSize);
+            for (int i = 0; i < outputSize; i++) {
+                // true is the identity value of the "and" used by intersect,
+                // false is the identity value of the "or" used by union
+                inputNullable.add(isIntersect);
+                foundAllChildren.add(true);
             }
             for (int i = 0; i < setOperation.arity(); i++) {
                 List<Slot> childOutput = setOperation.child(i).getOutput();
                 List<SlotReference> setChildOutput = setOperation.getRegularChildOutput(i);
                 ImmutableList.Builder<SlotReference> newChildOutputs = ImmutableList.builder();
                 for (int j = 0; j < setChildOutput.size(); j++) {
+                    Slot childSlot = null;
                     for (Slot slot : childOutput) {
                         if (slot.getExprId().equals(setChildOutput.get(j).getExprId())) {
-                            inputNullable.set(j, slot.nullable() || inputNullable.get(j));
-                            newChildOutputs.add((SlotReference) slot);
+                            childSlot = slot;
                             break;
                         }
                     }
+                    if (childSlot == null) {
+                        foundAllChildren.set(j, false);
+                        continue;
+                    }
+                    newChildOutputs.add((SlotReference) childSlot);
+                    if (isIntersect) {
+                        inputNullable.set(j, inputNullable.get(j) && childSlot.nullable());
+                    } else if (isExcept) {
+                        if (i == 0) {
+                            inputNullable.set(j, childSlot.nullable());
+                        }
+                    } else {
+                        inputNullable.set(j, childSlot.nullable() || inputNullable.get(j));
+                    }
                 }
                 newChildrenOutputs.add(newChildOutputs.build());
+            }
+            if (isIntersect || isExcept) {
+                // fail-safe: some child output is missing for the column, so it can not be proved to be not null
+                for (int j = 0; j < outputSize; j++) {
+                    if (!foundAllChildren.get(j)) {
+                        inputNullable.set(j, true);
+                    }
+                }
             }
         }
         if (setOperation instanceof LogicalUnion) {
