@@ -166,6 +166,9 @@ public class StatementContext implements Closeable {
 
     private boolean hasNondeterministic = false;
 
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
+
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
     // the algorithm to derive plan when column stats are unknown is implemented in
@@ -339,8 +342,9 @@ public class StatementContext implements Closeable {
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
-    // in the same statement so multiple rewrite paths do not rebuild the same MV plan.
-    private final Map<Pair<Long, Boolean>, MTMVCache> queryLocalMtmvCaches = new HashMap<>();
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan. Each value
+    // carries the MV's cache generation because a planning retry can reuse this statement context.
+    private final Map<Pair<Long, Boolean>, Pair<Long, MTMVCache>> queryLocalMtmvCaches = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -626,6 +630,14 @@ public class StatementContext implements Closeable {
 
     public boolean hasNondeterministic() {
         return hasNondeterministic;
+    }
+
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
     }
 
     public ConnectContext getConnectContext() {
@@ -1677,12 +1689,13 @@ public class StatementContext implements Closeable {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
-    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded) {
-        return queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation) {
+        Pair<Long, MTMVCache> entry = queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+        return entry != null && entry.first == generation ? entry.second : null;
     }
 
-    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, MTMVCache cache) {
-        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), cache);
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), Pair.of(generation, cache));
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
