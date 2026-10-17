@@ -29,10 +29,23 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_test.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
 
 namespace doris {
 using namespace ut_type;
 struct FunctionCastToFloatTest : public FunctionCastTest {
+    // The expected float is the correctly rounded conversion of the decimal's digits, which is
+    // what the cast computes; a `double(unscaled) / double(10^scale)` expectation rounds twice
+    // and names the neighbouring double for values whose unscaled integer exceeds 2^53.
+    template <typename FloatType, typename NativeT>
+    static FloatType exact_decimal_to_float(const NativeT& unscaled, UInt32 scale) {
+        const std::string text = decimal_to_string(unscaled, scale);
+        if constexpr (std::is_same_v<FloatType, float>) {
+            return std::strtof(text.c_str(), nullptr);
+        } else {
+            return std::strtod(text.c_str(), nullptr);
+        }
+    }
     const std::vector<std::string> white_spaces = {" ", "\t", "\r", "\n", "\f", "\v"};
     std::string white_spaces_str = " \t\r\n\f\v";
 
@@ -843,8 +856,6 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                           std::is_same_v<FloatType, Float32> ? "float" : "double",
                                           type_to_string(FromT::PType), FromPrecision, FromScale);
 
-        auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(
-                IsDecimalV2<FromT> ? 9 : FromScale);
         constexpr bool expect_inf =
                 (FromPrecision - FromScale >= 39 && std::is_same_v<FromT, Float32>);
         bool have_inf = false;
@@ -894,11 +905,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 // auto float_v = static_cast<FloatType>(i);
                 FloatType float_v;
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
@@ -913,11 +922,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
@@ -942,11 +949,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto num_str = dt_from.to_string(decimal_num);
                 FloatType float_v;
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
@@ -955,11 +960,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(0, -f, FromScale);
                 num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
@@ -979,11 +982,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto num_str = dt_from.to_string(decimal_num);
                 FloatType float_v;
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
@@ -998,11 +999,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimalV2<FromT>) {
-                    float_v = static_cast<double>(decimal_num.value()) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value(), 9);
                 } else {
-                    float_v = static_cast<double>(decimal_num.value) /
-                              static_cast<double>(scale_multiplier);
+                    float_v = exact_decimal_to_float<FloatType>(decimal_num.value, FromScale);
                 }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
@@ -1743,4 +1742,25 @@ TEST_F(FunctionCastToFloatTest, test_from_time) {
     from_time_test_func<TYPE_FLOAT>();
     from_time_test_func<TYPE_DOUBLE>();
 }
+// The witness class: DECIMAL(38,12) values whose unscaled integer exceeds 2^53. The two-rounding
+// conversion returned 29201.025 for the first one, the neighbouring double; the cast and the
+// correctly rounded text parse must agree on every one.
+TEST_F(FunctionCastToFloatTest, wide_decimal_to_double_is_correctly_rounded) {
+    const std::vector<std::pair<const char*, int64_t>> witnesses {
+            {"29201.024999999998", 29201024999999998LL},
+            {"21051.524999999998", 21051524999999998LL},
+            {"-29201.024999999998", -29201024999999998LL},
+            {"3763.955000000000", 3763955000000000LL},
+            {"1997.600000000000", 1997600000000000LL},
+            {"0.000000000001", 1LL}};
+    for (const auto& [text, unscaled] : witnesses) {
+        const double expected = std::strtod(text, nullptr);
+        double actual = 0;
+        CastParameters params;
+        CastToFloat::_from_decimalv3(Decimal128V3 {Int128(unscaled)}, 12, actual,
+                                     decimal_scale_multiplier<Int128>(12), params);
+        EXPECT_EQ(actual, expected) << text;
+    }
+}
+
 } // namespace doris
