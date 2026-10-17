@@ -182,6 +182,28 @@ public class TimeUtilsTest {
     }
 
     @Test
+    public void testCanonicalZeroOffsetTimeZone() throws DdlException {
+        for (String timeZone : new String[] {"+00:00", "-00:00", "UTC", "GMT", "UTC+00:00",
+                "GMT+00:00", "GMT-00:00", "Etc/UTC", "Etc/GMT", "Z"}) {
+            Assert.assertEquals(timeZone, "UTC", TimeUtils.getCanonicalTimeZone(timeZone));
+        }
+        Assert.assertEquals("UTC", TimeUtils.getCanonicalTimeZone(
+                TimeUtils.checkTimeZoneValidAndStandardize("+0:00")));
+        Assert.assertEquals("UTC", TimeUtils.getCanonicalTimeZone(
+                TimeUtils.checkTimeZoneValidAndStandardize("-0:00")));
+    }
+
+    @Test
+    public void testCanonicalTimeZonePreservesNonZeroOffsetsAndRegionRules() {
+        for (String timeZone : new String[] {"+08:00", "-05:00", "+00:30", "-00:30",
+                "UTC+08:00", "GMT-05:00", "Asia/Shanghai", "Europe/London", "Africa/Abidjan"}) {
+            Assert.assertEquals(timeZone, timeZone, TimeUtils.getCanonicalTimeZone(timeZone));
+        }
+        Assert.assertEquals("Asia/Shanghai", TimeUtils.getCanonicalTimeZone("CST"));
+        Assert.assertEquals("-05:00", TimeUtils.getCanonicalTimeZone("EST"));
+    }
+
+    @Test
     public void testGetHourAsDate() {
         Calendar calendar = Calendar.getInstance();
         Date date = TimeUtils.getHourAsDate("1");

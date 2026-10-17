@@ -32,6 +32,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vmatch_predicate.h"
+#include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -1441,6 +1442,83 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 
     const std::map<std::string, std::string> valid = {{"parser", "english"}};
     EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+namespace {
+VExprSPtr make_scoring_search(const std::string& clause_type, const std::string& value) {
+    TSearchClause clause;
+    clause.__set_clause_type(clause_type);
+    clause.__set_field_name("content");
+    clause.__set_value(value);
+    TSearchParam param;
+    param.__set_root(clause);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SEARCH_EXPR);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_search_param(param);
+    return VSearchExpr::create_shared(node);
+}
+} // namespace
+
+TEST_F(CollectionStatisticsTest, SearchKeywordClausesKeepWholeValue) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema->append_column(column);
+    TabletIndex index;
+    index._index_id = 10;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    schema->append_index(std::move(index));
+
+    SearchPredicateCollector collector;
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT", "MATCH", "ANY", "ALL"}) {
+        CollectInfoMap infos;
+        auto expr = make_scoring_search(clause_type, "Apple banana");
+        ASSERT_TRUE(collector.collect(runtime_state_.get(), schema, expr, &infos).ok());
+        ASSERT_EQ(infos.size(), 1U);
+        ASSERT_EQ(infos.begin()->second.term_infos.size(), 1U);
+        EXPECT_EQ(infos.begin()->second.term_infos.begin()->get_single_term(), "Apple banana");
+    }
+}
+
+TEST_F(CollectionStatisticsTest, SearchExactSelectsKeywordStatisticsWithDualIndexes) {
+    auto schema = create_tablet_schema_with_inverted_index();
+    TabletIndex keyword;
+    keyword._index_id = 10;
+    keyword._index_type = IndexType::INVERTED;
+    keyword._col_unique_ids.push_back(1);
+    schema->append_index(std::move(keyword));
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto expr = make_scoring_search("EXACT", "Apple banana");
+    ASSERT_TRUE(collector.collect(runtime_state_.get(), schema, expr, &infos).ok());
+    ASSERT_EQ(infos.size(), 1U);
+    EXPECT_EQ(infos.begin()->second.index_meta->index_id(), 10);
+    ASSERT_EQ(infos.begin()->second.term_infos.size(), 1U);
+    EXPECT_EQ(infos.begin()->second.term_infos.begin()->get_single_term(), "Apple banana");
+}
+
+TEST_F(CollectionStatisticsTest, SearchRejectsNumericBkdScoring) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    schema->append_column(column);
+    TabletIndex index;
+    index._index_id = 10;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    schema->append_index(std::move(index));
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto expr = make_scoring_search("EXACT", "7");
+    const auto status = collector.collect(runtime_state_.get(), schema, expr, &infos);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    EXPECT_TRUE(infos.empty());
 }
 
 } // namespace doris

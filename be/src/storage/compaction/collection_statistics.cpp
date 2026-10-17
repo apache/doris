@@ -209,7 +209,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
         // segments that have norms, so refuse to score the collection. An index that is not
-        // analyzed never writes norms and is left as it is.
+        // analyzed never writes norms; use an average length of one when its legacy
+        // metadata does not include the total term frequency.
         const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
         if (!token_count.has_value() &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
@@ -220,7 +221,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, StringHelper::to_string(ws_field_name));
         }
-        _total_num_tokens[ws_field_name] += token_count.value_or(0);
+        _total_num_tokens[ws_field_name] += token_count.value_or(index_reader->maxDoc());
 
         for (const auto& term_info : collect_info.term_infos) {
             auto iter = TermIterator::create(io_ctx, false, index_reader, ws_field_name,
