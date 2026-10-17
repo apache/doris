@@ -21,9 +21,11 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <type_traits>
 
+#include "common/config.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
@@ -39,6 +41,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
+#include "util/coding.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
 
@@ -47,6 +50,137 @@ struct uint24_t;
 
 namespace segment_v2 {
 namespace {
+
+// Encoding ids are persisted in ZoneMapPB; never change their meaning.
+constexpr uint32_t BINARY_ZONE_MAP_ENCODING = 1;
+
+// Persisted fixed-width types, excluding legacy DATE, DATETIME and DECIMALV2. Those types
+// retain their text bounds; execution-only TIMEV2 and internal offsets have no zone map writer.
+template <typename Action>
+bool dispatch_binary_zone_map(PrimitiveType type, Action&& action) {
+    switch (type) {
+#define BINARY_ZONE_MAP_TYPE(TYPE)          \
+    case TYPE:                              \
+        action.template operator()<TYPE>(); \
+        return true;
+        BINARY_ZONE_MAP_TYPE(TYPE_BOOLEAN)
+        BINARY_ZONE_MAP_TYPE(TYPE_TINYINT)
+        BINARY_ZONE_MAP_TYPE(TYPE_SMALLINT)
+        BINARY_ZONE_MAP_TYPE(TYPE_INT)
+        BINARY_ZONE_MAP_TYPE(TYPE_BIGINT)
+        BINARY_ZONE_MAP_TYPE(TYPE_LARGEINT)
+        BINARY_ZONE_MAP_TYPE(TYPE_FLOAT)
+        BINARY_ZONE_MAP_TYPE(TYPE_DOUBLE)
+        BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL32)
+        BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL64)
+        BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL128I)
+        BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL256)
+        BINARY_ZONE_MAP_TYPE(TYPE_DATEV2)
+        BINARY_ZONE_MAP_TYPE(TYPE_DATETIMEV2)
+        BINARY_ZONE_MAP_TYPE(TYPE_TIMESTAMP_NS)
+        BINARY_ZONE_MAP_TYPE(TYPE_TIMESTAMPTZ)
+        BINARY_ZONE_MAP_TYPE(TYPE_IPV4)
+        BINARY_ZONE_MAP_TYPE(TYPE_IPV6)
+        BINARY_ZONE_MAP_TYPE(TYPE_UUID)
+#undef BINARY_ZONE_MAP_TYPE
+    default:
+        return false;
+    }
+}
+
+template <PrimitiveType Type>
+std::string encode_binary_bound(const Field& field) {
+    using Native = typename PrimitiveTypeTraits<Type>::StorageFieldType;
+    Native value;
+    if constexpr (is_decimalv3(Type)) {
+        value = field.get<Type>().value;
+    } else if constexpr (is_date_v2_or_datetime_v2(Type) || Type == TYPE_TIMESTAMPTZ ||
+                         Type == TYPE_TIMESTAMP_NS) {
+        value = field.get<Type>().to_date_int_val();
+    } else {
+        value = field.get<Type>();
+    }
+    std::string bytes(sizeof(Native), '\0');
+    auto* out = reinterpret_cast<uint8_t*>(bytes.data());
+    if constexpr (sizeof(Native) == 32) {
+        for (size_t i = 0; i < 4; ++i) {
+            encode_fixed64_le(out + i * sizeof(uint64_t), value.items[i]);
+        }
+    } else if constexpr (sizeof(Native) == 16) {
+        encode_fixed128_le(out, std::bit_cast<uint128_t>(value));
+    } else if constexpr (sizeof(Native) == 8) {
+        encode_fixed64_le(out, std::bit_cast<uint64_t>(value));
+    } else if constexpr (sizeof(Native) == 4) {
+        encode_fixed32_le(out, std::bit_cast<uint32_t>(value));
+    } else if constexpr (sizeof(Native) == 2) {
+        encode_fixed16_le(out, std::bit_cast<uint16_t>(value));
+    } else {
+        static_assert(sizeof(Native) == 1);
+        encode_fixed8(out, std::bit_cast<uint8_t>(value));
+    }
+    return bytes;
+}
+
+template <PrimitiveType Type>
+Status decode_binary_bound(const std::string& bytes, Field& field) {
+    using Native = typename PrimitiveTypeTraits<Type>::StorageFieldType;
+    // A truncated/corrupt persisted bound must not reach pruning or metadata MIN/MAX aggregation.
+    if (bytes.size() != sizeof(Native)) {
+        return Status::Corruption("Invalid binary zone map bound: expected {} bytes, got {}",
+                                  sizeof(Native), bytes.size());
+    }
+    const auto* in = reinterpret_cast<const uint8_t*>(bytes.data());
+    Native value;
+    if constexpr (sizeof(Native) == 32) {
+        for (size_t i = 0; i < 4; ++i) {
+            value.items[i] = decode_fixed64_le(in + i * sizeof(uint64_t));
+        }
+    } else if constexpr (sizeof(Native) == 16) {
+        value = std::bit_cast<Native>(decode_fixed128_le(in));
+    } else if constexpr (sizeof(Native) == 8) {
+        value = std::bit_cast<Native>(decode_fixed64_le(in));
+    } else if constexpr (sizeof(Native) == 4) {
+        value = std::bit_cast<Native>(decode_fixed32_le(in));
+    } else if constexpr (sizeof(Native) == 2) {
+        value = std::bit_cast<Native>(decode_fixed16_le(in));
+    } else {
+        static_assert(sizeof(Native) == 1);
+        value = std::bit_cast<Native>(decode_fixed8(in));
+    }
+    field = Field::create_field_from_olap_value<Type>(value);
+    return Status::OK();
+}
+
+Status decode_zone_map_bounds(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
+                              ZoneMap& result) {
+    // A bound that fails to parse makes the zone map invalid: mark it pass_all so it prunes
+    // nothing, instead of failing the scan that loads it.
+    auto parse_bound = [&](const std::string& bound, Field& value) {
+        if (!data_type->get_serde()->from_zonemap_string(bound, value).ok()) {
+            result.pass_all = true;
+        }
+    };
+
+    if (zone_map.value_encoding() == BINARY_ZONE_MAP_ENCODING) {
+        Status status;
+        const bool supported = dispatch_binary_zone_map(
+                data_type->get_primitive_type(), [&]<PrimitiveType Type>() {
+                    status = decode_binary_bound<Type>(zone_map.min(), result.min_value);
+                    if (status.ok()) {
+                        status = decode_binary_bound<Type>(zone_map.max(), result.max_value);
+                    }
+                });
+        if (!supported) {
+            return Status::NotSupported("Binary zone map for unsupported type {}",
+                                        data_type->get_name());
+        }
+        RETURN_IF_ERROR(status);
+    } else {
+        parse_bound(zone_map.min(), result.min_value);
+        parse_bound(zone_map.max(), result.max_value);
+    }
+    return Status::OK();
+}
 
 // Only FLOAT and DOUBLE can come out reversed: any value of any other type moves both bounds.
 bool is_reversed(const Field& min_value, const Field& max_value, FieldType field_type) {
@@ -61,6 +195,33 @@ bool is_reversed(const Field& min_value, const Field& max_value, FieldType field
 
 } // namespace
 
+void ZoneMap::to_proto(ZoneMapPB* dst, const DataTypePtr& data_type,
+                       bool use_binary_encoding) const {
+    dst->clear_value_encoding();
+    if (pass_all || !has_not_null) {
+        dst->set_min("");
+        dst->set_max("");
+    } else {
+        const bool encoded = use_binary_encoding &&
+                             dispatch_binary_zone_map(
+                                     data_type->get_primitive_type(), [&]<PrimitiveType Type>() {
+                                         dst->set_min(encode_binary_bound<Type>(min_value));
+                                         dst->set_max(encode_binary_bound<Type>(max_value));
+                                         dst->set_value_encoding(BINARY_ZONE_MAP_ENCODING);
+                                     });
+        if (!encoded) {
+            dst->set_min(data_type->get_serde()->to_olap_string(min_value));
+            dst->set_max(data_type->get_serde()->to_olap_string(max_value));
+        }
+    }
+    dst->set_has_null(has_null);
+    dst->set_has_not_null(has_not_null);
+    dst->set_pass_all(pass_all);
+    dst->set_has_positive_inf(has_positive_inf);
+    dst->set_has_negative_inf(has_negative_inf);
+    dst->set_has_nan(has_nan);
+}
+
 Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                            ZoneMap& zone_map_info) {
     zone_map_info.has_null = zone_map.has_null();
@@ -70,13 +231,11 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     zone_map_info.has_positive_inf = zone_map.has_positive_inf();
     zone_map_info.has_nan = zone_map.has_nan();
 
-    // A bound that fails to parse makes the zone map invalid: mark it pass_all so it prunes
-    // nothing, instead of failing the scan that loads it.
-    auto parse_bound = [&](const std::string& bound, Field& value) {
-        if (!data_type->get_serde()->from_zonemap_string(bound, value).ok()) {
-            zone_map_info.pass_all = true;
-        }
-    };
+    // A future encoding must never be interpreted as text: that can produce false pruning.
+    if (zone_map.value_encoding() > BINARY_ZONE_MAP_ENCODING) {
+        return Status::NotSupported("Unknown zone map value encoding {}",
+                                    zone_map.value_encoding());
+    }
 
     auto field_type = data_type->get_storage_field_type();
 
@@ -96,8 +255,7 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         if (!zone_map_info.pass_all) {
-            parse_bound(zone_map.min(), zone_map_info.min_value);
-            parse_bound(zone_map.max(), zone_map_info.max_value);
+            RETURN_IF_ERROR(decode_zone_map_bounds(zone_map, data_type, zone_map_info));
         }
 
         // A max of all 0xff carries past its first byte and ends up all zero, which stands above
@@ -155,7 +313,7 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
-        : _data_type(std::move(data_type)) {
+        : _data_type(std::move(data_type)), _use_binary_encoding(config::enable_binary_zone_map) {
     _page_zone_map.min_value =
             doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
     _page_zone_map.max_value =
@@ -311,7 +469,7 @@ Status TypedZoneMapIndexWriter<Type>::flush() {
 
     ZoneMapPB zone_map_pb;
     modify_index_before_flush(_page_zone_map);
-    _page_zone_map.to_proto(&zone_map_pb, _data_type);
+    _page_zone_map.to_proto(&zone_map_pb, _data_type, _use_binary_encoding);
     _reset_zone_map(&_page_zone_map);
 
     std::string serialized_zone_map;
@@ -331,7 +489,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
     modify_index_before_flush(_segment_zone_map);
-    _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type);
+    _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type, _use_binary_encoding);
 
     // write out zone map for each data pages
     constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BITMAP;
