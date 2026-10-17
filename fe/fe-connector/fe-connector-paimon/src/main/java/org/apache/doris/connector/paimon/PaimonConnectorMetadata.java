@@ -1193,6 +1193,20 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         LOG.info("dropped Paimon table {}", id);
     }
 
+    /**
+     * Sets table options for {@code ALTER TABLE ... SET (...)}. Every entry becomes a
+     * {@link SchemaChange#setOption} in ONE {@code alterTable} call: paimon validates the whole list against
+     * the new schema before committing it, so a rejected entry keeps the valid ones from being written too,
+     * and the table gets one new schema version rather than one per option.
+     */
+    @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+            Map<String, String> properties) {
+        List<SchemaChange> changes = new ArrayList<>(properties.size());
+        properties.forEach((key, value) -> changes.add(SchemaChange.setOption(key, value)));
+        alterTable((PaimonTableHandle) handle, changes, "set properties");
+    }
+
     // ==================== DDL: Column evolution ====================
 
     @Override

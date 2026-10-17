@@ -1948,6 +1948,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+            Map<String, String> properties) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).setTableProperties(session, handle, properties);
+            return;
+        }
+        throw new DorisConnectorException("SET TABLE PROPERTIES not supported");
+    }
+
+    @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
             ConnectorColumnPosition position) {
         if (!(handle instanceof HiveTableHandle)) {

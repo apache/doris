@@ -486,6 +486,36 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertTrue(ops.log.isEmpty());
     }
 
+    // ---------- setTableProperties ----------
+
+    @Test
+    public void testSetTablePropertiesRoutesWholeMapByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
+        properties.put(TableProperties.MANIFEST_MIN_MERGE_COUNT, "50");
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
+                .setTableProperties(null, new IcebergTableHandle("db1", "t1"), properties);
+        Assertions.assertEquals(1, ops.log.size(), ops.log.toString());
+        Assertions.assertEquals("db1", ops.lastSetPropertiesDb);
+        Assertions.assertEquals("t1", ops.lastSetPropertiesTable);
+        Assertions.assertEquals(properties, ops.lastSetProperties);
+        Assertions.assertEquals(1, ctx.authCount, "setTableProperties must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testSetTablePropertiesAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).setTableProperties(null,
+                        new IcebergTableHandle("db1", "t1"),
+                        Collections.singletonMap(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728")));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
 
     // ---------- Branch / tag (B4): route by handle, auth-wrap, wrap auth failures ----------
 

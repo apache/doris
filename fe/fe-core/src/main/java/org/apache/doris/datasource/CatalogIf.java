@@ -362,6 +362,12 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support reorder columns operation");
     }
 
+    // ALTER TABLE ... SET (...) with connector-native properties; auto_analyze_policy is handled by Doris itself
+
+    default void updateTableProperties(TableIf table, Map<String, String> properties) throws UserException {
+        throw new UserException("Not support update table properties operation");
+    }
+
     // partition evolution operations (Iceberg): add / drop / replace a partition field
 
     default void addPartitionField(TableIf table, AddPartitionFieldOp op) throws UserException {
