@@ -1043,6 +1043,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // CREATE properties (ConnectorFactory.createConnector(catalogProperty.getProperties())).
         Map<String, String> tableProperties =
                 IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
+        if (request.getColumns().stream().anyMatch(column -> IcebergSchemaBuilder.isVariant(column.getType()))) {
+            IcebergWriterHelper.validateVariantWriteFormat(
+                    IcebergSchemaBuilder.getEffectiveFormatVersion(tableProperties, properties),
+                    IcebergSchemaBuilder.getEffectiveFileFormat(tableProperties, properties));
+        }
         applyCreateTableComment(tableProperties, request.getComment());
         try {
             executeAuthenticated(() -> {
@@ -1463,7 +1468,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!column.isNullable()) {
             throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
         }
-        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
@@ -1550,7 +1555,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         Type icebergType;
         try {
-            icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+            icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         } catch (DorisConnectorException buildError) {
             // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
             throw upgradeNestedModifyError(iceHandle, path, column, buildError);

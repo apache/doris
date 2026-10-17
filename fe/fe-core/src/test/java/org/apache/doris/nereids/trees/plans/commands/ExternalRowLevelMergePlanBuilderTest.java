@@ -28,7 +28,9 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -38,6 +40,8 @@ import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -139,5 +143,23 @@ public class ExternalRowLevelMergePlanBuilderTest {
                 "MERGE branch selection must be analyzable even when an expression starts with a wider type");
         Assertions.assertInstanceOf(ShortCircuitIf.class, projections.get(0).child(0),
                 "Iceberg MERGE must evaluate only the selected branch regardless of the session setting");
+    }
+
+    @Test
+    public void mergeBranchesAreCastToTheVariantTargetBeforeTheyAreSelected() {
+        // Each branch is cast to the Variant target before the branch selection, so selecting among a Variant and a
+        // numeric branch never derives a numeric common type that would turn an object or array Variant into NULL.
+        SlotReference targetPayload = new SlotReference("target_payload", ConnectorComputeVariantType.INSTANCE);
+        List<NamedExpression> projections = ExternalRowLevelMergePlanBuilder.generateFinalProjections(
+                ImmutableList.of("payload"), ImmutableList.of(ConnectorComputeVariantType.INSTANCE),
+                ImmutableList.of(ImmutableList.of(targetPayload), ImmutableList.of(new IntegerLiteral(1))));
+
+        Expression selection = projections.get(0).child(0);
+        Assertions.assertInstanceOf(ShortCircuitIf.class, selection);
+        Expression insertedBranch = selection.child(1);
+        Assertions.assertInstanceOf(Cast.class, insertedBranch);
+        Assertions.assertEquals(ConnectorComputeVariantType.INSTANCE, insertedBranch.getDataType());
+        Assertions.assertEquals(IntegerType.INSTANCE, insertedBranch.child(0).getDataType());
+        Assertions.assertEquals(ConnectorComputeVariantType.INSTANCE, selection.child(2).child(1).getDataType());
     }
 }
