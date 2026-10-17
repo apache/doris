@@ -232,6 +232,9 @@ public class SaltJoin extends OneRewriteRuleFactory {
         newHashJoinConjuncts.add(saltEqual);
         hint.setStatus(HintStatus.SUCCESS);
         hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
+        // the hint of a copy of the plan reports the rewrite to the hint which the query wrote (see
+        // DistributeHint.reportTheRewritesToTheHintWhichWasCopied)
+        hint.reportTheRewritesToTheHintWhichWasCopied();
         return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.build(), join.getOtherJoinConjuncts(),
                 hint, leftProject, rightProject, JoinReorderContext.EMPTY);
     }

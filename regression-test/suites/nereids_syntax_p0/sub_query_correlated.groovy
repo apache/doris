@@ -632,24 +632,24 @@ suite ("sub_query_correlated") {
                     sub_query_correlated_subquery10 group by k2);
     """
 
-    test {
-        sql """
-                SELECT count(*)
-                    FROM sub_query_correlated_subquery6
-                    WHERE k1 IN 
-                        (SELECT k1
-                        FROM 
-                            (SELECT k1,
-                            sum(k3) AS bbb,
-                            count(k2) AS aaa
-                            FROM sub_query_correlated_subquery7
-                            WHERE k1 > 0
-                                    AND k3 > 0 and sub_query_correlated_subquery6.k1 > 2
-                            GROUP BY  k1 ) y
-                            WHERE y.aaa>0
-                                    AND k1>1); """
-        exception "Unsupported correlated subquery with grouping and/or aggregation";
-    }
+    // IN over a correlated grouping: the aggregation of the subquery is evaluated for every outer
+    // row, and the outer row is matched against the group keys which its domain produces
+    qt_cir_5218_in_grouped_agg """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE k1 IN 
+                (SELECT k1
+                FROM 
+                    (SELECT k1,
+                    sum(k3) AS bbb,
+                    count(k2) AS aaa
+                    FROM sub_query_correlated_subquery7
+                    WHERE k1 > 0
+                            AND k3 > 0 and sub_query_correlated_subquery6.k1 > 2
+                    GROUP BY  k1 ) y
+                    WHERE y.aaa>0
+                            AND k1>1);
+    """
 
     test {
         sql """
