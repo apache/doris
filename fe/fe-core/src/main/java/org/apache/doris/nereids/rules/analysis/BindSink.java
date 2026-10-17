@@ -480,8 +480,15 @@ public class BindSink implements AnalysisRuleFactory {
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
-                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName(),
-                            DataType.fromCatalogType(column.getType())), column.getName());
+                    // Which default applies follows from the table model: the unique-key model's row lsn
+                    // is the row identity its deletes reply on, while an append-only detail MV's is its own
+                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
+                            ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()))
+                            : IvmUtil.getCommonHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()));
+                    Alias output = new Alias(hiddenDefault, column.getName());
                     columnToOutput.put(column.getName(), output);
                     columnToReplaced.put(column.getName(), output.toSlot());
                     replaceMap.put(output.toSlot(), output.child());

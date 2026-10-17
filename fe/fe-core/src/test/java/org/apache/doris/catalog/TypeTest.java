@@ -27,6 +27,15 @@ import java.util.ArrayList;
 public class TypeTest {
 
     @Test
+    public void testVarbinaryColumnSizeIsItsLengthInBytes() {
+        // information_schema.columns takes the length in COLUMN_TYPE and CHARACTER_MAXIMUM_LENGTH of a VARBINARY
+        // column from here, as it does for a VARCHAR column; without it they were unknown and NULL.
+        Assertions.assertEquals(16, ScalarType.createVarbinaryType(16).getColumnSize());
+        Assertions.assertEquals(ScalarType.MAX_VARBINARY_LENGTH,
+                ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH).getColumnSize());
+    }
+
+    @Test
     public void testTimestampNsJavaUdfType() {
         Assertions.assertEquals(1,
                 Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());

@@ -159,11 +159,15 @@ public class MTMV extends OlapTable {
         this.ivmInfo = new IvmInfo();
         this.ivmInfo.setEnableIvm(params.enableIvm);
         if (params.enableIvm) {
-            this.ivmInfo.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(params.mvProperties));
-            if (params.ivmPlanSignature == null) {
-                throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+            // The unique-key model pins the layout its refresh reads down by a signature, so an MV of that
+            // model without one is a bug in the create path. An append-only detail MV publishes none: its
+            // refresh reads no layout, and it has no sequence column for a signature to order either.
+            if (params.keysType != KeysType.DUP_KEYS) {
+                if (params.ivmPlanSignature == null) {
+                    throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+                }
+                this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
             }
-            this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
         }
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
@@ -274,6 +278,35 @@ public class MTMV extends OlapTable {
 
     public boolean isIvm() {
         return getIvmInfo().isEnableIvm();
+    }
+
+    /**
+     * Whether this MV is an IVM MV built as UNIQUE KEY + merge-on-write, which is one of the two table
+     * models: it is maintained through the hidden row-id, and the layout its refresh reads is pinned
+     * down by a plan signature. The MV's own key model is where the table model is recorded, and a key
+     * model cannot be altered, so this reads back what CREATE decided. A non-IVM MV is DUP, hence the
+     * {@link #isIvm()} conjunct.
+     */
+    public boolean isIvmUniqueKeysTable() {
+        return isIvm() && getKeysType() == KeysType.UNIQUE_KEYS;
+    }
+
+    /**
+     * Whether this MV is an IVM MV built as a plain DUP detail table, that is one whose table model
+     * is a detail table a refresh only ever appends to.
+     *
+     * <p>The model exists because a query that is append-only never needs what the unique-key model
+     * maintains for it: the rows of such an MV are the query's own, and a refresh only appends what its
+     * base tables appended, so there is nothing to retract or update. What it saves is the three costs of
+     * maintaining that possibility anyway -- the write path appends instead of upserting (no merge-on-write
+     * deduplication or delete-bitmap probing, and no per-row row-id to compute during the refresh), the
+     * table carries neither the IVM hidden columns (row-id, dml factor, agg count, aggregation state) nor
+     * the merge-on-write ones (delete sign, version, skip bitmap, primary-key index), and having no layout
+     * for a signature to pin down, its refresh cannot fail with PLAN_SIGNATURE_MISMATCH when another
+     * optimizer rule, or a newer version's rules, reshape the MV's query plan.
+     */
+    public boolean isIvmAppendOnlyDupTable() {
+        return isIvm() && getKeysType() == KeysType.DUP_KEYS;
     }
 
     public long getNextSequencePrefix() {

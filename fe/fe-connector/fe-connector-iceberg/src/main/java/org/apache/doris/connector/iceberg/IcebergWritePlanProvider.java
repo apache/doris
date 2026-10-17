@@ -114,6 +114,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
     // Older backends reject the iceberg_transform external sink partition function.
     private static final int SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION = 18;
+    // Older backends cannot hash a BINARY or FIXED value (ColumnVarbinary) in the exchange.
+    private static final int SUPPORT_BINARY_ROUTING_EXEC_VERSION = 19;
     private static final String TRANSFORM_PARTITION_FUNCTION = "iceberg_transform";
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
@@ -626,8 +628,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * {@code table_sink_partition_write_max_partition_nums_per_writer} open partitions.
      *
      * <p>{@code null} keeps the engine's random parallel write: an unpartitioned table, a partition field on a nested
-     * source (the route columns are top-level sink outputs), a partition value the backend cannot hash (see the
-     * loop), or a backend older than the routing function.</p>
+     * source (the route columns are top-level sink outputs), a BINARY or FIXED partition value on a backend that
+     * cannot hash it (see the loop), or a backend older than the routing function.</p>
      */
     @Override
     public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
@@ -654,12 +656,14 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             if (sourceColumnName == null) {
                 return null;
             }
-            // The exchange hashes the transformed value, and the BE column of a BINARY or FIXED value
-            // (ColumnVarbinary) has no shuffle hash: identity(binary_key) or truncate(1, binary_key) would fail the
-            // INSERT with "update_crc32c_batch is not supported for ColumnVarbinary" as soon as it has two writers
-            // to route to. bucket(16, binary_key) yields an INT and is routed.
+            // The exchange hashes the transformed value. A backend older than SUPPORT_BINARY_ROUTING_EXEC_VERSION
+            // cannot hash the BE column of a BINARY or FIXED value (ColumnVarbinary): identity(binary_key) or
+            // truncate(1, binary_key) would fail the INSERT with "update_crc32c_batch is not supported for
+            // ColumnVarbinary" as soon as it has two writers to route to. bucket(16, binary_key) yields an INT and
+            // is routed by any backend that routes transforms.
             Type.TypeID transformedType = field.transform().getResultType(schema.findType(field.sourceId())).typeId();
-            if (transformedType == Type.TypeID.BINARY || transformedType == Type.TypeID.FIXED) {
+            if ((transformedType == Type.TypeID.BINARY || transformedType == Type.TypeID.FIXED)
+                    && session.getBeExecVersion() < SUPPORT_BINARY_ROUTING_EXEC_VERSION) {
                 return null;
             }
             routeColumns.add(sourceColumnName);
