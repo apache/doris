@@ -130,6 +130,8 @@ message PTabletInfo {
     // total rows num received by DeltaWriter
     optional int64 received_rows = 4;
     optional int64 num_rows_filtered = 5 [default = 0];
+    // Cloud writers report false when empty rowset metadata was skipped.
+    optional bool rowset_meta_written = 6;
 }
 
 // open a tablet writer

@@ -1249,6 +1249,10 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
                 commit_info.backendId = _node_id;
+                // Preserve absence for old writer BEs: unknown must not become "skipped".
+                if (tablet.has_rowset_meta_written()) {
+                    commit_info.__set_rowset_meta_written(tablet.rowset_meta_written());
+                }
                 _tablet_commit_infos.emplace_back(std::move(commit_info));
                 if (tablet.has_received_rows()) {
                     _tablets_received_rows.emplace_back(tablet.tablet_id(), tablet.received_rows());

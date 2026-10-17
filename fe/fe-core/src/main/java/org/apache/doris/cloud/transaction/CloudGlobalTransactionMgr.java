@@ -68,6 +68,7 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TabletCommitCounts;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -793,9 +794,62 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        executeCommitTxnRequest(builder, tableList, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
-                tabletCommitInfos == null ? Collections.emptyList()
-                        : tabletCommitInfos.stream().map(t -> t.getTabletId()).collect(Collectors.toList()));
+        List<Long> tabletIds = tabletCommitInfos == null ? Collections.emptyList()
+                : tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).distinct().collect(Collectors.toList());
+        if (tabletCommitInfos != null) {
+            TabletCommitCounts counts = getTabletCommitCounts(tabletCommitInfos);
+            if (counts != null) {
+                builder.setTabletCommitCounts(counts);
+                builder.setNumPartitions(counts.getPartitionTabletCountsCount());
+            } else {
+                setCommitPartitionCount(builder, tabletCommitInfos);
+            }
+        }
+        executeCommitTxnRequest(builder, tableList, transactionId, is2PC, txnCommitAttachment,
+                tabletCommitInfos, tabletIds);
+    }
+
+    private void setCommitPartitionCount(CommitTxnRequest.Builder builder,
+            List<TabletCommitInfo> tabletCommitInfos) {
+        Set<Long> tabletIds = new HashSet<>();
+        for (TabletCommitInfo info : tabletCommitInfos) {
+            // Old BEs may report skipped empty buckets without the metadata flag.
+            // Including them can only make the response check invalidate caches.
+            if (!Boolean.FALSE.equals(info.getRowsetMetaWritten())) {
+                tabletIds.add(info.getTabletId());
+            }
+        }
+        Set<Long> partitionIds = new HashSet<>();
+        for (TabletMeta tabletMeta : Env.getCurrentEnv().getTabletInvertedIndex()
+                .getTabletMetaList(new ArrayList<>(tabletIds))) {
+            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                return;
+            }
+            partitionIds.add(tabletMeta.getPartitionId());
+        }
+        builder.setNumPartitions(partitionIds.size());
+    }
+
+    private TabletCommitCounts getTabletCommitCounts(List<TabletCommitInfo> tabletCommitInfos) {
+        Set<Long> tabletIds = new HashSet<>();
+        for (TabletCommitInfo info : tabletCommitInfos) {
+            if (info.getRowsetMetaWritten() == null) {
+                // Unknown metadata presence cannot be used to reject a commit.
+                return null;
+            }
+            if (info.getRowsetMetaWritten()) {
+                tabletIds.add(info.getTabletId());
+            }
+        }
+        Map<Long, Long> counts = new HashMap<>();
+        for (TabletMeta tabletMeta : Env.getCurrentEnv().getTabletInvertedIndex()
+                .getTabletMetaList(new ArrayList<>(tabletIds))) {
+            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                return null;
+            }
+            counts.merge(tabletMeta.getPartitionId(), 1L, Long::sum);
+        }
+        return TabletCommitCounts.newBuilder().putAllPartitionTabletCounts(counts).build();
     }
 
     private void executeCommitTxnRequest(CommitTxnRequest.Builder builder, List<Table> tableList,
@@ -1710,9 +1764,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
-        List<TabletCommitInfo> tabletCommitInfos = subTransactionStates.stream().map(
-                        SubTransactionState::getTabletCommitInfos).flatMap(Collection::stream)
-                .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId())).collect(Collectors.toList());
+        List<TabletCommitInfo> tabletCommitInfos = TabletCommitInfo.fromThrift(subTransactionStates.stream()
+                .map(SubTransactionState::getTabletCommitInfos).flatMap(Collection::stream)
+                .collect(Collectors.toList()));
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
@@ -1793,21 +1847,29 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         // add sub txn infos
         Set<Long> tabletIds = new HashSet<>();
+        List<TabletCommitInfo> tabletCommitInfos = new ArrayList<>();
         for (SubTransactionState subTransactionState : subTransactionStates) {
-            builder.addSubTxnInfos(SubTxnInfo.newBuilder().setSubTxnId(subTransactionState.getSubTransactionId())
+            List<TabletCommitInfo> subTxnTabletInfos =
+                    TabletCommitInfo.fromThrift(subTransactionState.getTabletCommitInfos());
+            tabletCommitInfos.addAll(subTxnTabletInfos);
+            SubTxnInfo.Builder subTxn = SubTxnInfo.newBuilder()
+                    .setSubTxnId(subTransactionState.getSubTransactionId())
                     .setTableId(subTransactionState.getTable().getId())
-                    .addAllBaseTabletIds(
-                            getBaseTabletsFromTables(Lists.newArrayList(subTransactionState.getTable()),
-                                    subTransactionState.getTabletCommitInfos().stream()
-                                            .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId()))
-                                            .collect(Collectors.toList())))
-                    .build());
+                    .addAllBaseTabletIds(getBaseTabletsFromTables(
+                            Lists.newArrayList(subTransactionState.getTable()), subTxnTabletInfos));
+            TabletCommitCounts counts = getTabletCommitCounts(subTxnTabletInfos);
+            if (counts != null) {
+                subTxn.setTabletCommitCounts(counts);
+            }
+            builder.addSubTxnInfos(subTxn);
             for (TTabletCommitInfo tabletCommitInfo : subTransactionState.getTabletCommitInfos()) {
                 tabletIds.add(tabletCommitInfo.getTabletId());
             }
         }
 
-        executeCommitTxnRequest(builder, tableList, transactionId, false, null, null, new ArrayList<>(tabletIds));
+        List<Long> distinctTabletIds = new ArrayList<>(tabletIds);
+        setCommitPartitionCount(builder, tabletCommitInfos);
+        executeCommitTxnRequest(builder, tableList, transactionId, false, null, null, distinctTabletIds);
     }
 
     private List<Table> getTablesNeedCommitLock(List<Table> tableList) {

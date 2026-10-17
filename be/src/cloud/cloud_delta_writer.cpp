@@ -163,13 +163,15 @@ Status CloudDeltaWriter::commit_rowset() {
         return _commit_empty_rowset();
     }
 
-    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
+    RETURN_IF_ERROR(rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id()));
+    _rowset_meta_written = true;
+    return Status::OK();
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {
-    // If skip writing empty rowset metadata is enabled,
-    // we do not prepare rowset to meta service.
-    if (config::skip_writing_empty_rowset_metadata) {
+    // Keep prepare, commit and reporting consistent if the configuration changes mid-load.
+    const bool skip_metadata = config::skip_writing_empty_rowset_metadata;
+    if (skip_metadata) {
         rowset_builder()->set_skip_writing_rowset_metadata(true);
     }
 
@@ -178,11 +180,13 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
     RETURN_IF_ERROR(_get_load_cancel_status());
 
     // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
-    if (config::skip_writing_empty_rowset_metadata) {
+    if (skip_metadata) {
         return Status::OK();
     }
     // write a empty rowset kv to keep version continuous
-    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
+    RETURN_IF_ERROR(rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id()));
+    _rowset_meta_written = true;
+    return Status::OK();
 }
 
 Status CloudDeltaWriter::set_txn_related_info() {
