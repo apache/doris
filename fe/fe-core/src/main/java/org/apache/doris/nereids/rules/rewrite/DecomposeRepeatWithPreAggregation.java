@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.ShuffleKeyPruneUtils;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
@@ -27,16 +28,22 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -70,31 +77,34 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * This rule will rewrite grouping sets. eg:
- *      select a, b, c, d, e sum(f) from t group by rollup(a, b, c, d, e);
- * rewrite to:
- *    with cte1 as (select a, b, c, d, e, sum(f) x from t group by rollup(a, b, c, d, e))
- *      select * fom cte1
- *      union all
- *      select a, b, c, d, null, sum(x) x from t group by rollup(a, b, c, d)
+ * Pre-aggregate the grouping set that contains all other grouping sets and share it through a CTE.
+ * SUM, SUM0, MIN, MAX, ANY_VALUE and COUNT use their final results for further aggregation;
+ * COUNT results are rolled up by SUM;
+ * other eligible built-in aggregates use combine/merge/finalize to preserve their intermediate states.
+ * Both kinds of aggregate can share the same producer, Repeat and union.
  *
- * LogicalAggregate(gby: a,b,c,d,e,grouping_id output:a,b,c,d,e,grouping_id,sum(f))
- *   +--LogicalRepeat(grouping sets: (a,b,c,d,e),(a,b,c,d),(a,b,c),(a,b),(a),())
- * ->
+ * For example, SUM(d), COUNT(d) and AVG(d) over ROLLUP(a,b,c) are rewritten as:
+ *
  * LogicalCTEAnchor
  *   +--LogicalCTEProducer(cte)
- *     +--LogicalAggregate(gby: a,b,c,d,e; aggFunc: sum(f) as x)
+ *     +--LogicalAggregate(gby: a,b,c; aggFunc: sum(d) as s, count(d) as n, avg_combine(d) as x)
  *   +--LogicalUnionAll
- *     +--LogicalProject(a,b,c,d, null as e, sum(x))
- *       +--LogicalAggregate(gby:a,b,c,d,grouping_id; aggFunc: sum(x))
- *         +--LogicalRepeat(grouping sets: (a,b,c,d),(a,b,c),(a,b),(a),())
+ *     +--LogicalProject(a,b, null as c, sum_result, count_result, avg_result, grouping_id)
+ *       +--LogicalAggregate(gby: a,b,grouping_id;
+ *             aggFunc: sum(s) as sum_result, sum(n) as count_result, avg_merge(x) as avg_result)
+ *         +--LogicalRepeat(grouping sets: (a,b),(a),())
  *           +--LogicalCTEConsumer(aggregateConsumer)
- *     +--LogicalCTEConsumer(directConsumer)
+ *     +--LogicalProject(a,b,c, s, n, avg_finalize(x), grouping_id constant)
+ *       +--LogicalCTEConsumer(directConsumer)
+ *
+ * The direct branch needs no aggregation: it passes through ordinary results and finalizes states
+ * introduced by this rule. Existing aggregate combinators (such as avg_combine) are not eligible;
+ * if any original aggregate function is unsupported or DISTINCT, the entire aggregate is left unchanged.
  */
 public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<DistinctSelectorContext>
         implements CustomRewriter {
     public static final DecomposeRepeatWithPreAggregation INSTANCE = new DecomposeRepeatWithPreAggregation();
-    private static final Set<Class<? extends AggregateFunction>> SUPPORT_AGG_FUNCTIONS =
+    private static final Set<Class<? extends AggregateFunction>> RESULT_ROLLUP_FUNCTIONS =
             ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
     private static final int DECOMPOSE_REPEAT_THRESHOLD = 3;
     private static final int BALANCE_MULTIPLIER = 128;
@@ -128,13 +138,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, DistinctSelectorContext ctx) {
         aggregate = visitChildren(this, aggregate, ctx);
-        int maxGroupIndex = canOptimize(aggregate, ctx.cascadesContext.getConnectContext());
+        int maxGroupIndex = canOptimize(aggregate);
         if (maxGroupIndex < 0) {
             return aggregate;
         }
+        Map<AggregateFunction, CombineCombinator> combiners = constructCombiners(aggregate);
         Map<Slot, Slot> preToProducerSlotMap = new HashMap<>();
         LogicalCTEProducer<LogicalAggregate<Plan>> producer = constructProducer(aggregate, maxGroupIndex, ctx,
-                preToProducerSlotMap, ctx.cascadesContext.getConnectContext());
+                preToProducerSlotMap, ctx.cascadesContext.getConnectContext(), combiners);
         LogicalCTEConsumer aggregateConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
                 producer.getCteId(), "", producer);
         LogicalCTEConsumer directConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
@@ -147,10 +158,17 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         Map<Slot, Slot> originToConsumerMap = new HashMap<>();
         for (Map.Entry<Slot, Slot> entry : preToProducerSlotMap.entrySet()) {
-            originToConsumerMap.put(entry.getKey(), producerToConsumerMap.get(entry.getValue()));
+            Slot original = entry.getKey();
+            Slot consumer = producerToConsumerMap.get(entry.getValue());
+            originToConsumerMap.put(original, consumer);
+        }
+        // Restore the normalized Repeat key nullability after copying the non-nullable producer inputs.
+        LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
+        for (Expression key : repeat.getGroupingSets().get(maxGroupIndex)) {
+            Slot original = (Slot) key;
+            originToConsumerMap.put(original, originToConsumerMap.get(original).withNullable(original.nullable()));
         }
 
-        LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         List<List<Expression>> newGroupingSets = new ArrayList<>();
         List<List<Long>> groupingFunctionsValues = repeat.computeGroupingFunctionsValues();
         List<Long> originalGroupingIdValues = groupingFunctionsValues.get(0);
@@ -168,27 +186,61 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         Set<Expression> needRemovedExprSet = getNeedAddNullExpressions(repeat, newGroupingSets, maxGroupIndex);
         Map<AggregateFunction, Slot> aggFuncToSlot = new HashMap<>();
         LogicalAggregate<Plan> topAgg = constructAgg(aggregate, originToConsumerMap, newRepeat, groupingFunctionSlots,
-                aggFuncToSlot);
+                aggFuncToSlot, combiners);
         LogicalProject<Plan> project = constructProject(aggregate, originToConsumerMap, needRemovedExprSet,
                 groupingFunctionSlots, newRepeat.getGroupingId().get(), topAgg, aggFuncToSlot);
-        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionsValues, maxGroupIndex);
+        LogicalPlan directChild = getDirectChild(directConsumer, producer.child().getOutputExpressions(),
+                groupingFunctionsValues, maxGroupIndex);
         return constructUnion(project, directChild, aggregate);
+    }
+
+    private Map<AggregateFunction, CombineCombinator> constructCombiners(
+            LogicalAggregate<? extends Plan> aggregate) {
+        LogicalRepeat<?> repeat = (LogicalRepeat<?>) aggregate.child();
+        // Repeat makes grouping keys nullable. State types must use the actual input nullability.
+        Map<Slot, Slot> inputSlots = new HashMap<>();
+        for (Slot slot : repeat.child().getOutput()) {
+            inputSlots.put(slot, slot);
+        }
+        Map<AggregateFunction, CombineCombinator> combiners = new HashMap<>();
+        for (AggregateFunction function : aggregate.getAggregateFunctions()) {
+            if (RESULT_ROLLUP_FUNCTIONS.contains(function.getClass())) {
+                continue;
+            }
+            AggregateFunction nested = (AggregateFunction) ExpressionUtils.replace(function, inputSlots);
+            combiners.put(function, new CombineCombinator(nested.children(), nested));
+        }
+        return combiners;
     }
 
     /**
      * Get the direct child plan for the union operation.
-     * If the output contains internal grouping id or grouping function slots, wrap the consumer with a project
-     * that adds the values of the internal grouping id and grouping scalar functions for the maximum grouping set.
+     * Project ordinary result slots unchanged, finalize states introduced by this rule, and add
+     * the internal grouping id and grouping scalar function values for the maximum grouping set.
+     * canOptimize rejects original aggregate combinators, so every CombineCombinator in the producer
+     * was introduced by constructCombiners and must be finalized here.
      *
      * @param directConsumer the CTE consumer for the direct path
+     * @param producerOutputs producer expressions identifying serialized states to finalize
      * @param groupingFunctionsValues internal grouping id and grouping scalar function values for all grouping sets
      * @param maxGroupIndex index of the maximum grouping set
      * @return the direct child plan, possibly wrapped with a project
      */
     private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer,
-            List<List<Long>> groupingFunctionsValues, int maxGroupIndex) {
+            List<NamedExpression> producerOutputs, List<List<Long>> groupingFunctionsValues, int maxGroupIndex) {
         ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-        builder.addAll(directConsumer.getOutput());
+        List<Slot> consumerOutputs = directConsumer.getOutput();
+        for (int i = 0; i < producerOutputs.size(); i++) {
+            NamedExpression output = producerOutputs.get(i);
+            Slot slot = consumerOutputs.get(i);
+            if (output instanceof Alias && output.child(0) instanceof CombineCombinator) {
+                CombineCombinator combine = (CombineCombinator) output.child(0);
+                builder.add(new Alias(new FinalizeCombinator(ImmutableList.of(slot), combine.getNestedFunction()),
+                        output.getName()));
+            } else {
+                builder.add(slot);
+            }
+        }
         for (List<Long> values : groupingFunctionsValues) {
             builder.add(new Alias(new BigIntLiteral(values.get(maxGroupIndex))));
         }
@@ -238,18 +290,21 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     }
 
     /**
-     * Construct a LogicalAggregate for the decomposed repeat.
+     * Construct a LogicalAggregate for the remaining grouping sets. Merge generated states,
+     * roll up COUNT results with SUM, and apply other result-rollup functions to their result slots.
      *
      * @param aggregate the original aggregate plan
      * @param originToConsumerMap the map from original slots to consumer slots
      * @param newRepeat the new LogicalRepeat plan with reduced grouping sets
      * @param groupingFunctionSlots the list of new grouping function slots
      * @param aggFuncToSlot output parameter: map from original aggregate functions to their slots in the new aggregate
+     * @param combiners original aggregate functions mapped to the state combiners introduced by this rule
      * @return a LogicalAggregate for the decomposed repeat
      */
     private LogicalAggregate<Plan> constructAgg(LogicalAggregate<? extends Plan> aggregate,
             Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> newRepeat,
-            List<NamedExpression> groupingFunctionSlots, Map<AggregateFunction, Slot> aggFuncToSlot) {
+            List<NamedExpression> groupingFunctionSlots, Map<AggregateFunction, Slot> aggFuncToSlot,
+            Map<AggregateFunction, CombineCombinator> combiners) {
         Map<AggregateFunction, Slot> aggFuncSlotMap = getAggFuncSlotMap(aggregate.getOutputExpressions(),
                 originToConsumerMap);
         Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
@@ -262,7 +317,10 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             if (expr instanceof Alias && expr.containsType(AggregateFunction.class)) {
                 NamedExpression aggFuncAfterRewrite = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
                     if (e instanceof AggregateFunction) {
-                        if (e instanceof Count) {
+                        if (combiners.containsKey(e)) {
+                            return new MergeCombinator(ImmutableList.of(aggFuncSlotMap.get(e)),
+                                    combiners.get(e).getNestedFunction());
+                        } else if (e instanceof Count) {
                             return new Sum(aggFuncSlotMap.get(e));
                         } else {
                             return e.withChildren(aggFuncSlotMap.get(e));
@@ -384,14 +442,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * Determine if optimization is possible; if so, return the index of the largest group.
      * The optimization requires:
      * 1. The aggregate's child must be a LogicalRepeat
-     * 2. All aggregate functions must be in SUPPORT_AGG_FUNCTIONS.
+     * 2. All aggregate functions must be non-DISTINCT and support result rollup or the AGG_STATE path.
      * 3. More than 3 grouping sets
      * 4. There exists a grouping set that contains all other grouping sets
      * @param aggregate the aggregate plan to check
      * @return value -1 means can not be optimized, values other than -1
      *      represent the index of the set that contains all other sets
      */
-    private int canOptimize(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+    private int canOptimize(LogicalAggregate<? extends Plan> aggregate) {
         Plan aggChild = aggregate.child();
         if (!(aggChild instanceof LogicalRepeat)) {
             return -1;
@@ -399,7 +457,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         // check agg func
         Set<AggregateFunction> aggFunctions = aggregate.getAggregateFunctions();
         for (AggregateFunction aggFunction : aggFunctions) {
-            if (!SUPPORT_AGG_FUNCTIONS.contains(aggFunction.getClass())) {
+            if (!RESULT_ROLLUP_FUNCTIONS.contains(aggFunction.getClass())
+                    && !supportsAggState(aggFunction)) {
                 return -1;
             }
             if (aggFunction.isDistinct()) {
@@ -415,6 +474,20 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             return -1;
         }
         return findMaxGroupingSetIndex(groupingSets);
+    }
+
+    private boolean supportsAggState(AggregateFunction function) {
+        // Match the original function's exact class, not a combinator's nested function. The built-in
+        // registry excludes UDAFs and existing aggregate combinators such as xxx_combine/merge/union.
+        // Rejecting those combinators also ensures that getDirectChild only finalizes states introduced
+        // by this rule. The remaining checks require state support, arguments without ORDER BY, and
+        // two-phase aggregation support.
+        return BuiltinAggregateFunctions.INSTANCE.aggregateFunctions.stream()
+                .anyMatch(builtin -> builtin.functionClass.equals(function.getClass()))
+                && !(function instanceof NotSupportAggState)
+                && !function.children().isEmpty()
+                && function.children().stream().noneMatch(OrderExpression.class::isInstance)
+                && function.supportAggregatePhase(AggregatePhase.TWO);
     }
 
     /**
@@ -467,7 +540,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      */
     private LogicalCTEProducer<LogicalAggregate<Plan>> constructProducer(LogicalAggregate<? extends Plan> aggregate,
             int maxGroupIndex, DistinctSelectorContext ctx, Map<Slot, Slot> preToCloneSlotMap,
-            ConnectContext connectContext) {
+            ConnectContext connectContext, Map<AggregateFunction, CombineCombinator> combiners) {
         LogicalRepeat<? extends Plan> repeat = (LogicalRepeat<? extends Plan>) aggregate.child();
         List<Expression> maxGroupByList = repeat.getGroupingSets().get(maxGroupIndex);
         List<NamedExpression> originAggOutputs = aggregate.getOutputExpressions();
@@ -485,6 +558,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
         }
 
+        // The producer runs below Repeat, where grouping keys retain their input nullability.
+        Map<Slot, Slot> inputSlots = new HashMap<>();
+        for (Slot slot : repeat.child().getOutput()) {
+            inputSlots.put(slot, slot);
+        }
+        maxGroupByList = ExpressionUtils.replace(maxGroupByList, inputSlots);
+        orderedAggOutputs = ExpressionUtils.replaceNamedExpressions(orderedAggOutputs, combiners);
+        orderedAggOutputs = ExpressionUtils.replaceNamedExpressions(orderedAggOutputs, inputSlots);
         LogicalAggregate<Plan> preAgg = new LogicalAggregate<>(maxGroupByList, orderedAggOutputs, repeat.child());
         Optional<List<Expression>> partitionExprs = choosePreAggShuffleKeyPartitionExprs(
                 repeat, maxGroupIndex, maxGroupByList, connectContext);
@@ -612,7 +693,12 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         for (List<Expression> groupingSet : newGroupingSets) {
             replacedNewGroupingSets.add(ExpressionUtils.replace(groupingSet, producerToDirectConsumerSlotMap));
         }
-        List<NamedExpression> replacedRepeatOutputs = new ArrayList<>(child.getOutput());
+        Map<Slot, Slot> repeatOutputSlots = new HashMap<>();
+        for (Slot slot : producerToDirectConsumerSlotMap.values()) {
+            repeatOutputSlots.put(slot, slot);
+        }
+        List<NamedExpression> replacedRepeatOutputs = new ArrayList<>(
+                ExpressionUtils.replaceNamedExpressions(child.getOutput(), repeatOutputSlots));
         List<NamedExpression> newGroupingFunctions = new ArrayList<>();
         for (NamedExpression groupingFunction : repeat.getGroupingScalarFunctionAlias()) {
             newGroupingFunctions.add(new Alias(groupingFunction.child(0), groupingFunction.getName()));
