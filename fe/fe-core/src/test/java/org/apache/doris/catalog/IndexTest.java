@@ -41,6 +41,14 @@ public class IndexTest {
                 Map.of("normalizer", "lowercase"), "");
         Assertions.assertFalse(normalized.getProperties().containsKey("support_phrase"));
 
+        Index customNormalizer = new Index(7, "custom_normalizer", List.of("col"), IndexType.INVERTED,
+                Map.of("normalizer", "split_norm"), "");
+        Assertions.assertEquals("true", customNormalizer.getProperties().get("support_phrase"));
+
+        Index disabledCustomNormalizer = new Index(8, "disabled_custom_normalizer", List.of("col"),
+                IndexType.INVERTED, Map.of("normalizer", "split_norm", "support_phrase", "false"), "");
+        Assertions.assertEquals("false", disabledCustomNormalizer.getProperties().get("support_phrase"));
+
         Index parsed = new Index(4, "parsed", List.of("col"), IndexType.INVERTED,
                 Map.of("parser", "english"), "");
         Assertions.assertEquals("true", parsed.getProperties().get("support_phrase"));

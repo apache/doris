@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <boost/algorithm/string/predicate.hpp>
 #include <map>
 #include <string>
 
@@ -30,9 +31,9 @@ public:
     static bool is_normalizer_only(const std::map<std::string, std::string>& properties) {
         const auto normalizer = properties.find(INVERTED_INDEX_NORMALIZER_NAME_KEY);
         const auto analyzer = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
-        // A normalizer keeps the whole value as one term, so phrase queries need no positions.
+        // A custom normalizer can split a value into multiple terms that need positions.
         return !properties.contains(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) &&
-               normalizer != properties.end() && !normalizer->second.empty() &&
+               normalizer != properties.end() && boost::iequals(normalizer->second, "lowercase") &&
                (analyzer == properties.end() || analyzer->second.empty()) &&
                get_parser_string_from_properties(properties) == INVERTED_INDEX_PARSER_NONE;
     }

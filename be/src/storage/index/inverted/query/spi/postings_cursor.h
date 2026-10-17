@@ -40,7 +40,9 @@ struct PostingsBlock {
         return dense ? static_cast<uint32_t>(range_begin + ordinal) : docs[ordinal];
     }
     uint32_t freq_at(uint64_t ordinal) const { return freqs.empty() ? 1 : freqs[ordinal]; }
-    uint32_t norm_at(uint64_t ordinal) const { return norms.empty() ? 1 : norms[ordinal]; }
+    uint32_t norm_at(uint64_t ordinal) const {
+        return norms.empty() || norms[ordinal] == 0 ? 1 : norms[ordinal];
+    }
 
     PostingsBlock suffix(uint64_t ordinal) const {
         auto result = *this;
