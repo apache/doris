@@ -1945,14 +1945,6 @@ void check_binary_zone_map_bounds(const std::string& directory,
 }
 
 TEST_F(ColumnZoneMapTest, BinaryDateTimeBoundsRoundTrip) {
-    const VecDateTimeValue date_low(false, TIME_DATE, 0, 0, 0, 0, 1, 1);
-    const VecDateTimeValue date_high(false, TIME_DATE, 0, 0, 0, 9999, 12, 31);
-    check_binary_zone_map_bounds<TYPE_DATE>(kTestDir, date_low.to_olap_date(),
-                                            date_high.to_olap_date());
-    const VecDateTimeValue datetime_low(false, TIME_DATETIME, 0, 0, 0, 0, 1, 1);
-    const VecDateTimeValue datetime_high(false, TIME_DATETIME, 23, 59, 59, 9999, 12, 31);
-    check_binary_zone_map_bounds<TYPE_DATETIME>(kTestDir, datetime_low.to_olap_datetime(),
-                                                datetime_high.to_olap_datetime());
     const DateV2Value<DateV2ValueType> low_date(0, 1, 1, 0, 0, 0, 0);
     const DateV2Value<DateV2ValueType> high_date(9999, 12, 31, 0, 0, 0, 0);
     check_binary_zone_map_bounds<TYPE_DATEV2>(kTestDir, low_date.to_date_int_val(),
@@ -1970,16 +1962,10 @@ TEST_F(ColumnZoneMapTest, BinaryDateTimeBoundsRoundTrip) {
     check_binary_zone_map_bounds<TYPE_TIMESTAMP_NS>(kTestDir, -1, 1);
 }
 
-TEST_F(ColumnZoneMapTest, BinaryIpUuidAndLegacyDecimalBoundsRoundTrip) {
+TEST_F(ColumnZoneMapTest, BinaryIpAndUuidBoundsRoundTrip) {
     check_binary_zone_map_bounds<TYPE_IPV4>(kTestDir, 0, UINT32_MAX);
     check_binary_zone_map_bounds<TYPE_IPV6>(kTestDir, 0, std::numeric_limits<UInt128>::max());
     check_binary_zone_map_bounds<TYPE_UUID>(kTestDir, 0, std::numeric_limits<UInt128>::max());
-    check_binary_zone_map_bounds<TYPE_DECIMALV2>(
-            kTestDir, decimal12_t {.integer = -999999999999999999LL, .fraction = -999999999},
-            decimal12_t {.integer = 999999999999999999LL, .fraction = 999999999}, 27, 9);
-    check_binary_zone_map_bounds<TYPE_DECIMALV2>(kTestDir,
-                                                 decimal12_t {.integer = 0, .fraction = -1},
-                                                 decimal12_t {.integer = 0, .fraction = 1}, 27, 9);
 }
 
 TEST_F(ColumnZoneMapTest, BinaryAdditionalTypesHaveCanonicalBytes) {
@@ -1997,12 +1983,6 @@ TEST_F(ColumnZoneMapTest, BinaryAdditionalTypesHaveCanonicalBytes) {
         ASSERT_TRUE(ZoneMap::from_proto(pb, type, decoded).ok());
         EXPECT_EQ(field.get<Type>(), decoded.min_value.get<Type>());
     };
-    const VecDateTimeValue date(false, TIME_DATE, 0, 0, 0, 2026, 10, 15);
-    check.template operator()<TYPE_DATE>(Field::create_field<TYPE_DATE>(date),
-                                         std::string("\x4f\xd5\x0f", 3));
-    check.template operator()<TYPE_DECIMALV2>(
-            Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(-2, -3)),
-            std::string("\xfe\xff\xff\xff\xff\xff\xff\xff\xfd\xff\xff\xff", 12));
     check.template operator()<TYPE_IPV4>(Field::create_field<TYPE_IPV4>(0x01020304),
                                          std::string("\x04\x03\x02\x01", 4));
     const UInt128 wide =
@@ -2094,6 +2074,75 @@ TEST_F(ColumnZoneMapTest, BinaryRequestedForStringKeepsLegacyBounds) {
     ASSERT_TRUE(ZoneMap::from_proto(pb, type, decoded).ok());
     EXPECT_EQ(source.min_value.get<TYPE_STRING>(), decoded.min_value.get<TYPE_STRING>());
     EXPECT_EQ(source.max_value.get<TYPE_STRING>(), decoded.max_value.get<TYPE_STRING>());
+}
+
+TEST_F(ColumnZoneMapTest, BinaryRequestedForLegacyTypesKeepsTextBounds) {
+    auto check = [&]<PrimitiveType Type>(const Field& field) {
+        const auto type = DataTypeFactory::instance().create_data_type(Type, false, 27, 9);
+        ZoneMap source;
+        source.has_not_null = true;
+        source.min_value = field;
+        source.max_value = field;
+        ZoneMapPB legacy;
+        ZoneMapPB requested;
+        source.to_proto(&legacy, type, false);
+        source.to_proto(&requested, type, true);
+        EXPECT_FALSE(requested.has_value_encoding());
+        EXPECT_EQ(legacy.SerializeAsString(), requested.SerializeAsString());
+        ZoneMap decoded;
+        ASSERT_TRUE(ZoneMap::from_proto(requested, type, decoded).ok());
+        EXPECT_FALSE(decoded.pass_all);
+        EXPECT_EQ(field.get<Type>(), decoded.min_value.get<Type>());
+        EXPECT_EQ(field.get<Type>(), decoded.max_value.get<Type>());
+        requested.set_value_encoding(1);
+        EXPECT_FALSE(ZoneMap::from_proto(requested, type, decoded).ok());
+    };
+    check.template operator()<TYPE_DATE>(Field::create_field<TYPE_DATE>(
+            VecDateTimeValue(false, TIME_DATE, 0, 0, 0, 2026, 10, 17)));
+    check.template operator()<TYPE_DATETIME>(Field::create_field<TYPE_DATETIME>(
+            VecDateTimeValue(false, TIME_DATETIME, 12, 34, 56, 2026, 10, 17)));
+    check.template operator()<TYPE_DECIMALV2>(
+            Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(-2, -3)));
+}
+
+TEST_F(ColumnZoneMapTest, HistoricalTextAndBinaryBoundsReadIndependentlyOfWriteConfig) {
+    // Historical protobuf fields 1-4: min="-12", max="34", has_null=false, has_not_null=true.
+    // No encoding discriminator (or newer special-value flags) was present in old files.
+    const std::string historical(
+            "\x0a\x03"
+            "-12"
+            "\x12\x02"
+            "34"
+            "\x18\x00\x20\x01",
+            13);
+    ZoneMapPB legacy;
+    ASSERT_TRUE(legacy.ParseFromString(historical));
+    ASSERT_FALSE(legacy.has_value_encoding());
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMap source;
+    source.has_not_null = true;
+    source.min_value = Field::create_field<TYPE_INT>(-12);
+    source.max_value = Field::create_field<TYPE_INT>(34);
+    ZoneMapPB binary;
+    source.to_proto(&binary, type, true);
+    const bool saved = config::enable_binary_zone_map;
+    Defer restore([saved] { config::enable_binary_zone_map = saved; });
+    for (bool enabled : {false, true}) {
+        config::enable_binary_zone_map = enabled;
+        ZoneMap decoded;
+        for (const auto* pb : {&legacy, &binary, &legacy}) {
+            ASSERT_TRUE(ZoneMap::from_proto(*pb, type, decoded).ok());
+            EXPECT_FALSE(decoded.pass_all);
+            EXPECT_EQ(-12, decoded.min_value.get<TYPE_INT>());
+            EXPECT_EQ(34, decoded.max_value.get<TYPE_INT>());
+            ComparisonPredicateBase<TYPE_INT, PredicateType::EQ> inside(
+                    0, "", Field::create_field<TYPE_INT>(0));
+            ComparisonPredicateBase<TYPE_INT, PredicateType::EQ> outside(
+                    0, "", Field::create_field<TYPE_INT>(35));
+            EXPECT_TRUE(inside.evaluate_and(decoded));
+            EXPECT_FALSE(outside.evaluate_and(decoded));
+        }
+    }
 }
 
 TEST_F(ColumnZoneMapTest, BinaryBoundsRejectCorruptionAndUnknownEncoding) {

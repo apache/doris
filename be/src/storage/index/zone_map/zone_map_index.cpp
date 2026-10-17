@@ -38,7 +38,6 @@
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
-#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -55,8 +54,8 @@ namespace {
 // Encoding ids are persisted in ZoneMapPB; never change their meaning.
 constexpr uint32_t BINARY_ZONE_MAP_ENCODING = 1;
 
-// All fixed-width types accepted by ZoneMapIndexWriter::create. Execution-only types such as
-// TIMEV2 and internal unsigned offsets have no persisted zone map writer.
+// Persisted fixed-width types, excluding legacy DATE, DATETIME and DECIMALV2. Those types
+// retain their text bounds; execution-only TIMEV2 and internal offsets have no zone map writer.
 template <typename Action>
 bool dispatch_binary_zone_map(PrimitiveType type, Action&& action) {
     switch (type) {
@@ -76,8 +75,6 @@ bool dispatch_binary_zone_map(PrimitiveType type, Action&& action) {
         BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL64)
         BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL128I)
         BINARY_ZONE_MAP_TYPE(TYPE_DECIMAL256)
-        BINARY_ZONE_MAP_TYPE(TYPE_DATE)
-        BINARY_ZONE_MAP_TYPE(TYPE_DATETIME)
         BINARY_ZONE_MAP_TYPE(TYPE_DATEV2)
         BINARY_ZONE_MAP_TYPE(TYPE_DATETIMEV2)
         BINARY_ZONE_MAP_TYPE(TYPE_TIMESTAMP_NS)
@@ -85,7 +82,6 @@ bool dispatch_binary_zone_map(PrimitiveType type, Action&& action) {
         BINARY_ZONE_MAP_TYPE(TYPE_IPV4)
         BINARY_ZONE_MAP_TYPE(TYPE_IPV6)
         BINARY_ZONE_MAP_TYPE(TYPE_UUID)
-        BINARY_ZONE_MAP_TYPE(TYPE_DECIMALV2)
 #undef BINARY_ZONE_MAP_TYPE
     default:
         return false;
@@ -98,9 +94,6 @@ std::string encode_binary_bound(const Field& field) {
     Native value;
     if constexpr (is_decimalv3(Type)) {
         value = field.get<Type>().value;
-    } else if constexpr (is_date_or_datetime(Type) || Type == TYPE_DECIMALV2) {
-        value = StorageLayout<primitive_type_to_storage_field_type(Type)>::to_storage(
-                field.get<Type>());
     } else if constexpr (is_date_v2_or_datetime_v2(Type) || Type == TYPE_TIMESTAMPTZ ||
                          Type == TYPE_TIMESTAMP_NS) {
         value = field.get<Type>().to_date_int_val();
@@ -109,16 +102,7 @@ std::string encode_binary_bound(const Field& field) {
     }
     std::string bytes(sizeof(Native), '\0');
     auto* out = reinterpret_cast<uint8_t*>(bytes.data());
-    if constexpr (Type == TYPE_DATE) {
-        const auto packed = static_cast<uint32_t>(value);
-        for (size_t i = 0; i < 3; ++i) {
-            out[i] = static_cast<uint8_t>(packed >> (8 * i));
-        }
-    } else if constexpr (Type == TYPE_DECIMALV2) {
-        // Encode the two signed components explicitly, never the packed C++ struct.
-        encode_fixed64_le(out, std::bit_cast<uint64_t>(value.integer));
-        encode_fixed32_le(out + 8, std::bit_cast<uint32_t>(value.fraction));
-    } else if constexpr (sizeof(Native) == 32) {
+    if constexpr (sizeof(Native) == 32) {
         for (size_t i = 0; i < 4; ++i) {
             encode_fixed64_le(out + i * sizeof(uint64_t), value.items[i]);
         }
@@ -147,13 +131,7 @@ Status decode_binary_bound(const std::string& bytes, Field& field) {
     }
     const auto* in = reinterpret_cast<const uint8_t*>(bytes.data());
     Native value;
-    if constexpr (Type == TYPE_DATE) {
-        value = static_cast<uint32_t>(in[0]) | (static_cast<uint32_t>(in[1]) << 8) |
-                (static_cast<uint32_t>(in[2]) << 16);
-    } else if constexpr (Type == TYPE_DECIMALV2) {
-        value.integer = std::bit_cast<int64_t>(decode_fixed64_le(in));
-        value.fraction = std::bit_cast<int32_t>(decode_fixed32_le(in + 8));
-    } else if constexpr (sizeof(Native) == 32) {
+    if constexpr (sizeof(Native) == 32) {
         for (size_t i = 0; i < 4; ++i) {
             value.items[i] = decode_fixed64_le(in + i * sizeof(uint64_t));
         }
