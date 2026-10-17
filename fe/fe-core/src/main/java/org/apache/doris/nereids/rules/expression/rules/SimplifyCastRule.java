@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -72,6 +73,17 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
         // remove redundant cast
         // CAST(value as type), value is type
         if (cast.getDataType().equals(child.getDataType())) {
+            if (child.containsType(SpmConstVar.class)) {
+                // An SPM placeholder stands for a value SUBSTITUTED at rewrite time, so its
+                // captured literal's type says nothing about the future value:
+                // parameterizing CAST(1 AS TINYINT) types the placeholder TINYINT (the
+                // literal 1 IS a tinyint), while the matching CAST(128 AS TINYINT) binds a
+                // SMALLINT literal - eliminating the cast froze SQL that lost both the
+                // requested conversion and the result type on that replay. Keep the
+                // explicit conversion; the ordinary elimination below still applies to
+                // every other expression.
+                return cast;
+            }
             return child;
         }
 

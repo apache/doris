@@ -57,7 +57,6 @@ import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,7 +121,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
             builder.add(splitDistinctOnePhase(aggregate, middleAggFuncToAlias, middleAgg));
         }
         if (aggregate.supportAggregatePhase(AggregatePhase.TWO)) {
-            Map<AggregateFunction, Alias> localAggFuncToAlias = new HashMap<>();
+            Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
             List<Expression> partitionExprs = Utils.fastToImmutableList(aggregate.getGroupByExpressions());
             Plan localAgg = splitToOnePhase(aggregate, partitionExprs, localAggFuncToAlias);
             builder.add(splitDistinctOnePhase(aggregate, localAggFuncToAlias, localAgg));
@@ -172,7 +171,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
                     partitionExprs, localAggGroupBySet);
             builder.add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg));
         }
-        Map<AggregateFunction, Alias> localAggFunctionToAlias = new HashMap<>();
+        Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
         Plan onePhaseAgg = splitToOnePhase(aggregate, partitionExprs, localAggFunctionToAlias);
         if (aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
             builder.add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg));

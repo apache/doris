@@ -40,7 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -116,7 +116,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             return ImmutableList.of();
         }
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        Map<AggregateFunction, Alias> aggFunctionToAlias = new HashMap<>();
+        Map<AggregateFunction, Alias> aggFunctionToAlias = new LinkedHashMap<>();
         for (Expression expr : aggregate.getOutputExpressions()) {
             expr.accept(new DefaultExpressionVisitor<Void, Map<String, String>>() {
                 @Override

@@ -168,6 +168,15 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
             sb.append(exceptedSlots.stream().map(NamedExpression::toDigest)
                     .collect(Collectors.joining(", ", " EXCEPT(", ")")));
         }
+        if (!replacedAlias.isEmpty()) {
+            // The REPLACE payload is stored OUTSIDE the expression children: omitting it
+            // made every "* REPLACE((SELECT ... FROM u) AS k)" digest identical to a
+            // plain "* FROM t" digest, so the L1/L2 key carried neither the payload nor
+            // its namespace (a baseline created in db1 matched the same text under db2
+            // while the frozen SQL still read db1's tables).
+            sb.append(replacedAlias.stream().map(NamedExpression::toDigest)
+                    .collect(Collectors.joining(", ", " REPLACE(", ")")));
+        }
         return sb.toString();
     }
 
