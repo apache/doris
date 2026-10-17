@@ -424,8 +424,15 @@ struct JsonStringToVariantEncoder::Impl {
             return;
         }
 
+        // A DECIMAL template path parses its fractions from the text: quote them, then let the
+        // schema-blind parser take the string route it already has for such values.
+        StringRef text = json;
+        if (options.decimal_paths != nullptr && !options.decimal_paths->empty() &&
+            quote_decimal_numbers_on_paths(json, *options.decimal_paths, &quoted)) {
+            text = {quoted.data(), quoted.size()};
+        }
         SimdJSONParser::Element root;
-        if (!parser.parse(json.data, json.size, root)) {
+        if (!parser.parse(text.data, text.size, root)) {
             if (options.throw_on_invalid_json) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse JSON as Variant");
             }
@@ -440,6 +447,7 @@ struct JsonStringToVariantEncoder::Impl {
     JsonToVariantOptions options;
     VariantBatchBuilder builder;
     SimdJSONParser parser;
+    std::string quoted;
     State state = State::COLLECTING;
 };
 

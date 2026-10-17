@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_decimal_paths.h"
 #include "core/value/variant/variant_value.h"
 
 namespace cctz {
@@ -43,6 +44,9 @@ struct JsonToVariantOptions {
     uint32_t max_json_key_length = 255;
     bool throw_on_invalid_json = false;
     bool check_duplicate_json_path = false;
+    // DECIMAL Schema Template paths of the destination VARIANT type (nullptr or empty: none); a JSON
+    // number with a fraction on one of them is parsed from its text (quote_decimal_numbers_on_paths).
+    VariantDecimalPathSetPtr decimal_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.
     static JsonToVariantOptions current_config();

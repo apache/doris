@@ -17,12 +17,17 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.catalog.PatternType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.VariantField;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -33,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -41,11 +47,13 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 
 class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
@@ -191,5 +199,21 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
                         DecimalV3Type.createDecimalV3Type(6, 1)),
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(6, 1),
                         new BigDecimal("12.0")));
+    }
+
+    @Test
+    void testParseToVariantUnderTemplatedVariantCast() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyCastRule.INSTANCE)));
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("money.amount", ScalarType.createDecimalV3Type(20, 6), "", PatternType.MATCH_NAME));
+        VariantType target = (VariantType) DataType.fromCatalogType(new org.apache.doris.catalog.VariantType(fields));
+        SlotReference text = SlotReference.of("t", StringType.INSTANCE);
+
+        // The parse call takes the template instead of being cast after the fact.
+        assertRewrite(new Cast(new ParseToVariant(text), target), new ParseToVariant(text, target));
+        assertRewrite(new Cast(new TryParseToVariant(text), target), new TryParseToVariant(text, target));
+        // A cast to a plain VARIANT is the same type as the call: the cast is simply removed.
+        assertRewrite(new Cast(new ParseToVariant(text), VariantType.INSTANCE), new ParseToVariant(text));
     }
 }
