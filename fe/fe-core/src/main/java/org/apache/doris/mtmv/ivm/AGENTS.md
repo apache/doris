@@ -57,6 +57,24 @@ Run all IVM regression suites under `regression-test/suites/mtmv_p0/ivm/`:
 
 This runs every suite in the `ivm` subdirectory. New IVM suites are added over time — the `-d mtmv_p0/ivm` flag automatically picks them up.
 
+### Disable Transparent Rewrite
+
+A newly added IVM suite must turn both transparent-rewrite paths off before it runs any statement:
+
+```groovy
+sql "SET enable_materialized_view_rewrite = false"
+sql "SET enable_dml_materialized_view_rewrite = false"
+```
+
+Both default to true. The first is what makes an MV-verifying suite meaningful: such a suite checks the MV by
+re-running the MV's own definition SQL over the base tables, and with the rewrite on that query is answered
+from the MV itself, so both sides of the comparison move together and the suite can no longer fail. The second
+stops a base-table `INSERT`/`UPDATE`/`DELETE` from being redirected into the MV, which would leave the
+incremental path the suite exists to exercise unused.
+
+The one exception is a suite whose subject *is* the rewrite: it keeps whatever setting it needs to assert that
+an MV is hit, and says so where it does.
+
 ### FE Unit Tests
 
 Run all IVM-related FE unit tests. The relevant test files are located in:
