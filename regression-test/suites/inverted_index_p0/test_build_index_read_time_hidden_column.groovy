@@ -64,6 +64,9 @@ suite("test_build_index_read_time_hidden_column", "nonConcurrent") {
 
     // The inverted index must be the thing answering the predicate: read the scan profile of the
     // query and require RowsInvertedIndexFiltered to be reported with the expected count.
+    // The backend reports the execution profile asynchronously after the query finishes, so the
+    // profile row can be listed (and its detail fetched) while the SegmentIterator counters are
+    // still missing; wait for the counter instead of reading it once.
     def assert_rows_filtered_by_inverted_index = { String query, int expectedFiltered ->
         def profileId = null
         for (int t = 0; t < timeout && profileId == null; t += delta_time) {
@@ -77,11 +80,16 @@ suite("test_build_index_read_time_hidden_column", "nonConcurrent") {
             }
         }
         assertNotNull(profileId, "no profile found for: " + query)
-        def profileDetail = http_get("/rest/v1/query_profile/" + profileId)
-        def matcher = (profileDetail =~ /RowsInvertedIndexFiltered:&nbsp;&nbsp;(\d+)/)
         def filtered = []
-        while (matcher.find()) {
-            filtered << Integer.parseInt(matcher.group(1))
+        for (int t = 0; t < timeout && filtered.isEmpty(); t += delta_time) {
+            def profileDetail = http_get("/rest/v1/query_profile/" + profileId)
+            def matcher = (profileDetail =~ /RowsInvertedIndexFiltered:&nbsp;&nbsp;(\d+)/)
+            while (matcher.find()) {
+                filtered << Integer.parseInt(matcher.group(1))
+            }
+            if (filtered.isEmpty()) {
+                sleep(delta_time)
+            }
         }
         assertFalse(filtered.isEmpty(), "RowsInvertedIndexFiltered missing from profile of: " + query)
         filtered.each { assertEquals(expectedFiltered, it) }
