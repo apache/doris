@@ -293,6 +293,9 @@ bool HyperLogLog::deserialize(const Slice& slice) {
             // 1 byte: register value
             uint16_t register_idx = decode_fixed16_le(ptr);
             ptr += 2;
+            if (register_idx >= HLL_REGISTERS_COUNT) {
+                return false;
+            }
             _registers[register_idx] = *ptr++;
         }
         break;
