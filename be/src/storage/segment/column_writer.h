@@ -210,6 +210,8 @@ public:
     virtual uint64_t get_raw_data_bytes() const = 0;
     virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
+    // Points to one of the three data bytes getters above.
+    using DataBytesGetter = uint64_t (ColumnWriter::*)() const;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -620,16 +622,14 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override { return _writer->get_raw_data_bytes(); }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_uncompressed_data_pages_bytes();
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_compressed_data_pages_bytes();
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -651,12 +651,25 @@ private:
                       std::span<const uint8_t> outer_nulls);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
+    Status _seal_chunk();
+    // Bounded value chunks; each chunk is finalized and flushed independently so the writer never
+    // holds a segment-sized ColumnString.
+    struct ValueChunk {
+        std::unique_ptr<VariantPathBuilder> builder;
+        size_t row_begin = 0;
+        size_t rows = 0;
+    };
+    static constexpr size_t kChunkBytes = 256ULL << 20;
+    static constexpr size_t kChunkValues = 4ULL << 20;
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
+    std::vector<ValueChunk> _chunks;
+    size_t _chunk_row_begin = 0;
+    size_t _chunk_rows = 0;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
@@ -688,17 +701,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
 
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
 
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");
