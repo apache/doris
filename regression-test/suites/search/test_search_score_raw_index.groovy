@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_search_score_raw_index", "p0") {
+    // SEARCH requires inverted-index execution even under fuzzy session settings.
+    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_inverted_index_query = true"
     // Score TopN pushdown accepts one ordering key. Sort ties outside the bounded query.
     def scoredQuery = { hint, table, predicate, direction, limit ->
         """
