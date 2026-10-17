@@ -3888,6 +3888,46 @@ TEST_F(NewParquetReaderTest, NativeFooterCacheIdentityIncludesFilesystemAndVersi
     EXPECT_NE(first, replaced);
 }
 
+TEST_F(NewParquetReaderTest, MemoryBudgetFooterCacheHitAndOversizeBypass) {
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_cache = env->_file_meta_cache;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    // Exercise the real native footer parser with a stable file version. A tiny cache must
+    // still return the schema and rows, while a sufficiently large cache serves the second open.
+    for (int64_t budget : {256, 1 << 20}) {
+        FileMetaCache cache(budget, LRUCacheType::SIZE, 1);
+        env->_file_meta_cache = &cache;
+        Defer restore_cache {[&] { env->_file_meta_cache = previous_cache; }};
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            RuntimeProfile profile("memory_budget_footer");
+            auto reader = create_reader(0, -1, &profile, false, nullptr, std::nullopt, false, false,
+                                        "test-fs", 1234567);
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            ASSERT_EQ(schema.size(), 2);
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0), field_projection(1)};
+            ASSERT_TRUE(reader->open(request).ok());
+            size_t total_rows = 0;
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block(schema);
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                total_rows += rows;
+            }
+            EXPECT_EQ(total_rows, ROW_COUNT);
+            const bool hit = budget > 256 && repeat == 1;
+            EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value(), hit ? 0 : 1);
+            EXPECT_EQ(profile.get_counter("FileFooterHitCache")->value(), hit ? 1 : 0);
+        }
+        EXPECT_LE(cache.cache().get_usage(), budget);
+        cache.cache().prune_all(true);
+        EXPECT_EQ(cache.cache().mem_consumption(), 0);
+    }
+}
+
 TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotCrossFilesystems) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile first_profile("native_footer_cache_nameservice_a");

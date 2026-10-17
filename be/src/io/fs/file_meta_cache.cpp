@@ -17,7 +17,35 @@
 
 #include "io/fs/file_meta_cache.h"
 
+#include <algorithm>
+
+#include "util/parse_util.h"
+
 namespace doris {
+
+Status FileMetaCache::create(const std::string& memory_limit, int64_t legacy_capacity,
+                             int64_t process_memory_limit, int64_t physical_memory,
+                             std::unique_ptr<FileMetaCache>* cache) {
+    if (memory_limit.empty()) {
+        *cache = std::make_unique<FileMetaCache>(std::max<int64_t>(0, legacy_capacity));
+        return Status::OK();
+    }
+    bool is_percent = false;
+    int64_t capacity = ParseUtil::parse_mem_spec(memory_limit, process_memory_limit,
+                                                 physical_memory, &is_percent);
+    if (capacity < 0 || capacity > process_memory_limit) {
+        return Status::InvalidArgument(
+                "external_file_meta_cache_memory_limit '{}' must be between 0 and the BE "
+                "memory limit ({})",
+                memory_limit, process_memory_limit);
+    }
+    // Existing deployments may explicitly disable the cache with the old count setting.
+    if (legacy_capacity <= 0) {
+        capacity = 0;
+    }
+    *cache = std::make_unique<FileMetaCache>(capacity, LRUCacheType::SIZE);
+    return Status::OK();
+}
 
 std::string FileMetaCache::get_key(const std::string file_name, int64_t modification_time,
                                    int64_t file_size) {

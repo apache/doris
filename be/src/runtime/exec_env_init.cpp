@@ -679,7 +679,14 @@ Status ExecEnv::init_mem_env() {
               << config::file_cache_max_file_reader_cache_size;
     config::file_cache_max_file_reader_cache_size = block_file_cache_fd_cache_size;
 
-    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    std::unique_ptr<FileMetaCache> file_meta_cache;
+    RETURN_IF_ERROR(FileMetaCache::create(
+            config::external_file_meta_cache_memory_limit, config::max_external_file_meta_cache_num,
+            MemInfo::mem_limit(), MemInfo::physical_mem(), &file_meta_cache));
+    _file_meta_cache = file_meta_cache.release();
+    LOG(INFO) << "External file metadata cache capacity: "
+              << _file_meta_cache->cache().get_capacity()
+              << ", memory limit: " << config::external_file_meta_cache_memory_limit;
 
     _lookup_connection_cache =
             LookupConnectionCache::create_global_instance(config::lookup_connection_cache_capacity);

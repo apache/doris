@@ -376,15 +376,16 @@ Status ParquetReader::_open_file() {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,
                                                     enable_mapping_timestamp_tz));
-                // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
-                _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
-                                    &_meta_cache_handle);
-                _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                if (_meta_cache->insert(file_meta_cache_key, _file_metadata_ptr,
+                                        &_meta_cache_handle, _file_metadata_ptr->get_mem_size())) {
+                    _meta_cache_handle.data<FileMetaData>()->release_memory_tracking();
+                }
                 _reader_statistics.file_footer_read_calls += 1;
             } else {
                 _reader_statistics.file_footer_hit_cache++;
             }
-            _file_metadata = _meta_cache_handle.data<FileMetaData>();
+            _file_metadata = _file_metadata_ptr ? _file_metadata_ptr.get()
+                                                : _meta_cache_handle.data<FileMetaData>();
         }
 
         if (_file_metadata == nullptr) {

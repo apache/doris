@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "format/parquet_metadata_memory.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 
@@ -1321,6 +1322,19 @@ void NativeFieldDescriptor::get_column_names(std::unordered_set<std::string>* na
     for (const NativeFieldSchema& f : _fields) {
         names->emplace(f.name);
     }
+}
+
+size_t NativeFieldDescriptor::estimated_memory_size() const {
+    std::unordered_set<const IDataType*> seen;
+    size_t bytes = parquet_fields_dynamic_size(_fields, &seen) +
+                   _physical_fields.capacity() * sizeof(void*) +
+                   _name_to_field.bucket_count() * sizeof(void*);
+    for (const auto& [name, field] : _name_to_field) {
+        // Hash nodes retain a copied key and linkage/hash state in addition to the bucket array.
+        bytes += sizeof(decltype(_name_to_field)::value_type) + 2 * sizeof(void*) +
+                 parquet_string_memory_size(name);
+    }
+    return bytes;
 }
 
 std::string NativeFieldDescriptor::debug_string() const {
