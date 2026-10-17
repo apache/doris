@@ -1327,6 +1327,15 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
         }
+        // A dictionary is authorized with the table privilege key of the internal catalog, so a
+        // table and a dictionary must never share a name in the same database. IF NOT EXISTS does
+        // not suppress this: the table itself does not exist, the collision is with a dictionary.
+        if (!createTableInfo.isTemp()
+                && Env.getCurrentEnv().getDictionaryManager().hasDictionary(dbName, tableName)) {
+            ErrorReport.reportDdlException(
+                    "table[{}] cannot be created because a dictionary with the same name exists in database[{}]",
+                    ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName, dbName);
+        }
         if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
             ErrorReport.reportDdlException(
                     "table[{}] is in atomic restore, please cancel the restore operation firstly",
