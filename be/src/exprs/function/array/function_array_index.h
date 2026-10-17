@@ -112,7 +112,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 

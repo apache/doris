@@ -39,14 +39,6 @@ class value;
 
 namespace doris {
 
-enum JsonFunctionType {
-    JSON_FUN_INT = 0,
-    JSON_FUN_DOUBLE,
-    JSON_FUN_STRING,
-
-    JSON_FUN_UNKNOWN //The last
-};
-
 struct JsonPath {
     std::string key; // key of a json object
     int idx;         // array index of a json array, -1 means not set, -2 means *
