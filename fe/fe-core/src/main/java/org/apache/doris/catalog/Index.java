@@ -77,10 +77,13 @@ public class Index implements Writable {
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
+                String normalizerName = this.properties.get(
+                        InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY);
+                if (!InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(getInvertedIndexParser())
+                        || StringUtils.isNotEmpty(this.properties.get(
+                                InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY))
+                        || (StringUtils.isNotEmpty(normalizerName)
+                                && !"lowercase".equalsIgnoreCase(normalizerName))) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {

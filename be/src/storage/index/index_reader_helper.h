@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <map>
+#include <string>
+
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
@@ -25,6 +29,16 @@ namespace doris::segment_v2 {
 
 class IndexReaderHelper {
 public:
+    static bool is_normalizer_only(const std::map<std::string, std::string>& properties) {
+        const auto normalizer = properties.find(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        const auto analyzer = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        // A custom normalizer can split a value into multiple terms that need positions.
+        return !properties.contains(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) &&
+               normalizer != properties.end() && boost::iequals(normalizer->second, "lowercase") &&
+               (analyzer == properties.end() || analyzer->second.empty()) &&
+               get_parser_string_from_properties(properties) == INVERTED_INDEX_PARSER_NONE;
+    }
+
     static bool is_fulltext_index(const IndexReaderPtr& reader) {
         if (reader == nullptr || reader->index_type() != IndexType::INVERTED) {
             return false;
@@ -60,7 +74,8 @@ public:
         auto inverted_index_reader = std::static_pointer_cast<InvertedIndexReader>(reader);
         const auto& properties = inverted_index_reader->get_index_properties();
         return get_parser_phrase_support_string_from_properties(properties) ==
-               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+                       INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+               is_normalizer_only(properties);
     }
 
     // only string type or bkd index reader can be used for equal
@@ -97,7 +112,8 @@ public:
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
             const auto& properties = index_meta->properties();
             if (get_parser_phrase_support_string_from_properties(properties) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+                is_normalizer_only(properties)) {
                 return true;
             }
         }
@@ -111,7 +127,8 @@ public:
             query_type == TExprOpcode::MATCH_PHRASE_PREFIX) {
             const auto& properties = index_meta->properties();
             if (get_parser_phrase_support_string_from_properties(properties) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+                is_normalizer_only(properties)) {
                 return true;
             }
         }
