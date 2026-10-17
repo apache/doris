@@ -117,6 +117,9 @@ suite("test_hot_value") {
     logger.info("result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
+    // key1 is the single distribution column, so a real sample analyzes it with the linear
+    // estimator, which does not collect hot_value.
+    assertEquals("null", String.valueOf(result[0][17]))
     result = sql """show column stats test1(value1)"""
     logger.info("1. result " + result)
     assertEquals(1, result.size())
@@ -143,6 +146,7 @@ suite("test_hot_value") {
     logger.info("result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
+    assertEquals("null", String.valueOf(result[0][17]))
     result = sql """show column stats test1(value1)"""
     logger.info("2. result " + result)
     assertEquals(1, result.size())
@@ -197,13 +201,15 @@ suite("test_hot_value") {
     assertEquals("' : ;a':1.0", result[0][17])
 
     sql """drop stats test2"""
+    // As for test1 above, the requested sample rows are larger than the table, so sample analyze
+    // falls back to a full scan with the linear estimator, which does not collect hot_value.
     sql """analyze table test2 with sample rows 4000000 with sync"""
     result = sql """show column stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals("' : ;a':1.0", result[0][17])
-    result = sql """show column cached stats test2(value1)"""   
+    assertEquals("null", String.valueOf(result[0][17]))
+    result = sql """show column cached stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals("' : ;a':1.0", result[0][17])
+    assertEquals("null", String.valueOf(result[0][17]))
 
     sql """set enable_dphyp_optimizer=true"""
     sql """

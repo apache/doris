@@ -1016,7 +1016,8 @@ public class OlapAnalysisTaskTest {
             Assertions.assertFalse(sql.contains("cte3"), sql);
             Assertions.assertFalse(sql.contains("CROSS JOIN cte3"), sql);
             Assertions.assertFalse(sql.contains("GROUP BY `hash_value`"), sql);
-            // None of the hot value params is left for the linear template to fill.
+            // The linear template carries no hot value placeholder at all. Which params each
+            // algorithm fills is pinned by testGetSampleParams.
             Assertions.assertFalse(sql.contains("${hotValueCollectCount}"), sql);
             Assertions.assertFalse(sql.contains("${subStringColName}"), sql);
             Assertions.assertFalse(sql.contains("${rowCount2}"), sql);

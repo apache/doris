@@ -50,9 +50,13 @@ suite('hot_value_analyze_sync') {
     sql """
     drop table if exists t1025;
     create table t1025(a_1 int, b_5 int, c_10 int, d_1025 int) distributed by hash(c_10) properties('replication_num'='1');
-    insert into t1025 select 1, number%5 , number%10, number from numbers("number"="100");
+    insert into t1025 select 1, number%5 , number%10, number from numbers("number"="10000");
     """
-    wait_row_count_reported(realDb, "t1025", 0, 4, "100")
+    wait_row_count_reported(realDb, "t1025", 0, 4, "10000")
+    // The sample request must stay below the table row count: with more sample rows than rows in the
+    // table, sample analyze falls back to a full scan that uses the linear estimator, and the linear
+    // estimator does not collect hot value (`null as hot_value`). d_1025 is not the distribution
+    // column, so a real sample analyzes it with the DUJ1 estimator, which does collect hot value.
     sql "analyze table t1025 with sample rows 4000 with sync;"
     def result = sql "show column cached stats t1025"
     log.info(result.toString())
