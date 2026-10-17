@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.jni.spi.utils.OffHeap;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
@@ -96,6 +97,18 @@ public class PaimonTimestampRepairReaderTest {
     @Test
     public void fallbackTimestampPolicyRunsAfterPrecisionRepair() throws Exception {
         checkReader("fallback_policy", new Object[] {LocalDateTime.of(2025, 1, 1, 0, 0, 1),
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void fallbackRenamedHiddenPolicyColumnUsesSelectedBranchSchema() throws Exception {
+        checkReader("fallback_renamed_policy", new Object[] {LocalDateTime.of(1969, 12, 31, 23, 59, 59),
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
+    }
+
+    @Test
+    public void primaryOrderingRetainsRenamedHiddenFallbackPolicyColumn() throws Exception {
+        checkReader("fallback_primary_renamed_policy", new Object[] {LocalDateTime.of(1969, 12, 31, 23, 59, 59),
                 LocalDateTime.of(2025, 1, 1, 0, 0, 1)});
     }
 
@@ -212,6 +225,8 @@ public class PaimonTimestampRepairReaderTest {
             catalog.createDatabase("db", false);
             Identifier id = Identifier.create("db", "events");
             boolean nested = mode.equals("nested_policy");
+            boolean renamedPolicy = mode.equals("fallback_renamed_policy")
+                    || mode.equals("fallback_primary_renamed_policy");
             Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT())
                     .column("ts", DataTypes.TIMESTAMP(6)).option("file.format", "parquet");
             if (nested) {
@@ -236,6 +251,9 @@ public class PaimonTimestampRepairReaderTest {
             }
             List<SchemaChange> changes = new java.util.ArrayList<>();
             changes.add(SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(0), true));
+            if (renamedPolicy) {
+                changes.add(SchemaChange.renameColumn("id", "renamed_id"));
+            }
             if (nested) {
                 changes.add(SchemaChange.updateColumnType(new String[] {"payload", "hidden"},
                         DataTypes.TIMESTAMP(0), true));
@@ -248,7 +266,8 @@ public class PaimonTimestampRepairReaderTest {
             }
             Split split = table.newReadBuilder().newScan().plan().splits().get(0);
             PredicateBuilder builder = new PredicateBuilder(table.rowType());
-            Predicate integer = builder.equal(builder.indexOf("id"), 7);
+            Predicate integer = builder.equal(builder.indexOf(
+                    renamedPolicy ? "renamed_id" : "id"), 7);
             Predicate timestamp = builder.equal(builder.indexOf("ts"),
                     Timestamp.fromLocalDateTime(mode.equals("hidden_timestamp_policy")
                             ? LocalDateTime.of(1969, 12, 31, 23, 59, 59) : LocalDateTime.of(2025, 1, 1, 0, 0, 1)));
@@ -284,6 +303,7 @@ public class PaimonTimestampRepairReaderTest {
                             Timestamp.fromLocalDateTime(LocalDateTime.of(1969, 12, 31, 23, 59, 59)));
                 }
                 TableQueryAuthResult auth = mode.equals("integer_policy") || mode.equals("audit_log_policy")
+                        || renamedPolicy
                         ? new TableQueryAuthResult(
                         Collections.singletonList(JsonSerdeUtil.toJson(policy)), Collections.emptyMap())
                         : new TypedPolicyAuth(policy, mode.equals("masking_policy")
@@ -301,8 +321,14 @@ public class PaimonTimestampRepairReaderTest {
                 Identifier mainId = Identifier.create("db", "main_events");
                 catalog.createTable(mainId, Schema.newBuilder().column("id", DataTypes.INT())
                         .column("ts", DataTypes.TIMESTAMP(0)).option("file.format", "parquet").build(), false);
-                table = new FallbackReadFileStoreTable((FileStoreTable) catalog.getTable(mainId),
-                        (FileStoreTable) table, true);
+                if (mode.equals("fallback_primary_renamed_policy")) {
+                    table = new FallbackReadFileStoreTable(((FileStoreTable) table).copy(
+                            Collections.singletonMap(CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary")),
+                            (FileStoreTable) catalog.getTable(mainId), false);
+                } else {
+                    table = new FallbackReadFileStoreTable((FileStoreTable) catalog.getTable(mainId),
+                            (FileStoreTable) table, true);
+                }
                 params.put("serialized_table", encode(table));
             }
             params.put("paimon_split", encode(split));

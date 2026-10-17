@@ -37,6 +37,7 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable.FallbackSplit;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.QueryAuthSplit;
@@ -207,10 +208,11 @@ public class PaimonJniScanner extends JniScanner {
     private void initReader() throws IOException {
         Split split = getSplit();
         QueryAuthSplit authSplit = PaimonTimestampQueryAuth.findAuthSplit(split);
+        RowType policyTableType = authSplit == null ? table.rowType() : policyRowType(table, split);
         if (authSplit != null && authSplit.authResult() != null
                 && Boolean.parseBoolean(params.getOrDefault(
                         PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"))
-                && PaimonTimestampQueryAuth.readsTimestamp(authSplit.authResult(), table.rowType(),
+                && PaimonTimestampQueryAuth.readsTimestamp(authSplit.authResult(), policyTableType,
                         Arrays.stream(fields).filter(field -> !isFileMetadataField(field))
                                 .collect(Collectors.toList()))) {
             requiresDatetimeV2PrecisionRepair = true;
@@ -269,7 +271,7 @@ public class PaimonJniScanner extends JniScanner {
         RowType outputType = new RowType(currentFields);
         if (repairPolicy) {
             PaimonTimestampQueryAuth.addPolicyFields(
-                    authSplit.authResult(), table.rowType(), readFields, currentFields);
+                    authSplit.authResult(), policyTableType, readFields, currentFields);
             split = PaimonTimestampQueryAuth.repairPolicy(split, new RowType(currentFields));
             hasReadTypeProjection = true;
         }
@@ -288,6 +290,18 @@ public class PaimonJniScanner extends JniScanner {
         // Decode with the types that were REQUESTED, not the table's: a pruned nested column comes back
         // narrow, and taking table.rowType() here would misalign every one of them.
         paimonDataTypeList = outputReadFields.stream().map(DataField::type).collect(Collectors.toList());
+    }
+
+    private static RowType policyRowType(Table source, Split split) {
+        if (source instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) source;
+            boolean readFallback = split instanceof FallbackSplit && ((FallbackSplit) split).isFallback();
+            FileStoreTable branch = isWrappedFirst(pair) != readFallback ? pair.wrapped() : pair.other();
+            // Mirror the SDK reader's branch dispatch. Hidden policy fields belong to that
+            // branch's schema, not the outer table's independently named columns.
+            return policyRowType(branch, readFallback ? ((FallbackSplit) split).wrapped() : split);
+        }
+        return source.rowType();
     }
 
     static RowType createSafeTimestampReadType(RowType tableType) {
