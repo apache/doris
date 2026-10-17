@@ -46,9 +46,18 @@ public class UpdateRowsEvent implements Writable {
     private final long tableId;
 
     public UpdateRowsEvent(Map<Long, Long> records) {
+        this(-1, records);
+    }
+
+    /**
+     * For a load which reports the rows of a table by table id instead of by tablet. The database id comes
+     * first because the tablet keyed constructor above already takes a map followed by a long, and both
+     * would have the same erasure otherwise.
+     */
+    public UpdateRowsEvent(long dbId, Map<Long, Long> records) {
         this.records = records;
         this.tabletRecords = null;
-        this.dbId = -1;
+        this.dbId = dbId;
         this.partitionToUpdateRows = null;
         this.tableId = -1;
     }

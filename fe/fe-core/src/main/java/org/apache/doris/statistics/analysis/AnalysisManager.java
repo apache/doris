@@ -1276,6 +1276,45 @@ public class AnalysisManager implements Writable {
         return idToTblStats.get(tblId);
     }
 
+    /**
+     * The record of the table, created in the state of a table whose row count has never been collected when
+     * it doesn't exist yet. A truncation, a whole table DROP STATS and a schema change remove the record, so
+     * the rows which are loaded afterwards can only be turned into the row count of the table while the
+     * record exists: the planner falls back to it exactly while the backends have not reported the row count
+     * of the new tablets yet, which is the interval right after those operations.
+     *
+     * <p>Loads run this from the transaction visibility of the load, both on the master
+     * ({@code DatabaseTransactionMgr.updateCatalogAfterVisible}) and while a follower replays the transaction
+     * state, so the record exists on every frontend without a journal entry of its own.
+     *
+     * @return the existing or the created record, or null when the table cannot be resolved any more
+     */
+    private TableStatsMeta findOrCreateTableStats(InternalCatalog catalog, long dbId, long tableId) {
+        TableStatsMeta tableStats = idToTblStats.get(tableId);
+        if (tableStats != null) {
+            return tableStats;
+        }
+        Optional<Database> dbOption = catalog.getDb(dbId);
+        if (!dbOption.isPresent()) {
+            return null;
+        }
+        Optional<Table> tableOption = dbOption.get().getTable(tableId);
+        if (!tableOption.isPresent() || !(tableOption.get() instanceof OlapTable)) {
+            return null;
+        }
+        return findOrCreateTableStats((OlapTable) tableOption.get());
+    }
+
+    private TableStatsMeta findOrCreateTableStats(OlapTable table) {
+        TableStatsMeta tableStats = idToTblStats.get(table.getId());
+        if (tableStats != null) {
+            return tableStats;
+        }
+        TableStatsMeta created = new TableStatsMeta(table);
+        TableStatsMeta existing = idToTblStats.putIfAbsent(table.getId(), created);
+        return existing == null ? created : existing;
+    }
+
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
         try {
@@ -1298,12 +1337,12 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this for cloud version load.
-    public void updateUpdatedRows(Map<Long, Long> updatedRows) {
+    public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId) {
         try {
             if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
                 return;
             }
-            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, updatedRows);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
@@ -1355,7 +1394,7 @@ public class AnalysisManager implements Writable {
         InternalCatalog catalog = Env.getCurrentInternalCatalog();
         if (event.getRecords() != null) {
             for (Entry<Long, Long> record : event.getRecords().entrySet()) {
-                TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
+                TableStatsMeta statsStatus = findOrCreateTableStats(catalog, event.getDbId(), record.getKey());
                 if (statsStatus != null) {
                     statsStatus.updatedRows.addAndGet(record.getValue());
                 }
@@ -1366,52 +1405,52 @@ public class AnalysisManager implements Writable {
         // Record : TableId -> (TabletId -> update rows)
         if (event.getTabletRecords() != null) {
             for (Entry<Long, Map<Long, Long>> record : event.getTabletRecords().entrySet()) {
-                TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
-                if (statsStatus != null) {
-                    Optional<Database> dbOption = catalog.getDb(event.getDbId());
-                    if (!dbOption.isPresent()) {
-                        LOG.warn("Database {} does not exist.", event.getDbId());
-                        continue;
+                Optional<Database> dbOption = catalog.getDb(event.getDbId());
+                if (!dbOption.isPresent()) {
+                    LOG.warn("Database {} does not exist.", event.getDbId());
+                    continue;
+                }
+                Database database = dbOption.get();
+                Optional<Table> tableOption = database.getTable(record.getKey());
+                if (!tableOption.isPresent()) {
+                    LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
+                    continue;
+                }
+                Table table = tableOption.get();
+                if (!(table instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                TableStatsMeta statsStatus = findOrCreateTableStats(olapTable);
+                short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
+                Map<Long, Long> tabletRows = record.getValue();
+                if (tabletRows == null || tabletRows.isEmpty()) {
+                    LOG.info("Tablet row count map is empty");
+                    continue;
+                }
+                long rowsForAllReplica = 0;
+                for (Entry<Long, Long> entry : tabletRows.entrySet()) {
+                    rowsForAllReplica += entry.getValue();
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Table id {}, tablet id {}, row count {}",
+                                record.getKey(), entry.getKey(), entry.getValue());
                     }
-                    Database database = dbOption.get();
-                    Optional<Table> tableOption = database.getTable(record.getKey());
-                    if (!tableOption.isPresent()) {
-                        LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
-                        continue;
-                    }
-                    Table table = tableOption.get();
-                    if (!(table instanceof OlapTable)) {
-                        continue;
-                    }
-                    OlapTable olapTable = (OlapTable) table;
-                    short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
-                    Map<Long, Long> tabletRows = record.getValue();
-                    if (tabletRows == null || tabletRows.isEmpty()) {
-                        LOG.info("Tablet row count map is empty");
-                        continue;
-                    }
-                    long rowsForAllReplica = 0;
-                    for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        rowsForAllReplica += entry.getValue();
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Table id {}, tablet id {}, row count {}",
-                                    record.getKey(), entry.getKey(), entry.getValue());
-                        }
-                    }
-                    long tableUpdateRows = rowsForAllReplica / replicaNum;
-                    LOG.info("Update rows for table {} is {}, replicaNum is {}, "
-                            + "rows for all replica {}, tablets count {}",
-                            olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
-                    statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                    if (StatisticsUtil.enablePartitionAnalyze()) {
-                        updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
-                    }
+                }
+                long tableUpdateRows = rowsForAllReplica / replicaNum;
+                LOG.info("Update rows for table {} is {}, replicaNum is {}, "
+                        + "rows for all replica {}, tablets count {}",
+                        olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
+                statsStatus.updatedRows.addAndGet(tableUpdateRows);
+                if (StatisticsUtil.enablePartitionAnalyze()) {
+                    updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
                 }
             }
             return;
         }
 
-        // Handle truncate table
+        // Handle truncate table. A partition truncation is not a load: the rows it reports are the rows it
+        // removed, so it must not create a record for a table which has none, and it can only be accumulated
+        // into a record which was created by a load or an analyze.
         if (event.getPartitionToUpdateRows() != null && event.getTableId() > 0) {
             Map<Long, Long> partRows = event.getPartitionToUpdateRows();
             long totalRows = partRows.values().stream().mapToLong(rows -> rows).sum();
