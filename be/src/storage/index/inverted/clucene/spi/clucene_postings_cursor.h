@@ -39,12 +39,14 @@ public:
         lucene::index::TermPositions* positions = nullptr;
         uint32_t begin = 0;
         uint32_t end = 0;
+        bool has_norms = true;
     };
 
     explicit ClucenePostingsCursor(Partition part)
             : _single_iter(std::move(part.iter)),
               _iter(_single_iter.get()),
-              _raw_positions(part.positions) {
+              _raw_positions(part.positions),
+              _has_norms(part.has_norms) {
         _check_iterator();
         _doc_freq = _iter->docFreq();
     }
@@ -87,12 +89,13 @@ public:
                     DORIS_CHECK(_block.freq_many != nullptr);
                     DORIS_CHECK_GE(_block.freq_many_size_, _block.doc_many_size_);
                 }
+                // CLucene fills norm_many with zeroes when the field omits norms.
                 *out = {.docs = {_block.doc_many->data(), _block.doc_many_size_},
                         .freqs = _block.freq_many
                                          ? std::span<const uint32_t>(_block.freq_many->data(),
                                                                      _block.freq_many_size_)
                                          : std::span<const uint32_t>(),
-                        .norms = _block.norm_many
+                        .norms = _has_norms && _block.norm_many
                                          ? std::span<const uint32_t>(_block.norm_many->data(),
                                                                      _block.norm_many_size_)
                                          : std::span<const uint32_t>()};
@@ -312,6 +315,7 @@ private:
             _iter = part.iter.get();
             _raw_positions = part.positions;
             _doc_base = part.begin;
+            _has_norms = part.has_norms;
         }
     }
 
@@ -376,6 +380,7 @@ private:
     const uint32_t* _freqs = nullptr;
     uint32_t _prox_cursor = 0;
     lucene::index::TermPositions* _raw_positions = nullptr;
+    bool _has_norms = true;
     uint32_t _position_remaining = 0;
     uint32_t _position = 0;
     bool _position_open = false;
