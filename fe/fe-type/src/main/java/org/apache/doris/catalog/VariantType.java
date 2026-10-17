@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantDecimalPath;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -209,6 +210,35 @@ public class VariantType extends ScalarType {
         scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         scalarType.setVariantEnableDocMode(enableVariantDocMode);
         scalarType.setVariantIsV2(true);
+        ArrayList<TVariantDecimalPath> decimalPaths = collectDecimalPaths();
+        if (!decimalPaths.isEmpty()) {
+            scalarType.setVariantDecimalPaths(decimalPaths);
+        }
+    }
+
+    /**
+     * The predefined DECIMAL (or ARRAY of DECIMAL) fields, for the BE's parser: a JSON number with a
+     * fraction on one of these paths is parsed from its text instead of through a binary64.
+     */
+    public ArrayList<TVariantDecimalPath> collectDecimalPaths() {
+        ArrayList<TVariantDecimalPath> paths = Lists.newArrayList();
+        for (VariantField field : predefinedFields) {
+            Type fieldType = field.getType();
+            if (fieldType instanceof ArrayType) {
+                fieldType = ((ArrayType) fieldType).getItemType();
+            }
+            if (!(fieldType instanceof ScalarType) || !(fieldType.isDecimalV3() || fieldType.isDecimalV2())) {
+                continue;
+            }
+            ScalarType decimalType = (ScalarType) fieldType;
+            TVariantDecimalPath path = new TVariantDecimalPath();
+            path.setPattern(field.getPattern());
+            path.setIsGlob(field.getPatternType() != PatternType.MATCH_NAME);
+            path.setPrecision(decimalType.decimalPrecision());
+            path.setScale(decimalType.decimalScale());
+            paths.add(path);
+        }
+        return paths;
     }
 
     @Override

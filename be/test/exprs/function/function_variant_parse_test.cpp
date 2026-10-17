@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_decimal_paths.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/parse/variant_string_parse.h"
@@ -370,6 +371,31 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
+}
+
+TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseFractionsFromText) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
+            {.pattern = "money.amount", .is_glob = false, .precision = 20, .scale = 6}});
+    const std::string document = R"({"money":{"amount":123456789012.345678},"score":0.5})";
+    for (const char* name : {"parse_to_variant", "try_parse_to_variant"}) {
+        DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
+        if (std::string_view(name) == "try_parse_to_variant") {
+            typed = make_nullable(typed);
+        }
+        ExecutionResult result =
+                execute_parse(name, make_strings({document}), string_type, 1, typed);
+        ASSERT_TRUE(result.status.ok()) << name << ": " << result.status.to_string();
+        const std::string json = variant_json_at(result.output, 0);
+        EXPECT_NE(std::string::npos, json.find(R"("amount":"123456789012.345678")"))
+                << name << json;
+        EXPECT_NE(std::string::npos, json.find(R"("score":0.5)")) << name << json;
+    }
+    // Without paths on the result type the number stays a number.
+    ExecutionResult plain =
+            execute_parse("parse_to_variant", make_strings({document}), string_type, 1);
+    ASSERT_TRUE(plain.status.ok()) << plain.status.to_string();
+    EXPECT_EQ(std::string::npos, variant_json_at(plain.output, 0).find(R"("amount":")"));
 }
 
 } // namespace doris

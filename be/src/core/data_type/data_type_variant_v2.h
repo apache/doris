@@ -22,6 +22,7 @@
 
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/value/variant/variant_decimal_paths.h"
 
 namespace doris {
 
@@ -30,6 +31,8 @@ public:
     DataTypeVariantV2() = default;
     explicit DataTypeVariantV2(int32_t max_subcolumns_count);
     DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode);
+    DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
+                      VariantDecimalPathSetPtr decimal_paths);
 
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     PrimitiveType get_primitive_type() const override { return TYPE_VARIANT; }
@@ -50,6 +53,9 @@ public:
 
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
     bool enable_doc_mode() const { return _enable_doc_mode; }
+    // The Schema Template's DECIMAL paths, an ingestion hint only: two VARIANT types that differ
+    // just here are still equal, and the hint never reaches a column's bytes.
+    const VariantDecimalPathSetPtr& decimal_paths() const { return _decimal_paths; }
 
 protected:
     String do_get_name() const override { return _name; }
@@ -57,6 +63,7 @@ protected:
 private:
     int32_t _max_subcolumns_count = 0;
     bool _enable_doc_mode = false;
+    VariantDecimalPathSetPtr _decimal_paths;
     std::string _name = "Variant";
 };
 

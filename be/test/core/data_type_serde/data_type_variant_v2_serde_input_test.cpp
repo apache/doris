@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,10 +29,12 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
+#include "core/value/variant/variant_decimal_paths.h"
 #include "gen_cpp/types.pb.h"
 
 namespace doris {
@@ -306,6 +309,70 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
     // Native Arrow reads are supported; a missing array is an invalid request, not a missing codec.
     EXPECT_EQ(serde.read_column_from_arrow(*column, nullptr, 0, 0, cctz::utc_time_zone()).code(),
               ErrorCode::INVALID_ARGUMENT);
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseFractionsFromText) {
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
+            {.pattern = "money.amount", .is_glob = false, .precision = 20, .scale = 6},
+            {.pattern = "ratio*", .is_glob = true, .precision = 30, .scale = 18}});
+    DataTypeVariantV2SerDe serde(1, paths);
+    EXPECT_EQ(paths, serde.decimal_paths());
+    auto column = ColumnVariantV2::create();
+    ScopedInvalidJsonMode mode(true);
+    ASSERT_TRUE(deserialize_json(serde, *column,
+                                 R"({"money":{"amount":123456789012.345678,"ccy":"INR"},)"
+                                 R"("ratio_a":0.123456789012345678901,"score":0.5,"n":7})")
+                        .ok());
+    const std::string json = json_at(serde, *column, 0);
+    // The declared DECIMAL paths carry the exact text, the rest is parsed as before.
+    EXPECT_NE(std::string::npos, json.find(R"("amount":"123456789012.345678")")) << json;
+    EXPECT_NE(std::string::npos, json.find(R"("ratio_a":"0.123456789012345678901")")) << json;
+    EXPECT_NE(std::string::npos, json.find(R"("ccy":"INR")")) << json;
+    EXPECT_NE(std::string::npos, json.find(R"("score":0.5)")) << json;
+    EXPECT_NE(std::string::npos, json.find(R"("n":7)")) << json;
+
+    // The vector entry point takes the same route.
+    std::vector<std::string> texts {R"({"money":{"amount":1.000001}})",
+                                    R"({"money":{"amount":2}})"};
+    std::vector<Slice> slices;
+    for (const std::string& text : texts) {
+        slices.emplace_back(text.data(), text.size());
+    }
+    uint64_t deserialized = 0;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(serde.deserialize_column_from_json_vector(*column, slices, &deserialized, options)
+                        .ok());
+    EXPECT_EQ(2, deserialized);
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 1).find(R"("amount":"1.000001")"));
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":2)"));
+
+    // A serde without paths keeps every number a number.
+    DataTypeVariantV2SerDe plain;
+    EXPECT_EQ(nullptr, plain.decimal_paths());
+    auto plain_column = ColumnVariantV2::create();
+    ASSERT_TRUE(deserialize_json(plain, *plain_column, R"({"money":{"amount":1.000001}})").ok());
+    EXPECT_EQ(std::string::npos, json_at(plain, *plain_column, 0).find(R"("amount":")"));
+
+    // Invalid text on a path-bearing serde is still the parser's verdict on the original text.
+    ScopedInvalidJsonMode lenient(false);
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1.5)").ok());
+    const std::string fallback = json_at(serde, *column, 3);
+    EXPECT_EQ('"', fallback.front()) << fallback;
+    EXPECT_NE(std::string::npos, fallback.find("amount")) << fallback;
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
+    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantDecimalPath> {
+            {.pattern = "amount", .is_glob = false, .precision = 20, .scale = 6}});
+    DataTypeVariantV2 typed(0, false, paths);
+    DataTypeVariantV2 plain(0, false);
+    EXPECT_EQ(paths, typed.decimal_paths());
+    EXPECT_EQ(nullptr, plain.decimal_paths());
+    // The paths are an ingestion hint, never part of the type's identity.
+    EXPECT_TRUE(typed.equals(plain));
+    auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(typed.get_serde());
+    ASSERT_NE(nullptr, serde);
+    EXPECT_EQ(paths, serde->decimal_paths());
 }
 
 } // namespace doris
