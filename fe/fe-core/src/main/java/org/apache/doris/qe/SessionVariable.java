@@ -585,6 +585,7 @@ public class SessionVariable implements Serializable, Writable {
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
+    public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -2585,6 +2586,15 @@ public class SessionVariable implements Serializable, Writable {
     // Default 0 means use config::iceberg_sink_max_file_size
     @VarAttrDef.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
     public long icebergWriteTargetFileSizeBytes = 0L;
+
+    // Read by the Paimon connector under this name (PaimonWritePlanProvider.ENABLE_CHAR_PADDING).
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PAIMON_WRITE_CHAR_PADDING,
+            description = "Whether INSERT into a Paimon table pads CHAR(n) values with spaces to n characters, "
+                    + "nested values and static partition values included, as Spark and Flink do. Turn it off to "
+                    + "write them unpadded, as Doris did before, for a table whose CHAR keys an earlier Doris wrote.",
+            needForward = true)
+    public boolean enablePaimonWriteCharPadding = true;
 
     @VarAttrDef.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
