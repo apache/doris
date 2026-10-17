@@ -2068,8 +2068,10 @@ Status SegmentIterator::_drop_placeholder_hidden_column_index(ColumnId cid) {
     }
     // Index queries take their options from the query's RuntimeState (see
     // InvertedIndexReader::handle_searcher_cache); compaction, schema change and index builds read
-    // without one and evaluate no index.
-    if (_opts.runtime_state == nullptr) {
+    // without one and evaluate no index. A query that disables inverted index queries never
+    // consumes the iterator either, so the probe would only add index I/O to a scan that opted out.
+    if (_opts.runtime_state == nullptr ||
+        !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return Status::OK();
     }
     // A singleton rowset serves VERSION/COMMIT_TSO through a ConstantColumnReader, which opens no
@@ -2093,8 +2095,23 @@ Status SegmentIterator::_drop_placeholder_hidden_column_index(ColumnId cid) {
     param.skip_try = true;
     Status st = _index_iterators[cid]->read_from_index(IndexParam {&param});
     if (!st.ok()) {
-        // The predicates on this column downgrade on the same status; otherwise it is an error.
-        return _downgrade_without_index(st) ? Status::OK() : st;
+        // The predicates on this column downgrade on the same statuses; otherwise it is an error.
+        if (!_downgrade_without_index(st)) {
+            return st;
+        }
+        // A probe that cannot answer cannot prove the index holds the materialized values, and a
+        // damaged index can still answer a disjoint predicate from intact compact bounds alone,
+        // without ever touching the damaged part (an old all-zero index keeps `[0, 0]` bounds and
+        // may have a damaged lazily decoded leaf). Leaving the iterator in place would then lose
+        // the matching rows, so drop it instead of handing it to the predicate path.
+        LOG(WARNING)
+                << "ignore the inverted index of " << column.name() << " for tablet " << _tablet_id
+                << ", rowset " << _segment->rowset_id().to_string() << ", segment " << segment_id()
+                << ": the placeholder probe failed (" << st
+                << "), so the index cannot be trusted to hold the materialized values; rebuild "
+                   "the index";
+        _index_iterators[cid].reset();
+        return Status::OK();
     }
     if (param.roaring->cardinality() != num_rows()) {
         return Status::OK();

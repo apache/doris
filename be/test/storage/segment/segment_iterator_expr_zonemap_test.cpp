@@ -64,6 +64,7 @@
 #include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -385,6 +386,8 @@ protected:
     }
 
     void TearDown() override {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = false;
         ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
         ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
         _inverted_index_searcher_cache.reset();
@@ -1620,6 +1623,92 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionIgnoresPlaceholderInvertedInd
 
     ASSERT_NO_FATAL_FAILURE(assert_range_version_eq_end_rows(segment));
     EXPECT_EQ(0, _stats.rows_inverted_index_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, RangeVersionSkipsPlaceholderProbeWhenIndexQueriesDisabled) {
+    // Case: the query disables inverted index queries, so no predicate consumes the index. The
+    // initialization-time placeholder probe must not query it either. The debug point turns any
+    // index query into a downgrade, so a probe that still runs is visible in the counter.
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment_with_placeholder_index(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    TQueryOptions query_options;
+    query_options.__set_enable_inverted_index_query(false);
+    query_options.__set_enable_inverted_index_query_cache(false);
+    query_options.__set_enable_inverted_index_searcher_cache(false);
+    _runtime_state.set_query_options(query_options);
+
+    auto predicate = make_version_eq_column_predicate(kVersionCid, kRangeEndVersion);
+    auto block_predicate = AndBlockColumnPredicate::create_shared();
+    block_predicate->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+
+    const std::set<int32_t> output_column_uids {0, kVersionCid};
+    StorageReadOptions read_options(_stats);
+    read_options.runtime_state = &_runtime_state;
+    read_options.version = Version(kRangeStartVersion, kRangeEndVersion);
+    read_options.block_row_max = 1024;
+    read_options.column_predicates = {predicate};
+    read_options.col_id_to_predicates.emplace(kVersionCid, std::move(block_predicate));
+    read_options.output_columns = &output_column_uids;
+
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("return_inverted_index_bypass");
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                        kNumRows / 2, kRangeEndVersion));
+    EXPECT_EQ(0, _stats.inverted_index_downgrade_count);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, RangeVersionDropsIndexWhenPlaceholderProbeFails) {
+    // Case: the probe cannot answer, as a damaged index leaf does. The intact `[0, 0]` bounds of
+    // the placeholder index would still answer `VERSION = 3` with no rows, so the failed probe
+    // must drop the iterator; the predicate then evaluates the stored values.
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment_with_placeholder_index(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    TQueryOptions query_options;
+    query_options.__set_enable_inverted_index_query(true);
+    query_options.__set_enable_inverted_index_query_cache(false);
+    query_options.__set_enable_inverted_index_searcher_cache(false);
+    query_options.__set_inverted_index_skip_threshold(0);
+    _runtime_state.set_query_options(query_options);
+
+    auto predicate = make_version_eq_column_predicate(kVersionCid, kRangeEndVersion);
+    auto block_predicate = AndBlockColumnPredicate::create_shared();
+    block_predicate->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+
+    const std::set<int32_t> output_column_uids {0, kVersionCid};
+    StorageReadOptions read_options(_stats);
+    read_options.runtime_state = &_runtime_state;
+    read_options.version = Version(kRangeStartVersion, kRangeEndVersion);
+    read_options.block_row_max = 1024;
+    read_options.column_predicates = {predicate};
+    read_options.col_id_to_predicates.emplace(kVersionCid, std::move(block_predicate));
+    read_options.output_columns = &output_column_uids;
+
+    // The probe runs during init; make its index query return the downgrade status a damaged
+    // index reports, then restore the normal path before the first batch evaluates the predicate.
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("return_inverted_index_bypass");
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    st = iter->init(read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    DebugPoints::instance()->remove("return_inverted_index_bypass");
+    config::enable_debug_points = false;
+
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                        kNumRows / 2, kRangeEndVersion));
+    EXPECT_EQ(1, _stats.inverted_index_downgrade_count);
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeVersion) {
