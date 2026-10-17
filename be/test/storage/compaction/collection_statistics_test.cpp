@@ -1445,10 +1445,11 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 }
 
 namespace {
-VExprSPtr make_scoring_search(const std::string& clause_type, const std::string& value) {
+VExprSPtr make_scoring_search(const std::string& clause_type, const std::string& value,
+                              const std::string& field_name = "content") {
     TSearchClause clause;
     clause.__set_clause_type(clause_type);
-    clause.__set_field_name("content");
+    clause.__set_field_name(field_name);
     clause.__set_value(value);
     TSearchParam param;
     param.__set_root(clause);
@@ -1519,6 +1520,56 @@ TEST_F(CollectionStatisticsTest, SearchRejectsNumericBkdScoring) {
     const auto status = collector.collect(runtime_state_.get(), schema, expr, &infos);
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_TRUE(infos.empty());
+}
+
+// Regression for DORIS-29489: a scored SEARCH clause names a VARIANT path ("v.content") that is
+// not a tablet-schema column while the path is not materialized. The collector used to skip the
+// clause, leaving no statistics for the field, and the read then failed with
+// "Index statistics collection failed: Not such column <uid>.v.content". The collector must
+// resolve the path through its parent VARIANT column and the index that path inherits.
+TEST_F(CollectionStatisticsTest, SearchCollectsVariantParentIndexStatistics) {
+    auto schema = std::make_shared<TabletSchema>();
+    constexpr int32_t kVariantUid = 9005;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    schema->append_column(variant_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2005);
+    index_pb.set_index_name("variant_parent_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    schema->append_index(std::move(index));
+
+    // Pre-conditions: the path is not a tablet-schema column and has no field_pattern template,
+    // so the clause can only be resolved through the plain parent index.
+    ASSERT_EQ(schema->field_index("v.content"), -1);
+    ASSERT_EQ(schema->inverted_indexs(kVariantUid).size(), 1U);
+    TabletSchema::SubColumnInfo sub_column_info;
+    ASSERT_FALSE(variant_util::generate_sub_column_info(*schema, kVariantUid, "content",
+                                                        &sub_column_info));
+
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto expr = make_scoring_search("TERM", "apple", "v.content");
+    ASSERT_TRUE(collector.collect(runtime_state_.get(), schema, expr, &infos).ok());
+    ASSERT_EQ(infos.size(), 1U);
+    auto it = infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.content"));
+    ASSERT_NE(it, infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_parent_idx");
+    ASSERT_EQ(it->second.term_infos.size(), 1U);
+    EXPECT_EQ(it->second.term_infos.begin()->get_single_term(), "apple");
 }
 
 } // namespace doris

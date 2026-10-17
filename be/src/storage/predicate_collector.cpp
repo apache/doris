@@ -111,6 +111,69 @@ Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex
     return index_metas[*selection];
 }
 
+// The indexes that serve one scored SEARCH field, the leaf type the reader selection uses, and
+// the path suffix the index files store that field under. The suffix is what the read side
+// builds its Lucene field name from, so statistics must be keyed with exactly the same value.
+struct ScoringIndexCandidates {
+    FieldType field_type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    std::string index_suffix_path;
+    std::vector<const TabletIndex*> index_metas;
+    // Candidate indexes cloned from the schema's indexes, e.g. a parent VARIANT index applied to
+    // one of its paths. They have to outlive the collector call because CollectInfo keeps a raw
+    // pointer to the selected one.
+    std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
+};
+
+ScoringIndexCandidates resolve_scoring_index_candidates(const TabletSchemaSPtr& tablet_schema,
+                                                        const TabletColumn& column) {
+    ScoringIndexCandidates candidates {.field_type = column.type(),
+                                       .index_suffix_path = column.suffix_path(),
+                                       .index_metas = tablet_schema->inverted_indexs(column),
+                                       .owned_index_metas = {}};
+
+    // The collector has tablet-schema context but no segment-side variant inference. Resolve only
+    // shapes that are deterministic from schema: typed/materialized paths, field-pattern
+    // templates, and a plain parent index inherited by the dynamic VARIANT placeholder.
+    if (!candidates.index_metas.empty() || !column.is_extracted_column()) {
+        return candidates;
+    }
+
+    TabletSchema::SubColumnInfo sub_column_info;
+    const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
+    if (variant_util::generate_sub_column_info(*tablet_schema, column.parent_unique_id(),
+                                               relative_path, &sub_column_info) &&
+        !sub_column_info.indexes.empty()) {
+        candidates.field_type = sub_column_info.column.type();
+        candidates.index_suffix_path = sub_column_info.column.suffix_path();
+        for (auto& index : sub_column_info.indexes) {
+            candidates.index_metas.push_back(index.get());
+            candidates.owned_index_metas.emplace_back(std::move(index));
+        }
+        return candidates;
+    }
+
+    if (!column.is_variant_type()) {
+        return candidates;
+    }
+
+    // A dynamic VARIANT path with no materialized type inherits the plain full-text index of its
+    // parent column. Score-bearing SEARCH clauses have text semantics, so the path can use that
+    // index; the cloned metadata carries the path as its suffix, matching the field name the
+    // index files were written with.
+    candidates.field_type = FieldType::OLAP_FIELD_TYPE_STRING;
+    const auto parent_indexes = tablet_schema->inverted_indexs(column.parent_unique_id());
+    for (const auto* index : parent_indexes) {
+        if (!index->field_pattern().empty()) {
+            continue;
+        }
+        auto owned_index = std::make_shared<TabletIndex>(*index);
+        owned_index->set_escaped_escaped_index_suffix_path(column.path_info_ptr()->get_path());
+        candidates.index_metas.push_back(owned_index.get());
+        candidates.owned_index_metas.emplace_back(std::move(owned_index));
+    }
+    return candidates;
+}
+
 } // namespace
 
 Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
@@ -371,18 +434,43 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     }
 
     int32_t col_idx = tablet_schema->field_index(field_name);
-    if (col_idx == -1) {
-        return Status::OK();
+    // A scored SEARCH field may name a VARIANT sub-column (e.g. "v.content"). The path only
+    // becomes a tablet-schema column once it is materialized, so build the synthetic VARIANT
+    // column the scan uses for a dynamic path and let the resolver find the parent index the
+    // path inherits. Without it the clause would be skipped here and the read would later ask
+    // for the statistics of a field that was never collected.
+    TabletColumn dynamic_column;
+    const TabletColumn* column = nullptr;
+    if (col_idx >= 0) {
+        column = &tablet_schema->column(col_idx);
+    } else {
+        const auto dot_pos = field_name.find('.');
+        if (dot_pos == std::string::npos) {
+            return Status::OK();
+        }
+        const auto parent_col_idx = tablet_schema->field_index(field_name.substr(0, dot_pos));
+        if (parent_col_idx < 0) {
+            return Status::OK();
+        }
+        const auto& parent_column = tablet_schema->column(parent_col_idx);
+        if (!parent_column.is_variant_type()) {
+            return Status::OK();
+        }
+        dynamic_column.set_unique_id(-1);
+        dynamic_column.set_name(field_name);
+        dynamic_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        dynamic_column.set_parent_unique_id(parent_column.unique_id());
+        dynamic_column.set_path_info(PathInData(field_name));
+        column = &dynamic_column;
     }
 
-    const auto& column = tablet_schema->column(col_idx);
-
-    auto index_metas = tablet_schema->inverted_indexs(column.unique_id(), column.suffix_path());
-    if (index_metas.empty()) {
+    auto candidates = resolve_scoring_index_candidates(tablet_schema, *column);
+    if (candidates.index_metas.empty()) {
         return Status::OK();
     }
+    auto index_metas = candidates.index_metas;
 
-    if (!column.is_extracted_column()) {
+    if (!column->is_extracted_column()) {
         // Plain fields must use the same reader for statistics and SEARCH execution.
         // Variant paths retain the branch-specific binding resolution.
         auto query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
@@ -393,14 +481,14 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         } else if (clause_type == "ALL") {
             query_type = InvertedIndexQueryType::MATCH_ALL_QUERY;
         }
-        const auto* selected =
-                DORIS_TRY(select_index_meta(index_metas, column.type(), query_type, "", ""));
+        const auto* selected = DORIS_TRY(
+                select_index_meta(index_metas, candidates.field_type, query_type, "", ""));
         index_metas = {selected};
     }
 
     ClauseTypeCategory category = get_clause_type_category(clause_type);
     for (const auto* index_meta : index_metas) {
-        if (infer_inverted_index_reader_type(column.type(), index_meta->properties()) ==
+        if (infer_inverted_index_reader_type(candidates.field_type, index_meta->properties()) ==
             InvertedIndexReaderType::BKD) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                     "Index statistics collection failed: BM25 scoring does not support numeric BKD "
@@ -419,7 +507,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         }
 
         std::string lucene_field_name =
-                build_field_name(index_meta->col_unique_ids()[0], column.suffix_path());
+                build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
         std::wstring ws_field_name = StringHelper::to_wstring(lucene_field_name);
 
         auto iter = collect_infos->find(ws_field_name);
@@ -427,6 +515,12 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
             CollectInfo collect_info;
             collect_info.term_infos = std::move(term_infos);
             collect_info.index_meta = index_meta;
+            for (const auto& owned_index_meta : candidates.owned_index_metas) {
+                if (owned_index_meta.get() == index_meta) {
+                    collect_info.owned_index_meta = owned_index_meta;
+                    break;
+                }
+            }
             (*collect_infos)[ws_field_name] = std::move(collect_info);
         } else {
             iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
