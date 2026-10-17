@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
@@ -125,6 +126,79 @@ protected:
         }
     }
 
+    static void check_spatial_annotation(const DataTypeSpatial& identity,
+                                         const ::parquet::ColumnDescriptor& field) {
+        const bool geography = identity.get_primitive_type() == TYPE_GEOGRAPHY;
+        EXPECT_EQ(field.max_definition_level(), 1);
+        const auto& logical = field.logical_type();
+        if (geography) {
+            ASSERT_TRUE(logical->is_geography());
+            const auto& annotation = static_cast<const ::parquet::GeographyLogicalType&>(*logical);
+            EXPECT_EQ(annotation.crs(), identity.crs());
+            EXPECT_EQ(annotation.algorithm_name(), identity.algorithm());
+        } else {
+            ASSERT_TRUE(logical->is_geometry());
+            EXPECT_EQ(static_cast<const ::parquet::GeometryLogicalType&>(*logical).crs(),
+                      identity.crs());
+        }
+    }
+
+    static void check_spatial_values(::parquet::ParquetFileReader& reader, const std::string& wkb) {
+        EXPECT_EQ(reader.metadata()->num_rows(), 2);
+        auto values =
+                std::static_pointer_cast<::parquet::ByteArrayReader>(reader.RowGroup(0)->Column(0));
+        int16_t levels[2];
+        ::parquet::ByteArray binary;
+        int64_t values_read;
+        EXPECT_EQ(values->ReadBatch(2, levels, nullptr, &binary, &values_read), 2);
+        ASSERT_EQ(values_read, 1);
+        EXPECT_EQ(levels[0], 1);
+        EXPECT_EQ(levels[1], 0);
+        EXPECT_EQ(std::string(reinterpret_cast<const char*>(binary.ptr), binary.len), wkb);
+    }
+
+    void check_spatial_file(const DataTypePtr& spatial) {
+        const std::string wkb(
+                "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@",
+                21);
+        const auto type = make_nullable(spatial);
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        column->insert_default();
+        Block block;
+        block.insert({std::move(column), type, "shape"});
+        const auto& identity = assert_cast<const DataTypeSpatial&>(*spatial);
+        const bool geography = identity.get_primitive_type() == TYPE_GEOGRAPHY;
+        const std::string schema_type =
+                geography ? "geography(" + identity.crs() + "," + identity.algorithm() + ")"
+                          : "geometry(" + identity.crs() + ")";
+        const std::string json =
+                "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
+                "\"required\":false,\"type\":\"" +
+                schema_type + "\"}]}";
+        auto schema = iceberg::SchemaParser::from_json(json);
+        auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
+        io::FileWriterPtr output;
+        ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                    .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+        VIcebergParquetWriter writer(&state, output.get(), expressions, {"shape"}, false, options,
+                                     &json, *schema);
+        ASSERT_TRUE(writer.open().ok());
+        ASSERT_TRUE(writer.write(block).ok());
+        ASSERT_TRUE(writer.close().ok());
+        TIcebergColumnStats stats;
+        ASSERT_TRUE(writer.collect_file_statistics_after_close(&stats).ok());
+        EXPECT_EQ(stats.lower_bounds.count(1), 0);
+        EXPECT_EQ(stats.upper_bounds.count(1), 0);
+        auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path);
+        check_spatial_annotation(assert_cast<const DataTypeSpatial&>(*spatial),
+                                 *reader->metadata()->schema()->Column(0));
+        check_spatial_values(*reader, wkb);
+    }
+
     arrow::MemoryPool* _previous_pool = nullptr;
     std::string _file_path;
     std::shared_ptr<io::FileSystem> _fs;
@@ -164,6 +238,68 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+TEST_F(VParquetWriterTest, SpatialOptionalFilesPreserveAnnotationsBytesAndNullRows) {
+    const DataTypes types {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "thomas"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "andoyer"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "karney")};
+    for (const auto& spatial : types) {
+        check_spatial_file(spatial);
+    }
+}
+
+TEST_F(VParquetWriterTest, RejectsReferencedSpatialCrsBeforeOpeningParquet) {
+    for (const std::string crs : {"projjson:my_crs", "PrOjJsOn:my_crs"}) {
+        for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+            auto type = make_nullable(std::make_shared<DataTypeSpatial>(primitive, crs));
+            const std::string schema_type = primitive == TYPE_GEOMETRY
+                                                    ? "geometry(" + crs + ")"
+                                                    : "geography(" + crs + ",spherical)";
+            const std::string json =
+                    "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
+                    "\"required\":false,\"type\":\"" +
+                    schema_type + "\"}]}";
+            auto schema = iceberg::SchemaParser::from_json(json);
+            auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
+            io::FileWriterPtr output;
+            ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
+            RuntimeState state;
+            state.set_timezone("UTC");
+            ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                        .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+            VIcebergParquetWriter writer(&state, output.get(), expressions, {"shape"}, false,
+                                         options, &json, *schema);
+            const auto status = writer.open();
+            ASSERT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Referenced spatial CRS"), std::string::npos);
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, RejectsExistingIcebergNestedSpatialSchema) {
+    auto type = make_nullable(std::make_shared<DataTypeArray>(
+            make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))));
+    auto output_exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json = R"JSON({"type":"struct","fields":[
+        {"id":1,"name":"shapes","required":false,"type":{"type":"list",
+         "element-id":2,"element-required":false,"element":"geometry"}}]})JSON";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+    VIcebergParquetWriter writer(&state, file_writer.get(), output_exprs, {"shapes"}, false,
+                                 options, &json, *schema);
+    const auto status = writer.open();
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Nested Iceberg spatial columns"), std::string::npos);
 }
 
 TEST_F(VParquetWriterTest, IcebergDecimalBoundsUseMinimalSignedBytes) {

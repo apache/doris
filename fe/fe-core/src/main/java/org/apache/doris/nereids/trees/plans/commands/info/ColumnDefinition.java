@@ -389,6 +389,10 @@ public class ColumnDefinition {
         }
     }
 
+    private static boolean containsSpatialType(DataType dataType) {
+        return dataType.toCatalogDataType().typeContainsSpatialType();
+    }
+
     /**
      * validate column definition and analyze
      */
@@ -427,6 +431,9 @@ public class ColumnDefinition {
             FeNameFormat.checkColumnCommentLength(comment);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+        if (isOlap && containsSpatialType(type)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);

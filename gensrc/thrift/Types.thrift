@@ -104,7 +104,9 @@ enum TPrimitiveType {
   VARBINARY = 43, // represent varbinary type
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
-  UUID = 46
+  UUID = 46,
+  GEOMETRY = 47,
+  GEOGRAPHY = 48
 }
 
 enum TTypeNodeType {
@@ -151,6 +153,10 @@ struct TScalarType {
     6: optional bool variant_enable_doc_mode = false;
     // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
     7: optional bool variant_is_v2 = false;
+    // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+    8: optional string spatial_crs;
+    // Only set for Iceberg GEOGRAPHY type.
+    9: optional string spatial_algorithm;
 }
 
 // Represents a field in a STRUCT type.

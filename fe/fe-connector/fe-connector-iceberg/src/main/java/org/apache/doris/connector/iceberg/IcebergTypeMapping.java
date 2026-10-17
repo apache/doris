@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
@@ -126,6 +127,13 @@ public final class IcebergTypeMapping {
             case UUID:
                 // Preserve logical UUID semantics independently of the binary mapping option.
                 return ConnectorType.of("UUID");
+            case GEOMETRY:
+                return ConnectorType.of("GEOMETRY").withSpatialMetadata(
+                        ((Types.GeometryType) primitive).crs(), null);
+            case GEOGRAPHY:
+                Types.GeographyType geography = (Types.GeographyType) primitive;
+                return ConnectorType.of("GEOGRAPHY").withSpatialMetadata(
+                        geography.crs(), geography.algorithm().toString().toLowerCase(Locale.ROOT));
             case BINARY:
                 // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
                 // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
@@ -159,8 +167,8 @@ public final class IcebergTypeMapping {
                 // IcebergUtils which also mapped TIME to Type.UNSUPPORTED).
                 return ConnectorType.of("UNSUPPORTED");
             default:
-                // Any primitive iceberg type Doris cannot represent — notably the v3 types
-                // GEOMETRY / GEOGRAPHY / UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
+                // Any primitive iceberg type Doris cannot represent, including UNKNOWN,
+                // degrades to UNSUPPORTED: the table still LOADS and only this
                 // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
                 // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
                 // table). Graceful degradation is INTENTIONAL (user decision 2026-07-13: map every unrepresentable
@@ -188,6 +196,14 @@ public final class IcebergTypeMapping {
         switch (name) {
             case "UUID":
                 return Types.UUIDType.get();
+            case "GEOMETRY":
+                return type.getSpatialCrs() == null
+                        ? Types.GeometryType.crs84() : Types.GeometryType.of(type.getSpatialCrs());
+            case "GEOGRAPHY":
+                String crs = type.getSpatialCrs() == null ? Types.GeographyType.DEFAULT_CRS : type.getSpatialCrs();
+                String algorithm = type.getSpatialAlgorithm() == null
+                        ? EdgeAlgorithm.SPHERICAL.toString() : type.getSpatialAlgorithm();
+                return Types.GeographyType.of(crs, EdgeAlgorithm.fromName(algorithm));
             case "BOOLEAN":
                 return Types.BooleanType.get();
             case "INT":

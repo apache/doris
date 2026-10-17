@@ -129,6 +129,26 @@ TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
     }
 }
 
+TEST_F(DataTypeVarbinarySerDeTest, NestedHexStringsKeepPrefixAndRoundTrip) {
+    DataTypeVarbinarySerDe serde(2);
+    auto input = ColumnVarbinary::create();
+    auto output = ColumnString::create();
+    auto restored = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"", "0x"}, {"abc", "0x616263"}, {std::string("\0\xff", 2), "0x00FF"}};
+    for (const auto& [bytes, hex] : cases) {
+        input->insert_data(bytes.data(), bytes.size());
+        VectorBufferWriter writer(*output);
+        serde.to_string(*input, input->size() - 1, writer, options);
+        writer.commit();
+        EXPECT_EQ(hex, output->get_data_at(output->size() - 1).to_string());
+        StringRef text(hex);
+        ASSERT_TRUE(serde.from_string(text, *restored, options).ok());
+        EXPECT_EQ(bytes, restored->get_data_at(restored->size() - 1).to_string());
+    }
+}
+
 TEST_F(DataTypeVarbinarySerDeTest, Name) {
     DataTypeVarbinarySerDe serde;
     EXPECT_EQ(serde.get_name(), std::string("Varbinary"));

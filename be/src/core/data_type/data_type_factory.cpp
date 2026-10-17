@@ -56,6 +56,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
@@ -310,6 +311,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::HLL:
         nested = std::make_shared<DataTypeHLL>();
         break;
+    case PGenericType::GEOMETRY:
+    case PGenericType::GEOGRAPHY:
+        nested = std::make_shared<DataTypeSpatial>(
+                pcolumn.type() == PGenericType::GEOMETRY ? TYPE_GEOMETRY : TYPE_GEOGRAPHY,
+                pcolumn.has_spatial_crs() ? pcolumn.spatial_crs() : "OGC:CRS84",
+                pcolumn.spatial_algorithm());
+        break;
     case PGenericType::VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(pcolumn.varbinary_length());
         break;
@@ -516,6 +524,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
+    case TYPE_GEOMETRY:
+        nested = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+        break;
+    case TYPE_GEOGRAPHY:
+        nested = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical");
+        break;
     case TYPE_AGG_STATE:
     case TYPE_ARRAY:
     case TYPE_MAP:
@@ -546,6 +560,23 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
         const TScalarType& scalar_type = node.scalar_type;
+        if (scalar_type.type == TPrimitiveType::GEOMETRY ||
+            scalar_type.type == TPrimitiveType::GEOGRAPHY) {
+            if (!scalar_type.__isset.spatial_crs) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Missing spatial CRS in type descriptor");
+            }
+            if (scalar_type.type == TPrimitiveType::GEOGRAPHY &&
+                !scalar_type.__isset.spatial_algorithm) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Missing geography edge algorithm in type descriptor");
+            }
+            const auto primitive_type = thrift_to_type(scalar_type.type);
+            DataTypePtr spatial_type = std::make_shared<DataTypeSpatial>(
+                    primitive_type, scalar_type.spatial_crs,
+                    scalar_type.__isset.spatial_algorithm ? scalar_type.spatial_algorithm : "");
+            return is_nullable ? make_nullable(spatial_type) : spatial_type;
+        }
         if (scalar_type.type == TPrimitiveType::VARIANT) {
             DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
                     << "count is: " << scalar_type.variant_max_subcolumns_count;
@@ -656,6 +687,13 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_AGG_STATE) {
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
+        } else if (primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY) {
+            // PTypeDesc must retain parameter identity, e.g. EPSG:3857 must not become CRS84.
+            // Missing optional metadata represents the default type from an older sender.
+            nested = std::make_shared<DataTypeSpatial>(
+                    primitive_type,
+                    scalar_type.has_spatial_crs() ? scalar_type.spatial_crs() : "OGC:CRS84",
+                    primitive_type == TYPE_GEOGRAPHY ? scalar_type.spatial_algorithm() : "");
         } else if (primitive_type == TYPE_VARBINARY) {
             // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
             return create_data_type(primitive_type, is_nullable, 0, 0,

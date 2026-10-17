@@ -22,7 +22,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
@@ -153,6 +156,20 @@ public class ColumnDefinitionTest {
 
     private static void validateSystemGeneratedColumn(ColumnDefinition column, KeysType keysType) {
         column.validate(true, ImmutableSet.of("k"), ImmutableSet.of(), true, keysType, true);
+    }
+
+    @Test
+    public void testRejectsSpatialTypesInInternalTables() {
+        for (DataType type : ImmutableList.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"),
+                ArrayType.of(new GeometryType("EPSG:3857")))) {
+            ColumnDefinition column = new ColumnDefinition("shape", type, false, null, false,
+                    Optional.empty(), "");
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> validateColumn(column, KeysType.DUP_KEYS));
+            Assertions.assertEquals("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables",
+                    error.getMessage());
+        }
     }
 
     @Test

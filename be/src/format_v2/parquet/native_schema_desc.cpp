@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "util/slice.h"
@@ -877,8 +878,23 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         tparquet::LogicalType logicalType, bool nullable) {
     std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
     bool& is_type_compatibility = ans.second;
-    if (logicalType.__isset.STRING || logicalType.__isset.ENUM || logicalType.__isset.JSON ||
-        logicalType.__isset.BSON) {
+    if (logicalType.__isset.GEOMETRY) {
+        const std::string crs =
+                logicalType.GEOMETRY.__isset.crs ? logicalType.GEOMETRY.crs : "OGC:CRS84";
+        // OPTIONAL spatial fields must retain their definition-level threshold for COUNT.
+        auto spatial_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, crs);
+        ans.first = nullable ? make_nullable(spatial_type) : spatial_type;
+    } else if (logicalType.__isset.GEOGRAPHY) {
+        const std::string crs =
+                logicalType.GEOGRAPHY.__isset.crs ? logicalType.GEOGRAPHY.crs : "OGC:CRS84";
+        const std::string algorithm = logicalType.GEOGRAPHY.__isset.algorithm
+                                              ? tparquet::to_string(logicalType.GEOGRAPHY.algorithm)
+                                              : "spherical";
+        // OPTIONAL spatial fields must retain their definition-level threshold for COUNT.
+        auto spatial_type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, crs, algorithm);
+        ans.first = nullable ? make_nullable(spatial_type) : spatial_type;
+    } else if (logicalType.__isset.STRING || logicalType.__isset.ENUM || logicalType.__isset.JSON ||
+               logicalType.__isset.BSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.DECIMAL) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, nullable,

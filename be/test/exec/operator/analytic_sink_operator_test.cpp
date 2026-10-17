@@ -19,12 +19,16 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_spatial.h"
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_source_operator.h"
@@ -109,11 +113,13 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_operator(bool has_window, size_t agg_functions_size, std::string function_name,
-                         DataTypes args_types, DataTypePtr result_type) {
+                         DataTypes args_types, DataTypePtr result_type,
+                         bool result_nullable = false) {
         sink->_agg_functions_size = agg_functions_size;
         sink->_has_window = has_window;
         if (agg_functions_size == 1) {
-            create_agg_function(agg_functions_size, function_name, args_types, result_type);
+            create_agg_function(agg_functions_size, function_name, args_types, result_type,
+                                result_nullable);
         }
         EXPECT_TRUE(sink->set_child(_child_op));
     }
@@ -126,13 +132,13 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_agg_function(size_t agg_functions_size, std::string function_name,
-                             DataTypes args_types, DataTypePtr result_type) {
+                             DataTypes args_types, DataTypePtr result_type, bool result_nullable) {
         sink->_agg_functions.resize(agg_functions_size);
         sink->_num_agg_input.resize(agg_functions_size);
         sink->_offsets_of_aggregate_states.resize(agg_functions_size);
         sink->_change_to_nullable_flags.resize(agg_functions_size);
         sink->_agg_functions[0] =
-                create_agg_fn(pool, function_name, args_types, result_type, false, true);
+                create_agg_fn(pool, function_name, args_types, result_type, result_nullable, true);
         sink->_num_agg_input[0] = 1;
         sink->_offsets_of_aggregate_states[0] = 0;
         sink->_total_size_of_aggregate_states = 100;
@@ -210,6 +216,108 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     char buffer[100];
     std::vector<int64_t> _data_vals;
 };
+
+class SpatialWindowTest
+        : public AnalyticSinkOperatorTest,
+          public ::testing::WithParamInterface<std::tuple<PrimitiveType, bool, const char*>> {
+public:
+    void configure() {
+        Initialize(1);
+        const auto [primitive, nullable, function] = GetParam();
+        const auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+        type = nullable ? make_nullable(spatial) : spatial;
+        create_operator(true, 1, function, {type}, type, nullable);
+        sink->_agg_expr_ctxs = {MockSlotRef::create_mock_contexts(0, type)};
+        sink->_order_by_eq_expr_ctxs =
+                MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+        TAnalyticWindow window;
+        window.type = TAnalyticWindowType::ROWS;
+        TAnalyticWindowBoundary start;
+        start.type = TAnalyticWindowBoundaryType::PRECEDING;
+        start.__set_rows_offset_value(1);
+        window.__set_window_start(start);
+        TAnalyticWindowBoundary end;
+        end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+        window.__set_window_end(end);
+        create_window_type(true, true, window);
+        create_local_state();
+    }
+
+    static std::string payload(size_t row) {
+        std::string wkb(
+                "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@",
+                21);
+        const auto x = std::bit_cast<uint64_t>(1.0 + static_cast<double>(row) / 1024);
+        for (size_t byte = 0; byte < sizeof(double); ++byte) {
+            wkb[5 + byte] = static_cast<char>((x >> (8 * byte)) & 0xff);
+        }
+        return wkb;
+    }
+
+    void consume(size_t row) {
+        auto column = type->create_column();
+        if (std::get<1>(GetParam()) && row % 7 == 0) {
+            column->insert_default();
+        } else {
+            const auto wkb = payload(row);
+            column->insert_data(wkb.data(), wkb.size());
+        }
+        Block input {
+                {std::move(column), type, "shape"},
+                ColumnHelper::create_column_with_name<DataTypeInt64>({static_cast<int64_t>(row)})};
+        ASSERT_TRUE(sink->sink(state.get(), &input, row == 299).ok());
+    }
+
+    void verify_output(const Block& result) {
+        ASSERT_EQ(result.columns(), 3);
+        const auto& values = *result.get_by_position(2).column;
+        for (size_t row = 0; row < result.rows(); ++row, ++seen) {
+            const size_t selected =
+                    std::string(std::get<2>(GetParam())) == "first_value" && seen > 0 ? seen - 1
+                                                                                      : seen;
+            const bool is_null = std::get<1>(GetParam()) && selected % 7 == 0;
+            EXPECT_EQ(values.is_null_at(row), is_null) << seen;
+            if (!is_null) {
+                EXPECT_EQ(values.get_data_at(row).to_string(), payload(selected)) << seen;
+            }
+        }
+    }
+
+    bool has_buffered_output() {
+        LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+        return !sink_local_state->_shared_state->blocks_buffer.empty();
+    }
+
+    void drain() {
+        while (has_buffered_output()) {
+            Block result;
+            bool eos = false;
+            ASSERT_TRUE(source->get_block(state.get(), &result, &eos).ok());
+            verify_output(result);
+        }
+    }
+
+    DataTypePtr type;
+    size_t seen = 0;
+};
+
+TEST_P(SpatialWindowTest, FirstAndLastValuesSurviveRowTrimming) {
+    configure();
+    for (size_t row = 0; row < 300; ++row) {
+        consume(row);
+        drain();
+    }
+    EXPECT_EQ(seen, 300);
+    EXPECT_GT(sink_local_state->_have_removed_rows, 0);
+    EXPECT_GT(sink_local_state->_removed_block_index, 0);
+    EXPECT_TRUE(sink_local_state->close(state.get(), Status::OK()).ok());
+    EXPECT_TRUE(source_local_state->close(state.get()).ok());
+}
+
+INSTANTIATE_TEST_SUITE_P(SpatialKinds, SpatialWindowTest,
+                         ::testing::Combine(::testing::Values(TYPE_GEOMETRY, TYPE_GEOGRAPHY),
+                                            ::testing::Bool(),
+                                            ::testing::Values("first_value", "last_value")));
 
 TEST_F(AnalyticSinkOperatorTest, SinkReturnsCancelBeforeOutputBlock) {
     Initialize(10);

@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -34,11 +35,21 @@ namespace doris {
 
 namespace {
 
+std::string to_hex(StringRef value) {
+    std::string encoded(value.size * 2 + 2, '\0');
+    encoded[0] = '0';
+    encoded[1] = 'x';
+    auto* dst = reinterpret_cast<unsigned char*>(encoded.data() + 2);
+    size_t offset = 0;
+    string_hex::hex_encode(reinterpret_cast<const unsigned char*>(value.data), value.size, dst,
+                           offset);
+    return encoded;
+}
+
 class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
                                        public ParquetBinaryValueConsumer {
 public:
-    explicit VarbinaryParquetConsumer(IColumn& column)
-            : _column(assert_cast<ColumnVarbinary&>(column)) {}
+    explicit VarbinaryParquetConsumer(IColumn& column) : _column(column) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         for (size_t row = 0; row < num_values; ++row) {
@@ -66,7 +77,7 @@ public:
     }
 
 private:
-    ColumnVarbinary& _column;
+    IColumn& _column;
 };
 
 } // namespace
@@ -121,9 +132,9 @@ Status DataTypeVarbinarySerDe::write_column_to_mysql_binary(const IColumn& colum
                                                             int64_t row_idx, bool col_const,
                                                             const FormatOptions& options) const {
     auto col_index = index_check_const(row_idx, col_const);
-    const auto& data = assert_cast<const ColumnVarbinary&>(column).get_data()[col_index];
+    const auto data = column.get_data_at(col_index);
 
-    if (0 != result.push_string(data.data(), data.size())) {
+    if (0 != result.push_string(data.data, data.size)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
 
@@ -135,15 +146,16 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
     auto lambda_function = [&](auto& builder) -> Status {
-        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
                 continue;
             }
-            const auto& string_view = varbinary_column_data[i];
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
-                                             column, builder));
+            const auto string_view = column.get_data_at(i);
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(string_view.data,
+                                                    cast_set<int, size_t, false>(string_view.size)),
+                                     column, builder));
         }
         return Status::OK();
     };
@@ -152,16 +164,15 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
         return lambda_function(builder);
     } else if (array_builder->type()->id() == arrow::Type::LARGE_BINARY) {
         auto& builder = assert_cast<arrow::LargeBinaryBuilder&>(*array_builder);
-        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
                 continue;
             }
-            const auto& string_view = varbinary_column_data[i];
+            const auto string_view = column.get_data_at(i);
             RETURN_IF_ERROR(checkArrowStatus(
-                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data()),
-                                   cast_set<int64_t, size_t, false>(string_view.size())),
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data),
+                                   cast_set<int64_t, size_t, false>(string_view.size)),
                     column, builder));
         }
         return Status::OK();
@@ -172,19 +183,18 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
         auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
         const int byte_width =
                 static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
-        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
                 continue;
             }
-            const auto& string_view = varbinary_column_data[i];
-            if (string_view.size() != byte_width) {
+            const auto string_view = column.get_data_at(i);
+            if (!std::cmp_equal(string_view.size, byte_width)) {
                 return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
-                                               byte_width, string_view.size());
+                                               byte_width, string_view.size);
             }
             RETURN_IF_ERROR(checkArrowStatus(
-                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data())), column,
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data)), column,
                     builder));
         }
         return Status::OK();
@@ -209,7 +219,7 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
                                                       const arrow::Array* arrow_array,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
-    auto& varbinary_column = assert_cast<ColumnVarbinary&>(column);
+    IColumn& varbinary_column = column;
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = assert_cast<const arrow::BinaryArray*>(arrow_array);
@@ -343,14 +353,14 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column,
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    const auto& value = assert_cast<const ColumnVarbinary&>(*ptr).get_data_at(row_num);
+    const auto value = ptr->get_data_at(row_num);
     bw.write(value.data, value.size);
     return Status::OK();
 }
 
 Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
-    assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
+    column.insert_data(slice.data, slice.size);
     return Status::OK();
 }
 
@@ -368,7 +378,7 @@ Status DataTypeVarbinarySerDe::from_string(StringRef& str, IColumn& column,
     if (string_hex::hex_decode(str.data + 2, hex_size, bytes.data()) != bytes.size()) {
         return Status::InvalidArgument("Invalid VARBINARY hex representation");
     }
-    assert_cast<ColumnVarbinary&>(column).insert_data(bytes.data(), bytes.size());
+    column.insert_data(bytes.data(), bytes.size());
     return Status::OK();
 }
 
@@ -407,7 +417,7 @@ Status DataTypeVarbinarySerDe::deserialize_one_cell_from_hive_text(
     if (!base64_decode(encoded, &decoded) || decoded.empty()) {
         return deserialize_one_cell_from_json(column, slice, options);
     }
-    assert_cast<ColumnVarbinary&>(column).insert_data(decoded.data(), decoded.size());
+    column.insert_data(decoded.data(), decoded.size());
     return Status::OK();
 }
 
@@ -422,7 +432,7 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto [data_column, data_row] = check_column_const_set_readability(column, row_num);
-    const auto value = assert_cast<const ColumnVarbinary&>(*data_column).get_data_at(data_row);
+    const auto value = data_column->get_data_at(data_row);
     // Encoding is required on write as well, or a Hive reader will reinterpret binary bytes.
     std::string encoded;
     base64_encode(value.to_string(), &encoded);
@@ -432,12 +442,12 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_hive_text(
 
 void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
-    const auto& value = assert_cast<const ColumnVarbinary&>(column).get_data()[row_num];
+    const auto value = column.get_data_at(row_num);
     if (_nesting_level >= 2) { // in complex type, need to dump as hex string by hand
-        const auto& hex_str = value.dump_hex();
+        const auto hex_str = to_hex(value);
         bw.write(hex_str.data(), hex_str.size());
     } else { // mysql protocol will be handle as hex binary data directly
-        bw.write(value.data(), value.size());
+        bw.write(value.data, value.size);
     }
 }
 

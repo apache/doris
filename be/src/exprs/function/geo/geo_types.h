@@ -56,6 +56,8 @@ public:
 
     static std::unique_ptr<GeoShape> from_wkb(const char* data, size_t size,
                                               GeoParseStatus& status);
+    static std::unique_ptr<GeoShape> from_wkb_bytes(const char* data, size_t size,
+                                                    GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);

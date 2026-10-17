@@ -413,7 +413,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
         Type type;
         int parsedNodes;
-        if (tPrimitiveType == TPrimitiveType.ARRAY) {
+        if (tPrimitiveType == TPrimitiveType.GEOMETRY || tPrimitiveType == TPrimitiveType.GEOGRAPHY) {
+            throw new NotSupportedException("Spatial Parquet columns are only supported through an Iceberg catalog");
+        } else if (tPrimitiveType == TPrimitiveType.ARRAY) {
             Pair<Type, Integer> itemType = getColumnType(typeNodes, start + 1);
             type = ArrayType.create(itemType.key(), true);
             parsedNodes = 1 + itemType.value();

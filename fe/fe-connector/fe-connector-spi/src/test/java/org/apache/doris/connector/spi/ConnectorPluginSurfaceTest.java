@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 18 adds DiagnosticException to the major 17 scoped streaming surface.
-        Assertions.assertEquals("18.0", version.getProperty("api.version"));
+        // Major 19 adds spatial metadata after major 18 DiagnosticException and scoped streaming.
+        Assertions.assertEquals("19.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -101,6 +101,7 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
+            ConnectorType.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,

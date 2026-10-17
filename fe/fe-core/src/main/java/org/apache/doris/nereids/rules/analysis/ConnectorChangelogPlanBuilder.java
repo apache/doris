@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -205,6 +206,7 @@ public final class ConnectorChangelogPlanBuilder {
 
     private static Alias bindColumn(ExpressionAnalyzer analyzer, Expression expression, Column column) {
         Expression value = analyzer.analyze(expression);
+        ConnectorSpatialWriteValidator.validate(column, value);
         value = TypeCoercionUtils.castIfNotSameType(value, DataType.fromCatalogType(column.getType()));
         return new Alias(value, column.getName());
     }
@@ -259,6 +261,10 @@ public final class ConnectorChangelogPlanBuilder {
                         ? mode.getOperationColumnName() : schema.get(column - 1).getName();
                 Expression value = new NullLiteral(type);
                 for (int index = branches.size() - 1; index >= 0; index--) {
+                    if (column > 0) {
+                        ConnectorSpatialWriteValidator.validate(schema.get(column - 1),
+                                branches.get(index).get(column));
+                    }
                     Expression branchValue = TypeCoercionUtils.castIfNotSameType(
                             branches.get(index).get(column), type);
                     value = MergeUtils.selectBranch(

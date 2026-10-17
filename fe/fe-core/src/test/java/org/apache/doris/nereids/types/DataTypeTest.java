@@ -20,14 +20,18 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -36,6 +40,38 @@ import org.junit.jupiter.api.Test;
 import java.util.Random;
 
 public class DataTypeTest {
+    @Test
+    public void testSpatialSqlTypeParsingAndRoundTrip() {
+        Assertions.assertEquals(new GeometryType("OGC:CRS84"), DataType.convertFromString("GEOMETRY"));
+        Assertions.assertEquals(new GeographyType("OGC:CRS84", "spherical"), DataType.convertFromString("GEOGRAPHY"));
+        Assertions.assertEquals(new GeographyType("OGC:CRS84", "spherical"),
+                DataType.convertFromString("GEOGRAPHY('OGC:CRS84', 'SPHERICAL')"));
+        for (DataType type : ImmutableList.of(new GeometryType("EPSG:3857"),
+                new GeometryType("projjson:custom'crs"),
+                new GeometryType("projjson:custom\\crs"),
+                new GeographyType("projjson:custom\\crs", "spherical"),
+                new GeographyType("projjson:custom'crs", "spherical"),
+                new GeographyType("OGC:CRS84", "vincenty"),
+                ArrayType.of(new GeometryType("EPSG:4326")))) {
+            Assertions.assertEquals(type, DataType.convertFromString(type.toSql()));
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DataType.convertFromString("GEOMETRY('OGC:CRS84', 'spherical')"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DataType.convertFromString("GEOGRAPHY('OGC:CRS84', 'unknown')"));
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            NereidsParser parser = new NereidsParser();
+            Assertions.assertInstanceOf(CreateTableCommand.class, parser.parseSingle(
+                    "CREATE TABLE spatial_types (geometry GEOMETRY('EPSG:3857'), geography GEOGRAPHY)"));
+            Assertions.assertInstanceOf(AlterTableCommand.class, parser.parseSingle(
+                    "ALTER TABLE spatial_types ADD COLUMN shape GEOGRAPHY('OGC:CRS84', 'vincenty')"));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testDataTypeEquals() {
         DecimalV2Type decimalV2Type1 = DecimalV2Type.createDecimalV2Type(27, 9);

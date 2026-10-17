@@ -21,18 +21,33 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -47,6 +62,71 @@ import java.util.Optional;
 public class InsertUtilsTest {
 
     private static final int MAX_TOTAL_BYTES = 512;
+
+    @Test
+    public void spatialValuesPreserveSourceUntilConnectorValidation() {
+        Column column = new Column("geom", ScalarType.createGeometryType("EPSG:3857"));
+        Alias original = new Alias(new StringLiteral("not WKB"), "geom");
+        ImmutableList.Builder<NamedExpression> output = ImmutableList.builder();
+        InsertUtils.addColumnValue(Optional.empty(), output, original,
+                DataType.fromCatalogType(column.getType()), null, false, column);
+        Assertions.assertSame(original, output.build().get(0));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorSpatialWriteValidator.validate(column, original));
+        Assertions.assertTrue(error.getMessage().contains("Spatial connector write cannot convert"));
+    }
+
+    @Test
+    public void ordinaryValuesStillCastDuringNormalization() {
+        Column column = new Column("v", PrimitiveType.INT);
+        ImmutableList.Builder<NamedExpression> output = ImmutableList.builder();
+        InsertUtils.addColumnValue(Optional.empty(), output, new Alias(new StringLiteral("5"), "v"),
+                IntegerType.INSTANCE, null, false, column);
+        Assertions.assertEquals(IntegerType.INSTANCE, output.build().get(0).getDataType());
+    }
+
+    @Test
+    public void normalizeSpatialValuesAcceptTypedNulls() {
+        ConnectContext connectContext = new ConnectContext();
+        ConnectContext previous = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement("", 0));
+        connectContext.setStatementContext(statementContext);
+        try {
+            Column column = new Column("geom", ScalarType.createGeometryType("OGC:CRS84"), true, "");
+            TableIf table = Mockito.mock(TableIf.class);
+            Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(column));
+            for (DataType sourceType : ImmutableList.of(IntegerType.INSTANCE,
+                    DataType.fromCatalogType(ScalarType.createGeometryType("EPSG:3857")),
+                    DataType.fromCatalogType(ScalarType.createGeographyType("OGC:CRS84", "spherical")))) {
+                UnboundInlineTable values =
+                        new UnboundInlineTable(ImmutableList.of(
+                                ImmutableList.of(new Alias(new Cast(
+                                        NullLiteral.INSTANCE, sourceType), "geom"))));
+                UnboundConnectorTableSink<?> sink = new UnboundConnectorTableSink<>(
+                        ImmutableList.of("t"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                        DMLCommandType.INSERT,
+                        Optional.empty(), Optional.empty(), values);
+                CascadesContext context =
+                        CascadesContext.initContext(statementContext, sink,
+                                PhysicalProperties.ANY);
+                Plan normalized = InsertUtils.normalizePlan(
+                        sink, table, Optional.of(context), Optional.empty());
+                LogicalInlineTable inline =
+                        (LogicalInlineTable) normalized.child(0);
+                NamedExpression result = inline.getConstantExprsList().get(0).get(0);
+                Assertions.assertTrue(result.child(0).isNullLiteral());
+                Assertions.assertEquals(DataType.fromCatalogType(column.getType()), result.getDataType());
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
 
     private String generateString(int length) {
         return generateString(length, "X");
