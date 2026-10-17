@@ -74,6 +74,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -111,8 +112,9 @@ public class Profile {
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile;
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
-    // from storage directly.
-    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    // from storage directly. Retries can append executions while an already published profile is read,
+    // so readers iterate a stable snapshot of this infrequently modified list.
+    List<ExecutionProfile> executionProfiles = new CopyOnWriteArrayList<>();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
@@ -394,6 +396,7 @@ public class Profile {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
         rootProfile.addChild(summaryProfile.getSummary(), true);
         rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
+        rootProfile.addChild(getAIFunctionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
             rootProfile.addChild(executionProfile.getRoot(), true);
         }
@@ -481,6 +484,16 @@ public class Profile {
         return new RecentRunsPlanStatistics(newRecentRunsStatistics);
     }
 
+    private RuntimeProfile getAIFunctionSummary() {
+        RuntimeProfile summary = new RuntimeProfile("AIFunctionSummary");
+        // Loads and query retries can contain multiple executions; each contributes once to the totals.
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            executionProfile.addAIFunctionSummaryCounters(summary);
+        }
+        // RuntimeProfile always contains TotalTime, even when no AI counters were reported.
+        return summary.getCounterMap().size() == 1 ? null : summary;
+    }
+
     // Return if profile has been stored to storage
     public void getExecutionProfileContent(SafeStringBuilder builder) {
         if (builder == null) {
@@ -489,6 +502,11 @@ public class Profile {
 
         if (profileHasBeenStored()) {
             return;
+        }
+
+        RuntimeProfile aiSummary = getAIFunctionSummary();
+        if (aiSummary != null) {
+            aiSummary.prettyPrint(builder, "");
         }
 
         // For broker load, if it has more than one execution profile, we will not generate merged profile.
