@@ -54,5 +54,7 @@ public enum AccessAction {
     /** Using a stage. Distinct from {@link #USAGE}: it is a privilege of its own. */
     STAGE_USAGE,
     /** Reading a view's definition. */
-    SHOW_VIEW
+    SHOW_VIEW,
+    /** Switching the session to another user (SU). Only ever granted globally. */
+    PROXY
 }

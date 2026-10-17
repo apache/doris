@@ -63,6 +63,11 @@ public enum DorisAccessType {
                 return USAGE;
             case SHOW_VIEW:
                 return SHOW_VIEW;
+            case PROXY:
+                // The Doris Ranger service has no access type for switching the session to another user; the
+                // closest question it can answer is administration, which already implies PROXY_PRIV in the
+                // engine, so a Ranger-authorized cluster grants SU to its administrators and to nobody else.
+                return ADMIN;
             default:
                 // Guessing would ask Ranger about an access type its service definition does not have, and
                 // every such request is denied - an action added to Doris would silently stop being grantable.

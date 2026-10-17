@@ -83,6 +83,9 @@ Status SchemaCatalogMetaCacheStatsScanner::_fetch_from_fe(size_t column_count,
         schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (!_param->common_param->current_roles.empty()) {
+        schema_table_request_params.__set_current_roles(_param->common_param->current_roles);
+    }
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::CATALOG_META_CACHE_STATS);
