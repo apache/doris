@@ -1443,15 +1443,15 @@ start_iceberg() {
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
                 if [[ "${HOST_OS}" == "Darwin" ]]; then
-                    curl -fL -o iceberg_data_spark40.zip \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                    curl -fL -o iceberg_data_spark40_paimon142.zip \
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 else
                     wget -P "${ROOT}/docker-compose/iceberg" \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 fi
-                host_admin_cmd unzip iceberg_data_spark40.zip
+                host_admin_cmd unzip iceberg_data_spark40_paimon142.zip
                 host_admin_cmd mv iceberg_data data
-                host_admin_cmd rm -rf iceberg_data_spark40.zip
+                host_admin_cmd rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
