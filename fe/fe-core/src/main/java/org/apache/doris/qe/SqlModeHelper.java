@@ -267,6 +267,17 @@ public class SqlModeHelper {
 
     /**
      * The {@code sql_mode} that decides what the text being read right now means: the mode
+     * {@link #withSqlMode} put in force if one is, this session's otherwise, and the global
+     * one when there is no session on the thread. Public so a producer that PERSISTS text
+     * can record the mode it was rendered / parsed with (e.g. SPM baselines store the
+     * creating session's mode to re-parse the stored bind SQL the same way).
+     */
+    public static long currentMode() {
+        return readingMode() & MODE_ALLOWED_MASK;
+    }
+
+    /**
+     * The {@code sql_mode} that decides what the text being read right now means: the mode
      * {@link #withSqlMode} put in force if one is, this session's otherwise, and the global one when there is
      * no session on the thread.
      */

@@ -61,6 +61,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private final Map<AuditEvent, Set<Long>> externalDmlAuditBackendIds = new IdentityHashMap<>();
+    // Events DEQUEUED for the audit event processor whose handoff has not returned yet:
+    // getQueryNeedAudit removes them from queryAuditEventList before the caller enqueues
+    // them into the processor, so without this set a concurrent reader of the publication
+    // fence would see the event in NEITHER structure and could conclude that nothing is
+    // outstanding. Guarded by queryAuditEventLock, like the list.
+    private final Set<AuditEvent> inFlightAuditEvents = Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile long lastWarnTime;
 
     private class BeReportInfo {
@@ -89,20 +95,30 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             int missedLogCount = 0;
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
-                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-                if (queryStats != null) {
-                    auditEvent.scanRows = queryStats.scan_rows;
-                    auditEvent.scanBytes = queryStats.scan_bytes;
-                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
-                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
-                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
-                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
-                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                boolean ret = false;
+                try {
+                    TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                    if (queryStats != null) {
+                        auditEvent.scanRows = queryStats.scan_rows;
+                        auditEvent.scanBytes = queryStats.scan_bytes;
+                        auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                        auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
+                        auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                        auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                        auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                        auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                        auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                        auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                    }
+                    ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+                } finally {
+                    // The handoff ends when the processor call RETURNS - whether it
+                    // accepted the event (the processor's own fence covers it from the
+                    // enqueue) or discarded it (it will never be published): until then
+                    // the event is this manager's responsibility, so it keeps fencing
+
+                    releaseInFlightAuditEvent(auditEvent);
                 }
-                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
                     missedLogCount++;
                 } else {
@@ -115,6 +131,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             }
         } catch (Throwable t) {
             LOG.warn("exception happens when handleAuditEvent, ", t);
+            // The cycle is abandoned: events it dequeued but never handed off are dropped
+            // with it, exactly like the discarded events above, so they must not keep
+            // fencing progress forever.
+            releaseAllInFlightAuditEvents();
         }
 
         // clear beToQueryStatsMap when be report timeout
@@ -158,6 +178,24 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     externalDmlAuditBackendIds.put(event, ImmutableSet.copyOf(expectedBackendIds));
                 }
             }
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
+    }
+
+    private void releaseInFlightAuditEvent(AuditEvent event) {
+        queryAuditEventLogWriteLock();
+        try {
+            inFlightAuditEvents.remove(event);
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
+    }
+
+    private void releaseAllInFlightAuditEvents() {
+        queryAuditEventLogWriteLock();
+        try {
+            inFlightAuditEvents.clear();
         } finally {
             queryAuditEventLogWriteUnlock();
         }
@@ -207,6 +245,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     ret.add(ae);
                     iter.remove();
                     externalDmlAuditBackendIds.remove(ae);
+                    // the event is handed to the audit event processor only by the CALLER
+                    // of this method: keep it fenced here until that handoff returned
+
+                    inFlightAuditEvents.add(ae);
                 }
             }
         } finally {

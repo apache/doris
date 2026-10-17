@@ -69,6 +69,7 @@ public class AuditLoaderTest {
         Assertions.assertTrue(getAuditLogBuffer(auditLoader).contains(auditEvent.queryId));
     }
 
+
     private boolean waitForBlocked(Thread thread) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
@@ -159,6 +160,133 @@ public class AuditLoaderTest {
         Assertions.assertEquals("ArrowFlightSQL", columns.get(names.indexOf("protocol")));
         Assertions.assertEquals("select 1", columns.get(names.indexOf("stmt")));
         Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
+    }
+
+    // The SPM capture overlaps its scan window by the LOCAL loader's
+    // outstanding queue horizon. The horizon is the OLDEST event the loader has accepted but
+    // not published yet - the assembled batch counts as well, and enqueue order is NOT
+    // event-time order (the upstream hold releases events by completion), so every queued
+    // event is examined.
+
+
+    // A stream load can return Publish Timeout AFTER commit while its rows
+    // stay unreadable. The batch must be fenced until publication is confirmed - the
+    // previous unconditional batch reset let the capture advance past those rows, so
+    // their late publication landed behind the watermark.
+
+
+    // EVERY timed-out batch is retained and confirmed SEPARATELY. Keeping
+    // only the OLDEST batch's sample released the whole fence when that sample became
+    // visible although a newer batch B could still be committed but unreadable; the
+    // capture then checkpointed past B and once the watermark moved, later windows could
+    // never reach B's rows.
+
+
+    // The comment-round fix: a parse-failure event is audited under the SHARED query id
+    // "NaN" (AuditLogHelper renders a null id as NaN). A LATER batch's visible NaN row
+    // satisfies the row probe (query_id = 'NaN' AND time >= sampleTime), so a "visible"
+    // answer proves NOTHING about the fenced batch - it could release the fence while the
+    // batch is still COMMITTED and unreadable, and the capture would checkpoint past a
+    // SELECT the batch still owes. The fence must survive until the batch's OWN
+    // transaction reaches a terminal state (VISIBLE = readable after all, ABORTED = can
+    // never appear).
+
+
+    // /: the response is the only evidence of the load's real
+    // outcome, and only a COMPLETE, parseable Success response proves publication. An
+    // unreadable body says nothing - the earlier "does not contain 'publish timeout'"
+    // test treated it as published, so a committed Publish Timeout whose body read
+    // failed reset the batch WITHOUT a fence.
+
+
+    // The zone a row's time column is RENDERED in is the zone that must be
+    // registered for it - two independent reads of the global time_zone could observe a
+    // `SET GLOBAL time_zone` in between (and back before the next report), leaving the
+    // row stored under a zone nobody had registered and a capture skipping it forever.
+
+
+    // A Publish-Timeout batch is COMMITTED, so closing this FE must not
+    // clear its durable fence - the rows may become readable after the FE stopped. With
+    // no such batch the row IS cleared (the capture must not wait for a gone FE).
+
+
+    // The OLDEST pending fence must keep fencing even after it was EVICTED
+    // from the bounded list - dropping it released the fence of the oldest committed
+    // batch (its rows can still become readable).
+
+
+    // Internal statements (e.g. the horizon reporter's own SQL) are never
+    // captured, so they must not fence progress - otherwise the reporter's writes keep
+    // their own FE's fence (and thereby further writes) alive forever on an idle FE.
+
+
+    // (AuditLoader 746): elapsed time is NOT proof of loss - a Publish Timeout
+    // batch can stay COMMITTED and unreadable beyond the age bound while the publish
+    // daemon keeps retrying. The fence is released by the transaction OUTCOME
+    // (VISIBLE / ABORTED); the age bound is the last resort for a batch whose label is
+    // PROVEN absent (no transaction ever carried it), while a lookup that cannot ANSWER
+    // (a failing / unavailable manager) keeps the fence - it is no evidence of absence.
+
+
+    // (AuditLoader 675): the overflow aggregate cleared EVERY member when the
+    // FIRST one's 30-minute window elapsed. A committed batch that overflowed into it at
+    // minute 29 lost its fence at minute 30 - without any visibility proof and before its
+    // own deadline - and the capture could checkpoint past a row that publishes later.
+    // The aggregate must outlive its NEWEST member's own deadline.
+
+
+    // (AuditLoader 790): the probe must ask for the audit time the row was
+    // actually WRITTEN with. The audit table stores the writer's local wall clock, so
+    // after `SET GLOBAL time_zone` a bound rendered in the CURRENT zone is hours away from
+    // the stored one and a perfectly visible row can never be confirmed - the fence then
+    // held the capture for the whole retention window.
+
+
+    // The obligation of a batch is recorded BEFORE the load is sent, so the
+    // shared horizon row names the possible transaction (its LABEL) from the first moment
+    // the request could leave the FE. A crash between the send and its response then
+    // leaves a resolvable trace instead of an unfenced batch: the reader resolves the
+    // transaction by label even though this FE never processed the outcome.
+
+
+    // (comment #3): retaining the obligation is LOCAL. The load worker reports the
+    // just-retained fence exactly ONCE, and that CONFIRMED report is the send gate;
+    // reporting inside the retain as well paid a second synchronous shared-row write +
+    // read-back for every batch and discarded the result.
+
+
+    // The release paths. A CONFIRMED publication (the rows are readable) and
+    // a request that never reached a BE both make the pre-send obligation unnecessary; a
+    // FAILED/ambiguous outcome keeps it, exactly as before.
+
+
+    private static AuditEvent internalEvent(long timestamp) {
+        return new AuditEvent.AuditEventBuilder()
+                .setQueryId("internal-" + timestamp)
+                .setTimestamp(timestamp)
+                .setStmt("insert into __internal_schema.spm_baselines values (...)")
+                .setisInternal(true)
+                .build();
+    }
+
+    private static AuditEvent event(long timestamp) {
+        return new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-" + timestamp)
+                .setTimestamp(timestamp)
+                .setStmt("select 1")
+                .build();
+    }
+
+    private static void setPrivateField(Object target, String name, Object value) throws Exception {
+        java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static void setRunningLoader(AuditLoader loader) throws Exception {
+        java.lang.reflect.Field field = AuditLoader.class.getDeclaredField("runningLoader");
+        field.setAccessible(true);
+        field.set(null, loader);
     }
 
     private static int count(CharSequence s, char c) {

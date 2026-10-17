@@ -1914,6 +1914,10 @@ public class SessionVariable implements Serializable, Writable {
                 && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
     }
 
+    public void setTopNLazyMaterializationThreshold(int topNLazyMaterializationThreshold) {
+        this.topNLazyMaterializationThreshold = topNLazyMaterializationThreshold;
+    }
+
     public static int getTopNLazyMaterializationThreshold() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
@@ -2156,6 +2160,135 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
+
+    // ==================== SPM (SQL Plan Management) related config ====================
+    // needForward = true: SPM is FE-side planning logic, but a forwarded statement is
+    // planned by the MASTER in a fresh ConnectContext - without forwarding, the master
+    // falls back to ITS defaults and may skip a baseline this connection enabled (or
+    // apply one the client disabled), and the rewrite timeout / fallback policy would be
+    // the master's too. getForwardVariables only sends what these flags mark, so all
+    // three planning switches are marked (same rationale as enable_query_cache).
+    public static final String ENABLE_SPM_REWRITE = "enable_spm_rewrite";
+    public static final String SPM_REWRITE_TIMEOUT_MS = "spm_rewrite_timeout_ms";
+
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_REWRITE, needForward = true, description =
+            "Whether to enable SPM (SQL Plan Management) query rewrite, disabled by default for safety"
+    )
+    private boolean enableSpmRewrite = false;
+
+    @VarAttrDef.VarAttr(name = SPM_REWRITE_TIMEOUT_MS, needForward = true, description =
+            "SPM rewrite timeout in milliseconds, fallback to normal execution on timeout"
+    )
+    private int spmRewriteTimeoutMs = 1000;
+
+    public static final String ENABLE_SPM_FALLBACK = "enable_spm_fallback";
+
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_FALLBACK, needForward = true, description =
+            "Whether SPM falls back to the original query when the rewritten (frozen-plan "
+                    + "replay) plan fails to plan. Disabled by default so a rewrite failure "
+                    + "surfaces as an error (useful during development / regression debugging); "
+                    + "enable it for production availability so SPM never breaks a query."
+    )
+    private boolean enableSpmFallback = false;
+
+    /**
+     * SESSION-scope baselines of the forwarding connection carried with the forwarded
+     * statement (JSON; see {@code SPMForwardedSession}). The payload holds the enabled
+     * rows the statement could match - or the full store for a statement that addresses
+     * rows by id. Restored from the forwarded request only - the value is
+     * OVERWRITTEN from the store right before forwarding, so a plain SET cannot smuggle
+     * rows into another context.
+     */
+    public static final String SPM_FORWARDED_SESSION_BASELINES =
+            "spm_forwarded_session_baselines";
+
+    @VarAttrDef.VarAttr(name = SPM_FORWARDED_SESSION_BASELINES, needForward = true, description =
+            "Internal: SESSION-scope SPM baselines carried to the master FE together with a "
+                    + "forwarded statement (maintained by the engine, not a user setting)"
+    )
+    private String spmForwardedSessionBaselines = "";
+
+    public String getSpmForwardedSessionBaselines() {
+        return spmForwardedSessionBaselines;
+    }
+
+    public void setSpmForwardedSessionBaselines(String spmForwardedSessionBaselines) {
+        this.spmForwardedSessionBaselines =
+                spmForwardedSessionBaselines == null ? "" : spmForwardedSessionBaselines;
+    }
+
+    public boolean isEnableSpmRewrite() {
+        return enableSpmRewrite;
+    }
+
+    public void setEnableSpmRewrite(boolean enableSpmRewrite) {
+        this.enableSpmRewrite = enableSpmRewrite;
+    }
+
+    public int getSpmRewriteTimeoutMs() {
+        return spmRewriteTimeoutMs;
+    }
+
+    public void setSpmRewriteTimeoutMs(int spmRewriteTimeoutMs) {
+        this.spmRewriteTimeoutMs = spmRewriteTimeoutMs;
+    }
+
+    public boolean isEnableSpmFallback() {
+        return enableSpmFallback;
+    }
+
+    public void setEnableSpmFallback(boolean enableSpmFallback) {
+        this.enableSpmFallback = enableSpmFallback;
+    }
+
+    public static final String SPM_BASELINE_REFRESH_INTERVAL_SECONDS =
+            "spm_baseline_refresh_interval_seconds";
+
+    @VarAttrDef.VarAttr(name = SPM_BASELINE_REFRESH_INTERVAL_SECONDS, needForward = false, description =
+            "The interval (in seconds) between two SPM baseline cache refresh cycles. Every FE "
+                    + "periodically merges the shared baseline internal table (read-only) so "
+                    + "baselines created on another FE become visible locally. Default is 60.")
+    private int spmBaselineRefreshIntervalSeconds = 60;
+
+    public static final String SPM_BASELINE_CACHE_SIZE = "spm_baseline_cache_size";
+
+    @VarAttrDef.VarAttr(name = SPM_BASELINE_CACHE_SIZE, needForward = false, checker = "checkSpmBaselineCacheSize",
+            description =
+            "The number of distinct bindSql entries whose COMPLETE baseline row sets the "
+                    + "matching path keeps in its LRU cache. The store itself keeps only the "
+                    + "bind_sql_hash index in memory; a cache miss reads the internal table. "
+                    + "Default is 2000.")
+    private int spmBaselineCacheSize = 2000;
+
+    public int getSpmBaselineCacheSize() {
+        return spmBaselineCacheSize;
+    }
+
+    public void setSpmBaselineCacheSize(int spmBaselineCacheSize) {
+        this.spmBaselineCacheSize = Math.max(1, spmBaselineCacheSize);
+    }
+
+    /**
+     * Validates a SET value of spm_baseline_cache_size through the SQL SET path: a
+     * non-positive capacity disables the cache (every match would count as a miss) or
+     * makes the LRU evict on every insert, so it is rejected.
+     *
+     * @param value the raw SET value
+     */
+    public void checkSpmBaselineCacheSize(String value) {
+        if (Integer.parseInt(value) < 1) {
+            throw new IllegalArgumentException("Invalid SPM baseline cache size '" + value
+                    + "': the capacity must be a positive number of bindSql entries");
+        }
+    }
+
+    public int getSpmBaselineRefreshIntervalSeconds() {
+        return spmBaselineRefreshIntervalSeconds;
+    }
+
+    public void setSpmBaselineRefreshIntervalSeconds(int spmBaselineRefreshIntervalSeconds) {
+        this.spmBaselineRefreshIntervalSeconds = spmBaselineRefreshIntervalSeconds;
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
@@ -5331,6 +5464,24 @@ public class SessionVariable implements Serializable, Writable {
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .map(rule -> RuleType.valueOf(rule).type())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Returns the raw comma-separated enable_nereids_rules string (the parsed type-id
+     * variant is exposed by getEnableNereidsRules()). When non-empty the engine treats
+     * this as a rule WHITELIST: only the listed rules may apply (CHECK_PRIVILEGES /
+     * CHECK_ROW_POLICY always run, see StatementContext#getOrCacheDisableRules). Used by
+     * SPMOptimizer to install the SPM whitelist for the duration of a baseline creation
+     * and to restore the original value afterwards.
+     *
+     * @return the raw comma-separated rule name string (may be empty)
+     */
+    public String getEnableNereidsRulesStr() {
+        return enableNereidsRules;
+    }
+
+    public void setEnableNereidsRules(String enableNereidsRules) {
+        this.enableNereidsRules = enableNereidsRules;
     }
 
     public BitSet getDisableNereidsExpressionRules() {

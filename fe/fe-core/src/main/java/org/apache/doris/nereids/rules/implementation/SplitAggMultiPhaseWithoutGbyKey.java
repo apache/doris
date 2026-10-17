@@ -55,7 +55,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -154,7 +153,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
 
         AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
-        Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new HashMap<>();
+        Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new LinkedHashMap<>();
         Map<AggregateFunction, Expression> aggregateFunctionWithGuardExpr =
                 logicalAgg.getAggregateFunctionWithGuardExpr();
         for (AggregateFunction function : aggregateFunctions) {
