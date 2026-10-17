@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.util.Locale;
 
 public class Config extends ConfigBase {
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
@@ -445,6 +446,74 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Whether to enable TCP Keep-Alive for MySQL connections, disabled by default")
     public static boolean mysql_nio_enable_keep_alive = false;
+
+    @ConfField(mutable = true, masterOnly = false, callback = MysqlCompressionAlgorithmsConfHandler.class,
+            description = "Compression algorithms the MySQL server advertises in its handshake, comma separated. "
+            + "Empty means the compressed protocol is not offered. Only zlib is supported. Works with or without TLS "
+            + "on the MySQL port (compress first, encrypt second). A client that asks for it (mysql --compress, "
+            + "Connector/J useCompression=true) exchanges zlib-compressed packets from the first packet after "
+            + "authentication; "
+            + "every other client is unaffected. A change applies to new connections only: a session that already "
+            + "negotiated keeps its protocol.")
+    public static String mysql_compression_algorithms = "";
+
+    /** Stores the canonical form of the list; an algorithm the FE cannot speak is refused. */
+    public static class MysqlCompressionAlgorithmsConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            field.set(null, normalizeMysqlCompressionAlgorithms(value));
+        }
+    }
+
+    /**
+     * The canonical form of a compression list: names trimmed and lower-cased, empty entries dropped,
+     * duplicates folded, joined with commas. An algorithm the FE cannot speak is refused, so a list is
+     * either empty or names only what the handshake can honour.
+     */
+    public static String normalizeMysqlCompressionAlgorithms(String value) throws ConfigException {
+        StringBuilder kept = new StringBuilder();
+        for (String algorithm : value.split(",")) {
+            String name = algorithm.trim().toLowerCase(Locale.ROOT);
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!"zlib".equals(name)) {
+                throw new ConfigException("mysql_compression_algorithms accepts only zlib, or an empty list; got '"
+                        + algorithm.trim() + "'");
+            }
+            if (kept.indexOf(name) < 0) {
+                kept.append(kept.length() == 0 ? "" : ",").append(name);
+            }
+        }
+        return kept.toString();
+    }
+
+    /** Boot-time check of the two compressed-protocol configs, the rules ADMIN SET applies at runtime. */
+    public static void validateMysqlCompressionConfig() throws ConfigException {
+        mysql_compression_algorithms = normalizeMysqlCompressionAlgorithms(mysql_compression_algorithms);
+        if (mysql_zlib_compression_level < 1 || mysql_zlib_compression_level > 9) {
+            throw new ConfigException("mysql_zlib_compression_level must be between 1 and 9, got "
+                    + mysql_zlib_compression_level);
+        }
+    }
+
+    @ConfField(mutable = true, masterOnly = false, callback = MysqlZlibCompressionLevelConfHandler.class,
+            description = "The zlib level (1-9) used for the compressed MySQL packets sent to the client. 1 is the "
+            + "fastest; on text result sets it already shrinks the wire 3-4x, while level 6 costs about 2.5x the CPU "
+            + "for a slightly better ratio. A change applies to new connections only.")
+    public static int mysql_zlib_compression_level = 1;
+
+    /** Rejects a zlib level outside 1-9. */
+    public static class MysqlZlibCompressionLevelConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1 || parsed > 9) {
+                throw new ConfigException(field.getName() + " must be between 1 and 9");
+            }
+            field.setInt(null, parsed);
+        }
+    }
 
     @ConfField(description = "The connection timeout of thrift client, in milliseconds. 0 means no timeout.")
     public static int thrift_client_timeout_ms = 0;
