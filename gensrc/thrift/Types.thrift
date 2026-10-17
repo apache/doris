@@ -420,6 +420,7 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+  20: optional i32 pool_size = 3
 }
 
 enum TJdbcOperation {

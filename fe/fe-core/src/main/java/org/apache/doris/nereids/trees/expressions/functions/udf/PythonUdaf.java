@@ -66,6 +66,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     private final String checkSum;
     private final boolean isStaticLoad;
     private final long expirationTime;
+    private final int poolSize;
     private final String runtimeVersion;
     private final String functionCode;
 
@@ -80,7 +81,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
                       String initFn, String updateFn, String mergeFn,
                       String serializeFn, String finalizeFn, String getValueFn, String removeFn,
                       boolean isDistinct, String checkSum, boolean isStaticLoad, long expirationTime,
-                      String runtimeVersion, String functionCode, Expression... args) {
+                      String runtimeVersion, String functionCode, int poolSize, Expression... args) {
         super(name, isDistinct, args);
         this.dbName = dbName;
         this.functionId = functionId;
@@ -102,6 +103,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         this.checkSum = checkSum;
         this.isStaticLoad = isStaticLoad;
         this.expirationTime = expirationTime;
+        this.poolSize = poolSize;
         this.runtimeVersion = runtimeVersion;
         this.functionCode = functionCode;
     }
@@ -135,7 +137,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
                 volatility, volatileIdentity, objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn,
                 getValueFn, removeFn,
-                isDistinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
+                isDistinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode, poolSize,
                 children.toArray(new Expression[0]));
     }
 
@@ -150,7 +152,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
                 volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
                 objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
-                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
+                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode, poolSize,
                 children.toArray(new Expression[0]));
     }
 
@@ -162,7 +164,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
         return new PythonUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
                 volatility, VolatileIdentity.newVolatileIdentity(),
                 objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
-                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode,
+                distinct, checkSum, isStaticLoad, expirationTime, runtimeVersion, functionCode, poolSize,
                 children.toArray(new Expression[0]));
     }
 
@@ -223,7 +225,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
                 aggregate.isStaticLoad(),
                 aggregate.getExpirationTime(),
                 aggregate.getRuntimeVersion(),
-                aggregate.getFunctionCode(),
+                aggregate.getFunctionCode(), aggregate.getPoolSize(),
                 arguments);
 
         PythonUdafBuilder builder = new PythonUdafBuilder(udaf);
@@ -261,6 +263,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
             expr.setStaticLoad(isStaticLoad);
             expr.setExpirationTime(expirationTime);
             expr.setRuntimeVersion(runtimeVersion);
+            expr.setPoolSize(poolSize);
             expr.setFunctionCode(functionCode);
             expr.setVolatility(volatility);
             return expr;

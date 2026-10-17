@@ -191,6 +191,7 @@ Status AggregatePythonUDAFData::get(IColumn& to, const DataTypePtr& result_type,
 Status AggregatePythonUDAF::open() {
     // Build function metadata from TFunction
     _func_meta.id = _fn.id;
+    _func_meta.pool_size = _fn.__isset.pool_size ? _fn.pool_size : 3;
     _func_meta.name = _fn.name.function_name;
 
     // For UDAF, symbol is in aggregate_fn
@@ -236,7 +237,8 @@ Status AggregatePythonUDAF::open() {
 
     if (_func_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
-                _func_meta.id, _func_meta.location, _func_meta.checksum, &_func_meta.location));
+                _func_meta.id, _func_meta.location, _func_meta.checksum, &_func_meta.location,
+                &_package_cache_entry));
     }
 
     return Status::OK();
@@ -272,7 +274,7 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
     DCHECK(reinterpret_cast<Data*>(place)) << "Place must not be null";
 
     if (Status st = PythonServerManager::instance().get_client(
-                _func_meta, _python_version, &(this->data(place).client), _schema);
+                _func_meta, _python_version, &data(place).client, _schema, _package_cache_entry);
         UNLIKELY(!st.ok())) {
         this->data(place).~Data();
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to get Python UDAF client: {}",

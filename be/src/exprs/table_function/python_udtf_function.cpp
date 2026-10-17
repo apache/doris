@@ -61,6 +61,7 @@ PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(),
 Status PythonUDTFFunction::open() {
     PythonUDFMeta python_udf_meta;
     python_udf_meta.id = _t_fn.id;
+    python_udf_meta.pool_size = _t_fn.__isset.pool_size ? _t_fn.pool_size : 3;
     python_udf_meta.name = _t_fn.name.function_name;
     python_udf_meta.symbol = _t_fn.scalar_fn.symbol;
 
@@ -79,10 +80,11 @@ Status PythonUDTFFunction::open() {
 
     python_udf_meta.client_type = PythonClientType::UDTF;
 
+    std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
     if (python_udf_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
                 python_udf_meta.id, python_udf_meta.location, python_udf_meta.checksum,
-                &python_udf_meta.location));
+                &python_udf_meta.location, &package_cache_entry));
     }
 
     PythonVersion version;
@@ -105,8 +107,8 @@ Status PythonUDTFFunction::open() {
     python_udf_meta.always_nullable = python_udf_meta.return_type->is_nullable();
     RETURN_IF_ERROR(python_udf_meta.check());
 
-    RETURN_IF_ERROR(
-            PythonServerManager::instance().get_client(python_udf_meta, version, &_udtf_client));
+    RETURN_IF_ERROR(PythonServerManager::instance().get_client(
+            python_udf_meta, version, &_udtf_client, nullptr, std::move(package_cache_entry)));
 
     if (!_udtf_client) {
         return Status::InternalError("Failed to create Python UDTF client");

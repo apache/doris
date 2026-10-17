@@ -59,8 +59,11 @@ public:
     Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
                        std::string* libpath);
 
+    // Optionally return a shared cache entry to pin package files: DROP only removes them
+    // after the last query/process releases this handle. The handle is for lifetime only.
     Status get_pypath(int64_t fid, const std::string& url, const std::string& checksum,
-                      std::string* libpath);
+                      std::string* libpath,
+                      std::shared_ptr<UserFunctionCacheEntry>* cache_entry = nullptr);
 
     // Drop the cached function library by function id.
     void drop_function_cache(int64_t fid);

@@ -97,6 +97,7 @@ public class FunctionToThriftConverter {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
             tfn.setRuntimeVersion(fn.getRuntimeVersion());
+            tfn.setPoolSize(fn.getPoolSize());
         }
         if (fn.getDictFunction() != null) {
             tfn.setDictFunction(fn.getDictFunction());
@@ -144,6 +145,7 @@ public class FunctionToThriftConverter {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
             tfn.setRuntimeVersion(fn.getRuntimeVersion());
+            tfn.setPoolSize(fn.getPoolSize());
         }
 
         return tfn;

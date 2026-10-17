@@ -84,6 +84,7 @@ public class FunctionToSqlConverter {
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
             sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
+            sb.append(",\n  \"POOL_SIZE\"=\"").append(fn.getPoolSize()).append("\"");
             appendExpirationTimeIfNeeded(sb, fn);
             sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else {
@@ -173,6 +174,7 @@ public class FunctionToSqlConverter {
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
             sb.append("\n  \"RUNTIME_VERSION\"=")
                     .append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\",");
+            sb.append("\n  \"POOL_SIZE\"=\"").append(fn.getPoolSize()).append("\",");
             if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
                 sb.append("\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\",");
             }

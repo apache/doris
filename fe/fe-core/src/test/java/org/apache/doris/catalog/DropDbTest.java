@@ -19,14 +19,27 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class DropDbTest extends TestWithFeService {
 
@@ -39,6 +52,130 @@ public class DropDbTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1" + " properties('replication_num' = '1');");
         createTable("create table test2.tbl1" + "(k1 int, k2 bigint)" + " duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');");
+    }
+
+    @Test
+    public void testDropDbPreservesFunctionsForRecovery() throws Exception {
+        Database db = createDatabaseWithPythonFunctions("drop_function_cache_db");
+        Set<Long> functionIds = functionIds(db);
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            dropDatabaseWithSql("drop database drop_function_cache_db");
+            RecoverDatabaseCommand recover = (RecoverDatabaseCommand) new NereidsParser()
+                    .parseSingle("recover database drop_function_cache_db");
+            recover.run(connectContext, null);
+            Database recovered = Env.getCurrentInternalCatalog().getDbOrMetaException("drop_function_cache_db");
+            Assertions.assertEquals(functionIds, functionIds(recovered));
+            executor.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testForceDropDbSubmitsFunctionCacheCleanup() throws Exception {
+        Database db = createDatabaseWithPythonFunctions("force_drop_function_cache_db");
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            dropDatabaseWithSql("drop database force_drop_function_cache_db force");
+            assertFunctionCacheCleanupSubmitted(executor, db);
+        }
+        Assertions.assertNull(Env.getCurrentInternalCatalog().getDbNullable(db.getFullName()));
+    }
+
+    @Test
+    public void testExpiredDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("expired");
+    }
+
+    @Test
+    public void testSameNameErasedDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("same_name");
+    }
+
+    @Test
+    public void testInstantlyErasedDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("instantly");
+    }
+
+    @Test
+    public void testDropDbWithoutFunctionsDoesNotSubmitCacheCleanup() throws Exception {
+        createDatabaseWithSql("create database drop_empty_function_cache_db");
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            dropDatabaseWithSql("drop database drop_empty_function_cache_db force");
+            executor.verifyNoInteractions();
+        }
+    }
+
+    private void assertErasedDbSubmitsFunctionCacheCleanup(String kind) throws Exception {
+        Database db = createDatabaseWithPythonFunctions("erase_" + kind + "_function_cache_db");
+        dropDatabaseWithSql("drop database " + db.getFullName());
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            switch (kind) {
+                case "expired":
+                    recycleBin.setRecycleTimeByIdForReplay(db.getId(), 0L);
+                    Deencapsulation.invoke(recycleBin, "eraseDatabase", System.currentTimeMillis(), -1);
+                    break;
+                case "same_name":
+                    recycleBin.setRecycleTimeByIdForReplay(db.getId(), 1L);
+                    Deencapsulation.invoke(recycleBin, "eraseDatabaseWithSameName", db.getFullName(),
+                            System.currentTimeMillis(), 0, new ArrayList<>(List.of(db.getId())));
+                    break;
+                case "instantly":
+                    recycleBin.eraseDatabaseInstantly(db.getId());
+                    break;
+                default:
+                    throw new AssertionError(kind);
+            }
+            Assertions.assertFalse(recycleBin.isRecycleDatabase(db.getId()));
+            assertFunctionCacheCleanupSubmitted(executor, db);
+        }
+    }
+
+    private Database createDatabaseWithPythonFunctions(String dbName) throws Exception {
+        createDatabaseWithSql("create database " + dbName);
+        createFunction("create function " + dbName + ".py_scalar(int) returns int properties("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2')");
+        createFunction("create aggregate function " + dbName + ".py_agg(int) returns int properties("
+                + "'type'='PYTHON_UDF', 'symbol'='Agg', 'runtime_version'='3.10.2')");
+        createFunction("create tables function " + dbName + ".py_table(int) returns array<int> properties("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
+        Assertions.assertEquals(4, functionIds(db).size());
+        Assertions.assertTrue(db.getFunctions().stream()
+                .anyMatch(function -> function.getFunctionName().getFunction().equals("py_table_outer")));
+        return db;
+    }
+
+    private Set<Long> functionIds(Database db) {
+        return db.getFunctions().stream().map(Function::getId).collect(Collectors.toSet());
+    }
+
+    private void assertFunctionCacheCleanupSubmitted(MockedStatic<AgentTaskExecutor> executor, Database db)
+            throws Exception {
+        Map<Long, String> functions = db.getFunctions().stream()
+                .collect(Collectors.toMap(Function::getId, Function::signatureString));
+        Set<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().keySet();
+        Assertions.assertFalse(backendIds.isEmpty());
+        ArgumentCaptor<AgentBatchTask> submitted = ArgumentCaptor.forClass(AgentBatchTask.class);
+        executor.verify(() -> AgentTaskExecutor.submit(submitted.capture()), Mockito.atLeastOnce());
+        Map<Long, Map<Long, String>> cleanedFunctions = new HashMap<>();
+        int taskCount = 0;
+        for (AgentBatchTask batch : submitted.getAllValues()) {
+            for (AgentTask task : batch.getAllTasks()) {
+                if (task instanceof CleanUDFCacheTask) {
+                    CleanUDFCacheTask cleanup = (CleanUDFCacheTask) task;
+                    long functionId = cleanup.toThrift().getFunctionId();
+                    if (functions.containsKey(functionId)) {
+                        cleanedFunctions.computeIfAbsent(task.getBackendId(), ignored -> new HashMap<>())
+                                .put(functionId, cleanup.toThrift().getFunctionSignature());
+                        taskCount++;
+                    }
+                }
+            }
+        }
+        Assertions.assertEquals(backendIds, cleanedFunctions.keySet());
+        for (Map<Long, String> cleaned : cleanedFunctions.values()) {
+            Assertions.assertEquals(functions, cleaned);
+        }
+        Assertions.assertEquals(backendIds.size() * functions.size(), taskCount);
     }
 
     @Test

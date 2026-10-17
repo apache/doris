@@ -134,7 +134,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.RELEASE_SNAPSHOT
-                    && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
+                    && taskType != TTaskType.CLEAR_TRANSACTION_TASK && taskType != TTaskType.CLEAN_UDF_CACHE) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -143,11 +143,10 @@ public class MasterImpl {
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
             } else {
-                // drop task is not in AgentTaskQueue
-                if (taskType != TTaskType.DROP) {
+                // DROP tasks are untracked; cleanup acknowledgements can repeat after a lost RPC response.
+                if (taskType != TTaskType.DROP && taskType != TTaskType.CLEAN_UDF_CACHE) {
                     LOG.warn("Finish task rpc got null task for request={}", request);
                 } else {
-                    // drop task is not in AgentTaskQueue
                     LOG.info("Finish task rpc for request={}", request);
                 }
             }
@@ -198,6 +197,9 @@ public class MasterImpl {
                     break;
                 case DROP:
                     finishDropReplica(task);
+                    break;
+                case CLEAN_UDF_CACHE:
+                    AgentTaskQueue.removeTask(backendId, taskType, signature);
                     break;
                 case SCHEMA_CHANGE:
                 case ROLLUP:

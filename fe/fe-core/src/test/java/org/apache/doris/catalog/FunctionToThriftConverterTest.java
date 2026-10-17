@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Function.BinaryType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -26,6 +27,22 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class FunctionToThriftConverterTest {
+
+    @Test
+    void testPoolSizeSurvivesCopyAndThrift() {
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.PYTHON_UDF,
+                new FunctionName("db1", "python_fn"), new Type[]{Type.INT}, Type.INT,
+                false, null, "evaluate", null, null);
+        Assertions.assertEquals(3, fn.getPoolSize());
+        fn.setPoolSize(2);
+        ScalarFunction copy = new ScalarFunction(fn);
+        Assertions.assertEquals(2, copy.getPoolSize());
+        ScalarFunction restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(fn), ScalarFunction.class);
+        Assertions.assertEquals(2, restored.getPoolSize());
+        TFunction result = FunctionToThriftConverter.toThrift(
+                copy, Type.INT, new Type[]{Type.INT}, new Boolean[]{true});
+        Assertions.assertEquals(2, result.getPoolSize());
+    }
 
     // ======================== ScalarFunction Tests ========================
 

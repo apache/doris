@@ -178,6 +178,7 @@ struct TCleanTrashReq {}
 struct TCleanUDFCacheReq {
     1: optional string function_signature //function_name(arg_type)
     2: optional i64 function_id // function id for cleaning cached library files
+    3: optional bool need_ack = false // acknowledge completion using function_id as the task signature
 }
 
 enum TCompressionType {

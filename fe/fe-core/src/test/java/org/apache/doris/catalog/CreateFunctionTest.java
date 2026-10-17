@@ -164,6 +164,7 @@ public class CreateFunctionTest extends TestWithFeService {
                 + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
         createFunction(defaultVolatileSql, ctx);
         Assertions.assertEquals(FunctionVolatility.VOLATILE, findFunction(db, "py_default").getVolatility());
+        Assertions.assertEquals(3, findFunction(db, "py_default").getPoolSize());
 
         String defaultImmutableUdafSql = "create aggregate function db1.py_agg_default(int) returns int "
                 + "properties('type'='PYTHON_UDF', 'symbol'='Agg', 'runtime_version'='3.10.2');";
@@ -175,6 +176,45 @@ public class CreateFunctionTest extends TestWithFeService {
                 + "'volatility'='stable');";
         createFunction(stableUdtfSql, ctx);
         Assertions.assertEquals(FunctionVolatility.STABLE, findFunction(db, "py_table_stable").getVolatility());
+    }
+
+    @Test
+    public void testPoolSize() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database python_pool_db;");
+        dorisAssert = new DorisAssert(ctx);
+        dorisAssert.useDatabase("python_pool_db");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("python_pool_db");
+        for (String kind : new String[]{"", "aggregate ", "tables "}) {
+            String name = kind.isEmpty() ? "scalar_fn" : kind.trim() + "_fn";
+            String ret = kind.equals("tables ") ? "array<int>" : "int";
+            createFunction("create " + kind + "function python_pool_db." + name
+                    + "(int) returns " + ret + " properties('type'='PYTHON_UDF', "
+                    + "'symbol'='evaluate', 'runtime_version'='3.10.2', 'pool_size'='3');", ctx);
+            Function fn = findFunction(db, name);
+            Assertions.assertEquals(3, fn.getPoolSize());
+            Assertions.assertTrue(FunctionToSqlConverter.toSql(fn, false).contains("\"POOL_SIZE\"=\"3\""));
+        }
+        for (String invalid : new String[]{"0", "-1", "abc", "1.5", "2147483648"}) {
+            assertCreateFunctionAnalysisException(ctx,
+                    "create function python_pool_db.invalid_fn(int) returns int "
+                    + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                    + "'runtime_version'='3.10.2', 'pool_size'='" + invalid + "');",
+                    "pool_size must be a positive integer");
+        }
+    }
+
+    @Test
+    public void testJavaUdfRejectsPoolSize() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database java_pool_db;");
+        createFunction("create function java_pool_db.java_default(timestamp_ns) returns timestamp_ns "
+                + "properties('type'='JAVA_UDF', 'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
+        assertCreateFunctionAnalysisException(ctx,
+                "create function java_pool_db.java_pool(timestamp_ns) returns timestamp_ns "
+                        + "properties('type'='JAVA_UDF', 'symbol'='org.apache.doris.catalog.TimestampNsUdf', "
+                        + "'pool_size'='3');",
+                "pool_size property only supports PYTHON_UDF");
     }
 
     @Test

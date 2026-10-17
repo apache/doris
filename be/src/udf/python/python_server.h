@@ -24,6 +24,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -32,6 +33,7 @@
 #include "udf/python/python_udf_runtime.h"
 
 namespace doris {
+struct UserFunctionCacheEntry;
 class PythonServerManager {
 public:
     PythonServerManager() = default;
@@ -46,15 +48,13 @@ public:
     template <typename T>
     Status get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
                       std::shared_ptr<T>* client,
-                      const std::shared_ptr<arrow::Schema>& data_schema = nullptr);
+                      const std::shared_ptr<arrow::Schema>& data_schema = nullptr,
+                      std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr);
 
     static Status fork(const PythonVersion& version, ProcessPtr* process);
 
-    // Clear Python module cache for a specific UDF location across all processes
-    Status clear_module_cache(const std::string& location);
-
-    // Clear Python UDAF runtime state after DROP FUNCTION
-    void clear_udaf_state_cache(int64_t function_id);
+    // Remove this function's pool. Existing clients keep their processes and zip alive.
+    void drop_function(int64_t function_id);
 
     void shutdown();
 
@@ -62,24 +62,19 @@ public:
     // For unit testing only.
     void check_and_recreate_processes_for_test() { _check_and_recreate_processes(); }
 
-    void set_process_pool_for_test(const PythonVersion& version, std::vector<ProcessPtr> processes,
-                                   bool initialized = true);
+    void set_process_pool_for_test(const PythonUDFMeta& meta, const PythonVersion& version,
+                                   std::vector<ProcessPtr> processes, bool initialized = true);
 
-    std::vector<ProcessPtr> process_pool_snapshot_for_test(const PythonVersion& version);
+    std::vector<ProcessPtr> process_pool_snapshot_for_test(int64_t function_id);
 
-    bool process_pool_is_initialized_for_test(const PythonVersion& version);
+    bool process_pool_is_initialized_for_test(int64_t function_id);
 
-    bool wait_for_process_pool_initialized_for_test(const PythonVersion& version,
+    bool wait_for_process_pool_initialized_for_test(int64_t function_id,
                                                     std::chrono::milliseconds timeout);
 
-    bool wait_for_process_pool_initialization_finished_for_test(const PythonVersion& version,
+    bool wait_for_process_pool_initialization_finished_for_test(int64_t function_id,
                                                                 std::chrono::milliseconds timeout);
 
-    Status broadcast_action_to_processes_for_test(const std::string& action_type,
-                                                  const std::string& body,
-                                                  const std::string& log_name) {
-        return _broadcast_action_to_processes(action_type, body, log_name);
-    }
 #endif
 
 private:
@@ -89,13 +84,28 @@ private:
         // `Initialized` means:
         // 1. All process slots have attempted initialization.
         // 2. At least one live process is available for requests.
-        // 3. The health-check thread has been started.
         INITIALIZED,
         // Prevent the pool from being incorrectly reused after `shutdown()`
         STOPPED,
     };
 
-    struct VersionedProcessPool {
+    // Includes processes held by clients after DROP, without extending their lifetime.
+    struct ProcessRegistry {
+        void add(const ProcessPtr& process);
+        std::vector<ProcessPtr> snapshot();
+
+        std::mutex mutex;
+        std::vector<std::weak_ptr<PythonUDFProcess>> processes;
+    };
+
+    struct FunctionProcessPool {
+        // Interpreter information needed to replace dead processes in this function pool.
+        PythonVersion version;
+        // Detached fork/repair workers can outlive the manager.
+        std::shared_ptr<ProcessRegistry> process_registry;
+        int64_t function_id = 0;
+        int32_t pool_size = 3;
+        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
         std::mutex mutex;
         // Coordinates initialization and repair workers with foreground requests.
         std::condition_variable cv;
@@ -107,21 +117,29 @@ private:
         bool repairing = false;
     };
 
-    /** 
-     * Lazily initialize and return the process pool for specific Python version. 
+    /**
+     * Lazily initialize and return the process pool for specific function.
      */
-    Result<std::shared_ptr<VersionedProcessPool>> _ensure_pool_initialized(
-            const PythonVersion& version);
+    Result<std::shared_ptr<FunctionProcessPool>> _ensure_pool_initialized(
+            const PythonUDFMeta& meta, const PythonVersion& version,
+            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr);
 
     /**
      * Pick an available process from specific pool, recreating one on demand if needed.
      */
+    static void _start_pool_initialization(
+            const std::shared_ptr<FunctionProcessPool>& function_pool, const PythonVersion& version,
+            std::chrono::milliseconds process_pool_init_timeout);
+
+    static void _start_pool_repair(const PythonVersion& version,
+                                   const std::shared_ptr<FunctionProcessPool>& function_pool);
+
     Status _get_process(const PythonVersion& version,
-                        const std::shared_ptr<VersionedProcessPool>& versioned_pool,
+                        const std::shared_ptr<FunctionProcessPool>& function_pool,
                         ProcessPtr* process);
 
     /**
-     * Start health check background thread (called once by ensure_pool_initialized)
+     * Start health check background thread when the first function pool is created
      * Thread periodically checks process health and refreshes memory stats
      */
     void _start_health_check_thread();
@@ -145,7 +163,7 @@ private:
     static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {1000};
 #endif
     static int _repair_process_pool(const PythonVersion& version,
-                                    const std::shared_ptr<VersionedProcessPool>& versioned_pool);
+                                    const std::shared_ptr<FunctionProcessPool>& function_pool);
 
     /**
      * Read resident set size (RSS) for a single process from /proc/{pid}/statm
@@ -157,18 +175,23 @@ private:
      */
     void _refresh_memory_stats();
 
-    Result<std::shared_ptr<VersionedProcessPool>> _get_or_create_process_pool(
-            const PythonVersion& version);
-    std::vector<std::pair<PythonVersion, std::shared_ptr<VersionedProcessPool>>>
-    _snapshot_process_pools();
-    Status _broadcast_action_to_processes(const std::string& action_type, const std::string& body,
-                                          const std::string& log_name);
+    Result<std::shared_ptr<FunctionProcessPool>> _get_or_create_process_pool(
+            const PythonUDFMeta& meta, const PythonVersion& version,
+            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+    std::vector<std::shared_ptr<FunctionProcessPool>> _snapshot_process_pools();
     static bool _select_alive_process_from_pool(const std::vector<ProcessPtr>& pool,
                                                 ProcessPtr* process);
 
-    std::unordered_map<PythonVersion, std::shared_ptr<VersionedProcessPool>> _process_pools;
-    // Protects the version -> pool handle map only. Per-version process operations are guarded
-    // by VersionedProcessPool::mutex.
+    // Weak references keep dropped-but-active processes visible without keeping them alive.
+    std::shared_ptr<ProcessRegistry> _process_registry = std::make_shared<ProcessRegistry>();
+
+    // function_id -> process_pool
+    std::unordered_map<int64_t, std::shared_ptr<FunctionProcessPool>> _process_pools;
+    // Catalog ids are never reused. Reject late opens/aggregate-place creation after DROP,
+    // including inline functions that have no zip cache entry carrying a deletion flag.
+    std::unordered_set<int64_t> _dropped_function_ids;
+    // Protects the function id -> pool map. DROP also stops the pool under this lock;
+    // when taking both locks, acquire this before FunctionProcessPool::mutex.
     std::mutex _pools_mutex;
     // Health check background thread
     std::unique_ptr<std::thread> _health_check_thread;

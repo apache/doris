@@ -154,6 +154,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public static final String IS_STATIC_LOAD = "static_load";
     public static final String EXPIRATION_TIME = "expiration_time";
     public static final String RUNTIME_VERSION = "runtime_version";
+    public static final String POOL_SIZE = "pool_size";
     public static final String VOLATILITY = "volatility";
 
     private static final Pattern PYTHON_VERSION_PATTERN = Pattern.compile("^3\\.\\d{1,2}(?:\\.\\d{1,2})?$");
@@ -188,6 +189,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // Keep IMMUTABLE as the UDAF/UDTF default for compatibility with previous behavior.
     private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
+    private int poolSize = 3;
     private String functionCode;
 
     /**
@@ -343,6 +345,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
         }
         if (binaryType == Function.BinaryType.JAVA_UDF) {
+            if (properties.containsKey(POOL_SIZE)) {
+                throw new AnalysisException("pool_size property only supports PYTHON_UDF");
+            }
             FunctionUtil.checkEnableJavaUdf();
             checkUdfSupportedTypes();
             volatility = analyzeVolatility(defaultVolatility());
@@ -378,6 +383,16 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + "'3.X.X' or '3.XX.XX' (e.g. '3.10.2').", runtimeVersionString));
             }
             runtimeVersion = runtimeVersionString;
+            if (properties.containsKey(POOL_SIZE)) {
+                try {
+                    poolSize = Integer.parseInt(properties.get(POOL_SIZE));
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("Python UDF pool_size must be a positive integer");
+                }
+                if (poolSize <= 0) {
+                    throw new AnalysisException("Python UDF pool_size must be a positive integer");
+                }
+            }
         } else if (properties.containsKey(VOLATILITY)) {
             throw new AnalysisException("volatility property only supports JAVA_UDF and PYTHON_UDF");
         }
@@ -551,6 +566,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         function.setRuntimeVersion(runtimeVersion);
+        function.setPoolSize(poolSize);
         function.setFunctionCode(functionCode);
         function.setVolatility(volatility);
         // Todo: maybe in create tables function, need register two function, one is
@@ -626,6 +642,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setStaticLoad(isStaticLoad);
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
+        function.setPoolSize(poolSize);
         function.setFunctionCode(functionCode);
         function.setVolatility(volatility);
     }
@@ -664,6 +681,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setStaticLoad(isStaticLoad);
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
+        function.setPoolSize(poolSize);
         function.setFunctionCode(functionCode);
         function.setVolatility(volatility);
     }

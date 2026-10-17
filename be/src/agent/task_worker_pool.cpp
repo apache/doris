@@ -59,6 +59,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
@@ -154,6 +155,7 @@ void remove_task_info(const TTaskType::type task_type, int64_t signature) {
 }
 
 void finish_task(const TFinishTaskRequest& finish_task_request) {
+    TEST_SYNC_POINT_RETURN_WITH_VOID("finish_task:request", &finish_task_request);
     // Return result to FE
     TMasterResult result;
     uint32_t try_time = 0;
@@ -2578,21 +2580,34 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     }
     // Requests from old FEs do not set function_id and must keep signature-based cleanup.
     const bool drop_by_function_id = clean_req.__isset.function_id;
+    Status status = Status::OK();
 
     if (doris::config::enable_java_support) {
         // The id, not just the signature: it is what the java-udf plugin keys its compiled
         // classes by, because the signature carries no database and FE renders a variadic one
         // differently here than on the requests that execute the function.
-        WARN_IF_ERROR(
+        status = SYNC_POINT_HOOK_RETURN_VALUE(
                 Jni::PluginRegistry::clean_udf_cache(
                         drop_by_function_id ? clean_req.function_id : 0,
                         clean_req.function_signature),
+                "clean_udf_cache_callback:java_status");
+        WARN_IF_ERROR(
+                status,
                 fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
                             clean_req.function_signature, clean_req.function_id));
     }
     if (drop_by_function_id) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
-        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
+        PythonServerManager::instance().drop_function(clean_req.function_id);
+    }
+    if (clean_req.need_ack) {
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(req.task_type);
+        // The wire signature stays -1 for old BEs; FE tracks each cleanup by function id.
+        finish_task_request.__set_signature(clean_req.function_id);
+        finish_task_request.__set_task_status(status.to_thrift());
+        finish_task(finish_task_request);
     }
 
     LOG(INFO) << "clean udf cache callback finish: function_signature="

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -31,23 +32,16 @@ import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CleanUDFCacheTask;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * drop a alias or user defined function
  */
 public class DropFunctionCommand extends Command implements ForwardWithSync {
-    private static final Logger LOG = LogManager.getLogger(DropFunctionCommand.class);
     private SetType setType;
     private final boolean ifExists;
     private final FunctionName functionName;
@@ -89,25 +83,9 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
             }
             functionIds = db.dropFunction(function, ifExists);
         }
-        if (functionIds.isEmpty()) {
-            // No function generation was removed. A signature-based cleanup task could arrive
-            // after a same-signature function is created and delete the new generation's cache.
-            return;
-        }
-        // BE will cache classload, when drop function, BE need clear cache
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         String functionSignature = getSignatureString();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backendsInfo.values()) {
-            for (long functionId : functionIds) {
-                CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(
-                        backend.getId(), functionSignature, functionId);
-                batchTask.addTask(cleanUDFCacheTask);
-                LOG.info("clean udf cache in be {}, beId {}, functionId {}",
-                        backend.getHost(), backend.getId(), functionId);
-            }
-        }
-        AgentTaskExecutor.submit(batchTask);
+        FunctionUtil.cleanUdfCache(functionIds.stream()
+                .collect(Collectors.toMap(id -> id, id -> functionSignature)));
     }
 
     @Override

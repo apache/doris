@@ -30,7 +30,7 @@ public class CleanUDFCacheTask extends AgentTask {
     private long functionId;
 
     public CleanUDFCacheTask(long backendId, String signature, long functionId) {
-        super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1, -1, -1);
+        super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1, functionId, -1);
         this.functionSignature = signature;
         this.functionId = functionId;
     }
@@ -39,6 +39,7 @@ public class CleanUDFCacheTask extends AgentTask {
         TCleanUDFCacheReq req = new TCleanUDFCacheReq();
         req.setFunctionSignature(this.functionSignature);
         req.setFunctionId(this.functionId);
+        req.setNeedAck(true);
         return req;
     }
 }

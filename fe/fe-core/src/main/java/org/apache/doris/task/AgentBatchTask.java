@@ -492,6 +492,9 @@ public class AgentBatchTask implements Runnable {
                 return tAgentTaskRequest;
             }
             case CLEAN_UDF_CACHE: {
+                // Old BEs do not remove cleanup signatures or acknowledge them. Keep their task reports
+                // untracked; BEs supporting need_ack reply using the request's function_id instead.
+                tAgentTaskRequest.setSignature(-1);
                 CleanUDFCacheTask cleanUDFCacheTask = (CleanUDFCacheTask) task;
                 TCleanUDFCacheReq request = cleanUDFCacheTask.toThrift();
                 if (LOG.isDebugEnabled()) {

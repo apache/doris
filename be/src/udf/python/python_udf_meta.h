@@ -34,6 +34,7 @@ enum class PythonClientType : uint8_t { UDF = 0, UDAF = 1, UDTF = 2, UNKNOWN = 3
 
 struct PythonUDFMeta {
     int64_t id = 0;
+    int32_t pool_size = 3;
     std::string name;
     std::string symbol;
     std::string location;

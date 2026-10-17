@@ -111,10 +111,21 @@ class UdfVolatilityTest {
         Assertions.assertEquals(ignoredFirst, ignoredSecond);
     }
 
+    @Test
+    void testPoolSizeSurvivesExpressionCopies() {
+        PythonUdf udf = pythonUdf(FunctionVolatility.IMMUTABLE, VolatileIdentity.NON_VOLATILE);
+        PythonUdaf udaf = pythonUdaf(FunctionVolatility.IMMUTABLE);
+        PythonUdtf udtf = pythonUdtf(FunctionVolatility.IMMUTABLE);
+        Assertions.assertEquals(3, udf.withChildren(udf.children()).getCatalogFunction().getPoolSize());
+        Assertions.assertEquals(3, udaf.withDistinctAndChildren(true, udaf.children())
+                .getCatalogFunction().getPoolSize());
+        Assertions.assertEquals(3, udtf.withChildren(udtf.children()).getCatalogFunction().getPoolSize());
+    }
+
     private PythonUdf pythonUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
         return new PythonUdf("py_fn", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
-                null, "evaluate", null, null, "", false, 360, "3.10.2", "",
+                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3,
                 new IntegerLiteral(1));
     }
 
@@ -128,13 +139,13 @@ class UdfVolatilityTest {
         return new PythonUdaf("py_agg", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 IntegerType.INSTANCE, NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
                 null, "Agg", null, null, null, null, null, null, null, false, "", false, 360,
-                "3.10.2", "", new IntegerLiteral(1));
+                "3.10.2", "", 3, new IntegerLiteral(1));
     }
 
     private PythonUdtf pythonUdtf(FunctionVolatility volatility) {
         return new PythonUdtf("py_table", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
-                null, "evaluate", null, null, "", false, 360, "3.10.2", "", new IntegerLiteral(1));
+                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3, new IntegerLiteral(1));
     }
 
     private FunctionSignature signature() {
