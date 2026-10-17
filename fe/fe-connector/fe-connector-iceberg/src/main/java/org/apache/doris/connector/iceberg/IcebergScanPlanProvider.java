@@ -47,12 +47,14 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataTask;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.IcebergLabelsDataTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
@@ -958,6 +960,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
+        if (IcebergLabelsSysTable.isLabels(handle)) {
+            return doPlanLabelsSystemTableScan(handle, columns, session);
+        }
         Table metadataTable = resolveSysTable(session, handle);
         if (isPositionDeletesSysTable(handle)) {
             return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
@@ -979,20 +984,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         //      hand from the requested columns.
         List<String> projectedColumns = requestedLowerNames(columns);
         if (!projectedColumns.isEmpty()) {
-            Schema metadataSchema = metadataTable.schema();
-            List<NestedField> projectedFields = new ArrayList<>(projectedColumns.size());
-            Set<Integer> seenFieldIds = new HashSet<>();
-            for (String columnName : projectedColumns) {
-                NestedField field = metadataSchema.findField(columnName);
-                if (field == null) {
-                    throw new RuntimeException("Column " + columnName
-                            + " not found in iceberg system table schema " + metadataTable.name());
-                }
-                if (seenFieldIds.add(field.fieldId())) {
-                    projectedFields.add(field);
-                }
-            }
-            scan = scan.project(new Schema(projectedFields));
+            scan = scan.project(projectSystemTableSchema(
+                    metadataTable.schema(), projectedColumns, metadataTable.name()));
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
@@ -1015,6 +1008,50 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static boolean isPositionDeletesSysTable(IcebergTableHandle handle) {
         return handle.isSystemTable()
                 && MetadataTableType.POSITION_DELETES.name().equalsIgnoreCase(handle.getSysTableName());
+    }
+
+    /**
+     * The system-table schema projected to exactly the requested columns, in the order BE lists them in
+     * required_fields: BE's {@code IcebergSysTableJniScanner} reads projected rows positionally. Built by hand
+     * because {@code scan.select(names)} would re-emit the fields in table-schema order.
+     */
+    private static Schema projectSystemTableSchema(Schema schema, List<String> projectedColumns,
+            String tableName) {
+        List<NestedField> projectedFields = new ArrayList<>(projectedColumns.size());
+        Set<Integer> seenFieldIds = new HashSet<>();
+        for (String columnName : projectedColumns) {
+            NestedField field = schema.findField(columnName);
+            if (field == null) {
+                throw new RuntimeException("Column " + columnName
+                        + " not found in iceberg system table schema " + tableName);
+            }
+            if (seenFieldIds.add(field.fieldId())) {
+                projectedFields.add(field);
+            }
+        }
+        return new Schema(projectedFields);
+    }
+
+    /**
+     * Plan {@code t$labels}: one serialized split whose {@code StaticDataTask} carries every catalog label of the
+     * base table, read by BE's JNI scanner like any other static metadata table. Labels are not versioned, so
+     * the handle's snapshot pin is ignored (as for {@code $snapshots}/{@code $history}); predicates are left to
+     * the scan node's conjuncts, the row count being bounded by the catalog response.
+     */
+    private List<ConnectorScanRange> doPlanLabelsSystemTableScan(IcebergTableHandle handle,
+            List<ConnectorColumnHandle> columns, ConnectorSession session) {
+        Table base = resolveSysBaseTable(session, handle);
+        List<String> projectedColumns = requestedLowerNames(columns);
+        Schema projectedSchema = projectedColumns.isEmpty()
+                ? IcebergLabelsSysTable.SCHEMA
+                : projectSystemTableSchema(IcebergLabelsSysTable.SCHEMA, projectedColumns,
+                        base.name() + "$" + IcebergLabelsSysTable.NAME);
+        DataTask task = IcebergLabelsDataTask.of(
+                base, IcebergLabelsSysTable.SCHEMA, projectedSchema, SYS_TABLE_DUMMY_PATH);
+        return Collections.singletonList(new IcebergScanRange.Builder()
+                .path(SYS_TABLE_DUMMY_PATH)
+                .serializedSplit(IcebergSystemTableSerialization.serializeToBase64(task))
+                .build());
     }
 
     /**
@@ -1302,6 +1339,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static boolean isSnapshotIndependentSystemTable(IcebergTableHandle handle) {
         if (!handle.isSystemTable()) {
             return false;
+        }
+        if (IcebergLabelsSysTable.isLabels(handle)) {
+            // Catalog labels come with the table load, not from a snapshot, so a table with no commit has them.
+            return true;
         }
         MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
         // Only metadata_log_entries has a creation row before the first data snapshot; every other metadata
@@ -3204,9 +3245,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         BaseTable baseTable = (BaseTable) table;
         TableOperations rawOps = baseTable.operations();
-        // Keep the table's metrics reporter: every scan of a Kerberos catalog runs on this wrapper.
+        // Keep the table's metrics reporter and REST catalog labels: every scan of a Kerberos catalog runs on this
+        // wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter());
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter(),
+                baseTable.labels());
     }
 
     /**
@@ -3219,6 +3262,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * task serialization) in ONE scope — no nested wrap here.
      */
     private Table resolveSysTable(ConnectorSession session, IcebergTableHandle handle) {
+        return MetadataTableUtils.createMetadataTableInstance(
+                resolveSysBaseTable(session, handle),
+                MetadataTableType.from(handle.getSysTableName()));
+    }
+
+    /** The base table a system-table scan reads, shared with metadata binding; see {@link #resolveSysTable}. */
+    private Table resolveSysBaseTable(ConnectorSession session, IcebergTableHandle handle) {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
@@ -3234,9 +3284,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
                         () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
         rejectServerSideScanPlanning(base, handle);
-        return MetadataTableUtils.createMetadataTableInstance(
-                base,
-                MetadataTableType.from(handle.getSysTableName()));
+        return base;
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
