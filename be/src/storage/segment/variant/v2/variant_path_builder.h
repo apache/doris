@@ -107,4 +107,7 @@ VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCa
                                           size_t max_dynamic_materialized_paths,
                                           bool typed_paths_to_sparse);
 
+// Least common type for a variant path. Used to merge types inferred by independent value chunks.
+DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right);
+
 } // namespace doris::segment_v2
