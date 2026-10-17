@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -408,7 +409,11 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in time_format() function should not be greater"
                     + " than 128.");
         }
-        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(time, format));
+        String formatted = DateTimeFormatterUtils.toFormatStringConservative(time, format);
+        if (formatted == null) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return new VarcharLiteral(formatted);
     }
 
     /**
