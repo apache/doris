@@ -138,6 +138,95 @@ public class PaimonScanPlanProviderTest {
         return builder.build();
     }
 
+    @Test
+    public void timestampPredicatesAreMarkedUnsafeForPaimonPlanning() {
+        RowType nested = RowType.builder()
+                .field("payload", DataTypes.ROW(DataTypes.TIMESTAMP(4)))
+                .field("id", DataTypes.INT())
+                .build();
+        RowType plain = RowType.builder().field("id", DataTypes.INT()).build();
+
+        Assertions.assertTrue(PaimonScanPlanProvider.containsTimestampType(nested));
+        Assertions.assertFalse(PaimonScanPlanProvider.containsTimestampType(plain));
+    }
+
+    @Test
+    public void timestampPredicateRepairOnlyAppliesToNarrowedHistoricalSchemas() {
+        DataType current = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(0)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+        DataType samePrecision = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(0)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+        DataType widenedHistorical = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+
+        Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                samePrecision, current));
+        Assertions.assertTrue(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                widenedHistorical, current));
+    }
+
+    @Test
+    public void crossFamilyTimestampHistoryEnablesRepair(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (boolean toLtz : new boolean[] {false, true}) {
+                DataType historical = toLtz ? DataTypes.TIMESTAMP(6)
+                        : new org.apache.paimon.types.LocalZonedTimestampType(6);
+                DataType current = toLtz ? new org.apache.paimon.types.LocalZonedTimestampType(0)
+                        : DataTypes.TIMESTAMP(0);
+                Assertions.assertTrue(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(historical, current));
+                Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(current, historical));
+                DataType equalPrecision = toLtz ? new org.apache.paimon.types.LocalZonedTimestampType(6)
+                        : DataTypes.TIMESTAMP(6);
+                Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                        historical, equalPrecision));
+                Identifier id = Identifier.create("db", "cross_family_" + toLtz);
+                catalog.createTable(id, Schema.newBuilder().column("ts", historical)
+                        .option("file.format", "parquet").build(), false);
+                Table table = catalog.getTable(id);
+                BatchWriteBuilder writer = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(org.apache.paimon.data.Timestamp.fromLocalDateTime(
+                            java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000))));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                catalog.alterTable(id, Collections.singletonList(
+                        SchemaChange.updateColumnType("ts", current, true)), false);
+                table = catalog.getTable(id);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", id.getObjectName(), Collections.emptyList(), Collections.emptyList());
+                handle.setPaimonTable(table);
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                ConnectorSession session = sessionWithProps(Collections.singletonMap("force_jni_scanner", "true"));
+                List<ConnectorColumnHandle> columns = Collections.singletonList(new PaimonColumnHandle("ts", 0));
+                ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("ts", ConnectorType.of(toLtz ? "TIMESTAMPTZ" : "DATETIMEV2")),
+                        ConnectorLiteral.ofDatetime(java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59)));
+                Assertions.assertFalse(provider.planScan(session,
+                        ConnectorScanRequest.builder(handle, columns).filter(Optional.of(filter)).build()).isEmpty());
+                Map<String, String> props = provider.getScanNodeProperties(session, handle, columns, Optional.of(filter));
+                Assertions.assertTrue(props.get("paimon.options_json").contains(
+                        "\"doris.timestamp-precision-repair\":\"true\""));
+                List<Predicate> predicates = InstantiationUtil.deserializeObject(
+                        Base64.getDecoder().decode(props.get("paimon.predicate")), getClass().getClassLoader());
+                Assertions.assertTrue(predicates.isEmpty(), "cross-family timestamp equality must remain residual");
+                Assertions.assertTrue(provider.planScan(sessionWithProps(Collections.emptyMap()),
+                        ConnectorScanRequest.builder(handle, columns).build()).stream()
+                        .allMatch(range -> !range.getPath().isPresent()),
+                        "native cross-family narrowing must use the SDK instead of a rounding SQL cast");
+            }
+        }
+    }
+
     private static final class OrderedLocalFileIO extends LocalFileIO {
         @Override
         public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive)
@@ -147,6 +236,230 @@ public class PaimonScanPlanProviderTest {
             // independent of the host filesystem's directory iteration order.
             Arrays.sort(files, Comparator.comparing(file -> file.getPath().getName()));
             return files;
+        }
+    }
+
+    @Test
+    public void timestampHistoryChecksFallbackBranchesAndReusesStatementResult(@TempDir Path warehouse)
+            throws Exception {
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        TimestampHistoryFileIO fileIO = new TimestampHistoryFileIO(context);
+        try (Catalog catalog = new FileSystemCatalog(fileIO, new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier mainId = Identifier.create("db", "main");
+            Identifier fallbackId = Identifier.create("db", "fallback");
+            catalog.createTable(mainId, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("ts", DataTypes.TIMESTAMP(4)).partitionKeys("id").build(), false);
+            catalog.createTable(fallbackId, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("ts", DataTypes.TIMESTAMP(6)).partitionKeys("id")
+                    .option("row-tracking.enabled", "true").build(), false);
+            FileStoreTable fallback = (FileStoreTable) catalog.getTable(fallbackId);
+            BatchWriteBuilder writer = fallback.newBatchWriteBuilder();
+            try (BatchTableWrite write = writer.newWrite()) {
+                write.write(GenericRow.of(7, org.apache.paimon.data.Timestamp.fromLocalDateTime(
+                        java.time.LocalDateTime.of(2025, 1, 1, 0, 0, 1, 1000))));
+                try (BatchTableCommit commit = writer.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            catalog.alterTable(fallbackId, Collections.singletonList(
+                    SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(4), true)), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(mainId);
+            fallback = (FileStoreTable) catalog.getTable(fallbackId);
+            Table pair = new FallbackReadFileStoreTable(main, fallback, true);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "main", Collections.singletonList("id"), Collections.emptyList());
+            handle.setPaimonTable(pair);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = pair;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops, context);
+            ConnectorSession session = sessionWithProps(Collections.singletonMap("force_jni_scanner", "true"),
+                    new TestStatementScope());
+            ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("ts", ConnectorType.of("DATETIMEV2")),
+                    ConnectorLiteral.ofDatetime(java.time.LocalDateTime.of(2025, 1, 1, 0, 0, 1)));
+            fileIO.requireAuthentication = true;
+            Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(session, pair, handle));
+            int lists = fileIO.schemaLists;
+            // Each SPI path may use a fresh provider; the statement scope must own the memo.
+            provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, context);
+            List<ConnectorColumnHandle> columns = Collections.singletonList(new PaimonColumnHandle("ts", 1));
+            Assertions.assertFalse(provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, columns).filter(Optional.of(filter)).build()).isEmpty(),
+                    "fallback-only .000001 must survive FE equality pruning");
+            Map<String, String> props = provider.getScanNodeProperties(session, handle, columns, Optional.of(filter));
+            List<Predicate> predicates = InstantiationUtil.deserializeObject(
+                    Base64.getDecoder().decode(props.get("paimon.predicate")), getClass().getClassLoader());
+            Assertions.assertTrue(predicates.isEmpty());
+            Assertions.assertTrue(props.get("paimon.options_json").contains(
+                    "\"doris.timestamp-precision-repair\":\"true\""));
+            Assertions.assertEquals(lists, fileIO.schemaLists);
+            Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(
+                    sessionWithProps(Collections.emptyMap()), new FallbackReadFileStoreTable(fallback, main, true),
+                    handle), "the narrowed branch can also be the wrapped branch");
+            PaimonTableHandle ro = PaimonTableHandle.forSystemTable("db", "fallback", "ro", false);
+            ro.setSysBaseTable(fallback);
+            Table readOptimized = new ReadOptimizedTable(fallback);
+            ro.setPaimonTable(readOptimized);
+            Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(
+                    sessionWithProps(Collections.emptyMap()), readOptimized, ro),
+                    "$ro history reads must also stay inside the plugin authentication scope");
+            for (String kind : Arrays.asList("audit_log", "binlog", "row_tracking")) {
+                PaimonTableHandle system = PaimonTableHandle.forSystemTable("db", "fallback", kind, true);
+                system.setSysBaseTable(fallback);
+                system.setSystemTableSource(fallback);
+                Table wrapper = org.apache.paimon.table.system.SystemTableLoader.load(kind, fallback);
+                system.setPaimonTable(wrapper);
+                Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(
+                        sessionWithProps(Collections.emptyMap()), wrapper, system), kind);
+            }
+            FileStoreTable authorized = fallback.copy(Collections.singletonMap("query-auth.enabled", "true"));
+            PaimonTableHandle authHandle = new PaimonTableHandle(
+                    "db", "fallback", Collections.singletonList("id"), Collections.emptyList());
+            authHandle.setPaimonTable(authorized);
+            Map<String, String> authProps = provider.getScanNodeProperties(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")), authHandle,
+                    Collections.singletonList(new PaimonColumnHandle("id", 0)), Optional.empty());
+            Assertions.assertTrue(authProps.get("paimon.options_json").contains(
+                    "\"doris.timestamp-precision-repair\":\"true\""),
+                    "a catalog policy can read timestamps absent from the SQL projection");
+            context.failAuth = true;
+            Assertions.assertThrows(RuntimeException.class, () -> new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops, context)
+                    .requiresTimestampPrecisionRepair(sessionWithProps(Collections.emptyMap()), pair, handle));
+        }
+    }
+
+    @Test
+    public void unrelatedPredicatesSkipTimestampHistory(@TempDir Path warehouse) throws Exception {
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        TimestampHistoryFileIO fileIO = new TimestampHistoryFileIO(context);
+        try (Catalog catalog = new FileSystemCatalog(fileIO, new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (boolean hasTimestamp : new boolean[] {false, true}) {
+                Identifier id = Identifier.create("db", "table_" + hasTimestamp);
+                Schema.Builder builder = Schema.newBuilder().column("id", DataTypes.INT());
+                if (hasTimestamp) {
+                    builder.column("ts", DataTypes.TIMESTAMP(4));
+                }
+                catalog.createTable(id, builder.build(), false);
+                Table table = catalog.getTable(id);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", id.getObjectName(), Collections.emptyList(), Collections.emptyList());
+                handle.setPaimonTable(table);
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops, context);
+                ConnectorSession session = sessionWithProps(Collections.singletonMap("force_jni_scanner", "true"));
+                ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofInt(1));
+                int lists = fileIO.schemaLists;
+                fileIO.requireAuthentication = true;
+                List<ConnectorColumnHandle> columns = Collections.singletonList(new PaimonColumnHandle("id", 0));
+                provider.planScan(session, ConnectorScanRequest.builder(handle, columns)
+                        .filter(Optional.of(filter)).build());
+                Map<String, String> props = provider.getScanNodeProperties(
+                        session, handle, columns, Optional.of(filter));
+                Assertions.assertEquals(lists, fileIO.schemaLists);
+                List<Predicate> predicates = InstantiationUtil.deserializeObject(
+                        Base64.getDecoder().decode(props.get("paimon.predicate")), getClass().getClassLoader());
+                Assertions.assertEquals(1, predicates.size());
+                Assertions.assertTrue(props.get("paimon.options_json").contains(
+                        "\"doris.timestamp-precision-repair\":\"false\""));
+                fileIO.requireAuthentication = false;
+            }
+        }
+    }
+
+    private static final class TimestampHistoryFileIO extends LocalFileIO {
+        private final transient RecordingConnectorContext context;
+        private boolean requireAuthentication;
+        private int schemaLists;
+
+        private TimestampHistoryFileIO(RecordingConnectorContext context) {
+            this.context = context;
+        }
+
+        @Override
+        public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive) throws IOException {
+            if (path.getName().equals("schema")) {
+                schemaLists++;
+                if (requireAuthentication) {
+                    Assertions.assertTrue(context.authDepth > 0, "schema listing must be authenticated");
+                }
+            }
+            return super.listFiles(path, recursive);
+        }
+
+        @Override
+        public org.apache.paimon.fs.SeekableInputStream newInputStream(org.apache.paimon.fs.Path path)
+                throws IOException {
+            if (requireAuthentication && path.getName().startsWith("schema-")) {
+                Assertions.assertTrue(context.authDepth > 0, "schema loading must be authenticated");
+            }
+            return super.newInputStream(path);
+        }
+    }
+
+    @Test
+    public void narrowedNanosecondOrcUsesJniOnlyForAffectedFields(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (int precision : new int[] {6, 7, 9}) {
+                Identifier id = Identifier.create("db", "orc_" + precision);
+                catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("ts", DataTypes.TIMESTAMP(precision))
+                        .column("ltz", new org.apache.paimon.types.LocalZonedTimestampType(precision))
+                        .option("file.format", "orc")
+                        .option(org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(), "false")
+                        .build(), false);
+                Table original = catalog.getTable(id);
+                BatchWriteBuilder writer = original.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    org.apache.paimon.data.Timestamp value = org.apache.paimon.data.Timestamp.fromLocalDateTime(
+                            java.time.LocalDateTime.of(2025, 1, 1, 0, 0, 1, 999_999_500));
+                    write.write(GenericRow.of(1, value, value));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                catalog.alterTable(id, Arrays.asList(
+                        SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(0), true),
+                        SchemaChange.updateColumnType("ltz", new org.apache.paimon.types.LocalZonedTimestampType(0),
+                                true)), false);
+                Table evolved = catalog.getTable(id);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", id.getObjectName(), Collections.emptyList(), Collections.emptyList());
+                handle.setPaimonTable(evolved);
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = evolved;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                ConnectorSession session = sessionWithProps(Collections.emptyMap());
+                for (String name : Arrays.asList("ts", "ltz")) {
+                    List<ConnectorScanRange> ranges = provider.planScan(session, ConnectorScanRequest.builder(
+                            handle, Collections.singletonList(new PaimonColumnHandle(name, name.equals("ts") ? 1 : 2)))
+                            .build());
+                    Assertions.assertFalse(ranges.isEmpty());
+                    Assertions.assertEquals(precision <= 6, ranges.stream().allMatch(r -> r.getPath().isPresent()),
+                            "only p7-p9 narrowing needs the SDK nanosecond reader");
+                }
+                Assertions.assertTrue(provider.planScan(session, ConnectorScanRequest.builder(handle,
+                        Collections.singletonList(new PaimonColumnHandle("id", 0))).build())
+                        .stream().allMatch(r -> r.getPath().isPresent()));
+                ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("ts", ConnectorType.of("DATETIMEV2")),
+                        ConnectorLiteral.ofDatetime(java.time.LocalDateTime.of(2025, 1, 1, 0, 0, 1)));
+                List<ConnectorScanRange> ranges = provider.planScan(session, ConnectorScanRequest.builder(handle,
+                        Collections.singletonList(new PaimonColumnHandle("id", 0)))
+                        .filter(Optional.of(filter)).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                Assertions.assertEquals(precision <= 6, ranges.stream().allMatch(r -> r.getPath().isPresent()),
+                        "filter-only timestamps need the same routing as projected timestamps");
+            }
         }
     }
 

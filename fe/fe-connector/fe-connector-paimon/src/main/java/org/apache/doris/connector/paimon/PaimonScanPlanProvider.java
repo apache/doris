@@ -232,6 +232,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             "doris.scan.manifest.parallelism-cap";
     private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    static final String DORIS_TIMESTAMP_PRECISION_REPAIR = "doris.timestamp-precision-repair";
 
     private final PaimonCatalogProperties catalogProps;
     private final PaimonCatalogOps catalogOps;
@@ -824,8 +825,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Build predicates from filter expression
         RowType rowType = table.rowType();
         List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
+        // Paimon can cast historical timestamp statistics with the current precision while planning
+        // splits. Keep these predicates as Doris residuals so an old file cannot be pruned before JNI
+        // widens and repairs its timestamp values.
         if (filter.isPresent()) {
-            PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+            PaimonPredicateConverter converter = new PaimonPredicateConverter(
+                    rowType, filterReadsTimestamp(rowType, filter.get())
+                            && requiresTimestampPrecisionRepair(session, table, paimonHandle));
             predicates = converter.convert(filter.get());
         }
 
@@ -975,6 +981,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Schema IDs are branch-local, even when both branches expose the same current row type.
         Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
+        Map<FileStoreTable, Map<Long, Boolean>> crossFamilyTimestampSchemas = new java.util.IdentityHashMap<>();
         Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
         // Native INT96/ORC materialization currently narrows these values to microseconds.
         // JNI retains the source precision, including nested and filter-only timestamp fields.
@@ -1003,10 +1010,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
             boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
             boolean legacyOrcTimestamp = false;
-            if (nativeEligible && (!rustEligible || aggregatePushdown)) {
+            if (nativeEligible && containsTimestampType(rowType) && (!rustEligible || aggregatePushdown)) {
                 FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
-                legacyOrcTimestamp = requiresLegacyOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
-                        legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()));
+                legacyOrcTimestamp = withSchemaHistoryAuthentication(() ->
+                        requiresCrossFamilyTimestampReader(splitTable, optRawFiles, readFieldIds,
+                                crossFamilyTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()))
+                        || requiresOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
+                                legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>())));
             }
             // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
             // Keep ordinary compatible scans on Rust, but preserve native aggregate pushdown.
@@ -1241,15 +1251,27 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // ("encodedStr is null"). Mirrors legacy PaimonScanNode.createScanRangeLocations, which always called
         // setPaimonPredicate(encodeObjectToString(predicates)) regardless of whether predicates was empty.
         List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
+        // The same predicate must stay out of the BE Paimon reader: JNI materializes and repairs the
+        // value first, then the generic scan path evaluates the residual against the repaired column.
         if (filter.isPresent()) {
             RowType rowType = table.rowType();
-            PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+            PaimonPredicateConverter converter = new PaimonPredicateConverter(
+                    rowType, filterReadsTimestamp(rowType, filter.get())
+                            && requiresTimestampPrecisionRepair(session, table, paimonHandle));
             predicates = converter.convert(filter.get());
         }
         props.put("paimon.predicate", encodeObjectToString(predicates));
 
         // Paimon JDBC metastore options for BE (if applicable)
         Map<String, String> backendOptions = new LinkedHashMap<>(getBackendPaimonOptions());
+        Set<Integer> readFieldIds = scanReadFieldIds(table.rowType(), columns, filter);
+        boolean readsTimestamp = table.rowType().getFields().stream().anyMatch(field ->
+                readFieldIds.contains(field.id())
+                        && containsTimestampType(field.type()));
+        backendOptions.put(DORIS_TIMESTAMP_PRECISION_REPAIR, String.valueOf(
+                (readsTimestamp || new org.apache.paimon.options.Options(table.options()).get(
+                        CoreOptions.QUERY_AUTH_ENABLED))
+                        && requiresTimestampPrecisionRepair(session, table, paimonHandle)));
         backendManifestCap.ifPresent(cap -> backendOptions.put(
                 DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
         if (paimonHandle.isSystemTable() && backendManifestCap.isPresent()) {
@@ -1335,6 +1357,138 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    static boolean containsTimestampType(DataType type) {
+        if (type instanceof org.apache.paimon.types.TimestampType
+                || type instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof org.apache.paimon.types.RowType) {
+            return ((org.apache.paimon.types.RowType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampType(field.type()));
+        }
+        if (type instanceof org.apache.paimon.types.ArrayType) {
+            return containsTimestampType(((org.apache.paimon.types.ArrayType) type).getElementType());
+        }
+        if (type instanceof org.apache.paimon.types.MapType) {
+            org.apache.paimon.types.MapType mapType = (org.apache.paimon.types.MapType) type;
+            return containsTimestampType(mapType.getKeyType()) || containsTimestampType(mapType.getValueType());
+        }
+        return false;
+    }
+
+    static boolean filterReadsTimestamp(RowType rowType, ConnectorExpression filter) {
+        Set<String> names = new HashSet<>();
+        collectFilterColumnNames(filter, names);
+        return rowType.getFields().stream().anyMatch(field ->
+                names.contains(field.name().toLowerCase(Locale.ROOT)) && containsTimestampType(field.type()));
+    }
+
+    boolean requiresTimestampPrecisionRepair(ConnectorSession session, Table table, PaimonTableHandle handle) {
+        if (!containsTimestampType(table.rowType())) {
+            return false;
+        }
+        Supplier<Boolean> lookup = () -> withSchemaHistoryAuthentication(
+                () -> hasTimestampPrecisionHistory(resolveTimestampHistoryTable(table, handle)));
+        if (session == null || session.getStatementScope() == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return lookup.get();
+        }
+        String memoKey = SCAN_REUSE_NAMESPACE + ":timestamp-history:"
+                + session.getCatalogId() + ":" + session.getQueryId();
+        Map<PaimonTableResolutionKey, Boolean> history = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        return history.computeIfAbsent(new PaimonTableResolutionKey(handle, effectiveScanOptions(handle)),
+                ignored -> lookup.get());
+    }
+
+    private <T> T withSchemaHistoryAuthentication(Supplier<T> action) {
+        if (context == null) {
+            return action.get();
+        }
+        try {
+            return context.executeAuthenticated(action::get);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Paimon timestamp schema history", e);
+        }
+    }
+
+    private static boolean hasTimestampPrecisionHistory(Table schemaTable) {
+        if (!(schemaTable instanceof FileStoreTable)) {
+            return false;
+        }
+        FileStoreTable fileStoreTable = PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) schemaTable);
+        if (fileStoreTable instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) fileStoreTable;
+            return hasTimestampPrecisionHistory(pair.wrapped()) || hasTimestampPrecisionHistory(pair.other());
+        }
+        RowType currentType = schemaTable.rowType();
+        SchemaManager schemaManager = fileStoreTable.schemaManager();
+        for (Long schemaId : schemaManager.listAllIds()) {
+            TableSchema historicalSchema = schemaManager.schema(schemaId);
+            if (historicalSchema != null
+                    && hasTimestampPrecisionNarrowing(historicalSchema.logicalRowType(), currentType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean hasTimestampPrecisionNarrowing(DataType historicalType, DataType currentType) {
+        return hasTimestampPrecisionNarrowing(historicalType, currentType, 0);
+    }
+
+    private static boolean hasTimestampPrecisionNarrowing(
+            DataType historicalType, DataType currentType, int minimumHistoricalPrecision) {
+        return hasTimestampPrecisionNarrowing(historicalType, currentType, minimumHistoricalPrecision, false);
+    }
+
+    private static boolean hasTimestampPrecisionNarrowing(
+            DataType historicalType, DataType currentType, int minimumHistoricalPrecision, boolean crossFamilyOnly) {
+        if ((historicalType instanceof org.apache.paimon.types.TimestampType
+                || historicalType instanceof org.apache.paimon.types.LocalZonedTimestampType)
+                && (currentType instanceof org.apache.paimon.types.TimestampType
+                || currentType instanceof org.apache.paimon.types.LocalZonedTimestampType)) {
+            // Paimon also casts between timestamp families before truncating precision.
+            int historicalPrecision = org.apache.paimon.types.DataTypeChecks.getPrecision(historicalType);
+            int currentPrecision = org.apache.paimon.types.DataTypeChecks.getPrecision(currentType);
+            return historicalPrecision > currentPrecision && historicalPrecision >= minimumHistoricalPrecision
+                    && (!crossFamilyOnly || historicalType.getTypeRoot() != currentType.getTypeRoot());
+        }
+        if (historicalType instanceof RowType && currentType instanceof RowType) {
+            RowType historicalRow = (RowType) historicalType;
+            RowType currentRow = (RowType) currentType;
+            for (DataField historicalField : historicalRow.getFields()) {
+                DataField currentField = currentRow.getFields().stream()
+                        .filter(field -> field.id() == historicalField.id())
+                        .findFirst().orElse(null);
+                if (currentField != null
+                        && hasTimestampPrecisionNarrowing(
+                                historicalField.type(), currentField.type(), minimumHistoricalPrecision,
+                                crossFamilyOnly)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (historicalType instanceof ArrayType && currentType instanceof ArrayType) {
+            return hasTimestampPrecisionNarrowing(
+                    ((ArrayType) historicalType).getElementType(), ((ArrayType) currentType).getElementType(),
+                    minimumHistoricalPrecision, crossFamilyOnly);
+        }
+        if (historicalType instanceof MapType && currentType instanceof MapType) {
+            MapType historicalMap = (MapType) historicalType;
+            MapType currentMap = (MapType) currentType;
+            return hasTimestampPrecisionNarrowing(
+                    historicalMap.getKeyType(), currentMap.getKeyType(), minimumHistoricalPrecision, crossFamilyOnly)
+                    || hasTimestampPrecisionNarrowing(
+                            historicalMap.getValueType(), currentMap.getValueType(), minimumHistoricalPrecision,
+                            crossFamilyOnly);
+        }
+        return false;
     }
 
     OptionalInt backendManifestParallelism(PaimonTableHandle handle, Table scanTable) {
@@ -1623,6 +1777,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return FileStoreTableFactory.createWithoutFallbackBranch(
                 branch.fileIO(), branch.location(), branch.schema(), new Options(),
                 CatalogEnvironment.empty()).copy(branch.schema());
+    }
+
+    private Table resolveTimestampHistoryTable(Table table, PaimonTableHandle handle) {
+        if (handle.isSystemTable() && Arrays.asList("audit_log", "binlog", "row_tracking")
+                .contains(handle.getSysTableName())) {
+            Table pinned = handle.getSystemTableSource();
+            if (pinned == null) {
+                pinned = handle.getSysBaseTable();
+            }
+            return pinned == null ? prepareSystemSource(handle, reloadBaseTable(handle))
+                    : prepareSystemSource(handle, pinned);
+        }
+        return resolveSchemaDictTable(table, handle);
     }
 
     /**
@@ -2087,25 +2254,59 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return base;
     }
 
-    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+    private static boolean requiresCrossFamilyTimestampReader(FileStoreTable table, Optional<List<RawFile>> rawFiles,
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        RowType readType = new RowType(table.rowType().getFields().stream()
+                .filter(field -> readFieldIds.contains(field.id())).collect(Collectors.toList()));
+        if (!containsTimestampType(readType)) {
+            return false;
+        }
+        for (RawFile file : rawFiles.get()) {
+            if (schemaTimestamps.computeIfAbsent(file.schemaId(), id -> hasTimestampPrecisionNarrowing(
+                    table.schemaManager().schema(id).logicalRowType(), readType, 0, true))) {
+                // Generic native casts round after zone conversion. The SDK keeps its conversion
+                // semantics while the JNI widened read type delays truncation until materialization.
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean requiresOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
             Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
         if (readFieldIds.isEmpty() || !rawFiles.isPresent()
-                || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
-                || !new org.apache.paimon.options.Options(table.options()).get(
-                        org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+                || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))) {
             return false;
         }
         // Only fields present in a file require SDK timezone conversion. A newly added nullable LTZ
         // column reads as NULL in older files and must not disable their native metadata scans.
         FileStoreTable fileStoreTable = (FileStoreTable) table;
+        boolean legacyLtz = new org.apache.paimon.options.Options(table.options()).get(
+                org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE);
+        RowType readType = new RowType(fileStoreTable.rowType().getFields().stream()
+                .filter(field -> readFieldIds.contains(field.id())).collect(Collectors.toList()));
+        if (!legacyLtz && !containsTimestampType(readType)) {
+            return false;
+        }
         for (RawFile file : rawFiles.get()) {
             if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),
-                    id -> readsTimestampLtz(
-                            fileStoreTable.schemaManager().schema(id).logicalRowType(), readFieldIds))) {
+                    id -> {
+                        RowType historicalType = fileStoreTable.schemaManager().schema(id).logicalRowType();
+                        // Native ORC rounds nanoseconds before the precision cast; JNI keeps the
+                        // original fraction so a historical p7-p9 value cannot cross a second boundary.
+                        return (legacyLtz && readsTimestampLtz(historicalType, readFieldIds))
+                                || hasTimestampPrecisionNarrowing(historicalType, readType, 7);
+                    })) {
                 return true;
             }
         }
         return false;
+    }
+
+    // Keep the package-visible helper name used by tests added on the target branch.
+    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        return requiresOrcTimestampReader(table, rawFiles, readFieldIds, schemaTimestamps);
     }
 
     private static boolean readsTimestampLtz(RowType rowType, Set<Integer> readFieldIds) {
