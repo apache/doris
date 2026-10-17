@@ -962,6 +962,41 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteStaticPartitionFiltersOnTheSourceColumnOfARenamedIdentityField() {
+        // ADD PARTITION KEY id AS id_identity: the write planner hands the commit the partition FIELD key
+        // ("id_identity"), and the row filter must still be built on the SOURCE column ("id") — the column the
+        // identity value is derived from, and what Spark's static-partition overwrite filters on. The retained
+        // partition proves the filter did not widen (a field-name expression would fail to bind instead).
+        // MUTATION: evaluating the filter on the field name -> iceberg binder rejects "id_identity" -> red.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("id", "id_identity").build();
+        Table table = catalog.createTable(id, schema, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/id_identity=1/seed.parquet", 1L, "id_identity=1")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)),
+                new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("id_identity", "2")));
+        txn.addCommitData(commitBytes(dataFileItem(
+                "s3://b/db1/t1/id_identity=2/f1.parquet", 1L, 1024L, Collections.singletonList("2"))));
+        txn.commit();
+
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size(), remaining.toString());
+        Assertions.assertTrue(remaining.stream().anyMatch(
+                        f -> f.path().toString().contains("id_identity=1")),
+                "the untouched partition must survive: " + remaining);
+        Assertions.assertTrue(remaining.stream().anyMatch(
+                        f -> f.path().toString().contains("id_identity=2")),
+                "the overwritten partition must be added: " + remaining);
+    }
+
+    @Test
     public void promotedDateStaticOverwriteRejectsUnsafeRetainedBounds() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
