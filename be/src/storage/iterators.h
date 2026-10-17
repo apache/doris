@@ -130,7 +130,6 @@ public:
     // The compaction output schema's variant path layout; null outside a variant compaction.
     VariantCompactionPathsSPtr variant_compaction_paths;
     bool enable_unique_key_merge_on_write = false;
-    bool record_rowids = false;
     std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
@@ -242,11 +241,6 @@ public:
     }
 
     virtual bool is_merge_iterator() const { return false; }
-
-    virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
 
     // return schema for this Iterator
     virtual const ReadSchema& schema() const = 0;

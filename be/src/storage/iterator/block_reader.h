@@ -34,7 +34,6 @@
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_reader.h"
-#include "storage/utils.h"
 
 namespace doris {
 class ColumnPredicate;
@@ -48,8 +47,6 @@ public:
     Status init(const ReaderParams& read_params) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
-
-    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
     void update_profile(RuntimeProfile* profile) override {
         return _vcollect_iter.update_profile(profile);
@@ -148,8 +145,6 @@ private:
     bool _eof = false;
 
     Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
-
-    std::vector<RowLocation> _block_row_locations;
 
     ColumnPtr _delete_filter_column;
 

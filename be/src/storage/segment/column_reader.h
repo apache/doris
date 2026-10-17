@@ -926,6 +926,50 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
+// Produces the source RowLocation used by compaction row-id conversion. This is an
+// internal storage format and is distinct from GlobalRowLoacationV2, which is the
+// query-facing distributed row-id format.
+class CompactionRowIdColumnIterator : public ColumnIterator {
+public:
+    CompactionRowIdColumnIterator(RowsetId rowset_id, uint32_t segment_id)
+            : _rowset_id(rowset_id), _segment_id(segment_id) {}
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = cast_set<uint32_t>(ord_idx);
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        for (size_t i = 0; i < *n; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(_current_rowid + i));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        _current_rowid += *n;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        for (size_t i = 0; i < count; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(rowids[i]));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    uint32_t _current_rowid = 0;
+    RowsetId _rowset_id;
+    uint32_t _segment_id = 0;
+};
+
 class RowIdColumnIteratorV2 : public ColumnIterator {
 public:
     RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)

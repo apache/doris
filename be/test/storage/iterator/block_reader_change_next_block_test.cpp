@@ -320,10 +320,6 @@ public:
 
     Status next(Block* /*block*/) override { return Status::Error<END_OF_FILE>(""); }
 
-    RowLocation current_row_location() override { return {}; }
-    Status current_block_row_locations(std::vector<RowLocation>* /*loc*/) override {
-        return Status::OK();
-    }
     Status ensure_first_row_ref() override { return Status::OK(); }
     void update_profile(RuntimeProfile* /*profile*/) override {}
 

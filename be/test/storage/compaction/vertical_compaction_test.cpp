@@ -1592,8 +1592,6 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     // merge input rowset
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
-    RowIdConversion rowid_conversion;
-    stats.rowid_conversion = &rowid_conversion;
     ASSERT_EQ("0", bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,

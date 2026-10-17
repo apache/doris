@@ -85,6 +85,10 @@ public:
     // Append private historical delete-predicate columns without extending the Block prefix.
     void append_dropped_columns(std::vector<TabletColumn> columns);
 
+    // Append a synthetic Block column that carries each source row's physical location through
+    // compaction filtering and merge.
+    void append_rowid_column();
+
     // Create caller-visible Blocks from the FE-slot prefix.
     Block create_read_block() const;
 
@@ -199,7 +203,8 @@ private:
             if (col.name() == SEQUENCE_COL) {
                 _sequence_ordinal = i;
             }
-            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+                col.name() == BeConsts::ROWID_COL) {
                 _rowid_ordinal = i;
             }
             if (col.name() == VERSION_COL) {

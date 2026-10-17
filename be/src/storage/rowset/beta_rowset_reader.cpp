@@ -203,7 +203,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.variant_compaction_paths = _read_context->variant_compaction_paths;
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
-    _read_options.record_rowids = _read_context->record_rowids;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
@@ -268,7 +267,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_start = 0;
         seg_end = segment_count;
     }
-    if (_read_context->record_rowids && _read_context->rowid_conversion) {
+    if (_read_context->rowid_conversion != nullptr) {
+        DORIS_CHECK_GE(read_schema->rowid_ordinal(), 0);
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
         RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, should_use_cache, _stats));

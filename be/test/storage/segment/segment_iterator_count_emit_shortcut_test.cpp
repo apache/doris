@@ -109,9 +109,12 @@ struct Fixture {
     std::unique_ptr<SegmentIterator> iter;
     OlapReaderStatistics stats;
 
-    Fixture() {
+    explicit Fixture(bool with_rowid = false) {
         tablet_schema = make_tablet_schema();
         read_schema = make_read_schema(tablet_schema);
+        if (with_rowid) {
+            read_schema->append_rowid_column();
+        }
         StorageReadOptions opts(stats);
         iter = std::make_unique<SegmentIterator>(std::make_shared<MockSegment>(tablet_schema),
                                                  read_schema, opts);
@@ -362,9 +365,8 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
     }
     // Rowid consumers need real row ids.
     {
-        Fixture fx;
+        Fixture fx(true);
         fx.set_hit();
-        fx.iter->_opts.record_rowids = true;
         Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
