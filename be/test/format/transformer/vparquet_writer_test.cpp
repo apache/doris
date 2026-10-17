@@ -253,6 +253,34 @@ TEST_F(VParquetWriterTest, SpatialOptionalFilesPreserveAnnotationsBytesAndNullRo
     }
 }
 
+TEST_F(VParquetWriterTest, RejectsReferencedSpatialCrsBeforeOpeningParquet) {
+    for (const std::string crs : {"projjson:my_crs", "PrOjJsOn:my_crs"}) {
+        for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+            auto type = make_nullable(std::make_shared<DataTypeSpatial>(primitive, crs));
+            const std::string schema_type = primitive == TYPE_GEOMETRY
+                                                    ? "geometry(" + crs + ")"
+                                                    : "geography(" + crs + ",spherical)";
+            const std::string json =
+                    "{\"type\":\"struct\",\"fields\":[{\"id\":1,\"name\":\"shape\","
+                    "\"required\":false,\"type\":\"" +
+                    schema_type + "\"}]}";
+            auto schema = iceberg::SchemaParser::from_json(json);
+            auto expressions = MockSlotRef::create_mock_contexts(DataTypes {type});
+            io::FileWriterPtr output;
+            ASSERT_TRUE(_fs->create_file(_file_path, &output).ok());
+            RuntimeState state;
+            state.set_timezone("UTC");
+            ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                        .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+            VIcebergParquetWriter writer(&state, output.get(), expressions, {"shape"}, false,
+                                         options, &json, *schema);
+            const auto status = writer.open();
+            ASSERT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Referenced spatial CRS"), std::string::npos);
+        }
+    }
+}
+
 TEST_F(VParquetWriterTest, RejectsExistingIcebergNestedSpatialSchema) {
     auto type = make_nullable(std::make_shared<DataTypeArray>(
             make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))));

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -61,6 +62,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -1227,6 +1231,39 @@ public class RuntimeFilterTest extends SSBTestBase {
                 "SELECT * FROM (SELECT CAST(k AS VARIANT) vv FROM variant_rf_a) x "
                         + "JOIN variant_rf_b b ON x.vv = b.v")) {
             Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+        }
+    }
+
+    @Test
+    public void testSpatialRuntimeFiltersAreSuppressedAtCreationAndScan() {
+        RuntimeFilterContext context = new RuntimeFilterContext(
+                connectContext.getSessionVariable(), RuntimeFilterId.createGenerator());
+        AbstractPhysicalPlan builder = Mockito.mock(AbstractPhysicalPlan.class);
+        SlotReference scalar = new SlotReference("scalar", IntegerType.INSTANCE);
+        RuntimeFilterPushDownVisitor visitor = new RuntimeFilterPushDownVisitor();
+        PhysicalRelation scalarScan = Mockito.mock(PhysicalRelation.class);
+        Mockito.when(scalarScan.canPushDownRuntimeFilter()).thenReturn(true);
+        Mockito.when(scalarScan.getOutputSet()).thenReturn(ImmutableSet.of(scalar));
+        Assertions.assertTrue(visitor.visitPhysicalRelation(scalarScan,
+                PushDownContext.createPushDownContext(context, builder, scalar, scalar, TRuntimeFilterType.IN)));
+        for (DataType spatial : List.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            SlotReference shape = new SlotReference("shape", spatial);
+            PhysicalRelation scan = Mockito.mock(PhysicalRelation.class);
+            Mockito.when(scan.canPushDownRuntimeFilter()).thenReturn(true);
+            Mockito.when(scan.getOutputSet()).thenReturn(ImmutableSet.of(shape));
+            for (TRuntimeFilterType type : List.of(TRuntimeFilterType.IN, TRuntimeFilterType.BLOOM,
+                    TRuntimeFilterType.MIN_MAX, TRuntimeFilterType.IN_OR_BLOOM)) {
+                Assertions.assertFalse(PushDownContext.createPushDownContext(
+                        context, builder, shape, scalar, type).isValid());
+                Assertions.assertFalse(PushDownContext.createPushDownContext(
+                        context, builder, scalar, shape, type).isValid());
+                Assertions.assertFalse(visitor.visitPhysicalRelation(scan,
+                        PushDownContext.createPushDownContext(context, builder, shape, shape, type)));
+                PushDownContext rewritten = PushDownContext.createPushDownContext(
+                        context, builder, scalar, scalar, type).withNewProbeExpression(shape);
+                Assertions.assertFalse(visitor.visitPhysicalRelation(scan, rewritten));
+            }
         }
     }
 

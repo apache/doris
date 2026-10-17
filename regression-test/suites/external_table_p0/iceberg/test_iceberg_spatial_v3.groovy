@@ -153,6 +153,34 @@ public class CreateIcebergSpatialV3Table {
                 Types.NestedField.optional(3, "geog", Types.GeographyType.of("OGC:CRS84",
                         org.apache.iceberg.types.EdgeAlgorithm.VINCENTY))),
                 PartitionSpec.unpartitioned(), tableProperties);
+        // A table property resolves the Iceberg CRS reference; it is unavailable to the BE file writer.
+        Map<String, String> referencedProperties = new HashMap<>(tableProperties);
+        referencedProperties.put("my_crs", "{\\"type\\":\\"GeographicCRS\\",\\"name\\":\\"WGS 84\\",\\"datum\\":{\\"type\\":\\"GeodeticReferenceFrame\\",\\"name\\":\\"World Geodetic System 1984\\",\\"ellipsoid\\":{\\"name\\":\\"WGS 84\\",\\"semi_major_axis\\":6378137,\\"inverse_flattening\\":298.257223563}},\\"coordinate_system\\":{\\"subtype\\":\\"ellipsoidal\\",\\"axis\\":[{\\"name\\":\\"Geodetic longitude\\",\\"abbreviation\\":\\"Lon\\",\\"direction\\":\\"east\\",\\"unit\\":\\"degree\\"},{\\"name\\":\\"Geodetic latitude\\",\\"abbreviation\\":\\"Lat\\",\\"direction\\":\\"north\\",\\"unit\\":\\"degree\\"}]}}");
+        TableIdentifier referenced = TableIdentifier.of(namespace, "referenced_crs_values");
+        if (catalog.tableExists(referenced)) {
+            catalog.dropTable(referenced);
+        }
+        Table referencedTable = catalog.createTable(referenced, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "geom", Types.GeometryType.of("projjson:my_crs")),
+                Types.NestedField.optional(3, "geog", Types.GeographyType.of("projjson:my_crs",
+                        org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL))),
+                PartitionSpec.unpartitioned(), referencedProperties);
+        for (boolean isGeography : new boolean[] {false, true}) {
+            String column = isGeography ? "geog" : "geom";
+            TableIdentifier copy = TableIdentifier.of(namespace,
+                    isGeography ? "referenced_geography_copy" : "referenced_geometry_copy");
+            if (catalog.tableExists(copy)) {
+                catalog.dropTable(copy);
+            }
+            catalog.createTable(copy, new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, column, isGeography
+                            ? Types.GeographyType.of("projjson:my_crs",
+                                    org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL)
+                            : Types.GeometryType.of("projjson:my_crs"))),
+                    PartitionSpec.unpartitioned(), referencedProperties);
+        }
         // Iceberg 1.10 exposes spatial schema types but its generic Parquet writer does not implement them.
         // Store standard WKB BYTE_ARRAY values with field ids; the Iceberg schema carries CRS/algorithm.
         String parquetSchema = "message spatial { required int32 id = "
@@ -168,6 +196,10 @@ public class CreateIcebergSpatialV3Table {
         geography.put((byte) 1).putInt(1).putDouble(1).putDouble(2).flip();
         row.append("geog", Binary.fromConstantByteBuffer(geography));
         appendParquetRow(projectedTable, message, row);
+        Group referencedRow = new SimpleGroupFactory(message).newGroup().append("id", 1);
+        referencedRow.append("geom", row.getBinary("geog", 0));
+        referencedRow.append("geog", row.getBinary("geog", 0));
+        appendParquetRow(referencedTable, message, referencedRow);
         MessageType nestedMessage = MessageTypeParser.parseMessageType(
                 "message spatial_nested { optional group shapes (LIST) = 1 { "
                 + "repeated group list { optional binary element = 2; } } }");
@@ -271,6 +303,37 @@ public class CreateIcebergSpatialV3Table {
         select ST_AsText(geom), ST_AsText(geog), count(*)
         from geometry_values group by geom, geog
     """
+    // Bare Iceberg spatial slots must not generate unsupported IN/Bloom runtime predicates.
+    [geom: "ST_GeometryFromWKBTyped", geog: "ST_GeogFromWKB"].each { column, constructor ->
+        for (int filterType : [1, 2, 8]) {
+            String joinSql = """select /*+ SET_VAR(enable_runtime_filter_prune=false,
+                runtime_filter_type=${filterType}) */ count(*) from geometry_values l
+                join [broadcast] geometry_values r on l.${column} = r.${column}"""
+            "qt_spatial_scan_join_${column}_${filterType}"(joinSql)
+            explain {
+                sql joinSql
+                notContains "RF"
+            }
+        }
+        for (String operator : ["in", "not in"]) {
+            test {
+                sql """select id from geometry_values where ${column} ${operator} (
+                    ${constructor}('0101000000000000000000F03F0000000000000040'),
+                    ${constructor}('010100000000000000000008400000000000001040'))"""
+                exception "in predicate does not support spatial arguments"
+            }
+        }
+    }
+    order_qt_referenced_crs_source """select id, ST_AsText(geom), ST_AsText(geog)
+        from referenced_crs_values"""
+    [geom: "referenced_geometry_copy", geog: "referenced_geography_copy"].each { column, target ->
+        test {
+            sql """insert into ${target} select id, ${column} from referenced_crs_values"""
+            exception "Referenced spatial CRS"
+        }
+        "qt_referenced_crs_no_commit_${column}"("""select
+            (select count(*) from ${target}), (select count(*) from `${target}\$files`)""")
+    }
     for (String expression : ["case when id = 1 then geom else NULL end",
             "if(id = 1, geom, NULL)", "coalesce(geom, NULL)"]) {
         test {

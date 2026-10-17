@@ -23,6 +23,7 @@
 #include <parquet/schema.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/predicate.hpp>
 #include <numeric>
 #include <string>
 
@@ -52,6 +53,18 @@ namespace {
     return ::parquet::schema::GroupNode::Make(
             group.name(), group.repetition(), fields,
             group.logical_type()->is_none() ? nullptr : group.logical_type(), group.field_id());
+}
+
+arrow::Status validate_spatial_crs_for_write(const std::string& crs) {
+    // projjson:my_crs needs a my_crs definition in Parquet file metadata. The sink currently
+    // carries only the schema, so writing this annotation would leave a dangling CRS reference.
+    if (boost::istarts_with(crs, "projjson:")) {
+        return arrow::Status::NotImplemented(
+                "Referenced spatial CRS is not supported for Parquet writes without its file "
+                "metadata definition: ",
+                crs);
+    }
+    return arrow::Status::OK();
 }
 
 arrow::Result<::parquet::LogicalType::EdgeInterpolationAlgorithm> geography_algorithm(
@@ -114,6 +127,7 @@ arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parque
         if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOMETRY) {
             const auto& geometry =
                     static_cast<const iceberg::GeometryType&>(*iceberg_field.field_type());
+            ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geometry.crs()));
             fields.push_back(::parquet::schema::PrimitiveNode::Make(
                     source_field->name(), source_field->repetition(),
                     ::parquet::LogicalType::Geometry(geometry.crs()), ::parquet::Type::BYTE_ARRAY,
@@ -121,6 +135,7 @@ arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parque
         } else if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOGRAPHY) {
             const auto& geography =
                     static_cast<const iceberg::GeographyType&>(*iceberg_field.field_type());
+            ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geography.crs()));
             ARROW_ASSIGN_OR_RAISE(auto algorithm, geography_algorithm(geography.algorithm()));
             fields.push_back(::parquet::schema::PrimitiveNode::Make(
                     source_field->name(), source_field->repetition(),
