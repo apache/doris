@@ -57,6 +57,11 @@ struct TTabletSchema {
     28: optional i32 binlog_tso_idx = -1
     29: optional i32 binlog_lsn_idx = -1
     30: optional i32 binlog_op_idx = -1
+    31: optional i32 ttl_col_idx = -1
+    32: optional i64 row_ttl_duration_us = -1
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC, direct expiration and non-TTL schemas use 0.
+    33: optional i32 row_ttl_time_zone_offset_seconds = 0
 }
 
 // this enum stands for different storage format in src_backends

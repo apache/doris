@@ -803,7 +803,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             idToRecycleTime.remove(db.getId());
 
             dbNameToIds.computeIfPresent(dbInfo.getDb().getFullName(), (k, v) -> {
-                v.remove(dbId);
+                v.remove(db.getId());
                 return v.isEmpty() ? null : v;
             });
 

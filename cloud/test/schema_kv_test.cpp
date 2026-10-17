@@ -337,6 +337,46 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
     }
 }
 
+TEST(DetachSchemaKVTest, RowTtlSchemaRoundTripPreservesColumnOrder) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t index_id = 14321;
+    constexpr int32_t schema_version = 7;
+    const auto key = meta_schema_key({instance_id, index_id, schema_version});
+    const auto versioned_key = versioned::meta_schema_key({instance_id, index_id, schema_version});
+    doris::TabletSchemaCloudPB schema;
+    fill_schema(&schema, schema_version);
+    schema.mutable_column()->SwapElements(0, schema.column_size() - 1);
+    schema.mutable_column(0)->set_name("__DORIS_TTL_COL__");
+    schema.mutable_column(0)->set_type("DATETIMEV2");
+    schema.set_ttl_col_idx(0);
+    schema.set_row_ttl_duration_us(10);
+    schema.set_row_ttl_time_zone_offset_seconds(3600);
+    const auto original = schema.SerializeAsString();
+
+    // Exercise both the initial write and the existing-schema comparison in both KV formats.
+    for (int i = 0; i < 2; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        MetaServiceCode code = MetaServiceCode::OK;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(schema.SerializeAsString(), original);
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ValueBuf buf;
+        ASSERT_EQ(blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(buf.to_pb(&saved_schema));
+        EXPECT_EQ(saved_schema.SerializeAsString(), original);
+        ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(saved_schema.SerializeAsString(), original);
+    }
+}
+
 static void begin_txn(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                       int64_t table_id, int64_t& txn_id) {
     brpc::Controller cntl;
