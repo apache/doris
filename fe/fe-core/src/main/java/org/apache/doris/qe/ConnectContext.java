@@ -48,6 +48,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.PlanningDiagnostics;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -109,7 +110,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
-
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -1326,7 +1326,30 @@ public class ConnectContext {
         }
     }
 
+    // Published independently of StatementContext's monitor, which is held during table-lock acquisition.
+    private volatile PlanningDiagnostics planningDiagnostics;
+
+    public PlanningDiagnostics getPlanningDiagnostics() {
+        return planningDiagnostics;
+    }
+
+    public void setPlanningDiagnostics(PlanningDiagnostics diagnostics) {
+        planningDiagnostics = diagnostics;
+    }
+
     public void checkTimeout(long now) {
+        PlanningDiagnostics diagnostics = planningDiagnostics;
+        try {
+            checkTimeoutInternal(now);
+        } finally {
+            // Timeout handling takes precedence over diagnostic formatting and logging.
+            if (diagnostics != null) {
+                diagnostics.reportIfSlow();
+            }
+        }
+    }
+
+    private void checkTimeoutInternal(long now) {
         if (startTime <= 0) {
             return;
         }
