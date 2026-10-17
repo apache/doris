@@ -56,10 +56,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 
@@ -106,10 +108,43 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
-        modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+        // Runs even when every table already exists: an upgraded cluster must gain the
+        // SPM provenance columns (sql_mode / plan_sql_mode / plan_frozen /
+        // schema_fingerprint) although the completion gate no longer calls createTbl().
+        // Waits until all columns are OBSERVED: run() reaches this point only once and the
+        // replica-upgrade loop below never comes back, so a transient ALTER failure was
+        // never retried in this process - the table stayed without the columns although
+        // BaselineManager always reads / writes them, and baseline loading plus global
+        // DDL stayed broken until a restart. Must precede the replica-upgrade loop below:
+        // that loop WAITS for enough BEs (sleeping), so anything after it would be
+        // deferred indefinitely on a small cluster.
+        ensureSpmBaselinesColumnsExist();
+        ensureSpmBaselinesSeqColumnsExist();
+        // ... and the HWM slot gains its bounded mutation-clock column (tick): every
+        // baseline mutation advances it (see BaselineManager#bumpMutationClock) and the
+        // paginated snapshot read compares it around its page loop.
+        ensureSpmBaselinesHwmColumnsExist();
+        for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
+            modifyTblReplicaCount(database, tblName);
+        }
     }
+
+    /**
+     * Internal tables whose replica count is raised towards
+     * StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM. The SPM tables carry
+     * cluster-wide state: with the default minimum replication of 1 they are created
+     * single-replica, and losing the hosting BE would make every global baseline
+     * unavailable, make the id watermark / every global CREATE BASELINE PLAN
+     * unreadable, or silently drop the id reservation history of the whole cluster.
+     */
+    @VisibleForTesting
+    static final List<String> REPLICA_UPGRADED_INTERNAL_TABLES = Lists.newArrayList(
+            StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+            StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
+            AuditLoader.AUDIT_LOG_TABLE,
+            InternalSchema.SPM_BASELINES_TBL_NAME,
+            InternalSchema.SPM_BASELINES_SEQ_TBL_NAME,
+            InternalSchema.SPM_BASELINES_HWM_TBL_NAME);
 
     public void modifyColumnStatsTblSchema() {
         while (true) {
@@ -405,6 +440,370 @@ public class InternalSchemaInitializer extends Thread {
          * )
          */
         createTable(getAuditLogCreateSql());
+        createTable(getSpmBaselinesCreateSql());
+        createTable(getSpmBaselinesSeqCreateSql());
+        createTable(getSpmBaselinesHwmCreateSql());
+    }
+
+    /**
+     * The provenance / schema-identity columns an UPGRADED cluster must gain on the
+     * pre-existing spm_baselines table (new clusters get them from the create SQL):
+     *
+     * - sql_mode: the parser mode of the creating session (without it a PIPES_AS_CONCAT
+     *   baseline is re-parsed under the default mode after a restart, the stored digest
+     *   still finds the row while the structural match rejects every CONCAT-mode query,
+     *   and the baseline silently stops applying);
+     * - plan_sql_mode: the parser mode of the stored planSql (the raw fallback text keeps
+     *   the creator's mode, the decompiled rendering is MODE_DEFAULT);
+     * - plan_frozen: the explicit decompiled / raw-fallback provenance, so a reload never
+     *   guesses whether the text is the frozen placeholder rendering;
+     * - schema_fingerprint: the referenced-table schema identity validated before a
+     *   replay, so an ALTER TABLE ... ADD COLUMN cannot keep matching a frozen plan that
+     *   still emits the creator-time columns.
+     */
+    @VisibleForTesting
+    static final Map<String, ScalarType> SPM_BASELINES_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_UPGRADE_COLUMNS.put("sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_frozen",
+                ScalarType.createType(PrimitiveType.BOOLEAN));
+        // STRING, not VARCHAR(4096): the fingerprint concatenates one entry per distinct
+        // referenced table with no length cap, so a bounded column would
+        // fail the baseline INSERT for wide multi-table queries.
+        SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
+                ScalarType.createType(PrimitiveType.STRING));
+        // STRING like schema_fingerprint (a hex digest, never bounded); NULL on
+        // upgraded rows that predate the column.
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING));
+    }
+
+    /**
+     * Waits until the spm_baselines table carries every column of
+     * SPM_BASELINES_UPGRADE_COLUMNS: a transient ALTER failure (BE / tablet not
+     * ready) must be retried HERE - run() calls this once and the replica-upgrade loop
+     * never comes back, so a one-shot call left an upgraded cluster without the columns
+     * until a restart although BaselineManager always reads / writes them (baseline load
+     * and global DDL stayed broken).
+     */
+    static void ensureSpmBaselinesColumnsExist() {
+        while (!spmBaselinesColumnsExist()) {
+            try {
+                upgradeSpmBaselinesSchema();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
+            }
+            if (spmBaselinesColumnsExist()) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Testable retry skeleton of ensureSpmBaselinesColumnsExist: waits until the
+     * columns are observed, retrying a failed alter. A first ALTER failure followed by a
+     * success must converge WITHOUT a restart.
+     *
+     * @param columnsExist whether every upgraded column is already observed
+     * @param alter        the idempotent upgrade attempt (may throw)
+     * @param sleeper      the wait between attempts
+     */
+    @VisibleForTesting
+    static void ensureSpmBaselinesColumnsExist(BooleanSupplier columnsExist, Runnable alter,
+            Runnable sleeper) {
+        while (!columnsExist.getAsBoolean()) {
+            try {
+                alter.run();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
+            }
+            if (columnsExist.getAsBoolean()) {
+                return;
+            }
+            sleeper.run();
+        }
+    }
+
+    /** Whether the spm_baselines table already carries every upgraded column (false
+     *  while the table itself is not there yet - the caller keeps retrying). */
+    @VisibleForTesting
+    static boolean spmBaselinesColumnsExist() {
+        // TYPE-aware like every other upgrade check: a legacy fixed-width
+        // schema_fingerprint / plan_sql column counts as needing the widening MODIFY to
+        // the STRING the create schema declares (a name-only check left it at its old
+        // width, and a long value then failed its INSERT).
+        return spmUpgradeColumnsExist(SPM_BASELINES_UPGRADE_COLUMNS,
+                InternalSchema.SPM_BASELINES_TBL_NAME);
+    }
+
+    /**
+     * Brings a PRE-EXISTING spm_baselines table to the create schema's columns (one ALTER
+     * per attempt). Delegates to the shared upgrade path, so the check is TYPE-aware and a
+     * column that exists with the WRONG type (a legacy VARCHAR(4096) bind_sql_digest /
+     * schema_fingerprint against the declared STRING) is re-modelled instead of being
+     * accepted by name - a >4096-char canonical digest otherwise failed its reservation /
+     * baseline INSERT while a fresh table accepted it. Idempotent; throws on failure - the
+     * caller's retry loop owns the retry policy.
+     */
+    private static void upgradeSpmBaselinesSchema() throws UserException {
+        upgradeSpmTableSchema(SPM_BASELINES_UPGRADE_COLUMNS, "spm_baselines",
+                InternalSchema.SPM_BASELINES_TBL_NAME);
+    }
+
+    /**
+     * The definition of ONE upgraded SPM column (baselines / seq / hwm): an added
+     * column is always a VALUE column.
+     *
+     * The key flag must be FALSE. An ADD COLUMN flagged as KEY lands AFTER the existing
+     * value columns in the altered schema, and the schema-change validator rejects any key
+     * column that follows a value column ("Invalid column order. value should be after
+     * key"): the ALTER threw, the initializer's wait loop retried the same column every
+     * resource_not_ready_sleep_seconds forever, and an in-place upgraded cluster
+     * never gained the columns its reader / writer already use - the baselines table stayed
+     * broken until a restart with a modified table or a drop + fresh create.
+     */
+    @VisibleForTesting
+    static ColumnDefinition spmUpgradeColumnDefinition(String name, ScalarType type) {
+        return new ColumnDefinition(name, DataType.fromCatalogType(type),
+                false, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                Optional.empty(), "", true, Optional.empty());
+    }
+
+    /**
+     * The columns an UPGRADED cluster must gain on a pre-existing spm_baselines_seq
+     * table (new clusters get them from the create SQL): bind_sql_digest / plan_sql_hash /
+     * reserve_time let a create's id reservation carry the baseline's identity, which is
+     * how the DURABLE unresolved-create fence of BaselineManager finds a committed but
+     * unpublished write after a leader handoff / restart.
+     */
+    @VisibleForTesting
+    /**
+     * Upgrade columns of the spm_baselines_hwm table: the bounded mutation clock (tick,
+     * see BaselineManager#beginRowMutation) and its open mutation WINDOW (pending). A
+     * pre-existing slot without the columns reads as 0 and is re-written by the next
+     * mutation.
+     */
+    static final Map<String, ScalarType> SPM_BASELINES_HWM_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_HWM_UPGRADE_COLUMNS.put("tick",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_HWM_UPGRADE_COLUMNS.put("pending",
+                ScalarType.createType(PrimitiveType.BIGINT));
+    }
+
+    static final Map<String, ScalarType> SPM_BASELINES_SEQ_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        // STRING, not a fixed VARCHAR: the digest is the canonical rendering of the WHOLE
+        // bind statement without a length cap (see
+        // InternalSchema#SPM_BASELINES_SEQ_SCHEMA); a >4096-char bind failed the
+        // reservation INSERT although a fresh table's column accepts it.
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("bind_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING));
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("plan_sql_hash",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        // TIMESTAMPTZ, exactly like InternalSchema#SPM_BASELINES_SEQ_SCHEMA: the reader
+        // compares reserve_time as an INSTANT (the unresolved-create fence), so the
+        // column must carry the zone-qualified value the writer produces. DATETIME
+        // (the type an earlier upgrade added) renders it in the session zone and
+        // re-reads it shifted by that zone's offset, so the fence misjudges every
+        // reservation written through such a column; the type-aware check below
+        // re-models an existing DATETIME column instead of declaring the table upgraded.
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("reserve_time",
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ));
+        // 1 = the marker of an AMBIGUOUS create (the durable pending-create fence reads
+        // only these rows); a plain reservation exists for every create and must never
+        // fence. NULL (pre-marker rows) is treated as "not unconfirmed".
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("unconfirmed",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        // 1 = a DROP TOMBSTONE: keeps a delayed status INSERT from
+        // resurrecting a dropped baseline (see InternalSchema#SPM_BASELINES_SEQ_SCHEMA).
+        // NULL (pre-marker rows) is treated as "not dropped".
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("dropped",
+                ScalarType.createType(PrimitiveType.BIGINT));
+    }
+
+    /**
+     * Waits until the spm_baselines_seq table carries every column of
+     * SPM_BASELINES_SEQ_UPGRADE_COLUMNS (transient ALTER failures are retried
+     * HERE - run() calls this once and never comes back).
+     */
+    static void ensureSpmBaselinesSeqColumnsExist() {
+        ensureSpmUpgradeColumns(SPM_BASELINES_SEQ_UPGRADE_COLUMNS, "spm_baselines_seq",
+                InternalSchema.SPM_BASELINES_SEQ_TBL_NAME);
+    }
+
+    /**
+     * Waits until the spm_baselines_hwm table carries every column of
+     * SPM_BASELINES_HWM_UPGRADE_COLUMNS.
+     */
+    static void ensureSpmBaselinesHwmColumnsExist() {
+        ensureSpmUpgradeColumns(SPM_BASELINES_HWM_UPGRADE_COLUMNS, "spm_baselines_hwm",
+                InternalSchema.SPM_BASELINES_HWM_TBL_NAME);
+    }
+
+
+    /** Shared retry skeleton of the two upgrade loops above (see the checkpoint one). */
+    private static void ensureSpmUpgradeColumns(Map<String, ScalarType> upgradeColumns,
+            String label, String tableName) {
+        while (!spmUpgradeColumnsExist(upgradeColumns, tableName)) {
+            try {
+                upgradeSpmTableSchema(upgradeColumns, label, tableName);
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the {} columns, will retry", label, t);
+            }
+            if (spmUpgradeColumnsExist(upgradeColumns, tableName)) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Whether a table already carries every upgraded column, with the TYPE the
+     * upgrade map (and the create SQL) declares. A NAME-ONLY check declared a table
+     * upgraded while a column carried the wrong type - an upgraded cluster's
+     * reserve_time was a DATETIME where the create SQL declares TIMESTAMPTZ - so the
+     * reader/writer then ran against the wrong instant semantics forever. A mismatch
+     * returns false and upgradeSpmTableSchema re-models the column (MODIFY), one
+     * column per ALTER.
+     */
+    private static boolean spmUpgradeColumnsExist(Map<String, ScalarType> upgradeColumns,
+            String tableName) {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return false;
+        }
+        Table table = dbOpt.get().getTable(tableName).orElse(null);
+        if (table == null) {
+            return false;
+        }
+        for (Map.Entry<String, ScalarType> entry : upgradeColumns.entrySet()) {
+            Column column = findUpgradeColumn(table, entry.getKey());
+            if (column == null || !upgradeColumnTypeMatches(column.getType(), entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The column of an upgrade map entry (names are compared lowercased), or null. */
+    private static Column findUpgradeColumn(Table table, String name) {
+        for (Column column : table.getBaseSchema()) {
+            if (column.getName().equalsIgnoreCase(name)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether an existing column's type IS the upgrade map's type. STRING and VARCHAR are
+     * the same column type spelled two ways (STRING is the unlimited VARCHAR), so they
+     * compare equal here - but the WIDTH is part of the type: an existing VARCHAR(4096)
+     * against the unbounded STRING target is a MISMATCH and triggers the widening MODIFY
+     * (a >4096-char bind digest / fingerprint failed its INSERT in exactly such a legacy
+     * column while a fresh table's unbounded column accepted it). Every other primitive
+     * mismatch (the DATETIME reserve_time) is a real one as well.
+     */
+    @VisibleForTesting
+    static boolean upgradeColumnTypeMatches(Type existing, ScalarType target) {
+        if (existing == null) {
+            return false;
+        }
+        PrimitiveType existingType = existing.getPrimitiveType();
+        PrimitiveType targetType = target.getPrimitiveType();
+        if (isStringUpgradeType(existingType) && isStringUpgradeType(targetType)) {
+            // ScalarType#getLength reports the unlimited width (MAX_STRING_LENGTH) for both
+            // spellings of an unbounded type, so equal widths mean "no widening needed".
+            return existing.getLength() == target.getLength();
+        }
+        return existingType == targetType;
+    }
+
+    /** The two spellings of the unlimited string type (see upgradeColumnTypeMatches). */
+    private static boolean isStringUpgradeType(PrimitiveType type) {
+        return type == PrimitiveType.STRING || type == PrimitiveType.VARCHAR;
+    }
+
+    /**
+     * Adds the missing columns of an upgrade map to a PRE-EXISTING table (one ALTER per
+     * attempt, plain APPEND: the two tables' canonical order puts the upgraded columns
+     * last, and their writes are name-addressed). Idempotent; throws on failure - the
+     * caller's retry loop owns the policy.
+     */
+    private static void upgradeSpmTableSchema(Map<String, ScalarType> upgradeColumns,
+            String label, String tableName) throws UserException {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("SPM: internal schema db not found yet, will retry the {} upgrade", label);
+            return;
+        }
+        Table table = dbOpt.get().getTable(tableName).orElse(null);
+        if (table == null) {
+            LOG.warn("SPM: {} table not found yet, will retry the upgrade", label);
+            return;
+        }
+        // a table in SCHEMA_CHANGE rejects further ALTERs - wait for NORMAL instead of
+        // re-issuing the same column forever (see the checkpoint upgrade)
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getState() != OlapTable.OlapTableState.NORMAL) {
+            LOG.info("SPM: {} is not in NORMAL state ({}), waiting for the pending schema"
+                            + " change before the upgrade", label,
+                    table instanceof OlapTable ? ((OlapTable) table).getState() : "unknown");
+            return;
+        }
+        for (Map.Entry<String, ScalarType> entry : upgradeColumns.entrySet()) {
+            Column existingColumn = findUpgradeColumn(table, entry.getKey());
+            if (existingColumn != null
+                    && upgradeColumnTypeMatches(existingColumn.getType(), entry.getValue())) {
+                continue;
+            }
+            ColumnDefinition definition = spmUpgradeColumnDefinition(entry.getKey(), entry.getValue());
+            AlterTableOp alterOp;
+            if (existingColumn == null) {
+                AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+                addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+                alterOp = addColumnOp;
+            } else {
+                // The column EXISTS but carries another type (reserve_time was DATETIME
+                // while the create SQL declares TIMESTAMPTZ, see the upgrade map): a
+                // name-only checker treated such a table as fully upgraded, so the
+                // module ran its instant comparisons against the wrong rendering
+                // forever. MODIFY re-models it in place (Doris converts the stored
+                // values) and the wait loop's next round continues with the remainder.
+                ModifyColumnOp modifyColumnOp =
+                        new ModifyColumnOp(definition, null, null, Maps.newHashMap());
+                modifyColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+                alterOp = modifyColumnOp;
+            }
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, tableName);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(alterOp)));
+            LOG.info("SPM: {} the {} column of {} as {}",
+                    existingColumn == null ? "added" : "re-modelled", entry.getKey(), tableName,
+                    entry.getValue().toSql());
+            // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
+            // finishes, and the wait loop's next round continues with the remainder
+            return;
+        }
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
@@ -481,6 +880,96 @@ public class InternalSchemaInitializer extends Thread {
         return String.format(template, catalogName, dbName, tableName,
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
     }
+
+    private static String getSpmBaselinesCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baselines table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 10\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
+     * CREATE SQL of the SPM baseline id sequence table: append-only rows (id = 1) whose
+     * MAX(last_id) is the id high-water mark of the create path. It must survive a DROP
+     * of the baseline that held the highest id - the baselines table's own MAX(id) falls
+     * back with the row, and a reused id would let a delayed DROP-by-id retry remove a
+     * DIFFERENT baseline (see InternalSchema#SPM_BASELINES_SEQ_TBL_NAME).
+     */
+    private static String getSpmBaselinesSeqCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_SEQ_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baseline id sequence table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
+     * CREATE SQL of the COMPACT SPM baseline id high-water-mark table:
+     * append-only rows carrying the newest allocated id, pruned after every
+     * write. It answers the id watermark read in one bounded scan however many creates
+     * the cluster has served (see InternalSchema#SPM_BASELINES_HWM_TBL_NAME).
+     */
+    private static String getSpmBaselinesHwmCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_HWM_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`last_id`)\n"
+                        + "COMMENT \"Doris internal SPM baseline id high-water mark table,"
+                        + " DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`last_id`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
 
     private static String getPropertyStr(Map<String, String> properties) {
         StringBuilder propertiesStr = new StringBuilder();
@@ -572,12 +1061,73 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
-        // 4. check and update audit table schema
+        // 4. check the SPM baselines table: an UPGRADED cluster already has every legacy
+        // table above, so without this check created() returns true before run() ever
+        // reaches createTbl() - the missing spm_baselines table would never be created,
+        // every load attempt would fail, BaselineManager would stay unloaded and global
+        // CREATE/ALTER/DROP BASELINE would keep reporting that the store is not ready.
+        if (isSpmBaselinesTableMissing(db)) {
+            return false;
+        }
+
+        // 4c. check the SPM baseline id sequence table the same way: without it the create
+        // path cannot read / advance the id high-water mark and every CREATE BASELINE would
+        // fail retryably.
+        if (isSpmBaselinesSeqTableMissing(db)) {
+            return false;
+        }
+
+        // 4c-2. check the compact id high-water-mark table the same way:
+        // without it every create falls back to the unbounded history read.
+        if (isSpmBaselinesHwmTableMissing(db)) {
+            return false;
+        }
+
+        // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
-        // 5. check if we need to add new columns
+        // 6. check if we need to add new columns
         return alterAuditSchemaIfNeeded(auditTable);
     }
+
+    /**
+     * Whether the SPM baselines internal table is absent. Package-visible for the
+     * upgrade test: a cluster where only this table is missing must NOT be considered
+     * initialized.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME).isPresent();
+    }
+
+
+    /**
+     * Whether the SPM baseline id sequence internal table is absent. Package-visible for
+     * the upgrade test, exactly like isSpmBaselinesTableMissing.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines_seq does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesSeqTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the compact SPM id high-water-mark internal table is absent. Package-visible
+     * for the upgrade test, exactly like isSpmBaselinesTableMissing.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines_hwm does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesHwmTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_HWM_TBL_NAME).isPresent();
+    }
+
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
         List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;

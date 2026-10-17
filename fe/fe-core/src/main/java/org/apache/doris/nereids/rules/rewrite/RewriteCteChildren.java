@@ -46,7 +46,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -99,7 +98,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
-        Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
+        Set<LogicalCTEConsumer> cteConsumers = Sets.newLinkedHashSet();
         outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
@@ -200,17 +199,17 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             return child;
         }
         int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
-        Set<Expression> conjuncts = new HashSet<>();
+        Set<Expression> conjuncts = Sets.newLinkedHashSet();
         for (Expression f : someone) {
             int matchCount = 0;
             Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
-            Set<Expression> mightBeJoined = new HashSet<>();
+            Set<Expression> mightBeJoined = Sets.newLinkedHashSet();
             for (Set<Expression> another : filtersAboveEachConsumer) {
                 if (another.equals(someone)) {
                     matchCount++;
                     continue;
                 }
-                Set<Expression> matched = new HashSet<>();
+                Set<Expression> matched = Sets.newLinkedHashSet();
                 for (Expression e : another) {
                     Set<SlotReference> otherSlots = e.collect(ae -> ae instanceof SlotReference);
                     if (otherSlots.equals(slots)) {
