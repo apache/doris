@@ -23,6 +23,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
@@ -210,6 +211,128 @@ TEST(AggBitmapTest, bitmap_intersect_test) {
     EXPECT_EQ(expected_intersection.to_string(),
               assert_cast<ColumnBitmap&>(*dst).get_element(0).to_string());
 }
+
+class BitmapIntersectPartialStateTest : public testing::TestWithParam<bool> {
+protected:
+    void SetUp() override {
+        AggregateFunctionSimpleFactory factory;
+        register_aggregate_function_bitmap(factory);
+        auto type = make_nullable(std::make_shared<DataTypeBitMap>());
+        AggregateFunctionAttr attr;
+        attr.enable_aggregate_function_null_v2 = GetParam();
+        function = factory.get("bitmap_intersect_v2", {type}, nullptr, false, -1, attr);
+        input = type->create_column();
+        auto& nullable = assert_cast<ColumnNullable&>(*input);
+        auto& bitmaps = assert_cast<ColumnBitmap&>(nullable.get_nested_column());
+        for (const auto& values : {std::vector<uint64_t> {1, 2}, std::vector<uint64_t> {2, 3}}) {
+            BitmapValue bitmap;
+            for (auto value : values) {
+                bitmap.add(value);
+            }
+            bitmaps.insert_value(bitmap);
+            nullable.get_null_map_data().push_back(0);
+        }
+        input->insert_default();  // NULL-only partial state.
+        bitmaps.insert_default(); // A valid empty bitmap must still clear the intersection.
+        nullable.get_null_map_data().push_back(0);
+        columns[0] = input.get();
+        for (size_t row = 0; row < input->size(); ++row) {
+            auto* place = arena.alloc(function->size_of_data());
+            function->create(place);
+            function->add(place, columns, row, arena);
+            partials.push_back(place);
+        }
+        result = arena.alloc(function->size_of_data());
+        function->create(result);
+    }
+
+    void TearDown() override {
+        for (auto* place : partials) {
+            function->destroy(place);
+        }
+        function->destroy(result);
+    }
+
+    void check(const std::string& expected) {
+        ColumnBitmap output;
+        function->insert_result_into(result, output);
+        EXPECT_EQ(output.get_element(0).to_string(), expected);
+    }
+
+    Arena arena;
+    AggregateFunctionPtr function;
+    MutableColumnPtr input;
+    const IColumn* columns[1];
+    std::vector<AggregateDataPtr> partials;
+    AggregateDataPtr result;
+};
+
+TEST_P(BitmapIntersectPartialStateTest, DirectMerge) {
+    // The NULL partial is an identity in either merge order.
+    for (const auto& order : {std::vector<size_t> {0, 1, 2}, std::vector<size_t> {2, 0, 1}}) {
+        function->reset(result);
+        for (auto row : order) {
+            function->merge(result, partials[row], arena);
+        }
+        check("2");
+    }
+    function->merge(result, partials[3], arena);
+    check("");
+    function->reset(result);
+    function->merge(result, partials[2], arena);
+    check("");
+}
+
+TEST_P(BitmapIntersectPartialStateTest, SerializedMerge) {
+    auto serialized = function->create_serialize_column();
+    function->serialize_to_column(partials, 0, serialized, partials.size());
+    function->deserialize_and_merge_from_column_range(result, *serialized, 0, 2, arena);
+    check("2");
+    function->deserialize_and_merge_from_column_range(result, *serialized, 3, 3, arena);
+    check("");
+    function->add(result, columns, 0, arena);
+    check("");
+
+    // A NULL row remains uninitialized; a valid row restores the flag before add().
+    function->reset(result);
+    function->deserialize_from_column_row(result, *serialized, 2, arena);
+    function->add(result, columns, 0, arena);
+    check("1,2");
+    function->reset(result);
+    function->deserialize_from_column_row(result, *serialized, 0, arena);
+    function->add(result, columns, 1, arena);
+    check("2");
+
+    auto* scratch = arena.alloc(function->size_of_data() * 3);
+    std::vector<AggregateDataPtr> destinations(3, result);
+    function->reset(result);
+    function->deserialize_and_merge_vec(destinations.data(), 0, scratch, serialized.get(), arena,
+                                        3);
+    check("2");
+    function->reset(result);
+    function->merge(result, partials[0], arena);
+    destinations[0] = nullptr;
+    function->deserialize_and_merge_vec_selected(destinations.data(), 0, scratch, serialized.get(),
+                                                 arena, 3);
+    check("2");
+}
+
+TEST_P(BitmapIntersectPartialStateTest, WithoutKeyAndStreamingMerge) {
+    auto without_key = function->create_serialize_column();
+    for (size_t row : {0, 1, 2}) {
+        function->serialize_without_key_to_column(partials[row], *without_key);
+    }
+    function->deserialize_and_merge_from_column(result, *without_key, arena);
+    check("2");
+
+    auto streaming = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, streaming, 3, arena);
+    function->reset(result);
+    function->deserialize_and_merge_from_column(result, *streaming, arena);
+    check("2");
+}
+
+INSTANTIATE_TEST_SUITE_P(NullWrappers, BitmapIntersectPartialStateTest, testing::Bool());
 
 TEST(AggBitmapTest, bitmap_union_count_test) {
     Arena arena;
