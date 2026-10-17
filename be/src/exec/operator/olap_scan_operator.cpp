@@ -23,6 +23,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <shared_mutex>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -499,13 +500,18 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
         }
     }
 
-    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX && !conjuncts.empty()) {
+    // Reject only residual predicates that reference columns: COUNT_ON_INDEX fills columns with
+    // defaults, while a predicate such as random() < 2 still filters each row correctly.
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX &&
+        std::ranges::any_of(conjuncts, [](const VExprContextSPtr& conjunct) {
+            std::set<int> column_ids;
+            conjunct->root()->collect_slot_column_ids(column_ids);
+            return !column_ids.empty();
+        })) {
         return Status::InvalidArgument(
-                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
-                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
-                "otherwise the query may return incorrect results. "
-                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
-                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates that "
+                "reference columns. Residual predicates must be evaluated before COUNT_ON_INDEX "
+                "counts rows; otherwise the query may return incorrect results. Set "
                 "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
     }
     return Status::OK();
