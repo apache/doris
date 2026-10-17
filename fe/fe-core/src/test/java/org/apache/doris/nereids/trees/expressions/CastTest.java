@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
@@ -761,20 +762,51 @@ public class CastTest {
 
     @Test
     public void testMayFailOnNonNullInputForScalarCasts() {
+        DecimalV3Type decimal9Scale2 = DecimalV3Type.createDecimalV3Type(9, 2);
+        DecimalV3Type decimal18Scale0 = DecimalV3Type.createDecimalV3Type(18, 0);
+        DecimalV3Type decimal19Scale0 = DecimalV3Type.createDecimalV3Type(19, 0);
+        DecimalV3Type decimal20Scale0 = DecimalV3Type.createDecimalV3Type(20, 0);
+
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, IntegerType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, BigIntType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(BooleanType.INSTANCE, IntegerType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(LargeIntType.INSTANCE, FloatType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, decimal20Scale0));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(BooleanType.INSTANCE,
+                DecimalV3Type.createDecimalV3Type(1, 0)));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(decimal9Scale2, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(decimal18Scale0, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                DecimalV2Type.createDecimalV2Type(10, 2), DecimalV3Type.createDecimalV3Type(20, 2)));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, StringType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(JsonType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(VarBinaryType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IPv4Type.INSTANCE, IPv6Type.INSTANCE));
+
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateTimeV2Type.MAX, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateTimeV2Type.MAX, DateType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateTimeV2Type.of(3), DateTimeV2Type.of(6)));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(TimeV2Type.MAX, TimeV2Type.SYSTEM_DEFAULT));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(TimeV2Type.MAX, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, DoubleType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                TimeStampTzType.of(3), TimeStampTzType.of(6)));
 
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(BigIntType.INSTANCE, IntegerType.INSTANCE));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(BigIntType.INSTANCE, decimal18Scale0));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(decimal19Scale0, BigIntType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(decimal20Scale0, BigIntType.INSTANCE));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(StringType.INSTANCE, IntegerType.INSTANCE));
-        Assertions.assertTrue(Cast.mayFailOnNonNullInput(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
-        Assertions.assertTrue(Cast.mayFailOnNonNullInput(JsonType.INSTANCE, StringType.INSTANCE));
-        Assertions.assertTrue(Cast.mayFailOnNonNullInput(VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(DateTimeV2Type.of(6), DateTimeV2Type.of(3)));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                TimeStampTzType.of(6), TimeStampTzType.of(3)));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(DateType.INSTANCE, TimeStampNsType.INSTANCE));
 
         Cast safeCast = new Cast(new SlotReference("slot", IntegerType.INSTANCE, true), BigIntType.INSTANCE);
         Assertions.assertTrue(safeCast.nullable());
@@ -790,6 +822,14 @@ public class CastTest {
         ArrayType bigInts = ArrayType.of(BigIntType.INSTANCE);
         ArrayType strings = ArrayType.of(StringType.INSTANCE);
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(integers, bigInts));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                ArrayType.of(DecimalV3Type.createDecimalV3Type(9, 2)), bigInts));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                ArrayType.of(DateTimeV2Type.MAX), ArrayType.of(DateType.INSTANCE)));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                ArrayType.of(TimeStampNsType.INSTANCE), ArrayType.of(DateTimeV2Type.MAX)));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                ArrayType.of(DecimalV3Type.createDecimalV3Type(19, 0)), bigInts));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(strings, integers));
         // The outer ARRAY can stay non-null even when an element cast fails.
         Assertions.assertFalse(Cast.castNullable(false, strings, integers));
