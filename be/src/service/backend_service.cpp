@@ -54,6 +54,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
+#include "lance/index/lance_index_worker_service.h"
 #include "load/routine_load/routine_load_task_executor.h"
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_recorder.h"
@@ -680,9 +681,42 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 } // namespace
 
 BaseBackendService::BaseBackendService(ExecEnv* exec_env)
-        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, exec_env->cluster_info())) {}
+        : _exec_env(exec_env),
+          _agent_server(new AgentServer(exec_env, exec_env->cluster_info())),
+          _lance_index_worker_service(new lance::LanceIndexWorkerService()) {}
 
 BaseBackendService::~BaseBackendService() = default;
+
+Status BaseBackendService::start_shared_thrift_dependencies() {
+    // The Lance index worker service must be running before the thrift server
+    // accepts connections (its receive rails, executor slots and metrics are
+    // wired here; an isolation preflight failure is non-fatal - the supervisor
+    // logs it precisely and every invocation is answered with a clean
+    // never-launched rejection).
+    return _lance_index_worker_service->start();
+}
+
+void BaseBackendService::lance_index_mutate(TLanceIndexMutationResult& _return,
+                                            const TLanceIndexMutationRequest& request) {
+    // One-line forward (this class just forwards RPCs to actual handlers). A
+    // null service means startup failed before the thrift server existed,
+    // which is still a definitive never-launched answer.
+    if (_lance_index_worker_service == nullptr) {
+        TStatus status;
+        status.__set_status_code(TStatusCode::INTERNAL_ERROR);
+        status.__set_error_msgs({"lance index worker service is not available in this process"});
+        _return.__set_status(status);
+        return;
+    }
+    _lance_index_worker_service->lance_index_mutate(_return, request);
+}
+
+void BaseBackendService::stop_works() {
+    _agent_server->stop_report_workers();
+    if (_lance_index_worker_service != nullptr) {
+        _lance_index_worker_service->stop();
+    }
+}
 
 BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
         : BaseBackendService(exec_env), _engine(engine) {}
@@ -691,6 +725,7 @@ BackendService::~BackendService() = default;
 
 Status BackendService::start_thrift_dependencies() {
     _agent_server->start_workers(_engine, _exec_env);
+    RETURN_IF_ERROR(start_shared_thrift_dependencies());
 
     auto thread_num = config::ingest_binlog_work_pool_size;
     if (thread_num < 0) {
