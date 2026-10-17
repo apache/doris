@@ -35,6 +35,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.kinesis.KinesisUtil;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.transaction.TransactionState;
@@ -686,10 +688,26 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            // Build the new load definition before modifying the job, so a failure leaves the job and the
+            // journal unchanged.
+            RoutineLoadDesc loadDesc = null;
+            OriginStatement loadDefinitionStmt = null;
+            if (command.hasLoadProperty()) {
+                loadDesc = mergeLoadDesc(command.getRoutineLoadDesc());
+                loadDefinitionStmt = buildLoadDefinitionStatement(loadDesc);
+            }
+
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            if (command.hasLoadProperty()) {
+                applyLoadDefinition(loadDesc, loadDefinitionStmt, command.getSessionVariables(),
+                        command.getSqlMode());
+            }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties,
+                    command.hasLoadProperty() ? command.getOriginStatement() : null,
+                    command.hasLoadProperty() ? command.getSqlMode() : null,
+                    command.hasLoadProperty() ? command.getSessionVariables() : null);
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -783,6 +801,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
+            replayLoadDefinition(log.getOriginStatement(), log.getSqlMode(), log.getSessionVariables());
         } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }
