@@ -620,6 +620,12 @@ public abstract class BaseAnalysisTask {
 
     protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
 
+    /**
+     * Whether this task may collect hot values. It only decides which template a full analyze uses
+     * (with or without the hot value CTE). A sample analyze collects hot values only when the
+     * estimator it picked provides them, i.e. {@code DUJ1_ANALYZE_TEMPLATE}; the linear estimator
+     * never does, even though a sample job sets {@code collectHotValue} to true.
+     */
     protected boolean shouldCollectHotValue() {
         return Boolean.TRUE.equals(info.collectHotValue);
     }
