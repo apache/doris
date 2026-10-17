@@ -20,12 +20,13 @@
 #include <gen_cpp/Opcodes_types.h>
 
 #include "core/column/column.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "storage/segment/common.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-using ScoreMap = phmap::flat_hash_map<segment_v2::rowid_t, float>;
+using ScoreMap = doris::flat_hash_map<segment_v2::rowid_t, float>;
 using ScoreMapIterator = ScoreMap::const_iterator;
 
 enum class OrderType {
