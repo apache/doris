@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -902,6 +903,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
                     if (isKey && meetValue) {
                         throw new DdlException("Invalid column order. key should before all values: " + rollupColName);
+                    }
+
+                    // BE sorts rollup rows by the duplicate keys, which these types cannot be compared on.
+                    if (isKey && baseColumn.getType().isOnlyMetricType()) {
+                        throw new DdlException("Column[" + rollupColName + "] can not be used as a duplicate key "
+                                + "of rollup. " + Type.OnlyMetricTypeErrorMsg);
                     }
 
                     Column oneColumn = new Column(baseColumn);
