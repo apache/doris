@@ -59,6 +59,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/obj-client/obj_storage_client.h"
+#include "exec/spill/spill_file_manager.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
@@ -1154,6 +1155,9 @@ void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster
     request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
                                                  ? config::pipeline_executor_size
                                                  : CpuInfo::num_cores());
+    // The master FE sums it over the alive BEs for SHOW DATA.
+    request.__set_remote_spill_bytes(
+            ExecEnv::GetInstance()->spill_file_mgr()->remote_spill_data_bytes());
     bool succ = handle_report(request, cluster_info, "disk");
     report_disk_total << 1;
     report_disk_failed << !succ;

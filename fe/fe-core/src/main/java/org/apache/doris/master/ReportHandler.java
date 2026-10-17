@@ -185,6 +185,10 @@ public class ReportHandler extends Daemon {
             reportType = ReportType.DISK;
         }
 
+        if (request.isSetRemoteSpillBytes()) {
+            backend.setRemoteSpillBytes(request.getRemoteSpillBytes());
+        }
+
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();

@@ -50,6 +50,10 @@ public:
 
         RuntimeProfile::Counter* spill_write_bytes_to_local_storage_counter_;
         RuntimeProfile::Counter* spill_read_bytes_from_local_storage_counter_;
+        RuntimeProfile::Counter* spill_write_bytes_to_remote_storage_counter_;
+        RuntimeProfile::Counter* spill_read_bytes_from_remote_storage_counter_;
+        RuntimeProfile::Counter* spill_remote_write_requests_counter_;
+        RuntimeProfile::Counter* spill_remote_read_requests_counter_;
 
         RuntimeProfile* profile() { return profile_.get(); }
         void init_profile() {
@@ -71,6 +75,14 @@ public:
                     ADD_COUNTER(profile_, "SpillWriteBytesToLocalStorage", TUnit::BYTES);
             spill_read_bytes_from_local_storage_counter_ =
                     ADD_COUNTER(profile_, "SpillReadBytesFromLocalStorage", TUnit::BYTES);
+            spill_write_bytes_to_remote_storage_counter_ =
+                    ADD_COUNTER(profile_, "SpillWriteBytesToRemoteStorage", TUnit::BYTES);
+            spill_read_bytes_from_remote_storage_counter_ =
+                    ADD_COUNTER(profile_, "SpillReadBytesFromRemoteStorage", TUnit::BYTES);
+            spill_remote_write_requests_counter_ =
+                    ADD_COUNTER(profile_, "SpillRemoteWriteRequests", TUnit::UNIT);
+            spill_remote_read_requests_counter_ =
+                    ADD_COUNTER(profile_, "SpillRemoteReadRequests", TUnit::UNIT);
         }
         std::string debug_string() { return profile_->pretty_print(); }
 
@@ -107,6 +119,22 @@ public:
         return stats_.spill_read_bytes_from_local_storage_counter_->value();
     }
 
+    int64_t spill_write_bytes_to_remote_storage() const {
+        return stats_.spill_write_bytes_to_remote_storage_counter_->value();
+    }
+
+    int64_t spill_read_bytes_from_remote_storage() const {
+        return stats_.spill_read_bytes_from_remote_storage_counter_->value();
+    }
+
+    int64_t spill_remote_write_requests() const {
+        return stats_.spill_remote_write_requests_counter_->value();
+    }
+
+    int64_t spill_remote_read_requests() const {
+        return stats_.spill_remote_read_requests_counter_->value();
+    }
+
     void update_scan_rows(int64_t delta) const { stats_.scan_rows_counter_->update(delta); }
     void update_scan_bytes(int64_t delta) const { stats_.scan_bytes_counter_->update(delta); }
     void update_scan_bytes_from_local_storage(int64_t delta) const {
@@ -133,6 +161,22 @@ public:
 
     void update_spill_read_bytes_from_local_storage(int64_t delta) const {
         stats_.spill_read_bytes_from_local_storage_counter_->update(delta);
+    }
+
+    void update_spill_write_bytes_to_remote_storage(int64_t delta) const {
+        stats_.spill_write_bytes_to_remote_storage_counter_->update(delta);
+    }
+
+    void update_spill_read_bytes_from_remote_storage(int64_t delta) const {
+        stats_.spill_read_bytes_from_remote_storage_counter_->update(delta);
+    }
+
+    void update_spill_remote_write_requests(int64_t delta) const {
+        stats_.spill_remote_write_requests_counter_->update(delta);
+    }
+
+    void update_spill_remote_read_requests(int64_t delta) const {
+        stats_.spill_remote_read_requests_counter_->update(delta);
     }
 
     IOThrottle* io_throttle() {
