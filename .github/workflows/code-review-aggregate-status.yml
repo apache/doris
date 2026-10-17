@@ -13,6 +13,7 @@ permissions: {}
 jobs:
   aggregate:
     runs-on: ubuntu-latest
+    # This is the only final-status writer; source updates never reset it.
     concurrency:
       group: code-review-status-${{ inputs.head_sha }}
       cancel-in-progress: false
@@ -21,19 +22,6 @@ jobs:
       pull-requests: read
       statuses: write
     steps:
-      - name: Mark aggregate status as pending
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -X POST \
-            -f state='pending' \
-            -f context='code-review' \
-            -f description="Recalculating code review for ${HEAD_SHA:0:12}." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
       - name: Checkout trusted status resolver
         uses: actions/checkout@v4
         with:
@@ -70,6 +58,7 @@ jobs:
             --head-sha "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Publish aggregate code-review status
+        if: steps.resolution.outputs.publish == 'true'
         env:
           DESCRIPTION: ${{ steps.resolution.outputs.description }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
