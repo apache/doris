@@ -136,6 +136,8 @@ suite("test_hot_value") {
     assertTrue(hotValues[1] == "'1':0.5" || hotValues[1] == "'0':0.5")
 
     sql """drop stats test1"""
+    // The requested sample rows are larger than the table, so sample analyze falls back to a
+    // full scan with the linear estimator, which does not collect hot_value.
     sql """analyze table test1 with sample rows 40000 with sync"""
     result = sql """show column stats test1(key1)"""
     logger.info("result " + result)
@@ -143,22 +145,14 @@ suite("test_hot_value") {
     assertEquals("10000.0", result[0][2])
     result = sql """show column stats test1(value1)"""
     logger.info("2. result " + result)
-    logger.info("result.size()" + result.size())
     assertEquals(1, result.size())
-    logger.info("result[0][2] " + result[0][2])
     assertEquals("10000.0", result[0][2])
-    hotValues = result[0][17].split(";")
-    assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "'1':0.5" || hotValues[0] == "'0':0.5")
-    assertTrue(hotValues[1] == "'1':0.5" || hotValues[1] == "'0':0.5")
+    assertEquals("null", String.valueOf(result[0][17]))
     result = sql """show column cached stats test1(value1)"""
     logger.info("result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
-    hotValues = result[0][17].split(";")
-    assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "'1':0.5" || hotValues[0] == "'0':0.5")
-    assertTrue(hotValues[1] == "'1':0.5" || hotValues[1] == "'0':0.5")
+    assertEquals("null", String.valueOf(result[0][17]))
 
     sql """alter table test1 modify column value1 set stats ('row_count'='100.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='aaa :0.8');"""
     result = sql """show column stats test1(value1)"""

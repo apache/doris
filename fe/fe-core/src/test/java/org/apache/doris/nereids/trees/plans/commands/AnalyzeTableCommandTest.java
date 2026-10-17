@@ -157,7 +157,7 @@ public class AnalyzeTableCommandTest {
                 "ANALYZE TABLE test_db.test_tbl WITH SAMPLE ROWS 100 WITH HOT VALUE");
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> command.validate(ctx));
-        Assertions.assertEquals("Sample analyze always collects hot value", exception.getDetailMessage());
+        Assertions.assertEquals("Sample analyze does not support WITH HOT VALUE", exception.getDetailMessage());
     }
 
     private Map<String, String> defaultAnalyzeProperties() {
