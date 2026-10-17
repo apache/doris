@@ -1072,10 +1072,12 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 
 template <typename Derived>
 std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
-    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
-    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
-    // all limit logic.
-    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+    auto& parent = _parent->cast<typename Derived::Parent>();
+    // Decide from the SQL LIMIT, not from the counter. -1 means "no SQL LIMIT" — return nullptr
+    // so callers naturally skip all limit logic. Concurrent scanners can return more than the
+    // LIMIT before the operator makes its final cut, leaving this counter negative. A scanner
+    // initialized then must still observe that the shared LIMIT is exhausted.
+    return parent.limit() < 0 ? nullptr : &parent._shared_scan_limit;
 }
 
 template <typename Derived>
