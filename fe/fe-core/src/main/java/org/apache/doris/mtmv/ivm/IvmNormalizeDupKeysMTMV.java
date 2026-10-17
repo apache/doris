@@ -22,7 +22,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -73,8 +72,7 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
     public Plan visit(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
         // Every node type not accepted below lands here, which is where the unique-key normalize
         // rejects it too: a detail MV's query may hold no other shape.
-        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                "IVM does not support plan node: " + plan.getClass().getSimpleName());
+        throw IvmNormalizeCommonChecker.unsupportedNode(plan);
     }
 
     @Override
@@ -102,10 +100,7 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project,
             Set<TableNameInfo> excludedTriggerTables) {
-        if (project.isDistinct()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support DISTINCT project.");
-        }
+        IvmNormalizeCommonChecker.checkProject(project);
         return visitChildren(this, project, excludedTriggerTables);
     }
 
@@ -124,26 +119,16 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
             Set<TableNameInfo> excludedTriggerTables) {
-        if (!join.getJoinType().isInnerOrCrossJoin()) {
-            // An outer join retracts the rows its null side stopped matching, which means reaching
-            // rows the MV already holds.
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM detail MV error: a detail MV can only maintain INNER_JOIN and CROSS_JOIN, "
-                            + "but the query has " + join.getJoinType());
-        }
+        // An outer join retracts the rows its null side stopped matching, and a mark join reaches the
+        // same rows through the mark: both mean reaching rows the MV already holds, so the shared gate
+        // rejects them by name as well as by type.
+        IvmNormalizeCommonChecker.checkJoin(join, IvmNormalizeCommonChecker.DETAIL_JOIN_TYPES);
         return visitChildren(this, join, excludedTriggerTables);
     }
 
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, Set<TableNameInfo> excludedTriggerTables) {
-        if (union.getQualifier() != Qualifier.ALL) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
-        }
-        if (!union.getConstantExprsList().isEmpty()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION ALL with constant expressions.");
-        }
+        IvmNormalizeCommonChecker.checkUnion(union);
         return visitChildren(this, union, excludedTriggerTables);
     }
 
@@ -153,7 +138,7 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
         // The MV is built with the query's own columns, so a column name Doris reserves for a hidden one
         // would leave the MV holding fewer columns than the query produced; the unique-key normalize
         // rejects the same names, and both models lay hidden columns on the MV they build.
-        IvmUtil.validateUserOutputColumnNames(sink.getOutputExprs());
+        IvmNormalizeCommonChecker.checkResultSinkOutputNames(sink);
         return visitChildren(this, sink, excludedTriggerTables);
     }
 

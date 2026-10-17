@@ -155,12 +155,10 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
 
     @Override
     public Optional<Plan> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        if (!join.getJoinType().isInnerOrCrossJoin()) {
-            // An outer join retracts the rows its null side stopped matching, and the normalizer rejects
-            // that shape before any refresh runs.
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM append-only detail MV delta rewrite does not support: " + join.getJoinType());
-        }
+        // An outer join retracts the rows its null side stopped matching, and a mark join reaches those
+        // rows through the mark; the shared gate rejects both, so this rewriter accepts exactly what the
+        // detail normalize accepts.
+        IvmNormalizeCommonChecker.checkJoin(join, IvmNormalizeCommonChecker.DETAIL_JOIN_TYPES);
         List<Plan> contributions = new ArrayList<>(join.children().size());
         Optional<Plan> leftDelta = join.left().accept(this, context);
         if (leftDelta.isPresent()) {
