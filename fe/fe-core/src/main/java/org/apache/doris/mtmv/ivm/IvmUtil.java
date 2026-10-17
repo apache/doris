@@ -22,12 +22,18 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
@@ -37,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -55,6 +62,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * IVM (Incremental View Maintenance) utility class.
@@ -105,6 +113,19 @@ public class IvmUtil {
         return columnName != null && (columnName.equals(Column.DELETE_SIGN)
                 || (columnName.startsWith(Column.HIDDEN_COLUMN_PREFIX)
                 && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
+    }
+
+    /**
+     * The default a hidden slot takes when the plan writing an append-only detail MV does not produce it.
+     * That model keeps no row identity in the row lsn column: the column is the MV's own binlog
+     * bookkeeping, which the storage layer fills in as it writes the row, so a refresh appending a value
+     * for it is not what makes the MV correct. The unique-key model is the opposite, which is why its
+     * default is refused outright.
+     */
+    public static Expression getAppendOnlyDupHiddenSlotDefault(String columnName, DataType targetType) {
+        return Column.ROW_LSN_COL.equals(columnName)
+                ? new IntegerLiteral(0).castTo(targetType)
+                : getCommonHiddenSlotDefault(columnName, targetType);
     }
 
     public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
@@ -158,7 +179,7 @@ public class IvmUtil {
      * <p>Because the single-key path may return NULL, callers must treat row-ids as nullable
      * (e.g. use null-safe equality when joining on row-id).
      *
-     * <p>Used by both normalize (IvmNormalizeMTMV) and delta rewrite (IvmAggDeltaHandler)
+     * <p>Used by both normalize (IvmNormalizeUniqKeysMTMV) and delta rewrite (IvmAggDeltaHandler)
      * to ensure row-id derivation is identical.
      */
     public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {
@@ -310,5 +331,65 @@ public class IvmUtil {
             }
         }
         return found;
+    }
+
+    /** Whether the refresh reads this base table's changes while it is an excluded trigger table. */
+    public static boolean isExcludedTriggerTable(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (excludedTriggerTables.isEmpty()) {
+            return false;
+        }
+        OlapTable table = scan.getTable();
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            List<String> qualifier = scan.getQualifier();
+            String dbName = qualifier.isEmpty() ? table.getDBName() : qualifier.get(qualifier.size() - 1);
+            if (dbName == null) {
+                return false;
+            }
+            String ctlName = qualifier.size() >= 2 ? qualifier.get(qualifier.size() - 2)
+                    : InternalCatalog.INTERNAL_CATALOG_NAME;
+            tableNameInfo = new TableNameInfo(ctlName, dbName, table.getName());
+        }
+        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
+    }
+
+    /**
+     * Checks that this base table can produce the changes a refresh reads: it must have row binlog
+     * enabled, and it must not be a base table whose own refresh is a partition overwrite. An
+     * excluded trigger table produces no delta at all, so it is exempt from the first.
+     */
+    public static void validateBinlogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (isExcludedTriggerTable(excludedTriggerTables, scan)) {
+            return;
+        }
+        OlapTable table = scan.getTable();
+        if (!table.getBinlogConfig().isEnableForStreaming()) {
+            throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
+                    "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
+                            + table.getName()
+                            + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
+        }
+        if (table instanceof MTMV && !((MTMV) table).isIvm()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "INCREMENTAL materialized view cannot use non-IVM MTMV as a base table: "
+                            + table.getName() + ". The base MTMV is refreshed by partition overwrite.");
+        }
+    }
+
+    /**
+     * Rejects an MV output column whose name a Doris hidden column already owns. Both table models lay
+     * hidden columns on the MV they build -- the unique-key model its row-id, any model that enables row
+     * binlog its own commit tso and row lsn -- so a user column taking one of the reserved prefixes would
+     * be indistinguishable from an internal one: it is filtered out of the schema the user reads, leaving
+     * an MV that holds fewer columns than its query produced.
+     */
+    public static void validateUserOutputColumnNames(List<NamedExpression> outputs) {
+        for (NamedExpression output : outputs) {
+            try {
+                FeNameFormat.checkColumnName(output.getName());
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage(), e);
+            }
+        }
     }
 }

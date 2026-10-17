@@ -1618,6 +1618,11 @@ public class MTMVTask extends AbstractTask {
         if (!rewriteContext.isPresent()) {
             return null;
         }
+        if (mtmv.isIvmAppendOnlyDupTable()) {
+            // An append-only detail MV publishes no layout signature: its refresh reads no layout, so a
+            // signature would be a fingerprint of a plan nothing downstream ever compares.
+            return null;
+        }
         return Objects.requireNonNull(signatureRef.get(),
                 "IVM COMPLETE refresh did not produce a plan signature");
     }

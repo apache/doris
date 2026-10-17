@@ -40,7 +40,7 @@ import java.util.Set;
  *
  * <p>Data flow:
  * <ol>
- *   <li>{@code IvmNormalizeMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
+ *   <li>{@code IvmNormalizeUniqKeysMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
  *       original aggregate arguments into {@link IvmAggTargetSpec}. After normalize resolves final aggregate output
  *       slots, the spec becomes the stable {@link IvmAggTarget} stored in {@link IvmAggMeta}.</li>
  *   <li>{@code IvmAggDeltaHandler#buildDeltaSubPlan}: {@link #appendDeltaAggregateOutputs} creates the signed delta

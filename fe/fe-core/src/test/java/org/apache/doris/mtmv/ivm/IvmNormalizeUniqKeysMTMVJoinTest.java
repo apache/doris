@@ -22,9 +22,9 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -65,7 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
+class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
 
     private static final String JOIN_LEFT_MATCH_COL =
             Column.IVM_HIDDEN_COLUMN_PREFIX + "JOIN_LEFT_MATCH_COL__";
@@ -107,7 +107,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        return new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        return new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan) {
@@ -116,8 +116,8 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan, ImmutableSet<TableNameInfo> excludedTriggerTables) {
@@ -127,8 +127,8 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         ConnectContext ctx = newConnectContext();
         ctx.getStatementContext().setExcludedTriggerTables(excludedTriggerTables);
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private LogicalUnion buildUnionAll(Plan... children) {
@@ -1047,11 +1047,11 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<Plan> sink = new LogicalResultSink<>(ImmutableList.of(leftId), project);
 
         MTMV mtmv = buildMtmvFromPlan(ImmutableList.of(leftId));
-        mtmv.getIvmInfo().setUseFullKeys(true);
+        mtmv.getMvProperties().put(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS, "true");
         ConnectContext ctx = newConnectContext();
         ctx.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize(mtmv)));
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        Plan normalized = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
 
         List<Slot> identityKeys = rewriteResult.getIdentityKeySlots();

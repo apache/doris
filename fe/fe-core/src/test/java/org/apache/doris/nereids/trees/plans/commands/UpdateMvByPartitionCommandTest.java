@@ -77,7 +77,16 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + ") duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
                 + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+        // The row-id assertions below are about the unique-key model, so this MV asks for it: without the
+        // property the same append-only query is a detail MV, which has no row-id at all.
         createMvByNereids("create materialized view test.ivm_mv\n"
+                + "build deferred refresh incremental on manual\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1', 'ivm_force_mow' = 'true')\n"
+                + "as select id, value from test.ivm_base;");
+        // The same query as a detail MV, which is a plain DUP table: its refresh sink carries the MV's own
+        // columns, with no row-id to lay out.
+        createMvByNereids("create materialized view test.ivm_mv_detail\n"
                 + "build deferred refresh incremental on manual\n"
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
@@ -172,6 +181,21 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertEquals(expectedTargetColumns, getNamedExpressionNames(sink.getOutputExprs()));
         Assertions.assertEquals(expectedTargetColumns, getSlotNames(sink.getTargetTableSlots()));
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, sink.child().getOutput().get(0).getName());
+    }
+
+    @Test
+    void testAnalyzeRefreshCommandBindsDetailMvSinkWithoutRowId() throws Exception {
+        MTMV mtmv = getMtmv("ivm_mv_detail");
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
+        LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
+                command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
+
+        List<String> expectedColumns = ImmutableList.of("id", "value");
+        Assertions.assertEquals(expectedColumns, mtmv.getInsertedColumnNames());
+        Assertions.assertEquals(expectedColumns, getColumnNames(sink.getCols()));
+        Assertions.assertEquals(expectedColumns, getNamedExpressionNames(sink.getOutputExprs()));
+        Assertions.assertEquals(expectedColumns, getSlotNames(sink.getTargetTableSlots()));
     }
 
     @Test

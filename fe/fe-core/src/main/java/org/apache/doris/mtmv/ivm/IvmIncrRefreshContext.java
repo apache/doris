@@ -18,15 +18,9 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfoUtils;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -97,27 +91,6 @@ public class IvmIncrRefreshContext {
 
     public Consumer<StmtExecutor> getExecutorConsumer() {
         return executorConsumer;
-    }
-
-    static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {
-        OlapTable table = scan.getTable();
-        if (table == null) {
-            return null;
-        }
-        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
-        if (tableNameInfo != null) {
-            return tableNameInfo;
-        }
-        String dbName = table.getDBName();
-        String ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
-        List<String> qualifier = scan.getQualifier();
-        if (qualifier.size() >= 1) {
-            dbName = qualifier.get(qualifier.size() - 1);
-        }
-        if (qualifier.size() >= 2) {
-            ctlName = qualifier.get(qualifier.size() - 2);
-        }
-        return new TableNameInfo(ctlName, dbName, table.getName());
     }
 
     @Override

@@ -63,6 +63,7 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
             PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
             PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
+            PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW,
             PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
     );
 
@@ -100,6 +101,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW);
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT:
                 analyzePartitionWindowLimit(value);
@@ -400,5 +404,10 @@ public class MTMVPropertyUtil {
     public static boolean isIvmUseFullKeys(Map<String, String> mvProperties) {
         return mvProperties != null && "true".equalsIgnoreCase(
                 mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS));
+    }
+
+    public static boolean isIvmForceMow(Map<String, String> mvProperties) {
+        return mvProperties != null && "true".equalsIgnoreCase(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW));
     }
 }
