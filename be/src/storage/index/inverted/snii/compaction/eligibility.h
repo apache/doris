@@ -37,9 +37,7 @@ class LogicalIndexReader;
 
 namespace snii::compaction {
 
-// One already-opened SNII source logical index and the TabletIndex metadata
-// that produced it. References make null inputs unrepresentable; both objects
-// must outlive validate_plain_t2_compaction_eligibility().
+// One opened SNII source and its index metadata. Both objects must outlive validation.
 struct PlainT2CompactionSource {
     std::reference_wrapper<const reader::LogicalIndexReader> reader;
     std::reference_wrapper<const TabletIndex> index_meta;
@@ -52,6 +50,8 @@ using AnalyzerProviderFactory = std::function<segment_v2::inverted_index::Analyz
         const InvertedIndexAnalyzerConfig&)>;
 
 struct SniiCompactionEligibility {
+    // When the phrase property is absent, preserve the source posting shape.
+    bool destination_has_positions = true;
     // A2: An analyzed destination index with positions must include norms. The posting merge
     // rebuilds them from source term frequencies (sum per document, clamped to 1..255), so older
     // T2 segments without norms can gain norms without reanalysis.
@@ -69,9 +69,7 @@ Status validate_plain_t2_source(const reader::LogicalIndexReader& source, size_t
 Status validate_plain_t2_source_eligibility(const reader::LogicalIndexReader& source,
                                             size_t source_ordinal);
 
-// Revalidates one opened source against an already selected streamed shape.
-// CommonGrams checks include exact current versions and static identity equality
-// with the eligibility seed.
+// Revalidates one source against the selected destination posting shape.
 Status validate_snii_source_eligibility(const reader::LogicalIndexReader& source,
                                         size_t source_ordinal,
                                         const SniiCompactionEligibility& eligibility);
@@ -91,10 +89,8 @@ Status validate_plain_t2_compaction_eligibility(
         std::span<const PlainT2CompactionSource> sources, const TabletIndex& destination_index,
         const AnalyzerProviderFactory& analyzer_provider_factory = {});
 
-// Accepts either the existing plain positions-only T2 shape or homogeneous,
-// complete CommonGrams T3 sources. Mixed shapes and any CommonGrams identity or
-// destination-build-policy mismatch return INVERTED_INDEX_NOT_SUPPORTED so the
-// caller can rebuild from raw columns before creating streamed output.
+// Accepts homogeneous T1 or T2 sources when their posting shape matches the destination.
+// Mixed shapes fall back to rebuilding from raw columns.
 Status validate_snii_compaction_eligibility(
         std::span<const PlainT2CompactionSource> sources, const TabletIndex& destination_index,
         SniiCompactionEligibility* out,
