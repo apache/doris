@@ -22,6 +22,8 @@
 #include <string.h>
 
 #include <ostream>
+#include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "gtest/gtest_pred_impl.h"
@@ -43,6 +45,8 @@ TEST_F(GeoTypesTest, point_normal) {
 
         std::string buf;
         point.encode_to(&buf);
+        ASSERT_GE(buf.size(), 2);
+        EXPECT_EQ(0, static_cast<uint8_t>(buf[0]));
         {
             auto point2 = GeoShape::from_encoded(buf.data(), buf.size());
             EXPECT_STREQ("POINT (116.123 63.546)", point2->as_wkt().c_str());
@@ -70,6 +74,104 @@ TEST_F(GeoTypesTest, point_invalid) {
 
     auto status = point.from_coord(200, 88);
     EXPECT_NE(GEO_PARSE_OK, status);
+}
+
+TEST_F(GeoTypesTest, dimensional_encoding_round_trip) {
+    const std::vector<std::string> wkts = {
+            "POINT Z (1 2 3)",
+            "LINESTRING M (0 0 1, 1 1 2)",
+            "POLYGON ZM ((0 0 1 2, 0 1 2 3, 1 1 3 4, 1 0 4 5, 0 0 1 2))",
+            "MULTIPOLYGON Z (((0 0 1, 0 1 2, 1 1 3, 1 0 4, 0 0 1)))",
+    };
+
+    for (const auto& wkt : wkts) {
+        GeoParseStatus status;
+        auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
+        ASSERT_EQ(GEO_PARSE_OK, status) << wkt;
+        ASSERT_NE(nullptr, shape) << wkt;
+
+        std::string encoded;
+        shape->encode_to(&encoded);
+        ASSERT_GE(encoded.size(), 2);
+        EXPECT_EQ(1, static_cast<uint8_t>(encoded[0])) << wkt;
+
+        auto decoded = GeoShape::from_encoded(encoded.data(), encoded.size());
+        ASSERT_NE(nullptr, decoded) << wkt;
+        EXPECT_EQ(shape->type(), decoded->type()) << wkt;
+        EXPECT_EQ(shape->coordinate_type(), decoded->coordinate_type()) << wkt;
+        EXPECT_EQ(shape->coordinate_dimension(), decoded->coordinate_dimension()) << wkt;
+        EXPECT_EQ(wkt, decoded->as_wkt()) << wkt;
+
+        std::string reencoded;
+        decoded->encode_to(&reencoded);
+        EXPECT_EQ(encoded, reencoded) << wkt;
+
+        encoded.resize(encoded.size() - 1);
+        EXPECT_EQ(nullptr, GeoShape::from_encoded(encoded.data(), encoded.size())) << wkt;
+    }
+}
+
+TEST_F(GeoTypesTest, dimensional_binary_output_round_trip) {
+    const std::string point_z_wkt = "POINT Z (1 2 3)";
+    GeoParseStatus status;
+    auto point_z = GeoShape::from_wkt(point_z_wkt.data(), point_z_wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, point_z);
+
+    EXPECT_EQ("\\x0101000000000000000000f03f0000000000000040", GeoShape::as_binary(point_z.get()));
+    const std::string point_z_ewkb =
+            "\\x0101000080000000000000f03f00000000000000400000000000000840";
+    EXPECT_EQ(point_z_ewkb, GeoShape::as_ewkb(point_z.get()));
+
+    auto decoded = GeoShape::from_wkb(point_z_ewkb.data(), point_z_ewkb.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, decoded);
+    EXPECT_EQ(point_z_wkt, decoded->as_wkt());
+
+    const std::string multi_polygon_zm_wkt =
+            "MULTIPOLYGON ZM (((0 0 1 2, 0 1 2 3, 1 1 3 4, 1 0 4 5, 0 0 1 2)))";
+    auto multi_polygon =
+            GeoShape::from_wkt(multi_polygon_zm_wkt.data(), multi_polygon_zm_wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, multi_polygon);
+    const auto multi_polygon_ewkb = GeoShape::as_ewkb(multi_polygon.get());
+    auto decoded_multi_polygon =
+            GeoShape::from_wkb(multi_polygon_ewkb.data(), multi_polygon_ewkb.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, decoded_multi_polygon);
+    EXPECT_EQ(multi_polygon_zm_wkt, decoded_multi_polygon->as_wkt());
+}
+
+TEST_F(GeoTypesTest, dimensional_point_preserves_xy_ordinates) {
+    const std::string wkt = "POINT Z (1.123456789012345 2.123456789012345 3)";
+    GeoParseStatus status;
+    auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, shape);
+    const auto* point = static_cast<const GeoPoint*>(shape.get());
+    EXPECT_DOUBLE_EQ(1.123456789012345, point->x());
+    EXPECT_DOUBLE_EQ(2.123456789012345, point->y());
+}
+
+TEST_F(GeoTypesTest, dimensional_predicates_ignore_z) {
+    GeoParseStatus status;
+    const std::string polygon_wkt = "POLYGON Z ((0 0 10, 0 10 20, 10 10 30, 10 0 40, 0 0 10))";
+    auto polygon = GeoShape::from_wkt(polygon_wkt.data(), polygon_wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, polygon);
+
+    const std::string point_2d_wkt = "POINT (5 5)";
+    auto point_2d = GeoShape::from_wkt(point_2d_wkt.data(), point_2d_wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, point_2d);
+
+    const std::string point_3d_wkt = "POINT Z (5 5 9999)";
+    auto point_3d = GeoShape::from_wkt(point_3d_wkt.data(), point_3d_wkt.size(), status);
+    ASSERT_EQ(GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, point_3d);
+
+    EXPECT_EQ(polygon->contains(point_2d.get()), polygon->contains(point_3d.get()));
+    EXPECT_EQ(polygon->intersects(point_2d.get()), polygon->intersects(point_3d.get()));
 }
 
 TEST_F(GeoTypesTest, linestring) {

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <memory>
 
 #include "exprs/function/geo/ByteOrderDataInStream.h"
@@ -26,12 +27,13 @@
 
 struct WkbParseContext {
     unsigned int inputDimension = 2;
+    doris::GeoCoordinateType coordinate_type = doris::GeoCoordinateType::XY;
 
     doris::ByteOrderDataInStream dis;
 
-    std::array<double, 2> ordValues;
+    std::array<double, 4> ordValues {};
 
-    int srid;
+    uint32_t srid = 0;
 
     std::unique_ptr<doris::GeoShape> shape = nullptr;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;

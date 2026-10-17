@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include <memory>
+
+#include <cstdint>
+#include <iosfwd>
 
 namespace doris {
 
@@ -31,11 +33,17 @@ enum wkbType {
     wkbGeometryCollection = 7
 };
 
+constexpr uint32_t WKB_Z_FLAG = 0x80000000;
+constexpr uint32_t WKB_M_FLAG = 0x40000000;
+constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
+constexpr uint32_t WKB_EWKB_FLAGS = WKB_Z_FLAG | WKB_M_FLAG | WKB_SRID_FLAG;
+
 } // namespace doris
 
 struct ToBinaryContext {
     // WKBConstants::wkbwkbXDR | WKBConstants::wkbNDR
     int byteOrder;
+    bool ewkb = false;
 
     unsigned char buf[8];
 

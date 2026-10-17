@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "exprs/function/geo/geo_common.h"
+#include "exprs/function/geo/geo_tobinary_type.h"
 #include "exprs/function/geo/wkt_parse_type.h"
 
 struct WkbParseContext;
@@ -32,17 +33,7 @@ class GeoShape;
 class GeoLine;
 class GeoPoint;
 class GeoPolygon;
-
-// WKB format constants
-// According to OpenGIS Implementation Specification:
-// The high bit of the type value is set to 1 if the WKB contains a SRID.
-// Reference: OpenGIS Implementation Specification for Geographic information - Simple feature access - Part 1: Common architecture
-// Bit mask to check if WKB contains SRID
-constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
-
-// The geometry type is stored in the least significant byte of the type value
-// Bit mask to extract the base geometry type
-constexpr uint32_t WKB_TYPE_MASK = 0xFF;
+class GeoMultiPolygon;
 
 class WkbParse {
 public:
@@ -60,6 +51,8 @@ private:
     static std::unique_ptr<GeoLine> readLine(WkbParseContext& ctx);
 
     static std::unique_ptr<GeoPolygon> readPolygon(WkbParseContext& ctx);
+
+    static std::unique_ptr<GeoMultiPolygon> readMultiPolygon(WkbParseContext& ctx);
 
     static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext& ctx);
 

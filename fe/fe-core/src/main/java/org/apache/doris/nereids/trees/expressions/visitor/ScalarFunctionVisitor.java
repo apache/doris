@@ -508,6 +508,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEwkb;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
@@ -527,6 +528,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsClosed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StM;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNDims;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
@@ -537,6 +540,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StWithin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StZ;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StZmFlag;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
@@ -2539,6 +2544,22 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stY, context);
     }
 
+    default R visitStZ(StZ stZ, C context) {
+        return visitScalarFunction(stZ, context);
+    }
+
+    default R visitStM(StM stM, C context) {
+        return visitScalarFunction(stM, context);
+    }
+
+    default R visitStNDims(StNDims stNDims, C context) {
+        return visitScalarFunction(stNDims, context);
+    }
+
+    default R visitStZmFlag(StZmFlag stZmFlag, C context) {
+        return visitScalarFunction(stZmFlag, context);
+    }
+
     default R visitStGeometryfromwkb(StGeometryFromWKB stGeometryfromwkb, C context) {
         return visitScalarFunction(stGeometryfromwkb, context);
     }
@@ -2549,6 +2570,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {
         return visitScalarFunction(stAsBinary, context);
+    }
+
+    default R visitStAsEwkb(StAsEwkb stAsEwkb, C context) {
+        return visitScalarFunction(stAsEwkb, context);
     }
 
     default R visitStartsWith(StartsWith startsWith, C context) {
