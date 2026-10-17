@@ -32,11 +32,14 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The purpose of this class is to add session var guards to all expressions that require guarding
@@ -145,5 +148,72 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return true;
         }
         return currentSessionVars.equals(persistSessionVars);
+    }
+
+    /**
+     * Check session-variable compatibility for synchronous materialized views.
+     *
+     * Differences only in STRICT_TRANS_TABLES do not affect the
+     * SQL expressions used for synchronous MV rewriting.
+     *
+     * Other SQL-mode bits and result-affecting session variables
+     * must still match.
+     */
+    public static boolean checkSessionVariablesMatchForSyncMv(
+            Map<String, String> currentSessionVars,
+            Map<String, String> persistSessionVars) {
+
+        // Preserve compatibility with older MVs that have no saved session variables.
+        if (persistSessionVars == null || persistSessionVars.isEmpty()) {
+            return true;
+        }
+
+        // A nonempty persisted configuration cannot match missing current state.
+        if (currentSessionVars == null) {
+            return false;
+        }
+
+        // Retain the existing exact-match behavior whenever possible.
+        if (checkSessionVariablesMatch(currentSessionVars, persistSessionVars)) {
+            return true;
+        }
+
+        // Every result-affecting session variable must still be present.
+        if (!currentSessionVars.keySet().equals(persistSessionVars.keySet())) {
+            return false;
+        }
+
+        for (Map.Entry<String, String> entry : currentSessionVars.entrySet()) {
+            String name = entry.getKey();
+            String currentValue = entry.getValue();
+            String persistedValue = persistSessionVars.get(name);
+
+            if (Objects.equals(currentValue, persistedValue)) {
+                continue;
+            }
+
+            // Only sql_mode is eligible for the narrowly scoped exception.
+            if (!SessionVariable.SQL_MODE.equals(name)) {
+                return false;
+            }
+
+            try {
+                long currentMode = Long.parseLong(currentValue);
+                long persistedMode = Long.parseLong(persistedValue);
+
+                // STRICT_TRANS_TABLES is the only ignored SQL-mode bit.
+                long relevantModes = ~SqlModeHelper.MODE_STRICT_TRANS_TABLES;
+
+                if ((currentMode & relevantModes)
+                        != (persistedMode & relevantModes)) {
+                    return false;
+                }
+            } catch (NumberFormatException e) {
+                // Malformed, missing, or nonnumeric SQL modes cannot use the exception.
+                return false;
+            }
+        }
+
+        return true;
     }
 }
