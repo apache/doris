@@ -77,6 +77,8 @@ class TimeStampNsLiteralTest {
         TimeStampNsLiteral withTimeZone = new TimeStampNsLiteral(
                 "2024-01-02 03:04:05.123456789+00:00");
         Assertions.assertEquals(123456789, withTimeZone.getNanoSecond());
+        Assertions.assertThrows(Exception.class,
+                () -> new TimeStampNsLiteral("2024-01-02 03:04:05.123456789+08:01"));
 
         TimeStampNsLiteral rounded = new TimeStampNsLiteral(
                 "2024-01-02 03:04:05.9999999995");
