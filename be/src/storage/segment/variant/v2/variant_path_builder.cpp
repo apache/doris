@@ -1042,6 +1042,10 @@ bool cast_introduced_null(const IColumn& source, const IColumn& target) {
 
 } // namespace
 
+DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right) {
+    return path_least_common_type(left, right);
+}
+
 DataTypePtr normalize_variant_path_integer_widths(const DataTypePtr& type) {
     const DataTypePtr base = remove_nullable(type);
     if (const auto* array = typeid_cast<const DataTypeArray*>(base.get())) {
