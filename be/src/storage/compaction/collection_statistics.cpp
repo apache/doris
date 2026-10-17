@@ -208,10 +208,13 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
-        // segments that have norms, so refuse to score the collection. An index that is not
-        // analyzed never writes norms and is left as it is.
+        // segments that have norms, so refuse to score the collection. A single-term normalizer
+        // can instead use unit frequency and length.
         const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
-        if (!token_count.has_value() &&
+        const bool single_term_normalizer = segment_v2::IndexReaderHelper::is_normalizer_only(
+                collect_info.index_meta->properties());
+        // Docs-only lowercase indexes have no norms, but each matching row has one term.
+        if (!token_count.has_value() && !single_term_normalizer &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -220,7 +223,9 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, StringHelper::to_string(ws_field_name));
         }
-        _total_num_tokens[ws_field_name] += token_count.value_or(0);
+        // CLucene omits term totals without norms; one token per row gives a unit-length estimate.
+        _total_num_tokens[ws_field_name] += token_count.value_or(
+                single_term_normalizer ? static_cast<uint64_t>(index_reader->maxDoc()) : 0);
 
         for (const auto& term_info : collect_info.term_infos) {
             auto iter = TermIterator::create(io_ctx, false, index_reader, ws_field_name,

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <limits>
 #include <variant>
 
@@ -123,7 +124,7 @@ public:
         if (!_enable_scoring || !_block.norm_many || _cursor == 0) {
             return 1;
         }
-        return (*_block.norm_many)[_cursor - 1];
+        return std::max((*_block.norm_many)[_cursor - 1], 1U);
     }
 
     void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {

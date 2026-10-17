@@ -421,6 +421,22 @@ TEST_F(IndexReaderHelperTest, NormalizerOnlyPhraseAndScoringNeedNoPositions) {
     auto disabled_reader = std::make_shared<MockInvertedIndexReader>(
             InvertedIndexReaderType::FULLTEXT, explicit_disabled);
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(disabled_reader));
+
+    auto builtin_alias = index_meta.properties();
+    builtin_alias[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "LowerCase";
+    auto alias_reader = std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::FULLTEXT,
+                                                                  builtin_alias);
+    EXPECT_TRUE(IndexReaderHelper::is_support_phrase(alias_reader));
+
+    TabletIndexPB custom_pb = index_pb;
+    (*custom_pb.mutable_properties())[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "split_norm";
+    TabletIndex custom_meta;
+    custom_meta.init_from_pb(custom_pb);
+    auto custom_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, custom_meta.properties());
+    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(custom_reader));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_ANY_QUERY, &custom_meta));
 }
 
 TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {

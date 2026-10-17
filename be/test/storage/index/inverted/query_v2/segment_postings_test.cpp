@@ -54,8 +54,8 @@ public:
         }
         docRange->type_ = DocRangeType::kMany;
         docRange->doc_many = &_docs;
-        docRange->freq_many = &_freqs;
-        docRange->norm_many = &_norms;
+        docRange->freq_many = _freqs.empty() ? nullptr : &_freqs;
+        docRange->norm_many = _norms.empty() ? nullptr : &_norms;
         docRange->doc_many_size_ = static_cast<uint32_t>(_docs.size());
         docRange->freq_many_size_ = static_cast<uint32_t>(_freqs.size());
         docRange->norm_many_size_ = static_cast<uint32_t>(_norms.size());
@@ -183,6 +183,15 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     EXPECT_EQ(base.size_hint(), 3);
     EXPECT_EQ(base.freq(), 2);
     EXPECT_EQ(base.norm(), 1);
+}
+
+TEST_F(SegmentPostingsTest, DocsOnlyNormalizerUsesUnitScoringValues) {
+    TermDocsPtr ptr(new MockTermDocs({5}, {}, {0}, 1));
+    SegmentPostings postings(std::move(ptr), true, nullptr);
+
+    EXPECT_EQ(postings.doc(), 5U);
+    EXPECT_EQ(postings.freq(), 1U);
+    EXPECT_EQ(postings.norm(), 1U);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {

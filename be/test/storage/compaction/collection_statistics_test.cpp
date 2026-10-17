@@ -37,12 +37,18 @@
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/compaction/collection_statistics.cpp"
+#include "storage/index/index_file_reader.h"
+#include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/util/term_iterator.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -347,6 +353,92 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
     auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, expr_contexts,
                                   nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
+}
+
+TEST_F(CollectionStatisticsTest, DocsOnlyNormalizerCollectsScoringStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["normalizer"] = "lowercase";
+    tablet_schema->append_index(std::move(index));
+
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir_, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    ASSERT_TRUE(tmp_file_dirs->init().ok());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    const std::string segment_path = test_dir_ + "/normalized_0.dat";
+    const std::string prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    io::FileWriterPtr compound_file;
+    io::FileWriterOptions options;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                &compound_file, &options)
+                        .ok());
+    segment_v2::IndexFileWriter file_writer(fs, prefix, "normalized", 0,
+                                            InvertedIndexStorageFormatPB::V3,
+                                            std::move(compound_file));
+    const auto indexes = tablet_schema->inverted_indexs(1);
+    ASSERT_EQ(indexes.size(), 1);
+    std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
+    auto create_status = segment_v2::IndexColumnWriter::create(
+            &tablet_schema->column(0), &column_writer, &file_writer, indexes[0]);
+    ASSERT_TRUE(create_status.ok()) << create_status;
+    std::vector<Slice> values {Slice("ALPHA")};
+    ASSERT_TRUE(column_writer->add_values("content", values.data(), values.size()).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(file_writer.begin_close().ok());
+    ASSERT_TRUE(file_writer.finish_close().ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                  create_match_expr_contexts("alpha"), nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 1U);
+    EXPECT_EQ(stats_->get_total_term_cnt_by_col(L"1"), 1U);
+    EXPECT_EQ(stats_->get_term_doc_freq_by_col(L"1", L"alpha"), 1U);
+
+    segment_v2::IndexFileReader file_reader(fs, prefix, InvertedIndexStorageFormatPB::V3);
+    ASSERT_TRUE(file_reader.init().ok());
+    auto compound = file_reader.open(indexes[0]);
+    ASSERT_TRUE(compound.has_value()) << compound.error();
+    auto* raw_reader = lucene::index::IndexReader::open(compound->get());
+    auto searcher = std::make_unique<lucene::search::IndexSearcher>(raw_reader, true);
+    auto term_iter =
+            segment_v2::TermIterator::create(nullptr, true, searcher->getReader(), L"1", "alpha");
+    ::DocRange range;
+    ASSERT_TRUE(term_iter->read_range(&range));
+    ASSERT_EQ(range.doc_many_size_, 1);
+    ASSERT_EQ(range.freq_many, nullptr);
+    ASSERT_NE(range.norm_many, nullptr);
+    EXPECT_EQ((*range.norm_many)[0], 1U);
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyExpressions) {

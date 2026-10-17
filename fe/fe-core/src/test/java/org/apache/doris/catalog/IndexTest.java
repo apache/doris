@@ -48,6 +48,18 @@ public class IndexTest {
         Assert.assertFalse(InvertedIndexUtil.getInvertedIndexSupportPhrase(
                 Collections.singletonMap("normalizer", "lowercase")));
 
+        Index customNormalizer = new Index(7, "custom_normalizer", Collections.singletonList("col"),
+                IndexDef.IndexType.INVERTED, Collections.singletonMap("normalizer", "split_norm"), "");
+        Assert.assertEquals("true", customNormalizer.getProperties().get("support_phrase"));
+
+        Map<String, String> disabledCustomProperties = new HashMap<>();
+        disabledCustomProperties.put("normalizer", "split_norm");
+        disabledCustomProperties.put("support_phrase", "false");
+        Index disabledCustomNormalizer = new Index(8, "disabled_custom_normalizer",
+                Collections.singletonList("col"), IndexDef.IndexType.INVERTED,
+                disabledCustomProperties, "");
+        Assert.assertEquals("false", disabledCustomNormalizer.getProperties().get("support_phrase"));
+
         Index parsed = new Index(4, "parsed", Collections.singletonList("col"),
                 IndexDef.IndexType.INVERTED, Collections.singletonMap("parser", "english"), "");
         Assert.assertEquals("true", parsed.getProperties().get("support_phrase"));
