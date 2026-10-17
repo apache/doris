@@ -2501,6 +2501,103 @@ TEST_F(VariantColumnWriterReaderTest, test_write_column_variant_v2_accounts_root
     EXPECT_EQ(actual[1], "1");
 }
 
+TEST_F(VariantColumnWriterReaderTest, test_variant_root_writer_streams_per_batch) {
+    // A variant with an extracted subcolumn takes the root-only writer path. Root scalars all
+    // land in the root JSONB column, so the writer must flush them batch by batch instead of
+    // retaining the whole segment: buffering SegmentRows * value bytes is what used to overflow
+    // ColumnStr<uint32_t> at 4 GiB.
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 10, false, false, 0, false, 0, 0,
+                     false);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(10043);
+
+    constexpr size_t kRows = 4000;
+    constexpr size_t kBatchRows = 1000;
+    constexpr size_t kValueBytes = 4096;
+    const std::string payload(kValueBytes, 'x');
+    auto source = ColumnVariantV2::create();
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions serde_options;
+    for (size_t row = 0; row < kRows; ++row) {
+        const std::string json = "\"" + payload + "\"";
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*source, slice, serde_options).ok());
+    }
+
+    const std::string rowset_id = "v2_root_streaming";
+    SegmentFooterPB footer;
+    std::string file_path = local_segment_path(_tablet->tablet_path(), rowset_id, 0);
+    ASSERT_TRUE(io::global_local_filesystem()->delete_file(file_path).ok());
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(file_path, &file_writer).ok());
+
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    rowset_ctx.tablet_schema = _tablet_schema;
+    rowset_ctx.tablet = _tablet;
+    rowset_ctx.tablet_path = _tablet->tablet_path();
+
+    TabletColumn column = _tablet_schema->column(0);
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
+
+    std::unique_ptr<ColumnWriter> writer;
+    ASSERT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
+    ASSERT_TRUE(writer->init().ok());
+
+    OlapBlockDataConvertor converter;
+    converter.add_column_data_convertor(column);
+    const auto source_type = std::make_shared<DataTypeVariantV2>(2, false);
+    uint64_t max_buffered_bytes = 0;
+    for (size_t row_pos = 0; row_pos < kRows; row_pos += kBatchRows) {
+        ASSERT_TRUE(converter
+                            .set_source_content_with_specifid_column(
+                                    {source->get_ptr(), source_type, column.name()}, row_pos,
+                                    kBatchRows, 0)
+                            .ok());
+        auto [convert_status, accessor] = converter.convert_column_data(0);
+        ASSERT_TRUE(convert_status.ok());
+        ASSERT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), kBatchRows).ok());
+        converter.clear_source_content(0);
+        max_buffered_bytes = std::max<uint64_t>(max_buffered_bytes, writer->estimate_buffer_size());
+    }
+    // The buffering writer retained the whole segment (kRows * kValueBytes ~ 16 MiB); the
+    // streaming writer holds at most the current page plus the outer-null map.
+    EXPECT_LT(max_buffered_bytes, 2 * kBatchRows * kValueBytes);
+
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(writer->write_zone_map().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    std::vector<std::optional<std::string>> actual;
+    ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
+    ASSERT_EQ(actual.size(), kRows);
+    for (const auto& row : actual) {
+        ASSERT_TRUE(row.has_value());
+        EXPECT_EQ(row->size(), kValueBytes + 2);
+    }
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_write_column_variant_v2_typed_state) {
     init_variant_tablet(10009, 1);
 
