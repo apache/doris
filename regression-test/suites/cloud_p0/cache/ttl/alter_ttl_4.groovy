@@ -18,10 +18,7 @@
 suite("alter_ttl_4", "nonConcurrent") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance: false,
-        file_cache_enter_disk_resource_limit_mode_percent: 99,
-        file_cache_background_ttl_gc_interval_ms: 1000,
-        file_cache_background_ttl_info_update_interval_ms: 1000,
-        file_cache_background_tablet_id_flush_interval_ms: 1000
+        file_cache_enter_disk_resource_limit_mode_percent: 99
     ]
     setBeConfigTemporary(customBeConfig) {
         String targetTable = "alter_ttl_4_target"
@@ -126,8 +123,10 @@ suite("alter_ttl_4", "nonConcurrent") {
                 result = getCache()
                 def missingTablets = tabletIds.findAll { id -> !result.keySet().any { it[2] == id } }
                 boolean matching = matches(result)
+                // Without TTL a block shows its class: NORMAL, or INDEX when a query cached it first.
                 boolean complete = missingTablets.isEmpty() &&
-                        result.values().every { it.type == type } && matching
+                        result.values().every { type == "normal" ? it.type != "ttl" : it.type == type } &&
+                        matching
                 lastState = [stage: stage, cache_by_be_tablet_type: cacheSummary(result),
                              missing_tablets: missingTablets, differences: cacheDifference]
                 if (result != previous) {
@@ -278,7 +277,7 @@ suite("alter_ttl_4", "nonConcurrent") {
                 long checkDeadline = Math.min(pressureDeadline, System.currentTimeMillis() + 5000L)
                 while (evictedFiles.isEmpty() && System.currentTimeMillis() < checkDeadline) {
                     def current = getCache()
-                    assertTrue(current.values().every { it.type == "normal" },
+                    assertTrue(current.values().every { it.type != "ttl" },
                             "Expired target cache changed type during pressure: ${cacheSummary(current)}")
                     evictedFiles = missingCoverage(baselineCoverage, coverage(current))
                     if (evictedFiles.isEmpty()) {

@@ -65,8 +65,7 @@ const std::string FILE_CACHE_META_COLUMN_FAMILY = "file_cache_meta";
 bvar::Adder<uint64_t> g_rocksdb_write_failed_num("file_cache_meta_rocksdb_write_failed_num");
 bvar::Adder<uint64_t> g_rocksdb_delete_failed_num("file_cache_meta_rocksdb_delete_failed_num");
 
-CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path, size_t queue_size)
-        : _db_path(db_path), _write_queue(queue_size) {
+CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path) : _db_path(db_path) {
     auto status = init();
     if (!status.ok()) {
         LOG(ERROR) << "Failed to initialize CacheBlockMetaStore: " << status.to_string();
@@ -83,12 +82,21 @@ CacheBlockMetaStore::~CacheBlockMetaStore() {
         if (_file_cache_meta_cf_handle) {
             _db->DestroyColumnFamilyHandle(_file_cache_meta_cf_handle.release());
         }
+        if (_default_cf_handle) {
+            _db->DestroyColumnFamilyHandle(_default_cf_handle.release());
+        }
         _db->Close();
     }
 }
 
 size_t CacheBlockMetaStore::get_write_queue_size() const {
-    return _write_queue.size_approx();
+    std::lock_guard lock(_queue_mutex);
+    return _write_queue.size();
+}
+
+void CacheBlockMetaStore::enqueue(WriteOperation op) {
+    std::lock_guard lock(_queue_mutex);
+    _write_queue.push_back(std::move(op));
 }
 
 Status CacheBlockMetaStore::init() {
@@ -134,8 +142,8 @@ Status CacheBlockMetaStore::init() {
     // handles[0] is default column family, handles[1] is file_cache_meta
     if (handles.size() >= 2) {
         _file_cache_meta_cf_handle.reset(handles[1]);
-        // Close default column family handle as we won't use it
-        _db->DestroyColumnFamilyHandle(handles[0]);
+        // The default column family holds the tablet policies, see put_tablet_policy().
+        _default_cf_handle.reset(handles[0]);
     } else {
         return Status::InternalError("Failed to get file_cache_meta column family handle");
     }
@@ -155,7 +163,7 @@ void CacheBlockMetaStore::put(const BlockMetaKey& key, const BlockMeta& meta) {
     op.type = OperationType::PUT;
     op.key = key_str;
     op.value = value_str;
-    _write_queue.enqueue(op);
+    enqueue(std::move(op));
 }
 
 std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
@@ -388,7 +396,7 @@ void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     WriteOperation op;
     op.type = OperationType::DELETE;
     op.key = key_str;
-    _write_queue.enqueue(op);
+    enqueue(std::move(op));
 }
 
 void CacheBlockMetaStore::clear() {
@@ -398,10 +406,10 @@ void CacheBlockMetaStore::clear() {
         _write_thread.join();
     }
 
-    // Clear the write queue to remove any pending operations
-    WriteOperation op;
-    while (_write_queue.try_dequeue(op)) {
-        // Just discard all pending operations
+    // Discard the pending block metadata writes; the pending tablet policy writes are kept.
+    {
+        std::lock_guard lock(_queue_mutex);
+        std::erase_if(_write_queue, [](const WriteOperation& op) { return !op.tablet_policy; });
     }
 
     // Delete all records from rocksdb
@@ -422,64 +430,108 @@ void CacheBlockMetaStore::clear() {
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
 }
 
-void CacheBlockMetaStore::async_write_worker() {
-    Thread::set_self_name("cache_block_meta_store_async_write_worker");
-    while (!_stop_worker.load(std::memory_order_acquire)) {
-        WriteOperation op;
+namespace {
 
-        if (_write_queue.try_dequeue(op)) {
-            rocksdb::Status status;
+// Tablet policies are keyed by this prefix and the tablet id in the default column family.
+constexpr char TABLET_POLICY_KEY_PREFIX = 0x2;
 
-            if (!_db) {
-                LOG(WARNING) << "Database not initialized, skipping operation";
-                continue;
-            }
+std::string tablet_policy_key(int64_t tablet_id) {
+    std::string key;
+    key.push_back(TABLET_POLICY_KEY_PREFIX);
+    get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT)->full_encode_ascending(&tablet_id, &key);
+    return key;
+}
 
-            if (op.type == OperationType::PUT) {
-                status = _db->Put(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key,
-                                  op.value);
-            } else if (op.type == OperationType::DELETE) {
-                status = _db->Delete(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(),
-                                     op.key);
-            }
+} // namespace
 
-            if (!status.ok()) {
-                LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
-                             << " to rocksdb: " << status.ToString();
-                if (op.type == OperationType::PUT) {
-                    g_rocksdb_write_failed_num << 1;
-                } else {
-                    g_rocksdb_delete_failed_num << 1;
-                }
-            }
-        } else {
-            // Queue is empty, sleep briefly
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-
-    // Process remaining tasks in the queue
+void CacheBlockMetaStore::put_tablet_policy(int64_t tablet_id, const TabletCachePolicy& policy) {
+    cache::TabletCachePolicyPb pb;
+    pb.set_ttl_seconds(policy.ttl_seconds);
+    pb.set_ctime(policy.ctime);
     WriteOperation op;
-    while (_write_queue.try_dequeue(op)) {
-        rocksdb::Status status;
+    op.type = OperationType::PUT;
+    op.key = tablet_policy_key(tablet_id);
+    pb.SerializeToString(&op.value);
+    op.tablet_policy = true;
+    enqueue(std::move(op));
+}
 
-        if (!_db) {
-            LOG(WARNING) << "Database not initialized, skipping operation";
+void CacheBlockMetaStore::delete_tablet_policy(int64_t tablet_id) {
+    WriteOperation op;
+    op.type = OperationType::DELETE;
+    op.key = tablet_policy_key(tablet_id);
+    op.tablet_policy = true;
+    enqueue(std::move(op));
+}
+
+void CacheBlockMetaStore::for_each_tablet_policy(
+        const std::function<void(int64_t tablet_id, const TabletCachePolicy& policy)>& fn) {
+    if (!_db) {
+        return;
+    }
+    const std::string prefix(1, TABLET_POLICY_KEY_PREFIX);
+    std::unique_ptr<rocksdb::Iterator> iter(
+            _db->NewIterator(rocksdb::ReadOptions(), _default_cf_handle.get()));
+    auto* coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+        Slice key(iter->key().data(), iter->key().size());
+        key.remove_prefix(1);
+        int64_t tablet_id = 0;
+        Status st = coder->decode_ascending(&key, sizeof(int64_t),
+                                            reinterpret_cast<uint8_t*>(&tablet_id));
+        cache::TabletCachePolicyPb pb;
+        if (!st.ok() ||
+            !pb.ParseFromArray(iter->value().data(), static_cast<int>(iter->value().size()))) {
+            LOG(WARNING) << "skip malformed file cache tablet policy in " << _db_path;
             continue;
         }
+        fn(tablet_id, TabletCachePolicy {pb.ttl_seconds(), pb.ctime()});
+    }
+}
 
-        if (op.type == OperationType::PUT) {
-            status = _db->Put(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key,
-                              op.value);
-        } else if (op.type == OperationType::DELETE) {
-            status = _db->Delete(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key);
-        }
+rocksdb::Status CacheBlockMetaStore::apply_write(const WriteOperation& op) {
+    auto* cf = op.tablet_policy ? _default_cf_handle.get() : _file_cache_meta_cf_handle.get();
+    if (op.type == OperationType::PUT) {
+        return _db->Put(rocksdb::WriteOptions(), cf, op.key, op.value);
+    }
+    return _db->Delete(rocksdb::WriteOptions(), cf, op.key);
+}
 
+void CacheBlockMetaStore::apply_pending_writes() {
+    // Takes everything pending at once, so the lock is only held to swap the queue, never
+    // across a rocksdb write.
+    std::deque<WriteOperation> writes;
+    {
+        std::lock_guard lock(_queue_mutex);
+        writes.swap(_write_queue);
+    }
+    if (!writes.empty() && !_db) {
+        LOG(WARNING) << "Database not initialized, skipping " << writes.size() << " operations";
+        return;
+    }
+    for (const auto& op : writes) {
+        rocksdb::Status status = apply_write(op);
         if (!status.ok()) {
             LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
                          << " to rocksdb: " << status.ToString();
+            if (op.type == OperationType::PUT) {
+                g_rocksdb_write_failed_num << 1;
+            } else {
+                g_rocksdb_delete_failed_num << 1;
+            }
         }
     }
+}
+
+void CacheBlockMetaStore::async_write_worker() {
+    Thread::set_self_name("cache_block_meta_store_async_write_worker");
+    while (!_stop_worker.load(std::memory_order_acquire)) {
+        apply_pending_writes();
+        // What arrives meanwhile is applied by the next round, all at once.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // Process remaining tasks in the queue
+    apply_pending_writes();
 }
 
 std::string serialize_key(const BlockMetaKey& key) {

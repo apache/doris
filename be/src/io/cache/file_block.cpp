@@ -238,28 +238,6 @@ Status FileBlock::read_to_iobuf(butil::IOBuf* out, size_t read_offset, size_t by
     return _mgr->_storage->read_to_iobuf(_key, read_offset, bytes_req, out, bytes_read);
 }
 
-Status FileBlock::change_cache_type(FileCacheType new_type) {
-    SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
-    return change_cache_type_lock(new_type, cache_lock);
-}
-
-Status FileBlock::change_cache_type_lock(FileCacheType new_type,
-                                         std::lock_guard<std::mutex>& cache_lock) {
-    std::lock_guard block_lock(_mutex);
-
-    if (new_type == _key.meta.type) {
-        return Status::OK();
-    }
-    if (_download_state == State::DOWNLOADED) {
-        Status st;
-        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type, _block_range.size()));
-    }
-    _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
-    _key.meta.type = new_type;
-    return Status::OK();
-}
-
 FileBlock::State FileBlock::wait() {
     std::unique_lock block_lock(_mutex);
 

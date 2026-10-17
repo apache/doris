@@ -100,12 +100,6 @@ Status MemFileCacheStorage::remove(const FileCacheKey& key) {
     return _shard_cache_map[shard_num]->remove(key);
 }
 
-Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
-                                                 const size_t size) {
-    // do nothing for in memory cache coz nothing to persist
-    return Status::OK();
-}
-
 void MemFileCacheStorage::load_file_blocks_directly_unlocked(
         BlockFileCache* mgr, const UInt128Wrapper& hash, int64_t tablet_id,
         std::lock_guard<std::mutex>& cache_lock) {

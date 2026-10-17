@@ -23,9 +23,11 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -101,6 +103,8 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
             continue;
         }
 
+        auto* policy_registry = doris::io::TabletCachePolicyRegistry::instance();
+        const int64_t now = UnixSeconds();
         // Iterate through all cache entries
         while (iterator->valid()) {
             const auto& key = iterator->key();
@@ -118,9 +122,15 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
             // Convert hash to string
             std::string hash_str = key.hash.to_string();
 
+            // What is persisted is the class; TYPE shows the queue the block belongs in now, which
+            // is TTL while its tablet protects it.
+            const auto type = policy_registry->is_protected(key.tablet_id,
+                                                            static_cast<int64_t>(value.ttl), now)
+                                      ? doris::io::FileCacheType::TTL
+                                      : doris::io::cache_class_of(value.type);
             // Add to cache entries
             cache_entries.emplace_back(hash_str, static_cast<int64_t>(key.offset), key.tablet_id,
-                                       static_cast<int64_t>(value.size), value.type, cache_path);
+                                       static_cast<int64_t>(value.size), type, cache_path);
 
             iterator->next();
         }

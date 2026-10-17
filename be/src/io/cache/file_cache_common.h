@@ -20,6 +20,8 @@
 
 #pragma once
 #include <cstdint>
+#include <list>
+#include <optional>
 #include <vector>
 
 #include "common/config.h"
@@ -46,6 +48,13 @@ enum FileCacheType {
 
 inline size_t file_cache_type_index(FileCacheType type) {
     return static_cast<size_t>(type);
+}
+
+// A block has a class (INDEX, NORMAL or DISPOSABLE) that is fixed when it is written, and it sits
+// in the TTL queue while its tablet's TTL protects it. TTL is a queue, never a class: a block
+// recorded as TTL by an older version lost its class there, and NORMAL is what it was put back to.
+inline FileCacheType cache_class_of(FileCacheType type) {
+    return type == FileCacheType::TTL ? FileCacheType::NORMAL : type;
 }
 
 std::string cache_type_to_surfix(FileCacheType type);
@@ -131,9 +140,15 @@ struct KeyAndOffsetHash {
 };
 
 struct KeyMeta {
-    uint64_t expiration_time; // absolute time
+    // The TTL deadline the block was written with (absolute time). Whether the block is protected
+    // is decided by its tablet's current policy (TabletCachePolicyRegistry); this is only the
+    // fallback for a tablet whose policy is not known, and what an older version reads back.
+    uint64_t expiration_time;
+    // The queue the block is in right now: its class, or TTL while it is protected.
     FileCacheType type;
     int64_t tablet_id {0};
+    // The class of the block, see cache_class_of(). Persisted; never TTL.
+    FileCacheType cache_class {FileCacheType::NORMAL};
 };
 
 struct FileCacheKey {
@@ -168,11 +183,14 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           const std::string& storage = "disk");
 
 struct CacheContext {
-    CacheContext(const IOContext* io_context) {
-        if (io_context->expiration_time != 0) {
-            cache_type = FileCacheType::TTL;
-            expiration_time = io_context->expiration_time;
-        } else if (io_context->is_index_data) {
+    // Every reader-side context has to say which tablet the blocks belong to (0 for data outside
+    // any Doris tablet). Taking it here rather than assigning it afterwards keeps a new call site
+    // from silently caching blocks under tablet 0.
+    CacheContext(const IOContext* io_context, int64_t tablet_id_) : tablet_id(tablet_id_) {
+        // The class only; whether the blocks go to the TTL queue is the cache's decision, see
+        // TabletCachePolicyRegistry.
+        expiration_time = io_context->expiration_time;
+        if (io_context->is_index_data) {
             cache_type = FileCacheType::INDEX;
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
@@ -253,9 +271,14 @@ public:
 
     Iterator add(const UInt128Wrapper& hash, size_t offset, size_t size,
                  std::lock_guard<std::mutex>& cache_lock);
+    // Adds at the cold end, for an entry moved in from another queue that is not known to be
+    // any warmer than what is already there.
+    Iterator add_front(const UInt128Wrapper& hash, size_t offset, size_t size,
+                       std::lock_guard<std::mutex>& cache_lock);
     template <class T>
         requires IsXLock<T>
     void remove(Iterator queue_it, T& /* cache_lock */) {
+        skip_sweep_cursor(queue_it);
         cache_size -= queue_it->size;
         map.erase(std::make_pair(queue_it->hash, queue_it->offset));
         queue.erase(queue_it);
@@ -284,9 +307,18 @@ public:
     int64_t get_hot_data_interval() const { return hot_data_interval; }
 
     void clear(std::lock_guard<std::mutex>& cache_lock) {
+        sweep_cursor.reset();
         queue.clear();
         map.clear();
         cache_size = 0;
+    }
+
+    // Moves the sweep cursor past `queue_it` if it points there, before the entry leaves its
+    // place in the queue.
+    void skip_sweep_cursor(Iterator queue_it) {
+        if (sweep_cursor == queue_it) {
+            ++*sweep_cursor;
+        }
     }
 
     size_t levenshtein_distance_from(LRUQueue& base, std::lock_guard<std::mutex>& cache_lock);
@@ -295,6 +327,9 @@ public:
     size_t max_element_size;
     std::list<FileKeyAndOffset> queue;
     std::unordered_map<std::pair<UInt128Wrapper, size_t>, Iterator, HashFileKeyAndOffset> map;
+    // Where the background queue sweep resumes, kept across releases of the cache lock. An
+    // entry that leaves its place moves the cursor past itself first, so it never dangles.
+    std::optional<Iterator> sweep_cursor;
     size_t cache_size = 0;
     int64_t hot_data_interval {0};
 };

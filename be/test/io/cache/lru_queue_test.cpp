@@ -125,3 +125,38 @@ TEST_F(LRUQueueTest, ResizeUpdatesCacheSize) {
     queue1->resize(iter, 2048, lock);
     EXPECT_EQ(queue1->get_capacity(lock), 2048);
 }
+
+// The queue sweep keeps its cursor across releases of the cache lock, so an entry that leaves its
+// place has to move the cursor past itself first, or the cursor would dangle.
+TEST_F(LRUQueueTest, SweepCursorMovesPastEntriesThatLeave) {
+    std::mutex mutex;
+    std::lock_guard lock(mutex);
+
+    auto a = queue1->add(UInt128Wrapper(1), 0, 1, lock);
+    auto b = queue1->add(UInt128Wrapper(2), 0, 1, lock);
+    auto c = queue1->add(UInt128Wrapper(3), 0, 1, lock);
+    auto d = queue1->add(UInt128Wrapper(4), 0, 1, lock);
+    auto e = queue1->add(UInt128Wrapper(5), 0, 1, lock);
+    queue1->sweep_cursor = a;
+
+    queue1->remove(a, lock);
+    EXPECT_TRUE(*queue1->sweep_cursor == b);
+    queue1->move_to_end(b, lock); // c d e b
+    EXPECT_TRUE(*queue1->sweep_cursor == c);
+    queue1->pop_front(lock); // d e b
+    EXPECT_TRUE(*queue1->sweep_cursor == d);
+
+    // Entries the cursor does not point at leave it where it is.
+    queue1->remove(e, lock); // d b
+    queue1->move_to_end(b, lock);
+    queue1->add_front(UInt128Wrapper(6), 0, 1, lock); // f d b
+    EXPECT_TRUE(*queue1->sweep_cursor == d);
+
+    // The last entry leaving puts it at the end.
+    queue1->remove(b, lock); // f d
+    queue1->move_to_end(d, lock);
+    EXPECT_TRUE(*queue1->sweep_cursor == queue1->end());
+
+    queue1->remove_all(lock);
+    EXPECT_FALSE(queue1->sweep_cursor.has_value());
+}

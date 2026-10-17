@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <concurrentqueue.h>
 #include <gen_cpp/file_cache.pb.h>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -25,6 +24,8 @@
 #include <rocksdb/status.h>
 
 #include <atomic>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -33,6 +34,7 @@
 #include <vector>
 
 #include "io/cache/file_cache_common.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
@@ -85,7 +87,7 @@ public:
 
 class CacheBlockMetaStore {
 public:
-    CacheBlockMetaStore(const std::string& db_path, size_t queue_size = 1000);
+    explicit CacheBlockMetaStore(const std::string& db_path);
     ~CacheBlockMetaStore();
 
     Status init();
@@ -117,6 +119,15 @@ public:
     // Count entries stored in rocksdb (ignoring pending writes)
     size_t approximate_entry_count() const;
 
+    // The TTL policies of the cached tablets live in rocksdb's default column family. A BE that
+    // predates them opens that column family (rocksdb requires it) but never reads it, so after
+    // a downgrade they are ignored instead of failing to open the database or showing up as
+    // malformed block metadata. Writes are asynchronous; reads go to rocksdb only.
+    void put_tablet_policy(int64_t tablet_id, const TabletCachePolicy& policy);
+    void delete_tablet_policy(int64_t tablet_id);
+    void for_each_tablet_policy(
+            const std::function<void(int64_t tablet_id, const TabletCachePolicy& policy)>& fn);
+
 private:
     void async_write_worker();
     std::unique_ptr<BlockMetaIterator> range_get_by_prefix(const std::string& prefix);
@@ -125,6 +136,7 @@ private:
     std::unique_ptr<rocksdb::DB> _db;
     rocksdb::Options _options;
     std::unique_ptr<rocksdb::ColumnFamilyHandle> _file_cache_meta_cf_handle;
+    std::unique_ptr<rocksdb::ColumnFamilyHandle> _default_cf_handle;
     std::atomic<bool> _initialized {false};
 
     enum class OperationType { PUT, DELETE };
@@ -132,11 +144,19 @@ private:
         OperationType type;
         std::string key;
         std::string value; // Only used for PUT operations
+        // A tablet policy, which lives in the default column family.
+        bool tablet_policy = false;
     };
-    moodycamel::ConcurrentQueue<WriteOperation> _write_queue;
+    void enqueue(WriteOperation op);
+    // Applies every pending write, in the order they were made.
+    void apply_pending_writes();
+    rocksdb::Status apply_write(const WriteOperation& op);
+    // The writes not applied yet, in the order they were made, whichever threads made them: a
+    // put and a later delete of the same key must reach rocksdb in that order.
+    mutable std::mutex _queue_mutex;
+    std::deque<WriteOperation> _write_queue;
     std::atomic<bool> _stop_worker {false};
     std::thread _write_thread;
-    std::mutex _queue_mutex;
 
     std::unique_ptr<ThreadPool> _thread_pool;
 };

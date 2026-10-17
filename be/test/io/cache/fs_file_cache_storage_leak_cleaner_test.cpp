@@ -116,7 +116,7 @@ protected:
     void setup_storage(FSFileCacheStorage& storage, BlockFileCache& mgr, const fs::path& dir) {
         storage._cache_base_path = dir.string();
         storage._mgr = &mgr;
-        storage._meta_store = std::make_unique<CacheBlockMetaStore>(dir.string() + "/meta", 10000);
+        storage._meta_store = std::make_unique<CacheBlockMetaStore>(dir.string() + "/meta");
         EXPECT_TRUE(storage._meta_store->init().ok());
         EXPECT_TRUE(storage.write_file_cache_version().ok());
     }

@@ -99,7 +99,9 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
 
-    uint64_t expiration_time = 120;
+    // key3 is written with a TTL that has not run out. What is persisted for it is its class
+    // (NORMAL) and this deadline; the TTL queue is where it goes because the deadline is ahead.
+    const uint64_t expiration_time = UnixSeconds() + 120;
 
     int i = 0;
     { // cache1
@@ -232,15 +234,15 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 48, "key2", 200000, FileCacheType::INDEX, 0, 100000);
             verify_meta_key(*meta_store, 48, "key2", 300000, FileCacheType::INDEX, 0, 100000);
             verify_meta_key(*meta_store, 48, "key2", 400000, FileCacheType::INDEX, 0, 100000);
-            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::NORMAL, expiration_time,
                             100000);
             verify_meta_key(*meta_store, 50, "key4", 0, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 100000, FileCacheType::DISPOSABLE, 0, 100000);
@@ -294,15 +296,15 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             auto meta = meta_store->get(mkey);
             ASSERT_FALSE(meta.has_value());
 
-            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::NORMAL, expiration_time,
                             100000);
             verify_meta_key(*meta_store, 50, "key4", 0, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 100000, FileCacheType::DISPOSABLE, 0, 100000);
@@ -349,15 +351,15 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             auto meta = meta_store->get(mkey);
             ASSERT_FALSE(meta.has_value());
 
-            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 100000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 200000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 300000, FileCacheType::NORMAL, expiration_time,
                             100000);
-            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::TTL, expiration_time,
+            verify_meta_key(*meta_store, 49, "key3", 400000, FileCacheType::NORMAL, expiration_time,
                             100000);
             verify_meta_key(*meta_store, 50, "key4", 0, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 100000, FileCacheType::DISPOSABLE, 0, 100000);
@@ -398,8 +400,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             ASSERT_EQ(blocks.size(), 1);
             auto block = blocks[0];
             ASSERT_EQ(block->tablet_id(), 47);
-
-            ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::INDEX));
         }
         // check the meta
         {
@@ -409,7 +409,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
                     << "Expected FSFileCacheStorage but got different storage type";
 
             auto& meta_store = fs_storage->_meta_store;
-            verify_meta_key(*meta_store, 47, "key1", 300000, FileCacheType::INDEX, 0, 100000);
+            verify_meta_key(*meta_store, 47, "key1", 300000, FileCacheType::NORMAL, 0, 100000);
         }
         // change ttl
         {
@@ -436,7 +436,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
             auto& meta_store = fs_storage->_meta_store;
             verify_meta_key(
-                    *meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+                    *meta_store, 49, "key3", 0, FileCacheType::NORMAL, expiration_time,
                     100000); // won't change ttl when get_or_set now as we introduce ttl mgr to manage ttl
         }
     }
@@ -722,10 +722,13 @@ TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) 
 
     constexpr size_t kNewSize = 2 * kOriginalSize;
     constexpr int64_t kTabletId = 4242;
+    io::CacheContext loaded;
+    loaded.cache_type = io::FileCacheType::NORMAL;
+    loaded.tablet_id = kTabletId;
     bool handled = false;
     {
         SCOPED_CACHE_LOCK(cache._mutex, (&cache));
-        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, kTabletId,
+        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, loaded,
                                                           cache_lock);
     }
 

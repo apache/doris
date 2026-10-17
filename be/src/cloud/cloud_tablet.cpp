@@ -49,6 +49,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -1622,6 +1623,10 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_binlog_config(new_binlog_config);
         }
     }
+    // Reported on every refresh, not only when the TTL changed here: the registry compares with
+    // what it holds, so a policy it lost or never learned is put back by the next refresh.
+    io::TabletCachePolicyRegistry::instance()->upsert(
+            tablet_id(), {new_ttl_seconds, tablet_meta->creation_time()});
 
     last_sync_tablet_meta_time_s = ::time(nullptr);
     return Status::OK();
