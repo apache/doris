@@ -365,6 +365,49 @@ public class TabletHealthTest extends TestWithFeService {
     }
 
     @Test
+    public void testColocateTemporaryPartitionCheckedByTabletChecker() throws Exception {
+        createTable("CREATE TABLE tbl4 (k INT)"
+                + " PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (\"10\"))"
+                + " DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num' = '3', 'colocate_with' = 'temp_group')");
+        alterTableSync("ALTER TABLE tbl4 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN (\"10\")");
+
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl4");
+        Assertions.assertTrue(Env.getCurrentColocateIndex().isColocateTable(table.getId()));
+        Assertions.assertEquals(1, table.getAllTempPartitions().size());
+
+        Partition tempPartition = table.getAllTempPartitions().get(0);
+        Tablet tablet = tempPartition.getMaterializedIndices(IndexExtState.ALL).iterator().next()
+                .getTablets().iterator().next();
+        tempPartition.updateVisibleVersion(10L);
+        tablet.getReplicas().forEach(replica -> replica.updateVersion(10L));
+
+        Backend decommissionBe = Env.getCurrentSystemInfo().getBackend(tablet.getReplicas().get(0).getBackendId());
+        decommissionBe.setDecommissioned(true);
+        Env.getCurrentEnv().getTabletChecker().runAfterCatalogReady();
+
+        Assertions.assertTrue(Env.getCurrentEnv().getTabletScheduler().containsTablet(tablet.getId()));
+        decommissionBe.setDecommissioned(false);
+        dropTable(table.getName(), true);
+    }
+
+    @Test
+    public void testRepairTabletInfoContainsTemporaryPartitions() throws Exception {
+        createTable("CREATE TABLE tbl5 (k INT)"
+                + " PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (\"10\"))"
+                + " DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num' = '3')");
+        alterTableSync("ALTER TABLE tbl5 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN (\"10\")");
+
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl5");
+        TabletChecker.RepairTabletInfo repairTabletInfo = TabletChecker.getRepairTabletInfo("test", "tbl5", null);
+
+        Assertions.assertEquals(table.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toSet()),
+                repairTabletInfo.partIds.stream().collect(Collectors.toSet()));
+        dropTable(table.getName(), true);
+    }
+
+    @Test
     public void testAddTabletNoDeadLock() throws Exception {
         Config.max_scheduling_tablets = 1;
         createTable("CREATE TABLE tbl3 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2"
