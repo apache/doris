@@ -87,6 +87,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/indexed_column_reader.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/ordinal_page_index.h"
@@ -98,6 +99,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -2034,6 +2036,7 @@ Status SegmentIterator::_init_index_iterators() {
             }
             if (_index_iterators[cid] != nullptr) {
                 _index_iterators[cid]->set_context(_index_query_context);
+                RETURN_IF_ERROR(_drop_placeholder_hidden_column_index(cid));
             }
         }
     }
@@ -2054,6 +2057,72 @@ Status SegmentIterator::_init_index_iterators() {
         }
     }
 
+    return Status::OK();
+}
+
+Status SegmentIterator::_drop_placeholder_hidden_column_index(ColumnId cid) {
+    DCHECK(_index_iterators[cid] != nullptr);
+    const auto& column = *_schema->column(cid);
+    if (!is_load_placeholder_hidden_column(get_read_time_hidden_column_type(column))) {
+        return Status::OK();
+    }
+    // Index queries take their options from the query's RuntimeState (see
+    // InvertedIndexReader::handle_searcher_cache); compaction, schema change and index builds read
+    // without one and evaluate no index. A query that disables inverted index queries never
+    // consumes the iterator either, so the probe would only add index I/O to a scan that opted out.
+    if (_opts.runtime_state == nullptr ||
+        !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return Status::OK();
+    }
+    // A singleton rowset serves VERSION/COMMIT_TSO through a ConstantColumnReader, which opens no
+    // physical index, so this iterator belongs to a multi-version rowset whose column storage holds
+    // the values compaction materialized: the first load publishes version 2 and a commit TSO is
+    // positive, so no materialized row is 0. An online index build that read the segment without
+    // the owning rowset's version and TSO (see IndexBuilder's set_read_time_hidden_column_options)
+    // indexed the placeholder 0 for every row instead; that index answers `VERSION = 3` with no
+    // rows although the stored rows match, and its files carry nothing else that tells it apart
+    // from a correct index. An index whose every row is 0 is therefore ignored and the predicates
+    // evaluate the stored values. The only correct index that also reports every row as 0 covers a
+    // rowset whose stored values are all 0 (a COMMIT_TSO never assigned), where the stored values
+    // give the same answer.
+    InvertedIndexParam param;
+    param.column_name = column.name();
+    param.column_type = _storage_name_and_type[cid].second;
+    param.query_value = Field::create_field<TYPE_BIGINT>(0);
+    param.query_type = InvertedIndexQueryType::EQUAL_QUERY;
+    param.num_rows = num_rows();
+    param.roaring = std::make_shared<roaring::Roaring>();
+    param.skip_try = true;
+    Status st = _index_iterators[cid]->read_from_index(IndexParam {&param});
+    if (!st.ok()) {
+        // The predicates on this column downgrade on the same statuses; otherwise it is an error.
+        if (!_downgrade_without_index(st)) {
+            return st;
+        }
+        // A probe that cannot answer cannot prove the index holds the materialized values, and a
+        // damaged index can still answer a disjoint predicate from intact compact bounds alone,
+        // without ever touching the damaged part (an old all-zero index keeps `[0, 0]` bounds and
+        // may have a damaged lazily decoded leaf). Leaving the iterator in place would then lose
+        // the matching rows, so drop it instead of handing it to the predicate path.
+        LOG(WARNING)
+                << "ignore the inverted index of " << column.name() << " for tablet " << _tablet_id
+                << ", rowset " << _segment->rowset_id().to_string() << ", segment " << segment_id()
+                << ": the placeholder probe failed (" << st
+                << "), so the index cannot be trusted to hold the materialized values; rebuild "
+                   "the index";
+        _index_iterators[cid].reset();
+        return Status::OK();
+    }
+    if (param.roaring->cardinality() != num_rows()) {
+        return Status::OK();
+    }
+    LOG(WARNING)
+            << "ignore the inverted index of " << column.name() << " for tablet " << _tablet_id
+            << ", rowset " << _segment->rowset_id().to_string() << " version "
+            << _opts.version.to_string() << ", segment " << segment_id()
+            << ": it indexes every row as the placeholder 0 while the column storage holds the "
+               "materialized values; rebuild the index";
+    _index_iterators[cid].reset();
     return Status::OK();
 }
 

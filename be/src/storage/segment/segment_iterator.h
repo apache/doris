@@ -128,6 +128,9 @@ private:
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
+    // Drops the physical inverted index of a multi-version rowset's VERSION/COMMIT_TSO column when
+    // it indexes every row as the load placeholder 0 and so disagrees with the materialized column.
+    [[nodiscard]] Status _drop_placeholder_hidden_column_index(ColumnId cid);
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();

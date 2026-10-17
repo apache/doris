@@ -130,14 +130,17 @@ protected:
     int32_t _saved_ordered_data_compaction_min_segment_size = 0;
     int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
-    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
+    // `placeholder_hidden_col` appends the hidden BIGINT column a load stores as a placeholder
+    // (VERSION_COL on a MOR UNIQUE table, COMMIT_TSO_COL on a row-binlog DUP base table).
+    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS,
+                                   const std::string& placeholder_hidden_col = "") {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
         tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
-        tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.set_next_column_unique_id(placeholder_hidden_col.empty() ? 4 : 5);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
         column_1->set_unique_id(1);
@@ -172,6 +175,20 @@ protected:
             column_3->set_is_key(false);
             column_3->set_is_nullable(false);
             column_3->set_is_bf_column(false);
+        }
+
+        if (!placeholder_hidden_col.empty()) {
+            EXPECT_TRUE(placeholder_hidden_col == VERSION_COL ||
+                        placeholder_hidden_col == COMMIT_TSO_COL);
+            ColumnPB* column_4 = tablet_schema_pb.add_column();
+            column_4->set_unique_id(4);
+            column_4->set_name(placeholder_hidden_col);
+            column_4->set_type("BIGINT");
+            column_4->set_length(8);
+            column_4->set_index_length(8);
+            column_4->set_is_nullable(false);
+            column_4->set_is_key(false);
+            column_4->set_is_bf_column(false);
         }
 
         tablet_schema->init_from_pb(tablet_schema_pb);
@@ -333,6 +350,13 @@ protected:
                     uint8_t num = 0;
                     columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
+                for (const auto& hidden_col : {VERSION_COL, COMMIT_TSO_COL}) {
+                    if (int32_t col = tablet_schema->field_index(hidden_col); col != -1) {
+                        // a load does not know its version / commit TSO yet and stores a placeholder
+                        int64_t placeholder = 0;
+                        columns[col]->insert_data((const char*)&placeholder, sizeof(placeholder));
+                    }
+                }
                 num_rows++;
             }
             block.set_columns(std::move(columns));
@@ -468,6 +492,9 @@ protected:
         }
     }
 
+    void check_placeholder_col_singleton_rowset_not_linked(
+            KeysType keys_type, const std::string& placeholder_hidden_col);
+
 private:
     const std::string kTestDir = "/ut_dir/ordered_compaction_test";
     const std::string tmp_dir = "./ut_dir/ordered_compaction_test/tmp";
@@ -557,6 +584,60 @@ TEST_F(OrderedDataCompactionTest, test_01) {
             }
         }
     }
+}
+
+// A merge-on-read UNIQUE table carries the hidden VERSION column and the DUP base tablet of a
+// row-binlog table carries the hidden COMMIT_TSO column; every load stores them as a zero
+// placeholder. Readers substitute the rowset version / commit TSO only for a single-version
+// rowset, so such a rowset must not be hard-linked under a multi-version output; rowsets whose
+// column was already materialized by a rewriting compaction still take the link path.
+void OrderedDataCompactionTest::check_placeholder_col_singleton_rowset_not_linked(
+        KeysType keys_type, const std::string& placeholder_hidden_col) {
+    auto num_input_rowset = 2;
+    auto num_segments = 1;
+    auto rows_per_segment = 100;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, input_data);
+
+    TabletSchemaSPtr tablet_schema = create_schema(keys_type, placeholder_hidden_col);
+    ASSERT_NE(tablet_schema->field_index(placeholder_hidden_col), -1);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_NE(tablet->tablet_schema()->field_index(placeholder_hidden_col), -1);
+    ASSERT_FALSE(tablet->is_row_binlog_tablet());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        input_rowsets.push_back(
+                create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[i]));
+    }
+    for (const auto& rowset : input_rowsets) {
+        ASSERT_EQ(rowset->start_version(), rowset->end_version());
+    }
+
+    {
+        CumulativeCompaction cu_compaction(*engine_ref, tablet);
+        cu_compaction._input_rowsets = input_rowsets;
+        EXPECT_FALSE(cu_compaction.handle_ordered_data_compaction());
+    }
+
+    // The same tidy data already rewritten into multi-version rowsets is linked.
+    input_rowsets[0]->rowset_meta()->set_version(Version(2, 3));
+    input_rowsets[1]->rowset_meta()->set_version(Version(4, 5));
+    {
+        CumulativeCompaction cu_compaction(*engine_ref, tablet);
+        cu_compaction._input_rowsets = input_rowsets;
+        EXPECT_TRUE(cu_compaction.handle_ordered_data_compaction());
+        EXPECT_EQ(cu_compaction._output_rowset->version(), Version(2, 5));
+        EXPECT_EQ(cu_compaction._output_rowset->num_segments(), num_input_rowset * num_segments);
+    }
+}
+
+TEST_F(OrderedDataCompactionTest, test_version_col_singleton_rowset_not_linked) {
+    check_placeholder_col_singleton_rowset_not_linked(UNIQUE_KEYS, VERSION_COL);
+}
+
+TEST_F(OrderedDataCompactionTest, test_commit_tso_col_singleton_rowset_not_linked) {
+    check_placeholder_col_singleton_rowset_not_linked(DUP_KEYS, COMMIT_TSO_COL);
 }
 
 TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
