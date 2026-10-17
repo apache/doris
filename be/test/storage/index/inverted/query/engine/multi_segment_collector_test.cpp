@@ -249,7 +249,8 @@ static void check_native_posting_block(const index_query::PostingsBlock& block, 
     EXPECT_EQ(block.doc_at(0), doc);
     EXPECT_EQ(block.docs.front(), doc);
     EXPECT_EQ(block.freq_at(0), 1);
-    EXPECT_EQ(block.norm_at(0), 0);
+    EXPECT_TRUE(block.norms.empty());
+    EXPECT_EQ(block.norm_at(0), 1);
 }
 
 static void check_partition_position(index_query::PostingsCursor& cursor, uint32_t position) {
@@ -407,7 +408,7 @@ TEST_F(MultiSegmentCollectorTest, PhraseCandidatesRemainValidAfterWeightDestruct
             auto scorer = weight->scorer(segment, "");
             weight.reset();
             ASSERT_EQ(scorer->doc(), 3);
-            const float expected_score = scoring ? similarity->score(1.0F, 0) : 1.0F;
+            const float expected_score = scoring ? similarity->score(1.0F, 1) : 1.0F;
             EXPECT_FLOAT_EQ(scorer->score(), expected_score);
             EXPECT_EQ(scorer->seek(3), 3);
             EXPECT_EQ(scorer->advance(), TERMINATED);
