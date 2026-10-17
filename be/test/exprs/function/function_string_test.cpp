@@ -750,11 +750,9 @@ TEST(function_string_test, function_string_upper_test) {
 // ASCII round-trip. This test installs a tr_TR ICU default and asserts every
 // result stays locale independent.
 //
-// TransferImpl/InitcapImpl only take the ICU path when the whole input buffer
-// contains a non-ASCII byte; pure-ASCII columns use the locale-neutral SIMD/C
-// fast path. Each data set therefore keeps a non-ASCII anchor row so that
-// check_function_all_arg_comb's batched (non-const) combination routes the
-// ASCII rows through ICU, where the default locale would otherwise leak in.
+// Mixed columns dispatch ASCII rows to the locale-neutral SIMD/C fast path
+// and non-ASCII rows to ICU. Each data set covers both paths in the batched
+// (non-const) combination and separately as constant arguments.
 TEST(function_string_test, function_string_case_root_locale_test) {
     UErrorCode status = U_ZERO_ERROR;
     const icu::Locale saved_default = icu::Locale::getDefault();
@@ -772,7 +770,7 @@ TEST(function_string_test, function_string_case_root_locale_test) {
         DataSet data_set = {
                 {{std::string("I")}, std::string("i")},             // tr default -> "ı"
                 {{std::string("KIZILAY")}, std::string("kizilay")}, // tr default -> "kızılay"
-                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII anchor: forces ICU
+                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII row: uses ICU
         };
         check_function_all_arg_comb<DataTypeString, true>(std::string("lower"), input_types,
                                                           data_set);
@@ -2889,6 +2887,41 @@ TEST(function_string_test, function_parse_url_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
+}
+
+TEST(function_string_test, function_parse_url_null_invalid_part_test) {
+    const InputTypeSet two_args = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    const DataSet null_urls = {{{Null(), std::string("INVALID")}, Null()},
+                               {{Null(), std::string("HOST")}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>("parse_url", two_args, null_urls);
+
+    const InputTypeSet three_args = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_VARCHAR};
+    const DataSet null_inputs = {
+            {{Null(), std::string("INVALID"), std::string("k")}, Null()},
+            {{std::string("http://h/p?k=v"), std::string("INVALID"), Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>("parse_url", three_args, null_inputs);
+}
+
+TEST(function_string_test, function_translate_mixed_const_map_test) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                      Consted {PrimitiveType::TYPE_VARCHAR},
+                                      Consted {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet replace_rows = {
+            {{std::string("aba"), std::string("ab"), std::string("XY")}, std::string("XYX")},
+            {{std::string("a你b好a"), std::string("ab"), std::string("XY")},
+             std::string("X你Y好X")},
+            {{std::string(""), std::string("ab"), std::string("XY")}, std::string("")},
+            {{Null(), std::string("ab"), std::string("XY")}, Null()}};
+    static_cast<void>(check_function<DataTypeString, true>("translate", input_types, replace_rows));
+
+    const DataSet delete_rows = {
+            {{std::string("aba"), std::string("ab"), std::string("X")}, std::string("XX")},
+            {{std::string("a你b好a"), std::string("ab"), std::string("X")}, std::string("X你好X")},
+            {{std::string("bbb"), std::string("ab"), std::string("X")}, std::string("")},
+            {{std::string(""), std::string("ab"), std::string("X")}, std::string("")},
+            {{Null(), std::string("ab"), std::string("X")}, Null()}};
+    static_cast<void>(check_function<DataTypeString, true>("translate", input_types, delete_rows));
 }
 
 TEST(function_string_test, function_hex_test) {
