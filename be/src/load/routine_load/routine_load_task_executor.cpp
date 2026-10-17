@@ -35,6 +35,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -53,6 +54,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_profile.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
@@ -83,15 +85,33 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 
 Status RoutineLoadTaskExecutor::init(int64_t process_mem_limit) {
     _load_mem_limit = process_mem_limit * config::load_process_max_memory_limit_percent / 100;
-    return ThreadPoolBuilder("routine_load")
+    RETURN_IF_ERROR(ThreadPoolBuilder("routine_load")
+                            .set_min_threads(0)
+                            .set_max_threads(config::max_routine_load_thread_pool_size)
+                            .set_max_queue_size(config::max_routine_load_thread_pool_size)
+                            .build(&_thread_pool));
+    if (config::kinesis_latest_sequence_request_timeout_ms <= 0) {
+        return Status::InvalidArgument(
+                "kinesis_latest_sequence_request_timeout_ms must be positive");
+    }
+    if (config::kinesis_latest_sequence_scan_threads <= 0) {
+        return Status::InvalidArgument("kinesis_latest_sequence_scan_threads must be positive");
+    }
+    return ThreadPoolBuilder("kinesis_latest_scan")
             .set_min_threads(0)
-            .set_max_threads(config::max_routine_load_thread_pool_size)
-            .set_max_queue_size(config::max_routine_load_thread_pool_size)
-            .build(&_thread_pool);
+            .set_max_threads(config::kinesis_latest_sequence_scan_threads)
+            .set_max_queue_size(1024)
+            .build(&_kinesis_scan_pool);
 }
 
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
+    _kinesis_scan_stopping = true;
+    if (_kinesis_scan_pool) {
+        // Drain cancelled workers so every pending RPC still runs its completion callback.
+        _kinesis_scan_pool->wait();
+        _kinesis_scan_pool->shutdown();
+    }
     if (_thread_pool) {
         _thread_pool->shutdown();
     }
@@ -167,7 +187,7 @@ Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& req
 }
 
 Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
-                                                       std::vector<std::string>* shard_ids) {
+                                                       std::vector<PShardInfo>* shard_infos) {
     CHECK(request.has_kinesis_info());
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -176,11 +196,118 @@ Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRe
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
-    Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->get_shard_list(shard_ids);
+    Status st =
+            std::static_pointer_cast<KinesisDataConsumer>(consumer)->get_shard_list(shard_infos);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
     return st;
+}
+
+// One queued/running shard per RPC. Requeue at shard boundaries so a large job does
+// not occupy every scan thread or put all its shards ahead of other jobs.
+struct KinesisLatestSequenceBatch {
+    PKinesisMetaProxyRequest request;
+    int64_t deadline_ms;
+    std::function<bool()> is_cancelled;
+    RoutineLoadTaskExecutor::KinesisScanCallback on_finish;
+    int next_shard = 0;
+    std::map<std::string, std::string> sequences;
+
+    KinesisLatestSequenceBatch(PKinesisMetaProxyRequest req, int64_t timeout_ms,
+                               std::function<bool()> cancelled,
+                               RoutineLoadTaskExecutor::KinesisScanCallback finish)
+            : request(std::move(req)),
+              deadline_ms(timeout_ms == -1 ? -1 : MonotonicMillis() + timeout_ms),
+              is_cancelled(std::move(cancelled)),
+              on_finish(std::move(finish)) {}
+
+    Status check_status() const {
+        if (is_cancelled()) {
+            return Status::Cancelled("Kinesis latest sequence scan cancelled");
+        }
+        if (deadline_ms != -1 && MonotonicMillis() >= deadline_ms) {
+            return Status::TimedOut("Kinesis latest sequence scan exceeded its total timeout");
+        }
+        return Status::OK();
+    }
+
+    void finish(Status status) {
+        // The scanner checks the deadline after each AWS request. Do not invalidate a
+        // complete result merely because cleanup/callback dispatch crosses the deadline.
+        // Cancellation still wins, and failures never publish a partial position map.
+        if (status.ok() && is_cancelled()) {
+            status = Status::Cancelled("Kinesis latest sequence scan cancelled");
+        }
+        if (!status.ok()) {
+            sequences.clear();
+        }
+        on_finish(status, sequences);
+    }
+};
+
+Status RoutineLoadTaskExecutor::_run_kinesis_scan_worker(
+        const std::shared_ptr<KinesisLatestSequenceBatch>& batch) {
+    RETURN_IF_ERROR(batch->check_status());
+    const auto& shard = batch->request.shard_ids_for_latest_sequences(batch->next_shard);
+    std::string sequence;
+    DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.kinesis_scan_shard", {
+        Status status;
+        DBUG_RUN_CALLBACK(shard, &sequence, &status);
+        RETURN_IF_ERROR(status);
+        batch->sequences.emplace(shard, std::move(sequence));
+        return Status::OK();
+    });
+    auto ctx = StreamLoadContext::create_shared(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(batch->request, ctx));
+    KinesisDataConsumer consumer(ctx, config::kinesis_latest_sequence_request_timeout_ms);
+    RETURN_IF_ERROR(consumer.init(ctx));
+    RETURN_IF_ERROR(consumer.get_latest_sequence_number(
+            shard, [batch] { return batch->check_status(); }, &sequence));
+    batch->sequences.emplace(shard, std::move(sequence));
+    return Status::OK();
+}
+
+void RoutineLoadTaskExecutor::_submit_kinesis_scan_worker(
+        const std::shared_ptr<KinesisLatestSequenceBatch>& batch) {
+    auto st = _kinesis_scan_pool->submit_func([this, batch] {
+        SCOPED_INIT_THREAD_CONTEXT();
+        Status worker_status;
+        try {
+            worker_status = _run_kinesis_scan_worker(batch);
+        } catch (const Exception& e) {
+            worker_status = Status::Error<false>(e.code(), e.to_string());
+        } catch (const std::exception& e) {
+            worker_status =
+                    Status::InternalError("Kinesis latest sequence scan failed: {}", e.what());
+        }
+        if (!worker_status.ok() ||
+            ++batch->next_shard == batch->request.shard_ids_for_latest_sequences_size()) {
+            DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.kinesis_scan_before_finish",
+                            { DBUG_RUN_CALLBACK(&batch->deadline_ms); });
+            batch->finish(worker_status);
+            return;
+        }
+        // No state is accessed by this worker after submitting its successor.
+        _submit_kinesis_scan_worker(batch);
+    });
+    if (!st.ok()) {
+        batch->finish(st);
+    }
+}
+
+void RoutineLoadTaskExecutor::get_kinesis_latest_sequence_numbers(
+        const PKinesisMetaProxyRequest& request, int64_t timeout_ms,
+        std::function<bool()> is_cancelled, KinesisScanCallback on_finish) {
+    CHECK(request.has_kinesis_info());
+    CHECK_GT(request.shard_ids_for_latest_sequences_size(), 0);
+    auto batch = std::make_shared<KinesisLatestSequenceBatch>(
+            request, timeout_ms,
+            [this, is_cancelled = std::move(is_cancelled)] {
+                return _kinesis_scan_stopping.load() || is_cancelled();
+            },
+            std::move(on_finish));
+    _submit_kinesis_scan_worker(batch);
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(

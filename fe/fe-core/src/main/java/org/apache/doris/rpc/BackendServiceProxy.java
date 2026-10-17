@@ -429,6 +429,20 @@ public class BackendServiceProxy {
         }
     }
 
+    /** A scan owns its connection so cancellation is visible to the BE as a socket close. */
+    public Future<InternalService.PProxyResult> getInfoOnDedicatedConnection(
+            TNetworkAddress address, InternalService.PProxyRequest request) throws RpcException {
+        try {
+            String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
+            if (realIp.isEmpty() && Config.enable_fqdn_mode) {
+                throw new UnknownHostException("Failed to resolve hostname: " + address.hostname);
+            }
+            return new BackendServiceClient(address, realIp, grpcThreadPool).getInfoAndClose(request);
+        } catch (Exception e) {
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PSendDataResult> sendData(
             TNetworkAddress address, Types.PUniqueId fragmentInstanceId,
             Types.PUniqueId loadId, List<InternalService.PDataRow> data)

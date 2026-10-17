@@ -491,6 +491,17 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         if (!ctx->kinesis_info->closed_shard_ids.empty()) {
             kinesis_progress.__set_closedShardIds(ctx->kinesis_info->closed_shard_ids);
         }
+        if (!ctx->kinesis_info->child_shard_parent_ids.empty()) {
+            std::vector<TKinesisChildShardInfo> child_shard_infos;
+            for (const auto& [child_shard_id, parent_shard_ids] :
+                 ctx->kinesis_info->child_shard_parent_ids) {
+                TKinesisChildShardInfo child_shard_info;
+                child_shard_info.shardId = child_shard_id;
+                child_shard_info.parentShardIds = parent_shard_ids;
+                child_shard_infos.emplace_back(std::move(child_shard_info));
+            }
+            kinesis_progress.__set_childShardInfos(std::move(child_shard_infos));
+        }
 
         rl_attach.kinesisRLTaskProgress = kinesis_progress;
         rl_attach.__isset.kinesisRLTaskProgress = true;

@@ -340,8 +340,9 @@ protected:
                 s3_client_guard);
         sp->set_call_back(
                 "S3FileWriter::_put_object",
-                [created_files](auto&& args) {
+                [this, created_files](auto&& args) {
                     auto* writer = try_any_cast<io::S3FileWriter*>(args[0]);
+                    std::lock_guard lock(_created_files_mutex);
                     for (auto& file : *created_files) {
                         if (has_suffix(writer->path().native(), file.path)) {
                             file.bytes_appended = writer->bytes_appended();
@@ -355,11 +356,12 @@ protected:
                 s3_put_guard);
         sp->set_call_back(
                 "BaseBetaRowsetWriter::_create_file_writer",
-                [created_files](auto&& args) {
+                [this, created_files](auto&& args) {
                     auto* path = try_any_cast<const std::string*>(args[0]);
                     auto* file_type = try_any_cast<FileType*>(args[1]);
                     auto* writer = try_any_cast<io::FileWriter*>(args[2]);
                     auto* opts = try_any_cast<io::FileWriterOptions*>(args[3]);
+                    std::lock_guard lock(_created_files_mutex);
                     created_files->push_back(CreatedS3File {
                             .path = *path,
                             .file_type = *file_type,
@@ -434,6 +436,7 @@ protected:
     }
 
     void expect_segment_write_bypasses_file_cache(const std::vector<CreatedS3File>& created_files) {
+        std::lock_guard lock(_created_files_mutex);
         bool saw_segment_file = false;
         for (const auto& file : created_files) {
             if (file.file_type != FileType::SEGMENT_FILE) {
@@ -454,6 +457,7 @@ protected:
     }
 
     void expect_inverted_index_writes_file_cache(const std::vector<CreatedS3File>& created_files) {
+        std::lock_guard lock(_created_files_mutex);
         bool saw_index_file = false;
         for (const auto& file : created_files) {
             if (file.file_type != FileType::INVERTED_INDEX_FILE) {
@@ -485,6 +489,8 @@ protected:
 
     StorageEngine* _engine = nullptr;
     std::shared_ptr<io::S3FileSystem> _remote_fs;
+    // File creation runs on the test thread while S3 uploads update the same vector asynchronously.
+    std::mutex _created_files_mutex;
 
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     std::unique_ptr<io::FileCacheFactory> _owned_file_cache_factory;

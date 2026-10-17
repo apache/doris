@@ -27,7 +27,9 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisShardTopology;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
@@ -48,6 +50,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobPersistenceTest {
@@ -123,7 +126,10 @@ public class RoutineLoadJobPersistenceTest {
     private void setSourceProgress(RoutineLoadJob job, LoadDataSourceType dataSourceType) {
         if (dataSourceType == LoadDataSourceType.KINESIS) {
             job.progress = new KinesisProgress(Map.of("shard-0", "100"));
-            Deencapsulation.setField(job, "openKinesisShards", Lists.newArrayList("shard-0"));
+            KinesisShardTopology topology = new KinesisShardTopology();
+            topology.mergeShardInfos(List.of(InternalService.PShardInfo.newBuilder().setShardId("shard-0").build()),
+                    KinesisProgress.POSITION_TRIM_HORIZON, Map.of("shard-0", "100"));
+            Deencapsulation.setField(job, "shardTopology", topology);
         } else {
             job.progress = new KafkaProgress(Map.of(0, 100L));
             Deencapsulation.setField(job, "currentKafkaPartitions", Lists.newArrayList(0));
