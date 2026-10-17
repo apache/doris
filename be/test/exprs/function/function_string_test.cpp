@@ -665,6 +665,36 @@ TEST(function_string_test, function_string_strleft_test) {
     }
 }
 
+TEST(function_string_test, function_string_left_truncated_utf8_test) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_INT};
+    DataSet data_set;
+    for (const std::string& truncated :
+         {std::string("\xC2"), std::string("\xE4"), std::string("\xE4\xB8"), std::string("\xF0"),
+          std::string("\xF0\x9F"), std::string("\xF0\x9F\x98")}) {
+        for (int32_t len : {1, 2, 100}) {
+            data_set.push_back({{truncated, len}, truncated});
+            // Adjacent rows share the character buffer: an overread would copy this sentinel.
+            data_set.push_back({{std::string("Z"), len}, std::string("Z")});
+        }
+        for (const std::string& prefix :
+             {std::string("a"), std::string("中"), std::string("\0", 1)}) {
+            data_set.push_back({{prefix + truncated, 1}, prefix});
+            data_set.push_back({{prefix + truncated, 2}, prefix + truncated});
+            data_set.push_back({{std::string("Z"), 2}, std::string("Z")});
+        }
+        data_set.push_back({{truncated, 0}, std::string()});
+        data_set.push_back({{truncated, -1}, std::string()});
+    }
+    data_set.push_back({{std::string(""), 1}, std::string()});
+    data_set.push_back({{Null(), 1}, Null()});
+    data_set.push_back({{std::string("\xE4\xB8"), Null()}, Null()});
+    // Also exercise a truncated final row, with no following row to supply extra bytes.
+    data_set.push_back({{std::string("\xE4\xB8"), 1}, std::string("\xE4\xB8")});
+    for (const auto& func_name : {"left", "strleft"}) {
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(function_string_test, function_string_lower_test) {
     std::string func_name = "lower";
     {

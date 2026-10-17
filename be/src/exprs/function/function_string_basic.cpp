@@ -240,10 +240,12 @@ public:
             if constexpr (is_ascii) {
                 p = begin + std::min(len, static_cast<int>(str.size));
             } else {
-                const char* end = str.end();
-                for (size_t ni = 0, char_size = 0; ni < len && p < end; ++ni, p += char_size) {
-                    char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+                size_t byte_len = 0;
+                for (int ni = 0; ni < len && byte_len < str.size; ++ni) {
+                    byte_len += UTF8_BYTE_LENGTH[static_cast<uint8_t>(begin[byte_len])];
                 }
+                // A truncated UTF-8 sequence must not extend the result beyond this row.
+                p = begin + std::min(byte_len, str.size);
             }
 
             StringOP::push_value_string_reserved_and_allow_overflow({begin, p}, i, res_chars,
