@@ -27,6 +27,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -38,8 +39,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +52,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -67,16 +71,38 @@ public class PartitionCompensator {
             ImmutableList.of(ALL_PARTITIONS);
 
     /**
+     * How many inputs of the query read a table the MV is partitioned on. A compensation narrows a table,
+     * not an input, so a table read through more than one of them -- the aliases of a self-join -- is
+     * narrowed for all of them at once. The query's own relations are what to count, not the plan the MV has
+     * already rewritten: there the base scans are gone, replaced by the MV scan.
+     */
+    public static int pctInputsInQuery(List<CatalogRelation> queryRelations, MTMV mtmv) throws AnalysisException {
+        Set<List<String>> pctTableQualifiers = Sets.newHashSet();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            pctTableQualifiers.add(pctTable.getFullQualifiers());
+        }
+        int count = 0;
+        for (CatalogRelation relation : queryRelations) {
+            if (pctTableQualifiers.contains(relation.getTable().getFullQualifiers())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
      * Maybe only some partitions is invalid in materialized view, or base table maybe add, modify, delete partition
      * So we should calc the invalid partition used in query
      * @param queryUsedBaseTablePartitionMap partitions used by query related partition table
+     * @param pctInputsInQuery how many relations of the query read a table the MV is partitioned on; a
+     *         self-join reads one such table through two of them
      * @param rewrittenPlan tmp rewrittenPlan when mv rewrite
      * @param materializationContext the context of materialization,which hold materialized view meta and other info
      * @param cascadesContext the context of cascades
      * @return the key in pair is mvNeedRemovePartitionNameSet, the value in pair is baseTableNeedUnionPartitionNameSet
      */
     public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
-            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, Plan rewrittenPlan,
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext)
             throws AnalysisException {
         // check partition is valid or not
@@ -144,15 +170,112 @@ public class PartitionCompensator {
         if (allCompensateIsNull) {
             return null;
         }
+        // A base partition the query reads that no MV partition of this plan is named from -- one the
+        // partition_sync_limit window left out, say -- is one the MV does not answer for: a partition of the MV
+        // reads a table through the partitions it does name, and the mapping has no entry for this one. Its
+        // rows have to come from the base table, and two things follow from that, decided apart.
+        //
+        // The base branch of the union reads those partitions. A table the mapping mentions not at all is
+        // uncovered in every partition the query uses, so it is read for the query's own partitions there
+        // rather than skipped -- without this the plan would answer for that table out of the MV alone.
+        //
+        // And the MV partitions this plan uses have to be taken out when they hold rows of such a partition: a
+        // partition the window has since left out can have been materialized in one of them by an earlier
+        // refresh, and the union would then count its rows twice. The refresh snapshot names exactly the
+        // partitions a refresh read into each MV partition, so that is what this is asked of. (It is not the
+        // keys: a list partition's default one holds the keys no other partition of the table claims, so a
+        // partition can be read into an MV partition whose keys do not cover it.)
+        Map<MTMVRelatedTableIf, Set<String>> uncoveredByTable = Maps.newLinkedHashMap();
+        boolean uncoveredRecorded = false;
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+            if (CollectionUtils.isEmpty(queryUsed)) {
+                continue;
+            }
+            // The mapping of a table the query's filtering left out entirely is empty, so a table it does not
+            // mention at all is a table every query-used partition of which is uncovered.
+            Map<String, Set<String>> tableMapping = mtmvRelatedTableIfMapMap.getOrDefault(pctTable, Maps.newHashMap());
+            Set<String> named = Sets.newHashSet();
+            for (Set<String> names : tableMapping.values()) {
+                named.addAll(names);
+            }
+            Set<String> uncovered = Sets.difference(queryUsed, named);
+            if (uncovered.isEmpty()) {
+                continue;
+            }
+            uncoveredByTable.put(pctTable, uncovered);
+            Set<String> recorded = Sets.newHashSet();
+            MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
+            if (refreshSnapshot != null) {
+                for (String mvPartitionName : rewrittenPlanUsePartitionNameSet) {
+                    recorded.addAll(refreshSnapshot.getPctSnapshots(mvPartitionName, new BaseTableInfo(pctTable)));
+                }
+            }
+            if (!Sets.intersection(uncovered, recorded).isEmpty()) {
+                uncoveredRecorded = true;
+            }
+        }
+        // Narrowing a table's read keeps the MV partitions answering for the rest, and that only holds while
+        // one input of the query reads the tables it narrows: the pass that turns the compensation into a plan
+        // puts the filters it is given on one join, so two narrowed inputs read the pairs both filters reach
+        // and lose the mixed ones -- an a_old x b_kept row, say, when A is narrowed for a partition the
+        // mapping does not name and B for one the MV no longer holds, or when one table is narrowed while a
+        // self-join reads it through two inputs, both of which the filter reaches. Nor can a table be left as
+        // it is while the MV partitions that answered for it are taken out. So the MV partitions are taken
+        // out, and every table the MV is partitioned on is read for the query's own partitions, whenever more
+        // than one table is narrowed, a single table is narrowed while the query reads such a table through
+        // more inputs than that, or a refresh read one of the uncovered partitions into an MV partition.
+        int narrowedTables = 0;
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+            Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+            Set<String> stale = pctInfo == null ? null : baseTablePartitionNeedUnionNameMap.get(pctInfo);
+            boolean narrowedByStalePass = CollectionUtils.isNotEmpty(stale) && !stale.containsAll(queryUsed);
+            if (narrowedByStalePass || uncoveredByTable.containsKey(pctTable)) {
+                narrowedTables++;
+            }
+        }
+        boolean takeMvPartitionsOut = uncoveredRecorded || narrowedTables > 1
+                || (narrowedTables > 0 && pctInputsInQuery > narrowedTables);
+        if (!uncoveredByTable.isEmpty()) {
+            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+                if (CollectionUtils.isEmpty(queryUsed)) {
+                    continue;
+                }
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+                if (pctInfo == null) {
+                    continue;
+                }
+                if (takeMvPartitionsOut) {
+                    baseTablePartitionNeedUnionNameMap.put(pctInfo, new HashSet<>(queryUsed));
+                    continue;
+                }
+                Set<String> uncovered = uncoveredByTable.get(pctTable);
+                if (CollectionUtils.isEmpty(uncovered)) {
+                    continue;
+                }
+                baseTablePartitionNeedUnionNameMap
+                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(uncovered);
+            }
+            if (takeMvPartitionsOut && !rewrittenPlanUsePartitionNameSet.isEmpty()) {
+                mvPartitionNeedRemoveNameMap
+                        .computeIfAbsent(new BaseTableInfo(mtmv), k -> new HashSet<>())
+                        .addAll(rewrittenPlanUsePartitionNameSet);
+            }
+            allCompensateIsNull = false;
+        }
+
         // merge all partition to delete or union
         Set<String> needRemovePartitionSet = new HashSet<>();
         mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
         mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
 
-        // consider multi base table partition name not same, how to handle it?
-        Set<String> needUnionPartitionSet = new HashSet<>();
-        baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-        baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
+        // The partitions to union stay with the table they belong to: a partition name means that table's
+        // keys, and two tables of a multi-table MV can use the same name for different keys -- the merge of the
+        // cross-table LIST descriptors makes such MVs buildable. Unioning the names across the tables would
+        // read the other table's partitions too, and with the union rewrite the MV's own branch already
+        // supplies their rows, so the answer would count them twice.
 
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }

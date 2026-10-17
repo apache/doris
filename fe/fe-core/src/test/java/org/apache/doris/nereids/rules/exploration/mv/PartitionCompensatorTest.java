@@ -35,6 +35,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -478,13 +479,191 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
                 Assertions.assertDoesNotThrow(() ->
                         PartitionCompensator.calcInvalidPartitions(
-                                queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx));
+                                queryUsedPartitions, 2, rewrittenPlan, matCtx, cascadesCtx));
 
-        // The uncovered partitions from both tables should be merged into one unified set
+        // Each table keeps its own partitions: a name means the keys of the table it belongs to, and the
+        // tables of a multi-table MV can reuse a name for different keys, so merging the sets would make one
+        // table's base branch read the other's partitions. With two tables short of the mapping the MV
+        // partitions the plan uses are taken out and each table is read for the query's own partitions: the
+        // compensation reaches one plan, and narrowing both tables there would read the pairs only one of the
+        // filters reaches and lose the mixed ones.
         Assertions.assertNotNull(result);
-        Set<String> expectedUnion = ImmutableSet.of("t1_p2", "t2_p1");
-        result.value().values()
-                .forEach(v -> Assertions.assertEquals(expectedUnion, v));
+        Assertions.assertEquals(ImmutableSet.of("t1_p1", "t1_p2"), result.value().get(colInfo1));
+        Assertions.assertEquals(ImmutableSet.of("t2_p1", "t2_p2"), result.value().get(colInfo2));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testCalcInvalidPartitionsReadsOnlyAnUncoveredPartitionOfOneTable()
+            throws Exception {
+        // Shared catalog/db for both related base tables
+        CatalogIf<?> baseCatalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(baseCatalog.getName()).thenReturn("cat");
+        Mockito.when(baseCatalog.getId()).thenReturn(1L);
+        DatabaseIf<?> baseDb = Mockito.mock(DatabaseIf.class);
+        Mockito.when(baseDb.getFullName()).thenReturn("db");
+        Mockito.when(baseDb.getId()).thenReturn(2L);
+        Mockito.when(baseDb.getCatalog()).thenReturn(baseCatalog);
+
+        MTMVRelatedTableIf relatedTable1 = mockRelatedTableIf(
+                "t1", 10L, ImmutableList.of("cat", "db", "t1"), baseDb);
+
+        // One MV valid partition, mapping t1_p1
+        Partition mvP1 = Mockito.mock(Partition.class);
+        Mockito.when(mvP1.getId()).thenReturn(101L);
+        Mockito.when(mvP1.getName()).thenReturn("mv_p1");
+
+        Map<String, Set<String>> mappingForTable1 = new HashMap<>();
+        mappingForTable1.put("mv_p1", ImmutableSet.of("t1_p1"));
+        Map<String, Set<String>> mappingForTable2 = new HashMap<>();
+        mappingForTable2.put("mv_p2", ImmutableSet.of("t2_p2"));
+        Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMappings = new HashMap<>();
+        partitionMappings.put(relatedTable1, mappingForTable1);
+
+        BaseColInfo colInfo1 = new BaseColInfo("date_col", new BaseTableInfo(relatedTable1));
+
+        // Separate catalog/db for the MV itself
+        CatalogIf<?> mvCatalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(mvCatalog.getName()).thenReturn("internal");
+        Mockito.when(mvCatalog.getId()).thenReturn(1L);
+        DatabaseIf<?> mvDb = Mockito.mock(DatabaseIf.class);
+        Mockito.when(mvDb.getFullName()).thenReturn("mv_db");
+        Mockito.when(mvDb.getId()).thenReturn(3L);
+        Mockito.when(mvDb.getCatalog()).thenReturn(mvCatalog);
+
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        Mockito.when(mtmv.getId()).thenReturn(100L);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        PartitionInfo mvPartitionInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(mvPartitionInfo);
+        Mockito.when(mvPartitionInfo.getType()).thenReturn(PartitionType.RANGE);
+        MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable1));
+        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1));
+        // All MV partitions contain data
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(1L));
+
+        AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
+
+        // StatementContext: the MV's valid partition is available for rewrite
+        Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
+        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(mvP1));
+        StatementContext stmtCtx = Mockito.mock(StatementContext.class);
+        Mockito.when(stmtCtx.getMvCanRewritePartitionsMap()).thenReturn(canRewriteMap);
+
+        CascadesContext cascadesCtx = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesCtx.getStatementContext()).thenReturn(stmtCtx);
+
+        // Rewritten plan has no MV scans, so mvNeedRemovePartitionNameSet stays empty
+        Plan rewrittenPlan = Mockito.mock(Plan.class);
+        Mockito.when(rewrittenPlan.collectToList(ArgumentMatchers.any())).thenReturn(Collections.emptyList());
+
+        // Each table contributes one covered and one uncovered partition:
+        //   t1 uses {t1_p1 (covered by mv_p1), t1_p2 (not covered)}
+        //   t2 uses {t2_p1 (not covered), t2_p2 (covered by mv_p2)}
+        Map<List<String>, Set<String>> queryUsedPartitions = new HashMap<>();
+        queryUsedPartitions.put(ImmutableList.of("cat", "db", "t1"),
+                ImmutableSet.of("t1_p1", "t1_p2"));
+        queryUsedPartitions.put(ImmutableList.of("cat", "db", "t2"),
+                ImmutableSet.of("t2_p1", "t2_p2"));
+
+        // Must not throw ConcurrentModificationException when two related tables each
+        // contribute entries that require the post-loop merge in calcInvalidPartitions()
+        Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
+                Assertions.assertDoesNotThrow(() ->
+                        PartitionCompensator.calcInvalidPartitions(
+                                queryUsedPartitions, 1, rewrittenPlan, matCtx, cascadesCtx));
+
+        // One table short of the mapping: the partition it does not name is read from the base and the MV
+        // partitions the plan uses are left in place, since the refresh snapshots here (none) record nothing
+        // of it -- a partition a refresh did read into one of them is what takes them out. Reading the whole
+        // table instead would count the partitions the MV answers for twice.
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(ImmutableSet.of("t1_p2"), result.value().get(colInfo1));
+        Assertions.assertNull(result.key().get(new BaseTableInfo(mtmv)));
+    }
+
+    // The same one uncovered partition as above, read through two inputs instead of one: a self-join's
+    // aliases are one table, and a compensation narrows a table rather than an input, so the filter the
+    // pass puts on the join reaches both of them. Narrowing the table would then read only the pairs both
+    // aliases reach, so the whole of the query's partitions is read from the base and the MV partitions the
+    // plan answers for are taken out.
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testCalcInvalidPartitionsReadsEveryInputOfASelfJoinTable() throws Exception {
+        CatalogIf<?> baseCatalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(baseCatalog.getName()).thenReturn("cat");
+        Mockito.when(baseCatalog.getId()).thenReturn(1L);
+        DatabaseIf<?> baseDb = Mockito.mock(DatabaseIf.class);
+        Mockito.when(baseDb.getFullName()).thenReturn("db");
+        Mockito.when(baseDb.getId()).thenReturn(2L);
+        Mockito.when(baseDb.getCatalog()).thenReturn(baseCatalog);
+
+        MTMVRelatedTableIf relatedTable = mockRelatedTableIf(
+                "t1", 10L, ImmutableList.of("cat", "db", "t1"), baseDb);
+
+        Partition mvP1 = Mockito.mock(Partition.class);
+        Mockito.when(mvP1.getId()).thenReturn(101L);
+        Mockito.when(mvP1.getName()).thenReturn("mv_p1");
+
+        Map<String, Set<String>> mappingForTable = new HashMap<>();
+        mappingForTable.put("mv_p1", ImmutableSet.of("t1_p1"));
+        Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMappings = new HashMap<>();
+        partitionMappings.put(relatedTable, mappingForTable);
+
+        BaseColInfo colInfo = new BaseColInfo("date_col", new BaseTableInfo(relatedTable));
+
+        DatabaseIf<?> mvDb = mockDatabase("internal", 3L, "mv_db", 4L);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        Mockito.when(mtmv.getId()).thenReturn(100L);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        Mockito.when(mtmv.getPartition(101L)).thenReturn(mvP1);
+        PartitionInfo mvPartitionInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(mvPartitionInfo);
+        Mockito.when(mvPartitionInfo.getType()).thenReturn(PartitionType.RANGE);
+        MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable));
+        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo));
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(1L));
+
+        AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
+
+        Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
+        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(mvP1));
+        StatementContext stmtCtx = Mockito.mock(StatementContext.class);
+        Mockito.when(stmtCtx.getMvCanRewritePartitionsMap()).thenReturn(canRewriteMap);
+        CascadesContext cascadesCtx = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesCtx.getStatementContext()).thenReturn(stmtCtx);
+
+        // The plan the MV rewrite produced: its scan of the MV, the base scans it replaced are gone.
+        LogicalOlapScan selectedMvScan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(selectedMvScan.getTable()).thenReturn(mtmv);
+        Mockito.when(selectedMvScan.getSelectedPartitionIds()).thenReturn(ImmutableList.of(101L));
+        Plan rewrittenPlan = Mockito.mock(Plan.class);
+        Mockito.when(rewrittenPlan.collectToList(ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(selectedMvScan));
+
+        Map<List<String>, Set<String>> queryUsedPartitions = new HashMap<>();
+        queryUsedPartitions.put(relatedTable.getFullQualifiers(),
+                ImmutableSet.of("t1_p1", "t1_p2"));
+
+        Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
+                PartitionCompensator.calcInvalidPartitions(
+                        queryUsedPartitions, 2, rewrittenPlan, matCtx, cascadesCtx);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(ImmutableSet.of("t1_p1", "t1_p2"), result.value().get(colInfo));
+        Assertions.assertEquals(ImmutableSet.of("mv_p1"), result.key().get(new BaseTableInfo(mtmv)));
     }
 
     @SuppressWarnings("unchecked")
@@ -557,7 +736,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
                 PartitionCompensator.calcInvalidPartitions(
-                        queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx);
+                        queryUsedPartitions, 1, rewrittenPlan, matCtx, cascadesCtx);
 
         Assertions.assertNotNull(result);
         Assertions.assertEquals(ImmutableSet.of("mv_partially_stale", "mv_disjoint"),
@@ -641,12 +820,42 @@ public class PartitionCompensatorTest extends TestWithFeService {
                 ImmutableSet.of("p20260401", "p20260402", "p20260403"));
 
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
-                PartitionCompensator.calcInvalidPartitions(queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx);
+                PartitionCompensator.calcInvalidPartitions(queryUsedPartitions, 1, rewrittenPlan, matCtx, cascadesCtx);
 
         Assertions.assertNotNull(result);
         Assertions.assertEquals(ImmutableSet.of("mv_p20260301", "mv_p20260403", "mv_p20260428"),
                 result.key().get(new BaseTableInfo(mtmv)));
         Assertions.assertEquals(ImmutableSet.of("p20260403"), result.value().get(colInfo));
+    }
+
+    // What the take-out decision above turns on is how many inputs of the query read a table the MV is
+    // partitioned on, and the query's own relations are what to count: a self-join's two aliases of one
+    // table are two of them, while a table the MV is not partitioned on is none.
+    @Test
+    public void testPctInputsInQueryCountsEveryAlias() throws Exception {
+        DatabaseIf<?> baseDb = mockDatabase("cat", 1L, "db", 2L);
+        MTMVRelatedTableIf pctTable = mockRelatedTableIf(
+                "t1", 10L, ImmutableList.of("cat", "db", "t1"), baseDb);
+        MTMVRelatedTableIf otherTable = mockRelatedTableIf(
+                "other", 20L, ImmutableList.of("cat", "db", "other"), baseDb);
+
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(pctTable));
+
+        Assertions.assertEquals(2, PartitionCompensator.pctInputsInQuery(
+                ImmutableList.of(mockRelation(pctTable), mockRelation(pctTable)), mtmv));
+        Assertions.assertEquals(1, PartitionCompensator.pctInputsInQuery(
+                ImmutableList.of(mockRelation(pctTable), mockRelation(otherTable)), mtmv));
+        Assertions.assertEquals(0, PartitionCompensator.pctInputsInQuery(
+                ImmutableList.of(mockRelation(otherTable)), mtmv));
+    }
+
+    private static CatalogRelation mockRelation(MTMVRelatedTableIf table) {
+        CatalogRelation relation = Mockito.mock(CatalogRelation.class);
+        Mockito.when(relation.getTable()).thenReturn(table);
+        return relation;
     }
 
     @SuppressWarnings("unchecked")

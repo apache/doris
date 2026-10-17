@@ -1,0 +1,469 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_mtmv_base_partition_read_scope") {
+    String dbName = context.config.getDbNameByFile(context.file)
+    // A refresh reads the base partitions the MV partition is recorded with, and no others. The window of
+    // partition_sync_limit below keeps the last two days, so the day before them is recorded nowhere: it
+    // must not be read either, or its rows would sit in the MV partition -- whose key range does cover
+    // them -- while the snapshot says the MV does not hold that partition. A base partition dropped after
+    // such a read would then be invisible to the sync check, and the transparent rewrite would serve the
+    // rows of a partition the base table no longer has.
+    //
+    // The MV partition is a year and the base table's are days, so the range it is read through is wider
+    // than what it is recorded with. Days are taken relative to today, and the two sides are asserted
+    // separately rather than as a total, so that where the window's edge falls does not decide the case.
+    // The days are taken in the FE's own calendar, which is the one partition_sync_limit cuts its window
+    // from: the runner's local date can be a day off it, and a fixture built in the wrong one leaves the
+    // retained day outside the window.
+    def today = java.time.LocalDate.parse(sql("select curdate()").get(0).get(0).toString())
+    def expiredDay = today.minusDays(5)
+    def keptDay = today.minusDays(1)
+
+    // The expired day is read by a refresh only while it falls inside a retained MV partition's range, and
+    // both days are inside the same year only from the sixth of January on. The part below is left out
+    // where they are not, rather than asserted on days the change cannot be told apart on -- and rather
+    // than through an assumption, which this runner records as a failure of the suite, taking the calendar
+    // independent parts of it down with it.
+    if (expiredDay.getYear() == today.getYear()) {
+        sql """drop materialized view if exists mv_read_scope"""
+        sql """drop table if exists base_read_scope"""
+        sql """
+            create table base_read_scope (
+                k1 date not null,
+                value int not null
+            ) duplicate key(k1)
+            partition by range(k1) (
+                partition p_expired values [("${expiredDay}"), ("${expiredDay.plusDays(1)}")),
+                partition p_kept values [("${keptDay}"), ("${keptDay.plusDays(1)}")),
+                partition p_today values [("${today}"), ("${today.plusDays(1)}"))
+            )
+            distributed by hash(k1) buckets 1
+            properties("replication_num" = "1")
+        """
+        sql """insert into base_read_scope values ("${expiredDay}", 1), ("${keptDay}", 2), ("${today}", 3)"""
+
+        sql """
+            create materialized view mv_read_scope
+            build immediate refresh complete on manual
+            partition by (date_trunc(k1,'year'))
+            distributed by random buckets 1
+            properties(
+                "replication_num" = "1",
+                "partition_sync_limit" = "2",
+                "partition_sync_time_unit" = "DAY"
+            )
+            as select k1, sum(value) as total from base_read_scope group by k1
+        """
+        sql """refresh materialized view mv_read_scope complete"""
+        waitingMTMVTaskFinishedByMvName("mv_read_scope")
+        // The expectations below are read from the base table, so they must not be answered from the MV.
+        sql """set enable_materialized_view_rewrite = false"""
+
+        // The data the refresh had to work with, so that the count below is not read as an empty base table.
+        order_qt_base_rows """select count(*) from base_read_scope"""
+
+        // The day the window left out is the one missing from the MV, and the days it kept are there: read
+        // separately rather than as a total, so that the case does not turn on where the window's edge falls.
+        order_qt_scope_expired_day "select count(*) from mv_read_scope where k1 = '${expiredDay}'"
+        order_qt_scope_kept_days "select count(*) from mv_read_scope where k1 >= '${keptDay}'"
+    }
+
+    // A partition of a list partitioned table holds one key per partition column, and a read pinned to one
+    // of those columns reaches the partitions that differ in the others. The expired partition below shares
+    // its `d` with a kept one, so a read pinned to `d` alone reads it while the snapshot names only the kept
+    // partition: a later drop of it would leave its rows in the MV unaccounted for.
+    sql """drop materialized view if exists list_scope_mv"""
+    sql """drop table if exists list_scope_base"""
+    sql """
+        CREATE TABLE list_scope_base (d DATE NOT NULL, region VARCHAR(10) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(d, region)
+        PARTITION BY LIST(d, region) (
+            PARTITION p_expired VALUES IN ((\"2020-01-01\", \"US\")),
+            PARTITION p_kept VALUES IN ((\"2020-01-01\", \"EU\"), (\"2038-01-01\", \"EU\"))
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO list_scope_base VALUES
+        (\"2020-01-01\", \"US\", 1), (\"2020-01-01\", \"EU\", 2), (\"2038-01-01\", \"EU\", 3)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_scope_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\",
+            \"partition_sync_limit\" = \"2\", \"partition_sync_time_unit\" = \"YEAR\")
+        AS SELECT d, region, SUM(amount) AS total FROM list_scope_base GROUP BY d, region
+    """
+    waitingMTMVTaskFinishedByMvName("list_scope_mv")
+    order_qt_list_scope "SELECT d, region, total FROM list_scope_mv"
+
+    // Two shapes cannot be pinned to what the base partitions hold, and both are read the way the MV
+    // partition's own key range reads them -- a reading that can be seen to be too wide, rather than one
+    // that leaves rows of the MV partition unread.
+    //
+    // The first is a list partitioned table's default partition, which takes the rows no other partition of
+    // it claims: the row below is in it while its `d` puts it in the MV partition the explicit partition is
+    // read through, so pinning the read to that partition's key would lose it.
+    sql """drop materialized view if exists list_default_mv"""
+    sql """drop table if exists list_default_base"""
+    sql """
+        CREATE TABLE list_default_base (d DATE NOT NULL, k INT NOT NULL, amount BIGINT)
+        DUPLICATE KEY(d, k)
+        PARTITION BY LIST(d, k) (
+            PARTITION p_explicit VALUES IN ((\"2020-01-01\", 2)),
+            PARTITION p_default
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO list_default_base VALUES (\"2020-01-01\", 2, 2), (\"2020-01-01\", 3, 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT d, k, SUM(amount) AS total FROM list_default_base GROUP BY d, k
+    """
+    waitingMTMVTaskFinishedByMvName("list_default_mv")
+    order_qt_list_default "SELECT d, k, total FROM list_default_mv"
+    // And the rows of that partition are read for every MV partition they belong to, so the MV partition is
+    // recorded with the partition they come from: a row inserted into it afterwards is a change the MV
+    // compares, rather than one it calls itself synchronized through.
+    sql """INSERT INTO list_default_base VALUES (\"2020-01-01\", 4, 7)"""
+    // A refresh of the MV has to read the rows of it that belong to this partition again: the partition is
+    // one of the ones this MV partition is recorded with, so the insert is a change it compares, and a
+    // refresh that judged the partition synchronized would leave the new row out. The MV's own sync flag is
+    // not the check -- the sentinel MV partition is out of sync either way -- so the row is.
+    sql """REFRESH MATERIALIZED VIEW list_default_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("list_default_mv")
+    order_qt_list_default_tracked "SELECT d, k, total FROM list_default_mv"
+
+    // The same table under a partition_sync_limit window: it is not windowed. The default partition takes
+    // the rows no other partition of the table claims, and ADD PARTITION makes an empty partition for a key
+    // without moving the rows the default partition already holds under it -- so which side of the window a
+    // row is on is not something a read can filter by the partition columns, and the read is left whole. The
+    // MV partition keeps every partition its key range covers, which is what it is recorded with.
+    sql """drop materialized view if exists list_default_scope_mv"""
+    sql """drop table if exists list_default_scope_base"""
+    sql """
+        CREATE TABLE list_default_scope_base (d DATE NOT NULL, k INT NOT NULL, amount BIGINT)
+        DUPLICATE KEY(d, k)
+        PARTITION BY LIST(d, k) (
+            PARTITION p_kept VALUES IN ((\"2020-01-01\", 2), (\"2038-01-01\", 2)),
+            PARTITION p_default
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    // Placed in the default partition: no explicit partition claims its key yet.
+    sql """INSERT INTO list_default_scope_base VALUES (\"2020-01-01\", 1, 1)"""
+    // And an explicit partition for that key, added afterwards: it is empty, and the row above stays in the
+    // default partition. It is an expired partition for the window below.
+    sql """ALTER TABLE list_default_scope_base ADD PARTITION p_expired VALUES IN ((\"2020-01-01\", 1))"""
+    sql """INSERT INTO list_default_scope_base VALUES
+        (\"2020-01-01\", 2, 2), (\"2038-01-01\", 2, 3), (\"2020-01-01\", 3, 4)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_default_scope_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\",
+            \"partition_sync_limit\" = \"2\", \"partition_sync_time_unit\" = \"YEAR\")
+        AS SELECT d, k, SUM(amount) AS total FROM list_default_scope_base GROUP BY d, k
+    """
+    waitingMTMVTaskFinishedByMvName("list_default_scope_mv")
+    // The row whose key a later partition claimed is one the MV partition holds: what it is read through is
+    // the key range, not the partition a row sits in.
+    order_qt_list_default_scope "SELECT d, k, total FROM list_default_scope_mv"
+
+    // The added partition is one the MV partition is recorded with -- the key range covers it -- so dropping
+    // it is a change the MV partition compares rather than one it stays synchronized through.
+    sql """ALTER TABLE list_default_scope_base DROP PARTITION p_expired"""
+    order_qt_list_default_scope_dropped """SELECT PartitionName, SyncWithBaseTables FROM
+        partitions('catalog'='internal','database'='${dbName}','table'='list_default_scope_mv')
+        ORDER BY PartitionName"""
+
+    // A table's default partition belongs to every MV partition that reads the table, not only to the one
+    // its own key maps to: here the join's other table has a partition for key 2 and a default partition
+    // holding key 1, and the MV partition for key 1 is named by the first table. Reading the second table
+    // as "no row" for that partition -- which is what its mapping says on its own -- empties the join.
+    sql """drop materialized view if exists two_pct_default_mv"""
+    sql """drop table if exists two_pct_left"""
+    sql """drop table if exists two_pct_right"""
+    sql """
+        CREATE TABLE two_pct_left (k INT, v INT) DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION l1 VALUES IN ((1)))
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """
+        CREATE TABLE two_pct_right (k INT, w INT) DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION r2 VALUES IN ((2)), PARTITION r_default)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO two_pct_left VALUES (1, 10)"""
+    sql """INSERT INTO two_pct_right VALUES (1, 100)"""
+    sql """
+        CREATE MATERIALIZED VIEW two_pct_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT l.k AS k, l.v AS v, r.w AS w FROM two_pct_left l JOIN two_pct_right r ON l.k = r.k
+    """
+    waitingMTMVTaskFinishedByMvName("two_pct_default_mv")
+    order_qt_two_pct_default "SELECT k, v, w FROM two_pct_default_mv"
+
+    // The same read at the partition column's own type: a key written with milliseconds is compared at that
+    // scale, so the partition of the fractional key keeps its row even though the table has a default
+    // partition, which sends this table through the MV partition's key range rather than through the key.
+    sql """drop materialized view if exists fractional_default_mv"""
+    sql """drop table if exists fractional_default_base"""
+    sql """
+        CREATE TABLE fractional_default_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY LIST(ts) (
+            PARTITION p_fraction VALUES IN ((\"2024-02-01 00:00:00.123\")),
+            PARTITION p_default
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO fractional_default_base VALUES (\"2024-02-01 00:00:00.123\", 5)"""
+    sql """
+        CREATE MATERIALIZED VIEW fractional_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT ts, SUM(amount) AS total FROM fractional_default_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("fractional_default_mv")
+    order_qt_fractional_default "SELECT ts, total FROM fractional_default_mv"
+
+    // The second is a key whose value carries a scale: what a partition of a DATETIME(3) partitioned table
+    // holds is the value written with its milliseconds, and a read pinned to that value at a coarser scale
+    // is one no row of the partition compares equal to.
+    sql """drop materialized view if exists fractional_key_mv"""
+    sql """drop table if exists fractional_key_base"""
+    sql """
+        CREATE TABLE fractional_key_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY LIST(ts) (
+            PARTITION p_fraction VALUES IN ((\"2024-02-01 00:00:00.123\")),
+            PARTITION p_whole VALUES IN ((\"2024-03-01 00:00:00\"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO fractional_key_base VALUES
+        (\"2024-02-01 00:00:00.123\", 5), (\"2024-03-01 00:00:00\", 6)"""
+    sql """
+        CREATE MATERIALIZED VIEW fractional_key_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT ts, SUM(amount) AS total FROM fractional_key_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("fractional_key_mv")
+    order_qt_fractional_key "SELECT ts, total FROM fractional_key_mv"
+    // A key that only the default partition holds has no MV partition to be read into -- the MV's partitions
+    // are the keys the explicit partitions project to -- so the MV does not hold its rows. A query that may
+    // read them is answered from the base table rather than from the MV: with the rewrite on, an MV over a
+    // base table whose list partitions have a default partition is not offered as a candidate at all, since
+    // which keys are in the default partition is not in the metadata. Without this the query below was
+    // rewritten to the view and lost the k = 2 row (2 is in p_default, and the view holds key 1 alone).
+    sql """drop materialized view if exists list_default_only_mv"""
+    sql """drop table if exists list_default_only_base"""
+    sql """
+        CREATE TABLE list_default_only_base (k INT NOT NULL, amount BIGINT)
+        DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION p1 VALUES IN ((1)), PARTITION p_default)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO list_default_only_base VALUES (1, 10), (2, 20)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_default_only_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT k, SUM(amount) AS total FROM list_default_only_base GROUP BY k
+    """
+    waitingMTMVTaskFinishedByMvName("list_default_only_mv")
+    // What the view holds: key 1 alone, the key the default partition holds having no view partition.
+    order_qt_list_default_only_mv "SELECT k, total FROM list_default_only_mv ORDER BY k"
+
+    // And the query over the base table with the rewrite on is answered from the base table, whole.
+    sql """set enable_materialized_view_rewrite = true"""
+    order_qt_list_default_only_query "SELECT k, SUM(amount) AS total FROM list_default_only_base GROUP BY k"
+    // A base partition the sync window has since left out can already have been materialized in an MV partition
+    // the query uses: the mapping stops naming it, but the rows stay where an earlier refresh put them. The
+    // query has to be answered from the base table for it with that MV partition taken out, or the rows are
+    // counted twice -- which is what the union of the MV's own branch and the base's did before.
+    sql """drop materialized view if exists sync_window_narrowed_mv"""
+    sql """drop table if exists sync_window_narrowed_base"""
+    sql """
+        CREATE TABLE sync_window_narrowed_base (d DATE NOT NULL, region VARCHAR(10) NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, region)
+        PARTITION BY LIST(d, region) (
+            PARTITION p_old VALUES IN ((\"2020-01-01\", \"US\")),
+            PARTITION p_kept VALUES IN ((\"2020-01-01\", \"EU\"), (\"2120-01-01\", \"EU\")))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO sync_window_narrowed_base VALUES
+        (\"2020-01-01\", \"US\", 1), (\"2020-01-01\", \"EU\", 2), (\"2120-01-01\", \"EU\", 3)"""
+    // No window at all, so the refresh records both partitions of 2020-01-01.
+    sql """
+        CREATE MATERIALIZED VIEW sync_window_narrowed_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\", \"grace_period\" = \"31536000\")
+        AS SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region
+    """
+    waitingMTMVTaskFinishedByMvName("sync_window_narrowed_mv")
+    // And then the window narrows past p_old: it is no longer named by any MV partition's mapping, while the
+    // MV partition still holds the rows the earlier refresh read from it.
+    sql """ALTER MATERIALIZED VIEW sync_window_narrowed_mv SET
+        (\"partition_sync_limit\" = \"2\", \"partition_sync_time_unit\" = \"YEAR\",
+         \"partition_date_format\" = \"yyyy-MM-dd\")"""
+    sql """set enable_materialized_view_rewrite = true"""
+    // The answer below is also what a plan over the base table alone returns, so the plan is what pins the
+    // path: the view's branch unioned with the base table's for the partition the window left out.
+    explain {
+        sql(" select d, region, sum(v) as s from sync_window_narrowed_base group by d, region")
+        check { result -> result.contains("UNION") && result.contains("sync_window_narrowed_mv") }
+    }
+    order_qt_sync_window_narrowed "SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region ORDER BY d, region"
+
+    // A partition of a range partitioned base table can end past the MV partition it is rolled up into: the
+    // roll-up reads the partition's upper bound with the last second taken off it, so a partition ending at
+    // 2025-01-01 00:00:00.123 is the year 2024's. The row at 2025-01-01 00:00:00.100 is inside that
+    // partition and belongs to the year 2025, for which the MV has no partition at all -- so a read that
+    // takes it has nowhere to write it, the sink filters it, and the refresh fails on the filtered row
+    // instead of rebuilding the partition. Read inside the MV partition's own bound, it is left where it
+    // belongs and the partition is rebuilt.
+    sql """drop materialized view if exists range_ms_boundary_mv"""
+    sql """drop table if exists range_ms_boundary_base"""
+    sql """
+        CREATE TABLE range_ms_boundary_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p_2024 VALUES [("2024-01-01 00:00:00.123"), ("2025-01-01 00:00:00.123"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO range_ms_boundary_base VALUES
+        ("2024-12-31 23:59:59.999", 1), ("2025-01-01 00:00:00.100", 2)"""
+    sql """
+        CREATE MATERIALIZED VIEW range_ms_boundary_mv
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(ts, 'year'))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM range_ms_boundary_base GROUP BY ts
+    """
+    sql """REFRESH MATERIALIZED VIEW range_ms_boundary_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("range_ms_boundary_mv")
+    order_qt_range_ms_boundary "SELECT ts, total FROM range_ms_boundary_mv"
+
+    // The same partition under a DIRECT range MV -- one partitioned by the base table's own column -- where
+    // the MV partition's bounds ARE the base partition's, written with its milliseconds. The read writes the
+    // MV partition's own bound too, and a partition key carries only its primitive type: written from the key
+    // the upper bound comes out as the bare second, the read ends 123 milliseconds early, and the rows of
+    // that tail -- rows this refresh is to write -- are left out of the rebuilt partition. Nothing reports
+    // them: the snapshot records the partition either way.
+    sql """drop materialized view if exists range_ms_direct_mv"""
+    sql """drop table if exists range_ms_direct_base"""
+    sql """
+        CREATE TABLE range_ms_direct_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p_frac VALUES [("2024-01-01 00:00:00.123"), ("2024-02-01 00:00:00.123"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO range_ms_direct_base VALUES
+        ("2024-01-01 00:00:00.123", 1), ("2024-02-01 00:00:00.100", 2)"""
+    sql """
+        CREATE MATERIALIZED VIEW range_ms_direct_mv
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM range_ms_direct_base GROUP BY ts
+    """
+    sql """REFRESH MATERIALIZED VIEW range_ms_direct_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("range_ms_direct_mv")
+    order_qt_range_ms_direct "SELECT ts, total FROM range_ms_direct_mv"
+
+    // A table every query-used partition of which the mapping does not name -- the sync window left the one
+    // the query reads out of it, the query's filtering then dropped the table from the mapping whole -- is
+    // read for the query's own partitions from the base table. The MV partitions the plan uses answer the
+    // partitions the mapping names, and for this table those are none: without this the MV alone answered for
+    // it and the committed join row of the partition the query reads was lost. Grace is what admits the MV
+    // partition here without comparing it, so the compensation is the only thing that reads those rows.
+    sql """drop materialized view if exists uncovered_pct_mv"""
+    sql """drop table if exists uncovered_pct_a"""
+    sql """drop table if exists uncovered_pct_b"""
+    sql """
+        CREATE TABLE uncovered_pct_a (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION a_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE uncovered_pct_b (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION b_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)),
+            PARTITION b_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO uncovered_pct_a VALUES ("2020-01-01", 1, 1)"""
+    sql """INSERT INTO uncovered_pct_b VALUES ("2020-01-01", 1, 10), ("2020-01-01", 2, 20)"""
+    sql """
+        CREATE MATERIALIZED VIEW uncovered_pct_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (a_d)
+        DISTRIBUTED BY HASH(a_d) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR",
+                    "grace_period" = "600")
+        AS SELECT a.d AS a_d, b.k AS b_k, COUNT(*) AS c
+           FROM uncovered_pct_a a JOIN uncovered_pct_b b ON a.d = b.d
+           GROUP BY a.d, b.k
+    """
+    waitingMTMVTaskFinishedByMvName("uncovered_pct_mv")
+    sql """set enable_materialized_view_rewrite = true"""
+    // b.k = 2 is b_old's, which the window left out: the answer needs that join row, and the MV does not
+    // hold it.
+    order_qt_uncovered_pct """SELECT a.d AS a_d, b.k AS b_k, COUNT(*) AS c FROM uncovered_pct_a a
+        JOIN uncovered_pct_b b ON a.d = b.d WHERE a.d = "2020-01-01" AND b.k = 2 GROUP BY a.d, b.k"""
+
+    // A merged LIST component is recorded with every partition it was built from, and the query's partitions
+    // decide only which component is read: a query reading one of a component's partitions finds the MV
+    // partition freshly refreshed, since the freshness check compares those names to the recorded ones. A
+    // name set narrowed to what the query reads would never match it and the MV would answer nothing.
+    sql """drop materialized view if exists merged_component_mv"""
+    sql """drop table if exists merged_component_base"""
+    sql """
+        CREATE TABLE merged_component_base (d INT NOT NULL, region VARCHAR(10) NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, region) PARTITION BY LIST(d, region) (
+            PARTITION p_single VALUES IN ((1, "EU")),
+            PARTITION p_double VALUES IN ((1, "US"), (2, "US")))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO merged_component_base VALUES (1, "EU", 1), (1, "US", 2), (2, "US", 3)"""
+    sql """
+        CREATE MATERIALIZED VIEW merged_component_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT d, region, SUM(v) AS s FROM merged_component_base GROUP BY d, region
+    """
+    waitingMTMVTaskFinishedByMvName("merged_component_mv")
+    sql """set enable_materialized_view_rewrite = true"""
+    mv_rewrite_success(
+        "select d, region, sum(v) as s from merged_component_base where d = 2 group by d, region",
+        "merged_component_mv",
+        is_partition_statistics_ready(dbName, ["merged_component_base", "merged_component_mv"]))
+    order_qt_merged_component """SELECT d, region, SUM(v) AS s FROM merged_component_base
+        WHERE d = 2 GROUP BY d, region"""
+}

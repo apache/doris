@@ -446,8 +446,12 @@ suite("union_rewrite_grace_big") {
       retryUntilHasSqlCache(query_ttl_partition_sql)
       sql "set enable_sql_cache=false"
       sql "SET enable_materialized_view_rewrite=true"
-      // should rewrite fail when union rewrite enable and query the partition which is not in mv
-      mv_rewrite_fail(query_ttl_partition_sql, ttl_mv_name)
+      // A query pruned to partitions the window left out: no mv partition is recorded with any of them, so
+      // the mv is not a candidate for it at all -- the memo carries no step for the mv.
+      explain {
+          sql(" memo plan ${query_ttl_partition_sql}")
+          check { result -> !result.contains(".${ttl_mv_name}") }
+      }
       order_qt_query_16_0_after_no_sql_cache "${query_ttl_partition_sql}"
       sql "set enable_sql_cache=true"
       sql "set enable_strong_consistency_read=true"

@@ -358,7 +358,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 try {
-                    invalidPartitions = calcInvalidPartitions(queryUsedPartitions, rewrittenPlan,
+                    invalidPartitions = calcInvalidPartitions(queryUsedPartitions,
+                            PartitionCompensator.pctInputsInQuery(queryStructInfo.getRelations(), mtmv),
+                            rewrittenPlan,
                             cascadesContext, (AsyncMaterializationContext) materializationContext);
                 } catch (AnalysisException e) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -390,7 +392,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 if (needBaseTableUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
-                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
+                                    invalidPartitions.key(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "Add filter to base table fail when union rewrite",
@@ -525,12 +528,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      */
     protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            int pctInputsInQuery,
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
             AsyncMaterializationContext materializationContext)
             throws AnalysisException {
-        return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan,
-                materializationContext, cascadesContext);
+        return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery,
+                rewrittenPlan, materializationContext, cascadesContext);
     }
 
     /**

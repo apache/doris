@@ -24,9 +24,11 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -54,6 +56,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -301,6 +304,155 @@ public class MTMVPartitionUtil {
             }
         }
         return Optional.of(res);
+    }
+
+    /**
+     * Whether the table has a list partition's default partition, the partition that takes the rows no other
+     * partition of it claims.
+     *
+     * <p>Such a table cannot be represented completely by a materialized view partitioned on it: a key that
+     * only that partition holds has no MV partition to be read into -- the MV's partitions are the keys the
+     * explicit partitions project to -- so its rows are not in the MV, and no rewrite of a query that may
+     * read them can be answered from it. The partitions are walked under the table's read lock, so a
+     * concurrent ADD or DROP PARTITION cannot be seen half applied.
+     */
+    public static boolean hasDefaultListPartition(MTMVRelatedTableIf table) {
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
+            return false;
+        }
+        olapTable.readLock();
+        try {
+            for (PartitionItem item : olapTable.getPartitionInfo().getIdToItem(false).values()) {
+                if (item.isDefaultPartition()) {
+                    return true;
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return false;
+    }
+
+    /**
+     * The desc of the MV partition each of these descs belongs to: the keys of a list partitioned base table
+     * can meet at the MV's partition column -- a partition holding several keys of it, one of them shared with
+     * another partition -- and an MV's own partitions cannot overlap, so descs whose keys meet are one
+     * partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with itself,
+     * and so is every desc that is not a list of keys.
+     *
+     * <p>The keys of a merged desc are written out in the order
+     * {@link PartitionKeyDesc#sortedInValues} gives the same key set, which is the order
+     * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes it in too, because
+     * {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another desc,
+     * which would leave the MV partition an alignment computes unmatchable to the one it holds.
+     */
+    public static Map<PartitionKeyDesc, PartitionKeyDesc> mergedListDescs(Collection<PartitionKeyDesc> descs) {
+        // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
+        // key is looked up once -- walking the groups per desc would be quadratic in the number of partitions.
+        Map<List<PartitionValue>, List<PartitionValue>> groupOfKey = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> first = desc.getInValues().iterator().next();
+            groupOfKey.putIfAbsent(first, first);
+            for (List<PartitionValue> key : desc.getInValues()) {
+                groupOfKey.putIfAbsent(key, key);
+                unionKey(groupOfKey, first, key);
+            }
+        }
+        Map<List<PartitionValue>, Set<List<PartitionValue>>> keysOfGroup = Maps.newHashMap();
+        for (List<PartitionValue> key : groupOfKey.keySet()) {
+            keysOfGroup.computeIfAbsent(findKey(groupOfKey, key), k -> Sets.newHashSet()).add(key);
+        }
+        Map<List<PartitionValue>, Integer> descCountOfGroup = Maps.newHashMap();
+        Map<List<PartitionValue>, PartitionKeyDesc> onlyDescOfGroup = Maps.newHashMap();
+        Map<PartitionKeyDesc, List<PartitionValue>> groupOfDesc = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> group = findKey(groupOfKey, desc.getInValues().iterator().next());
+            groupOfDesc.put(desc, group);
+            descCountOfGroup.merge(group, 1, Integer::sum);
+            onlyDescOfGroup.putIfAbsent(group, desc);
+        }
+        // One merged desc per group, not one per desc that joined it: a group of N descs would otherwise
+        // allocate and hash its N+1 keys N times over.
+        Map<List<PartitionValue>, PartitionKeyDesc> mergedDescOfGroup = Maps.newHashMap();
+        Map<PartitionKeyDesc, PartitionKeyDesc> res = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                res.put(desc, desc);
+                continue;
+            }
+            List<PartitionValue> group = groupOfDesc.get(desc);
+            res.put(desc, mergedDescOfGroup.computeIfAbsent(group, k -> descCountOfGroup.get(k) == 1
+                    ? onlyDescOfGroup.get(k)
+                    : PartitionKeyDesc.createIn(PartitionKeyDesc.sortedInValues(keysOfGroup.get(k)))));
+        }
+        return res;
+    }
+
+    private static void unionKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> left, List<PartitionValue> right) {
+        List<PartitionValue> leftGroup = findKey(groupOfKey, left);
+        List<PartitionValue> rightGroup = findKey(groupOfKey, right);
+        if (leftGroup != rightGroup) {
+            groupOfKey.put(rightGroup, leftGroup);
+        }
+    }
+
+    private static List<PartitionValue> findKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> key) {
+        List<PartitionValue> group = Preconditions.checkNotNull(groupOfKey.get(key),
+                "a key is registered before it is looked up: %s", key);
+        while (group != groupOfKey.get(group)) {
+            group = groupOfKey.get(group);
+        }
+        List<PartitionValue> root = group;
+        // Path compression, so that the walk is not repeated for the rest of this group's keys.
+        group = groupOfKey.get(key);
+        while (group != root) {
+            List<PartitionValue> next = groupOfKey.get(group);
+            groupOfKey.put(group, root);
+            group = next;
+        }
+        return root;
+    }
+
+    /**
+     * The base partitions each table is read from for these MV partitions, by base table: the ones the MV
+     * partitions are recorded with, which is the same set the refresh reads and the same one a rebuild of
+     * them has to read again. A table named with an empty set is not read at all, and a table absent from
+     * the map keeps the MV partitions' own key ranges.
+     *
+     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
+     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
+     * identifies a table here is the table it names, not which of the two objects it was read from.
+     */
+    public static Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
+            MTMVRefreshContext context, Set<String> mvPartitionNames) {
+        Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
+        for (TableIf table : tableWithPartKey.keySet()) {
+            if (table instanceof OlapTable) {
+                res.put(new BaseTableInfo(table), Sets.newHashSet());
+            }
+        }
+        for (String mvPartitionName : mvPartitionNames) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry
+                    : context.getByPartitionName(mvPartitionName).entrySet()) {
+                Set<String> readable = res.get(new BaseTableInfo(entry.getKey()));
+                if (readable != null) {
+                    readable.addAll(entry.getValue());
+                }
+            }
+        }
+        return res;
     }
 
     /**
