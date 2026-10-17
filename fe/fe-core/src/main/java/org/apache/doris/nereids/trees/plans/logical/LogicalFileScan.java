@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.AnnTopNInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -70,6 +71,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     protected final Optional<List<Slot>> cachedOutputs;
     protected final Optional<List<Column>> relationSchema;
     protected final Optional<MvccSnapshot> relationSnapshot;
+    // Used for primary-key vector (ANN) top-N push down into the Paimon scan.
+    // Carries the query vector, the indexed vector column name, and the retrieval
+    // limit (already user_limit + user_offset) down to PaimonScanNode.
+    protected final Optional<AnnTopNInfo> annTopN;
 
     /**
      * Constructor for LogicalFileScan.
@@ -122,7 +127,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, cachedSlots, relationSchema,
-                MvccUtil.getSnapshotFromContext(table));
+                MvccUtil.getSnapshotFromContext(table), Optional.empty());
     }
 
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
@@ -132,6 +137,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema,
             Optional<MvccSnapshot> relationSnapshot) {
+        this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, logicalProperties, cachedSlots, relationSchema,
+                relationSnapshot, Optional.empty());
+    }
+
+    protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema,
+            Optional<MvccSnapshot> relationSnapshot, Optional<AnnTopNInfo> annTopN) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
                 groupExpression, logicalProperties);
         this.selectedPartitions = selectedPartitions;
@@ -141,6 +158,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         this.cachedOutputs = cachedSlots;
         this.relationSchema = relationSchema;
         this.relationSnapshot = relationSnapshot;
+        this.annTopN = annTopN;
     }
 
     private static SelectedPartitions initialSelectedPartitions(
@@ -228,7 +246,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, annTopN);
     }
 
     @Override
@@ -237,14 +255,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, cachedOutputs,
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, annTopN);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, annTopN);
     }
 
     @Override
@@ -252,7 +270,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), cachedOutputs,
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, annTopN);
     }
 
     @Override
@@ -262,7 +280,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public boolean equals(Object o) {
-        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
+        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions)
+                && Objects.equals(annTopN, ((LogicalFileScan) o).annTopN);
     }
 
     @Override
@@ -275,7 +294,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 && Objects.equals(tableSample, that.tableSample)
                 && hasSameSnapshot(tableSnapshot, that.tableSnapshot)
                 && hasSameScanParams(scanParams, that.scanParams)
-                && hasSameResolvedSnapshot(relationSnapshot, that.relationSnapshot);
+                && hasSameResolvedSnapshot(relationSnapshot, that.relationSnapshot)
+                && Objects.equals(annTopN, that.annTopN);
     }
 
     private static boolean hasSameResolvedSnapshot(
@@ -452,18 +472,71 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, annTopN);
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.empty(), Optional.of(cachedOutputs),
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, annTopN);
     }
 
     @Override
     public List<Slot> getOperativeSlots() {
         return operativeSlots;
+    }
+
+    public Optional<AnnTopNInfo> getAnnTopN() {
+        return annTopN;
+    }
+
+    /**
+     * Push primary-key vector (ANN) top-N info into the Paimon scan. Appends a
+     * reader-produced {@code __paimon_search_score_to_dis} virtual column to the scan
+     * output and records the query vector / indexed column / retrieval limit.
+     *
+     * <p>The new output is derived from the OLD output plus the distance slot, rather
+     * than by letting {@code computeLogicalProperties()} recompute it. That is not an
+     * optimization -- it is required for correctness. Passing {@code Optional.empty()}
+     * for logicalProperties routes the output through
+     * {@link LogicalCatalogRelation#computeOutput()}, which mints a FRESH ExprId for
+     * every base column ({@code exprIdGenerator.getNextId()}, no per-column reuse
+     * cache). The caller (PushDownVectorTopNIntoPaimonScan) reparents the EXISTING
+     * projections onto this new scan, so those projections would then reference slots
+     * the scan no longer produces -- e.g. project reads {@code id#10005} while the scan
+     * outputs {@code id#10010}. Verified by the exprId-stability assertion in
+     * PushDownVectorTopNIntoPaimonScanTest.
+     *
+     * <p>Same shape as {@code LogicalOlapScan.appendVirtualColumnsAndTopN}, for the same
+     * reason. Because the output is supplied explicitly, {@code cachedOutputs} can be
+     * forwarded too: it only feeds {@code computeOutput()}, which is now unreachable,
+     * and dropping it would lose an upstream rewrite.
+     *
+     * @param scoreVirtualColumn the {@code __paimon_search_score_to_dis} output column
+     * @param annTopN the query vector, indexed column name, and retrieval limit
+     */
+    public LogicalFileScan withVectorTopN(
+            NamedExpression scoreVirtualColumn,
+            AnnTopNInfo annTopN) {
+        List<NamedExpression> mergedVirtualColumns = ImmutableList.<NamedExpression>builder()
+                .addAll(virtualColumns)
+                .add(scoreVirtualColumn)
+                .build();
+        LogicalProperties oldProperties = getLogicalProperties();
+        List<Slot> newOutput = ImmutableList.<Slot>builder()
+                .addAll(oldProperties.getOutput())
+                .add(scoreVirtualColumn.toSlot())
+                .build();
+        // The asterisk output is deliberately NOT extended: `select *` must not surface
+        // an internal distance column. Forwarded as a supplier rather than a value so
+        // that this rewrite does not force a computation it never reads -- the asterisk
+        // output only matters during binding, long before this rule runs.
+        LogicalProperties newProperties = new LogicalProperties(
+                () -> newOutput, oldProperties::getAsteriskOutput, this::computeDataTrait);
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+                selectedPartitions, operativeSlots, mergedVirtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, Optional.of(newProperties), cachedOutputs,
+                relationSchema, relationSnapshot, Optional.of(annTopN));
     }
 }

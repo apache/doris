@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -53,18 +55,25 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalSearchQuery;
+import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TPaimonVectorPayload;
+import org.apache.doris.thrift.TPaimonVectorPayloadType;
+import org.apache.doris.thrift.TPaimonVectorSearchOptions;
+import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TVectorElementType;
+import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -72,15 +81,17 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.partition.PartitionPredicate;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.BucketVectorSearchSplit;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
@@ -88,6 +99,8 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.VectorScan;
+import org.apache.paimon.table.source.VectorSearchSplit;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
@@ -95,8 +108,11 @@ import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.Pair;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -120,6 +136,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
     private volatile PaimonRustReaderCapabilities rustReaderCapabilities;
+
+    // Rust-fallback reason combinations already logged for this scan node, so a
+    // 960-split scan does not repeat the same one-line reason 960 times.
+    private Set<String> loggedRustFallbackReasons;
     private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
@@ -142,7 +162,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
     // Same key as the rust CoreOptions DELETION_VECTORS_MERGE_ON_READ_OPTION: paimon
     // 1.4 exposes no Java accessor for it, so the raw TableSchema option is read.
-    private static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
+    // Package-private: PaimonVectorSearch.vectorScanEligible reads the same key.
+    static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -229,6 +250,17 @@ public class PaimonScanNode extends FileQueryScanNode {
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
     private Table processedTable;
+
+    // Primary-key vector (ANN) top-N info pushed down from Nereids. When set, the
+    // scan is planned as a vector search (index-only): splits are produced by
+    // Paimon's newBatchVectorSearchBuilder and BE returns __paimon_search_score_to_dis.
+    private float[] annSortQueryVector = null;
+    private String annSortColumnName = null;
+    private long annSortLimit = -1;
+    // The index's distance metric (TVectorMetric), validated against the distance
+    // function by the rewrite rule. BE requires it to convert the score column into
+    // the distance the function is defined to return.
+    private TVectorMetric annMetric = null;
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -338,7 +370,36 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 processedTable.rowType());
-        predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
+        predicates = paimonPredicateConverter.convertToPaimonExpr(getPaimonConvertibleConjuncts());
+    }
+
+    /**
+     * The conjuncts worth offering to Paimon, i.e. everything except comparisons on the
+     * reader-produced PK-vector distance column.
+     *
+     * <p>{@code __paimon_search_score_to_dis} is synthesized by the scan, not read from the
+     * table: the rewrite rule turns {@code dist_fn(vec, q) < x} into a comparison on this
+     * slot (PushDownVectorTopNIntoPaimonScan), so a filtered ANN query hands the converter a
+     * column that no Paimon {@code rowType} contains. The converter itself now returns null
+     * for unknown columns rather than indexing a field list with -1, so this filter is not
+     * what keeps the query alive -- it states the intent at the layer that knows about the
+     * synthetic column, mirroring the exclusion already made for the same column in
+     * {@code FileQueryScanNode.setColumnPositionMapping}. Dropping the conjunct only skips
+     * the push-down; Doris still evaluates it, so results are unaffected.
+     */
+    private List<Expr> getPaimonConvertibleConjuncts() {
+        List<Expr> convertible = new ArrayList<>(conjuncts.size());
+        for (Expr conjunct : conjuncts) {
+            List<SlotRef> slotRefs = new ArrayList<>();
+            conjunct.collect(SlotRef.class, slotRefs);
+            boolean referencesDistance = slotRefs.stream().anyMatch(
+                    slot -> PaimonVectorSearch.SEARCH_DISTANCE_COLUMN
+                            .equalsIgnoreCase(slot.getColumnName()));
+            if (!referencesDistance) {
+                convertible.add(conjunct);
+            }
+        }
+        return convertible;
     }
 
     @Override
@@ -377,6 +438,116 @@ public class PaimonScanNode extends FileQueryScanNode {
         String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
         params.setPaimonPredicate(serializedPredicate);
         setScanLevelPaimonOptions();
+        // Query-wide vector (ANN) params: set once, shared by every split.
+        if (isVectorSearch()) {
+            setExternalSearchRequest();
+        }
+    }
+
+    /**
+     * Build the provider-independent {@link TExternalSearchRequest} for this Paimon
+     * PK-vector (ANN) scan and attach it to the scan params (field 39).
+     *
+     * <p>Reuses the community {@code TExternalSearchRequest} / {@code TVectorSearchParams}
+     * thrift so Paimon and Lance share the same logical search request. Paimon-specific
+     * index tuning (refine_factor, ivf.nprobe, {@code <algo>.metric}, ...) travels in the
+     * Paimon-only {@link TPaimonVectorSearchOptions} (field 5 of the request); the physical
+     * per-split bucket payload stays in {@link TPaimonVectorPayload} on {@code TPaimonFileDesc}.
+     *
+     * <p>The query vector is encoded as a {@link TSearchVector} with {@code FLOAT32} element
+     * type (little-endian), matching paimon-rust's f32 index. The metric enum is passed
+     * straight through from {@code AnnTopNInfo} with no string conversion.
+     */
+    private void setExternalSearchRequest() {
+        // Encode the f32 query vector into a little-endian TSearchVector binary.
+        ByteBuffer buf = ByteBuffer.allocate(annSortQueryVector.length * Float.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (float v : annSortQueryVector) {
+            buf.putFloat(v);
+        }
+        TSearchVector searchVec = new TSearchVector()
+                .setElementType(TVectorElementType.FLOAT32)
+                .setDimension(annSortQueryVector.length)
+                .setValues(buf.array());
+
+        TVectorSearchParams vectorParams = new TVectorSearchParams()
+                .setColumn(annSortColumnName)
+                .setQueryVector(searchVec)
+                .setTopK(annSortLimit)
+                // limit already folded with offset by the Nereids rule; BE only needs the
+                // retrieval count, the real offset is applied by the coordinator TopN.
+                .setOffset(0)
+                .setMetric(annMetric);
+
+        TExternalSearchRequest request = new TExternalSearchRequest()
+                .setSchemaVersion(1)
+                .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
+
+        // Index/search options. These are query-level *overrides* only: paimon-rust
+        // already merges the table's own options underneath them, so anything sent
+        // here that merely repeats the table schema is redundant.
+        try {
+            CoreOptions coreOptions = CoreOptions.fromMap(source.getPaimonTable().options());
+            String vectorColumn = resolvePaimonFieldName(source.getPaimonTable(), annSortColumnName);
+            Options indexOptions = coreOptions.primaryKeyVectorIndexOptions(vectorColumn);
+            if (indexOptions != null) {
+                Map<String, String> filtered = filterVectorIndexOptions(indexOptions.toMap(),
+                        vectorColumn, coreOptions.primaryKeyVectorIndexType(vectorColumn));
+                request.setPaimonOptions(new TPaimonVectorSearchOptions().setOptions(filtered));
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve PK-vector index options for column {}", annSortColumnName, e);
+        }
+        params.setExternalSearchRequest(request);
+    }
+
+    /**
+     * Keep only the keys that actually configure the vector search, dropping the rest of
+     * the table's options.
+     *
+     * <p>{@code CoreOptions.primaryKeyVectorIndexOptions} seeds its result with
+     * {@code new Options(toConfiguration().toMap())}, i.e. a copy of <em>every</em> table
+     * option, before layering the algorithm-specific ones on top. Forwarding that whole
+     * map is wrong in three ways:
+     *
+     * <ul>
+     *   <li>It crashes. Catalog audit properties such as {@code owner} / {@code createdBy}
+     *       / {@code updatedBy} can carry a Java null value, which a {@code HashMap} accepts
+     *       and thrift's {@code writeString} does not -- the query dies with an NPE inside
+     *       the vector search options' generated writer before this filter existed.</li>
+     *   <li>It is redundant. paimon-rust merges the table's own options underneath the
+     *       query options itself, so the table half of this map is re-sending what the
+     *       reader already has.</li>
+     *   <li>It over-shares. {@code path}, {@code security.hadoop.username} and any future
+     *       credential-ish property have no business travelling to BE on a search request.</li>
+     * </ul>
+     *
+     * <p>The retained prefixes mirror what paimon-rust consumes -- {@code ivf.nprobe}
+     * (vindex reader), the {@code lumina.} family (stripped by prefix), and
+     * {@code <algorithm>.metric} -- and match the collection rule in
+     * {@code CoreOptions.primaryKeyVectorAlgorithmOptions}: per-field options excluding the
+     * {@code pk-vector.} declarations, plus everything namespaced under the algorithm.
+     * A null algorithm keeps only the field-scoped half rather than guessing a prefix.
+     */
+    @VisibleForTesting
+    static Map<String, String> filterVectorIndexOptions(Map<String, String> options,
+            String vectorColumn, String algorithm) {
+        String fieldPrefix = "fields." + vectorColumn + ".";
+        String pkVectorPrefix = fieldPrefix + "pk-vector.";
+        String algorithmPrefix = algorithm == null ? null : algorithm + ".";
+        Map<String, String> filtered = new HashMap<>();
+        for (Map.Entry<String, String> entry : options.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || entry.getValue() == null) {
+                continue;
+            }
+            boolean fieldScoped = key.startsWith(fieldPrefix) && !key.startsWith(pkVectorPrefix);
+            boolean algorithmScoped = algorithmPrefix != null && key.startsWith(algorithmPrefix);
+            if (fieldScoped || algorithmScoped) {
+                filtered.put(key, entry.getValue());
+            }
+        }
+        return filtered;
     }
 
     private void setScanLevelPaimonOptions() {
@@ -421,7 +592,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     // Whether the location is an hdfs:// table (the only HDFS-family scheme in
     // RUST_VERIFIED_LOCATION_SCHEMES; viewfs / jfs never pass it).
-    private static boolean isHdfsLocationScheme(String location) {
+    // Package-private: PaimonVectorSearch.vectorScanEligible checks the same shape.
+    static boolean isHdfsLocationScheme(String location) {
         if (location == null) {
             return false;
         }
@@ -757,14 +929,11 @@ public class PaimonScanNode extends FileQueryScanNode {
             // pinned rust decoder rejects outright ("trailing bytes after
             // DataSplit" — it requires full-buffer consumption), and even a
             // permissive decode would still lack the second table identity
-            // needed to honor the fallback-side discriminator. Both sides of a
-            // FallbackReadFileStoreTable wrap their splits, so the table
-            // wrapper is gated as a whole (any split from it routes to JNI)
-            // until the rust ABI represents both sides; the FallbackSplit
-            // interface also catches a wrapper split regardless of how the
-            // table was resolved here.
-            boolean fallbackRead = split instanceof FallbackReadFileStoreTable.FallbackSplit
-                    || processedTable instanceof FallbackReadFileStoreTable;
+            // needed to honor the fallback-side discriminator. The table-half
+            // of the gate lives in PaimonRustEligibility.fallbackReadTable; the
+            // FallbackSplit interface here also catches a wrapper split
+            // regardless of how the table was resolved.
+            boolean fallbackSplit = split instanceof FallbackReadFileStoreTable.FallbackSplit;
             // Serialize the same effective table that planning and the JNI reader use.
             // Relation options such as t@options('read.batch-size'='1') are applied by
             // getProcessedTable() (doInitialize caches it in processedTable), and the
@@ -775,166 +944,23 @@ public class PaimonScanNode extends FileQueryScanNode {
             Table paimonTable = processedTable;
             FileStoreTable paimonFileStoreTable =
                     paimonTable instanceof FileStoreTable ? (FileStoreTable) paimonTable : null;
-            // query-auth.enabled tables stay on JNI: when catalog authorization
-            // succeeds with no row filter or column mask, Paimon still leaves an
-            // ordinary DataSplit (restricted results use QueryAuthSplit and are
-            // already handled by the nativeSplit gate above), so this table shape
-            // passes the compound gate — but the shipped schema keeps
-            // query-auth.enabled=true and the pinned rust ReadBuilder rejects
-            // every such table (its CoreOptions::ensure_read_authorized fails
-            // closed because the client cannot enforce the row filter / column
-            // masking), turning a valid authorized scan into a BE-open failure.
-            // Until the authorization result can be transported and enforced by
-            // the rust ABI, these tables route to JNI.
-            boolean queryAuthTable = false;
-            // REST-token tables stay on JNI: doInitialize snapshots
-            // RESTTokenFileIO.validToken().token() into the backend storage
-            // properties, discarding expireAtMillis and the REST refresh
-            // context, so the shipped credentials look static — but the
-            // pinned rust table reuses one option map with no refresh
-            // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks
-            // expiry before each file operation and obtains a replacement
-            // token. A queued or long scan that crosses the token TTL would
-            // start on rust and later fail authentication. Gate until the
-            // rust ABI can refresh and atomically update credentials.
-            boolean restTokenTable = false;
-            // Partial-update / aggregation tables with deletion vectors only pass
-            // the rust reader in the fully materialized shape: the pinned rust
-            // read_pk rejects merge-engine=partial-update/aggregation with
-            // deletion-vectors.merge-on-read=true outright, and otherwise requires
-            // every split to be compacted and known free of retract rows
-            // (DataSplit::is_fully_materialized_pk_dv). Their ordinary DataSplits
-            // sail through the compound gate above, so without this check a valid
-            // Java/JNI scan reaches BE and the rust open fails. Deduplicate stays
-            // rust-eligible: its read_pk routes uncompacted splits to the KV
-            // reader, which applies the attached per-file DVs. merge-on-read=true
-            // is a table option, so the whole table routes to JNI;
-            // non-materialized splits are gated per split below.
-            boolean puAggDeletionVectors = false;
-            boolean dvMergeOnRead = false;
-            boolean deduplicateIgnoreDelete = false;
-            boolean rustUnsupportedMergeOption = false;
-            if (paimonFileStoreTable != null) {
-                // A renewable REST token reached the shipped properties as a
-                // plain value; only the table's FileIO type reveals it expires.
-                // Null-safe: a table handle whose FileIO is not resolved stays
-                // rust-eligible, mirroring the CoreOptions null-safety below.
-                restTokenTable = paimonFileStoreTable.fileIO() instanceof RESTTokenFileIO;
-                CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
-                // Null-safe: a table handle whose CoreOptions is not resolved
-                // (e.g. some wrapper shapes) stays rust-eligible rather than
-                // failing the scan here — the rust open itself rejects such a
-                // table if the option is really set.
-                if (resolvedCoreOptions != null) {
-                    queryAuthTable = resolvedCoreOptions.queryAuthEnabled();
-                    CoreOptions.MergeEngine mergeEngine = resolvedCoreOptions.mergeEngine();
-                    if (resolvedCoreOptions.deletionVectorsEnabled()
-                            && (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
-                                    || mergeEngine == CoreOptions.MergeEngine.AGGREGATE)) {
-                        puAggDeletionVectors = true;
-                        // The merge-engine and deletion-vectors.enabled checks
-                        // above resolve through the Java CoreOptions accessors,
-                        // which the table builds from this same schema options
-                        // map — the one the BE rust reader deserializes from
-                        // the shipped schema JSON — so they cannot diverge from
-                        // what BE sees. merge-on-read has no Java accessor in
-                        // paimon 1.4, so it is read raw from the map, with the
-                        // rust parsing semantics (any case-insensitive "true"
-                        // is on, default false).
-                        TableSchema dvSchema = paimonFileStoreTable.schema();
-                        Map<String, String> dvOptions = dvSchema == null ? null : dvSchema.options();
-                        String mergeOnRead = dvOptions == null
-                                ? null : dvOptions.get(DELETION_VECTORS_MERGE_ON_READ);
-                        dvMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
-                    }
-                    // deduplicate.ignore-delete=true tables stay on JNI:
-                    // Java's DeduplicateMergeFunction skips retract records
-                    // when the option is set — including old, uncompacted
-                    // files that still contain them — but the pinned rust
-                    // read_pk does not pass table options into its
-                    // deduplicate merge: it picks the latest row and omits
-                    // the key when that row is DELETE/UPDATE_BEFORE. An
-                    // uncompacted insert followed by a delete therefore
-                    // returns the insert through JNI but silently disappears
-                    // through rust. Gate the option until the rust merge
-                    // implements it.
-                    if (mergeEngine == CoreOptions.MergeEngine.DEDUPLICATE
-                            && resolvedCoreOptions.ignoreDelete()) {
-                        deduplicateIgnoreDelete = true;
-                    }
-                    // Non-DV merge options the pinned rust read rejects: Java
-                    // supports partial-update.remove-record-on-delete /
-                    // aggregation.remove-record-on-delete and the wider
-                    // per-field retract matrix, but the rust
-                    // PartialUpdateConfig / AggregationConfig validations
-                    // return Unsupported for them — and the DV-derived gates
-                    // above only cover deletion-vector tables, so an ordinary
-                    // non-DV DataSplit with one of these options would pass the
-                    // compound gate and fail during the rust merge
-                    // construction. Mirror the exact rust key matrix (presence,
-                    // not values) against the same schema options map BE
-                    // deserializes.
-                    if (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
-                            || mergeEngine == CoreOptions.MergeEngine.AGGREGATE) {
-                        TableSchema mergeSchema = paimonFileStoreTable.schema();
-                        Map<String, String> mergeOptions =
-                                mergeSchema == null ? null : mergeSchema.options();
-                        rustUnsupportedMergeOption = mergeOptions != null
-                                && hasRustUnsupportedMergeOption(mergeOptions, mergeEngine);
-                    }
-                }
-            }
-            // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
+            // The table-, storage- and backend-level rust gates are computed once in
+            // PaimonRustEligibility — the single definition the batch and PK-vector
+            // branches below share with the PushDownVectorTopNIntoPaimonScan rewrite's
+            // pre-flight (PaimonVectorSearch.vectorScanEligible) — so both sites agree
+            // on the same conditions by construction. It is built from processedTable,
+            // the same effective table serialized below, so relation options such as
+            // t@options('read.batch-size'='1') reach the gate too.
+            PaimonRustEligibility rustEligibility = PaimonRustEligibility.of(processedTable,
+                    source.getTableLocation(), backendStorageProperties,
+                    backendPolicy.getBackends());
+            // The fallback-read gate halves: the split shape here, the table
+            // wrapper in rustEligibility.fallbackReadTable. Either routes to JNI.
+            boolean fallbackRead = fallbackSplit || rustEligibility.fallbackReadTable;
+            // paimon-rust additionally requires FileScannerV2: the V1 FileScanner
             // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
             // the split falls back to JNI instead of encoding a rust request that the
-            // selected scanner cannot consume, and (b) a FileStoreTable: BE opens the
-            // table via paimon_table_from_schema_json, which needs the resolved
-            // TableSchema that only FileStoreTable exposes via schema(). If the table
-            // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
-            // ship a schema JSON, so fall back to CPP / JNI rather than sending an
-            // incomplete PAIMON_RUST request that BE would reject.
-            //
-            // The paimon-rust S3 bridge maps static credentials, anonymous
-            // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
-            // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
-            // s3.assumed.role.*), but the remaining credential-provider modes
-            // are ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
-            // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
-            // equivalent — rust would silently sign with whatever the ambient
-            // chain resolves to. Gate those modes away from the rust reader
-            // here so the configured provider is honored via the JNI path.
-            boolean providerModeTranslatable = true;
-            String providerType = backendStorageProperties == null
-                    ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
-            String mode = providerType == null ? "DEFAULT" : providerType.trim().toUpperCase(Locale.ROOT);
-            if (mode.isEmpty()) {
-                mode = "DEFAULT";
-            }
-            String location = source.getTableLocation();
-            if (location != null && (location.startsWith("s3://") || location.startsWith("s3a://"))) {
-                // Java DEFAULT may resolve JVM properties or anonymous credentials;
-                // Rust's ambient chain is different. Only explicit keys or explicit
-                // anonymous access can cross this boundary without changing identity.
-                String accessKey = backendStorageProperties == null
-                        ? null : backendStorageProperties.get("AWS_ACCESS_KEY");
-                String secretKey = backendStorageProperties == null
-                        ? null : backendStorageProperties.get("AWS_SECRET_KEY");
-                boolean staticKeys = accessKey != null && !accessKey.trim().isEmpty()
-                        && secretKey != null && !secretKey.trim().isEmpty();
-                // Hadoop's Simple provider gives static keys precedence over anonymous,
-                // role and token settings. Rust interprets those settings differently.
-                boolean conflictingStaticSettings = staticKeys && (mode.equals("ANONYMOUS")
-                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_ROLE_ARN"))
-                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_TOKEN")));
-                providerModeTranslatable = !conflictingStaticSettings
-                        && (mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys));
-            } else if (providerType != null) {
-                providerModeTranslatable = mode.equals("DEFAULT") || mode.equals("ANONYMOUS");
-                // OSS has no anonymous FileIO mode in the pinned Rust dependency.
-                if (mode.equals("ANONYMOUS") && location != null && location.startsWith("oss://")) {
-                    providerModeTranslatable = false;
-                }
-            }
+            // selected scanner cannot consume.
             // Incremental scans (binlog / changelog / delta / diff) must stay
             // on the JNI path: this wire format carries only an ordinary
             // DataSplit and the rust reader invokes TableRead::to_arrow, but
@@ -982,72 +1008,156 @@ public class PaimonScanNode extends FileQueryScanNode {
             // rust. Gate until the rust leaf has a Variant Arrow decoder.
             boolean projectedVariant = desc.getSlots().stream()
                     .anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()));
-            // Scheme capability gate: the pinned paimon-rust storage
-            // dispatcher (io/storage.rs) selects the FileIO parser from the
-            // table location's URI scheme, and libpaimon_c.a compiles in
-            // separate COS, OBS, GCS and Azdls parsers besides the OSS and S3
-            // ones. Doris normalizes every object store's credentials into
-            // the AWS_* / use_path_style aliases (see the *Properties storage
-            // classes), which the BE rust bridge translates only into the
-            // fs.oss.* and s3.* key families — a cosn:// / obs:// / gs:// /
-            // abfs:// warehouse would reach its scheme's parser without the
-            // key family it reads (fs.cosn.userinfo.*, fs.obs.*, gcs.*,
-            // azure.*) and fail the open instead of using JNI. Only the
-            // schemes whose property translation is implemented and
-            // open-tested (s3 / s3a / oss, via RUST_VERIFIED_LOCATION_SCHEMES)
-            // plus the credential-free hdfs and local-filesystem parsers stay
-            // rust-eligible; every other scheme falls back to JNI. A null
-            // location also routes to JNI: the rust path needs the
-            // paimon_table that only a real location can provide (BE rejects
-            // a split without it).
-            boolean schemeCapabilityVerified = isRustVerifiedLocationScheme(source.getTableLocation());
-            // An hdfs:// location is scheme-verified only together with the credential-free
-            // backend shape: the backend storage properties that ship to BE also carry an
-            // HDFS catalog's authentication (kerberos principal / keytab, proxy user, HA
-            // nameservice config), none of which the pinned rust HDFS parser reads — the
-            // scan would open as the BE process's ambient identity instead of the
-            // catalog's configured one and fail the access JNI honors. See
-            // isRustVerifiedHdfsBackend.
-            boolean hdfsBackendVerified = !isHdfsLocationScheme(source.getTableLocation())
-                    || isRustVerifiedHdfsBackend(backendStorageProperties);
-            // With merge-on-read=true the whole table already routes to JNI (dvMergeOnRead);
-            // for the remaining partial-update/aggregation DV tables, a split that is
+            // With merge-on-read=true the whole table already routes to JNI
+            // (rustEligibility.dvMergeOnRead); for the remaining
+            // partial-update/aggregation DV tables, a split that is
             // not fully materialized (uncompacted level-0 data, or retractions not
             // known to be applied — even a split with no deletion file attached yet)
             // fails the rust is_fully_materialized_pk_dv guard, so it falls back per
             // split instead of turning into a BE-open failure. nativeSplit and
             // !fallbackRead only guard the cast — those splits already route to JNI.
-            boolean splitDvNotMaterialized = puAggDeletionVectors && !dvMergeOnRead
+            boolean splitDvNotMaterialized = rustEligibility.puAggDeletionVectors
+                    && !rustEligibility.dvMergeOnRead
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
+            boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
+            // Session, shared table / storage / backend, and scan-shape gates. The
+            // shared PaimonRustEligibility computation is also the
+            // PushDownVectorTopNIntoPaimonScan rewrite's pre-flight
+            // (PaimonVectorSearch.vectorScanEligible): the rewrite is one-way, so both
+            // sites must agree on the same gates, and the scan node stays authoritative
+            // — it evaluates the relation-option-processed table, so a t@options
+            // override the raw-table pre-flight cannot see still rejects here (loudly,
+            // as the vector path has no JNI fallback). !isIncremental and the
+            // split-half of the fallback-read gate are the same backstops: an
+            // incremental scan has no PK-vector semantics (the VectorScan builder has
+            // no incremental mode), and a FallbackSplit shape cannot ride the vector
+            // payload either — both fail loudly here rather than silently returning
+            // snapshot rows for a query that asked for changes. Each gate's value is
+            // also what the fallback logging below reports.
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
-                    && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
-                    && !isIncremental && providerModeTranslatable && !queryAuthTable
-                    && !restTokenTable
-                    && !dvMergeOnRead && !splitDvNotMaterialized
-                    && !orcLtzSchema && !projectedVariant && !externalFileSplit
-                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
-                    && schemeCapabilityVerified && hdfsBackendVerified
-                    && paimonFileStoreTable != null;
-            if (canUseRust) {
-                // Branch tables can retain persisted modes without a selector. Validate the
-                // transported options too: the pinned Rust builder only accepts default here.
-                String scanMode = PaimonScanParams.withoutTimeTravelSelectors(paimonFileStoreTable.schema())
-                        .options().get(CoreOptions.SCAN_MODE.key());
-                canUseRust = scanMode == null || "default".equalsIgnoreCase(scanMode);
-            }
-            if (canUseRust) {
-                // Every candidate can receive this range; older BEs cannot decode reader type 3.
-                canUseRust = !backendPolicy.getBackends().isEmpty()
-                        && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
-            }
-            if (canUseRust) {
-                if (rustReaderCapabilities == null) {
-                    rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                    && sessionVariable.enableFileScannerV2
+                    && rustEligibility.eligible()
+                    && !fallbackRead && !isIncremental
+                    && !orcLtzSchema && !projectedVariant;
+            // The remaining gates judge the DataSplit the BATCH reader opens: the
+            // native DataSplit shape, unmaterialized partial-update / aggregation
+            // deletion vectors, external-path files, and the
+            // PaimonRustReaderCapabilities whitelist. A PK-vector search split is
+            // never read as a DataSplit (it rides serialized in vector_payload and
+            // executes paimon-rust's eager Top-K chain, which applies deletion
+            // vectors and the merge inside the search itself), so it does not
+            // consult them.
+            if (!vectorSearchSplit && canUseRust) {
+                canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
+                        && !externalFileSplit;
+                if (canUseRust) {
+                    if (rustReaderCapabilities == null) {
+                        rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                    }
+                    canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
                 }
-                canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
             }
-            if (canUseRust) {
+            // With the rust reader enabled, a logical split that still routes to JNI was
+            // rejected by a gate above: make the reason visible instead of a silent
+            // fallback, so "why is this table not using the rust reader" is answerable
+            // from the FE log.
+            if (sessionVariable.isEnablePaimonRustReader() && sessionVariable.enableFileScannerV2
+                    && !canUseRust) {
+                List<String> reasons = new ArrayList<>();
+                if (!vectorSearchSplit && !nativeSplit) {
+                    reasons.add("non_data_split");
+                }
+                if (fallbackRead) {
+                    reasons.add("fallback_read_table");
+                }
+                if (isIncremental) {
+                    reasons.add("incremental_scan");
+                }
+                if (!rustEligibility.providerModeTranslatable) {
+                    reasons.add("provider_mode_untranslatable");
+                }
+                if (rustEligibility.queryAuthTable) {
+                    reasons.add("query_auth_table");
+                }
+                if (rustEligibility.restTokenTable) {
+                    reasons.add("rest_token_table");
+                }
+                if (rustEligibility.dvMergeOnRead) {
+                    reasons.add("dv_merge_on_read");
+                }
+                if (!vectorSearchSplit && splitDvNotMaterialized) {
+                    reasons.add("split_dv_not_materialized");
+                }
+                if (orcLtzSchema) {
+                    reasons.add("orc_ltz_schema");
+                }
+                if (projectedVariant) {
+                    reasons.add("projected_variant");
+                }
+                if (!vectorSearchSplit && externalFileSplit) {
+                    reasons.add("external_file_split");
+                }
+                if (rustEligibility.deduplicateIgnoreDelete) {
+                    reasons.add("deduplicate_ignore_delete");
+                }
+                if (rustEligibility.rustUnsupportedMergeOption) {
+                    reasons.add("unsupported_merge_option");
+                }
+                if (!rustEligibility.schemeCapabilityVerified) {
+                    reasons.add("unverified_location_scheme");
+                }
+                if (!rustEligibility.hdfsBackendVerified) {
+                    reasons.add("hdfs_backend_credentials");
+                }
+                if (rustEligibility.scanModeNotDefault) {
+                    reasons.add("scan_mode_not_default");
+                }
+                if (!rustEligibility.isFileStoreTable) {
+                    reasons.add("not_file_store_table");
+                }
+                if (!rustEligibility.allBackendsRustCapable) {
+                    reasons.add("backend_without_rust_support");
+                }
+                if (reasons.isEmpty()) {
+                    reasons.add(vectorSearchSplit ? "unknown" : "capability_whitelist");
+                }
+                String splitDesc = split instanceof DataSplit
+                        ? "bucket=" + ((DataSplit) split).bucket()
+                                + " files=" + ((DataSplit) split).dataFiles().size()
+                        : split.getClass().getSimpleName();
+                logRustFallbackReasons(splitDesc, String.join(",", reasons));
+            }
+            if (vectorSearchSplit) {
+                // Primary-key vector (ANN) search: the serialized bucket split rides in
+                // vector_payload and BE routes to the paimon-rust vector-search read
+                // path. The vector path is executed exclusively by the rust reader, so
+                // a payload with !canUseRust is a broken invariant (the rewrite rule
+                // gates on both switches): falling back to a plain scan would return an
+                // empty distance column while every other column holds rows, which is
+                // silent corruption surfacing as an unattributable size mismatch
+                // downstream. Fail loudly instead.
+                if (!canUseRust) {
+                    // RuntimeException because the setScanParams override chain cannot
+                    // declare a checked UserException; the existing native branch throws
+                    // RuntimeException for the same reason.
+                    throw new RuntimeException("Paimon PK-vector search split requires the"
+                            + " paimon-rust reader: enable_file_scanner_v2 must be enabled and"
+                            + " the table must be rust-eligible (storage scheme / credentials,"
+                            + " merge options, orc / variant shape)");
+                }
+                TPaimonVectorPayload vectorPayload = new TPaimonVectorPayload();
+                vectorPayload.setPayloadType(TPaimonVectorPayloadType.BUCKET_SPLIT_BYTES);
+                vectorPayload.setBytes(paimonSplit.getVectorPayloadBytes());
+                fileDesc.setVectorPayload(vectorPayload);
+                // The DataSplit is already inside vector_payload (BucketVectorSearchSplit
+                // embeds it) and the vector read path decodes only vector_payload, never
+                // paimon_split -- so emit an empty one instead of serializing the same
+                // split twice on the wire. It must still be set (isset) so BE keeps the
+                // native-paimon branch rather than rerouting to the orc/parquet reader.
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit("");
+            } else if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else {
@@ -1156,6 +1266,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        // Primary-key vector (ANN) search is planned entirely by Paimon's
+        // BatchVectorSearchBuilder: one BucketVectorSearchSplit per (partition,
+        // bucket), serialized and carried to BE, which runs the whole search
+        // (recall + refine + row lookup + DV) in a single paimon-rust call.
+        if (isVectorSearch()) {
+            return getVectorSearchSplits();
+        }
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         // Paimon system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
@@ -1235,7 +1352,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += count;
-            } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
+            } else if (!forceJniScanner && !forceJniForSystemTable
+                    && supportNativeReader(optRawFiles)) {
                 // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
                 // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
                 // may require merge/delete semantics and cannot reuse independent file statistics.
@@ -1411,6 +1529,87 @@ public class PaimonScanNode extends FileQueryScanNode {
             paimonScanParams = validateIncrementalReadParams(scanParams.getMapParams());
         }
         return paimonScanParams;
+    }
+
+    /**
+     * Plan a primary-key vector (ANN) search. Produces one Doris split per
+     * (partition, bucket) {@link BucketVectorSearchSplit}, serialized with the
+     * native "PKVSPLIT"/v1 protocol so paimon-rust on BE can decode it. Planning
+     * only needs the vector column and the partition-half of the predicate; the
+     * query vector and data (residual) predicates are handled by BE.
+     */
+    @VisibleForTesting
+    public List<Split> getVectorSearchSplits() throws UserException {
+        Table paimonTable = getProcessedTable();
+        // Only the partition-half of the predicate is pushed into Paimon planning.
+        // The data (residual) half is left for BE's vector-search filter, and passing
+        // it here would trip PrimaryKeyVectorScan's DV/merge-on-read pre-filter guard.
+        PartitionPredicate partitionPredicate = null;
+        if (predicates != null && !predicates.isEmpty()) {
+            Pair<Optional<PartitionPredicate>, List<Predicate>> partSplit =
+                    PartitionPredicate.splitPartitionPredicatesAndDataPredicates(
+                            predicates, paimonTable.rowType(), paimonTable.partitionKeys());
+            partitionPredicate = partSplit.getLeft().orElse(null);
+        }
+
+        // Resolve the actual Paimon field name (case-insensitive); the pushed-down
+        // column name comes from the Doris column, which may differ in case.
+        String vectorColumn = resolvePaimonFieldName(paimonTable, annSortColumnName);
+
+        VectorScan.Plan plan;
+        try {
+            plan = paimonTable.newBatchVectorSearchBuilder()
+                    .withVectorColumn(vectorColumn)
+                    .withPartitionFilter(partitionPredicate)
+                    .newVectorScan()
+                    .scan();
+        } catch (Exception e) {
+            throw new UserException("Paimon PK-vector search planning failed: " + e.getMessage(), e);
+        }
+
+        List<Split> splits = new ArrayList<>();
+        Set<BinaryRow> partitions = new HashSet<>();
+        for (VectorSearchSplit vectorSplit : plan.splits()) {
+            if (!(vectorSplit instanceof BucketVectorSearchSplit)) {
+                throw new UserException("Unexpected PK-vector split type: "
+                        + vectorSplit.getClass().getName());
+            }
+            BucketVectorSearchSplit bucketSplit = (BucketVectorSearchSplit) vectorSplit;
+            // Serialize with Paimon's own DataOutputSerializer: the bytes must be
+            // exactly BucketVectorSearchSplit.serialize's DataOutputView form
+            // (magic "PKVSPLIT", version 1, big-endian), which
+            // paimon_bucket_vector_search_split_deserialize on BE decodes. This
+            // repository's Paimon no longer ships a BucketVectorSearchSplitSerializer.
+            byte[] payloadBytes;
+            try {
+                DataOutputSerializer output = new DataOutputSerializer(256);
+                bucketSplit.serialize(output);
+                payloadBytes = output.getCopyOfBuffer();
+            } catch (IOException e) {
+                throw new UserException("Failed to serialize PK-vector split: " + e.getMessage(), e);
+            }
+            DataSplit dataSplit = bucketSplit.dataSplit();
+            PaimonSplit split = new PaimonSplit(dataSplit);
+            split.setVectorPayloadBytes(payloadBytes);
+            splits.add(split);
+            partitions.add(dataSplit.partition());
+            ++paimonSplitNum;
+        }
+
+        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
+        this.selectedPartitionNum = partitions.size();
+        return splits;
+    }
+
+    /** Resolve a Paimon row-type field name case-insensitively, else return the input. */
+    private static String resolvePaimonFieldName(Table paimonTable, String name) {
+        for (String field : paimonTable.rowType().getFieldNames()) {
+            if (field.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return name;
     }
 
     @VisibleForTesting
@@ -1780,6 +1979,23 @@ public class PaimonScanNode extends FileQueryScanNode {
         sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
                 prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
 
+        if (annSortQueryVector != null) {
+            sb.append(prefix).append("annSortQueryVector=")
+                    .append(Arrays.toString(annSortQueryVector)).append("\n");
+        }
+        if (annSortColumnName != null) {
+            sb.append(prefix).append("annSortColumnName=").append(annSortColumnName).append("\n");
+        }
+        // Worth showing even though it is not a plan choice: it selects the score->distance
+        // transform the BE reader applies, so an ANN plan that looks right can still return
+        // wrong distances if this is not what was expected.
+        if (annMetric != null) {
+            sb.append(prefix).append("annMetric=").append(annMetric).append("\n");
+        }
+        if (annSortLimit != -1) {
+            sb.append(prefix).append("annSortLimit=").append(annSortLimit).append("\n");
+        }
+
         sb.append(prefix).append("predicatesFromPaimon:");
         if (predicates.isEmpty()) {
             sb.append(" NONE\n");
@@ -2051,5 +2267,64 @@ public class PaimonScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e);
         }
         return finalTable;
+    }
+
+    public void setAnnSortQueryVector(float[] annSortQueryVector) {
+        this.annSortQueryVector = annSortQueryVector;
+    }
+
+    public void setAnnSortColumnName(String annSortColumnName) {
+        this.annSortColumnName = annSortColumnName;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
+    }
+
+    public void setAnnMetric(TVectorMetric annMetric) {
+        this.annMetric = annMetric;
+    }
+
+    /**
+     * Whether this scan is planned as a primary-key vector (ANN) search. Requires
+     * the query vector, indexed column and retrieval limit to all be present.
+     *
+     * <p>Deliberately does NOT also require the metric, and adding that check would
+     * make things worse rather than safer. This predicate is a control switch, not a
+     * query: it decides whether {@link #getSplits} plans bucket-vector splits and
+     * whether {@code external_search_request} is sent at all. But whether the scan carries
+     * a distance column was already decided earlier, by
+     * PushDownVectorTopNIntoPaimonScan, which replaced the distance expression with the
+     * {@code __paimon_search_score_to_dis} slot and put it in the scan output -- that is
+     * not undoable here. Returning false on a missing metric would therefore plan a
+     * plain scan whose projection excludes that column, leaving it empty while every other
+     * column holds num_rows: silent corruption surfacing downstream as an unattributable
+     * size mismatch.
+     *
+     * <p>The check is also unreachable: the only AnnTopNInfo construction site passes a
+     * {@code "l2"}/{@code "inner_product"} literal and bails out (no rewrite at all)
+     * when the index metric disagrees. And if it ever did leak through, BE already
+     * rejects an unset or unsupported metric with an explicit error -- a loud failure,
+     * which is strictly better than a silently degraded plan.
+     */
+    /**
+     * Log why a logical paimon split routed to JNI although the rust reader was enabled.
+     * One line per distinct reason combination per scan node, so a 960-split scan whose
+     * splits fail the same gate logs once, while a scan with differently-shaped splits
+     * (e.g. per-split DV materialization) logs each distinct shape once.
+     */
+    private void logRustFallbackReasons(String splitDesc, String reasons) {
+        if (loggedRustFallbackReasons == null) {
+            loggedRustFallbackReasons = new HashSet<>();
+        }
+        if (loggedRustFallbackReasons.add(reasons)) {
+            LOG.info("paimon-rust reader enabled but a logical paimon split routed to JNI:"
+                    + " table={} split={} reasons=[{}]",
+                    source == null ? "unknown" : source.getTableLocation(), splitDesc, reasons);
+        }
+    }
+
+    public boolean isVectorSearch() {
+        return annSortQueryVector != null && annSortColumnName != null && annSortLimit >= 0;
     }
 }

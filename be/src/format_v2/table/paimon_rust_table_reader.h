@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -30,6 +31,7 @@
 #include "cctz/time_zone.h"
 #include "common/status.h"
 #include "format_v2/table_reader.h"
+#include "gen_cpp/PlanNodes_types.h" // TVectorMetric
 #include "runtime/runtime_profile.h"
 
 namespace arrow {
@@ -60,6 +62,75 @@ public:
     // need the complete PaimonHandles pimpl type.
     PaimonRustTableReader();
     ~PaimonRustTableReader() override;
+
+    // How paimon-rust encoded the distance into its __paimon_search_score field, and
+    // hence which transform the reader has to undo before the value lands in the
+    // __paimon_search_score_to_dis block column. One enumerator per metric Doris can
+    // push down (v1: l2 / inner_product; cosine is rejected by the FE rule and by
+    // parse_score_transform, so it deliberately has no enumerator here).
+    //
+    // Adding a metric is meant to be compiler-guided: add the enumerator, and the
+    // switch in _convert_score_to_distance stops compiling (-Wswitch is an error in
+    // be/src) until its inverse is written. Do not add a `default:` to that switch
+    // or that guarantee is lost.
+    enum class ScoreTransform {
+        // score = 1/(1 + squaredL2). Inverse: sqrt(1/score - 1).
+        L2,
+        // score = the inner product itself. Inverse: identity.
+        InnerProduct,
+    };
+
+    // Map an Arrow field name onto the block column name that receives its values.
+    //
+    // paimon-rust resolves projections case-insensitively, so the Arrow batch carries
+    // the table's canonical field casing (e.g. `is_QT`) while block columns are
+    // FE-normalized to lowercase (`is_qt`). Fold the Rust-side name down so the two match.
+    //
+    // The vector-search field is additionally renamed: paimon-rust calls it
+    // kPaimonRustScoreField ("__paimon_search_score") and puts a score in it, but the
+    // reader converts that to a distance in place, so FE asks for the column as
+    // kPaimonSearchDistanceColumn ("__paimon_search_score_to_dis"). The fill loop
+    // skips Arrow fields it cannot match (they may legitimately be absent from the
+    // block), so without this alias the rename would not fail loudly -- the distance
+    // column would just come back empty.
+    static std::string arrow_field_to_block_column(const std::string& arrow_name);
+
+    // Map a thrift TVectorMetric onto its score transform. Unknown or unsupported
+    // metrics (including COSINE) are an error rather than a silent fallback: guessing
+    // would return wrong distances instead of failing the query. Takes the thrift enum
+    // directly so there is no string round-trip between FE and the ScoreTransform enum.
+    static Status parse_score_transform(TVectorMetric::type metric, ScoreTransform* transform);
+
+    // Rewrite the reader-produced __paimon_search_score_to_dis column in place,
+    // turning paimon-rust's score back into the distance the Doris function is
+    // defined to return (see ScoreTransform for the per-metric formulas).
+    //
+    // Only rewrites [row_offset, row_offset + num_rows): block columns are
+    // append-only and a block is reused across get_block calls, so starting at 0
+    // would square-root earlier rows again. Depends on nothing but its arguments,
+    // hence static and public (also what makes it unit-testable without the
+    // paimon-rust FFI handles).
+    //
+    // A score outside l2's legal (0, 1] range is index corruption, and computing
+    // the inverse anyway would yield a non-finite distance (see the two sentinels
+    // below). Such rows are emitted as a NEGATIVE distance instead: negative is
+    // unreachable for a genuine Euclidean distance, so it cannot be confused with
+    // a real result, it is totally ordered (unlike NaN), and it stays finite, so
+    // the coordinator's Top-N comparisons remain well-defined. Rows land at the
+    // very front of an ASC Top-K -- deliberately: a corrupt index should be
+    // visible in the result, not averaged into it.
+    static constexpr float kCorruptScoreAboveOne = -1.0F;
+    static constexpr float kCorruptScoreNotPositive = -2.0F;
+    // paimon-rust's lumina kernel computes the squared L2 distance as
+    // ||a||^2 + ||b||^2 - 2<a,b> (vectorized dot), which suffers catastrophic
+    // cancellation when a ~= b: the three terms nearly cancel and the residual
+    // can be a small NEGATIVE number, so score = 1/(1+d^2) lands slightly ABOVE 1
+    // (e.g. 1.00294). That is a numerical artifact for an ~exact hit, not index
+    // corruption -- clamp it to distance 0. Only a score clearly past 1 (beyond
+    // this tolerance) is treated as a genuine corrupt row and sentineled.
+    static constexpr float kScoreAboveOneTolerance = 1e-2F;
+    static void _convert_score_to_distance(Block* block, uint32_t block_idx, size_t row_offset,
+                                           size_t num_rows, ScoreTransform transform);
 
     Status init(format::TableReadOptions&& options) override;
     // Each split's Rust read builder applies the batch size stored by the base class
@@ -108,9 +179,31 @@ private:
     // Fail fast (without filesystem IO) when the schema-json pipeline fields are
     // missing from the split; the error text points at an FE/BE protocol mismatch.
     Status _validate_rust_split(const TFileRangeDesc& range) const;
+    // Validate the external_search_request thrift fields before any use (mirrors
+    // LanceTableReader::_validate_external_search_request): one pass over __isset
+    // and value-range checks so the vector build path can use the fields unchecked.
+    Status _validate_external_search_request() const;
+    // True when this split carries a PK-vector search payload and the reader must
+    // open the vector-search read path instead of the normal split read.
+    static bool _is_vector_mode(const TFileRangeDesc& range);
+    // Resolve the table root path + schema json and open (or reuse the cached)
+    // paimon_table handle from them. Shared by the normal-read and vector-search
+    // build paths; fills _handles->table and _opened_table_key.
+    Status _open_paimon_table(const TFileRangeDesc& range);
     // Open (or reuse the cached) paimon_table and build the per-split read
     // pipeline: read_builder -> projection -> filter -> plan -> arrow reader.
     Status _open_split_reader(const TFileRangeDesc& range);
+    // Open the table and build a primary-key vector (ANN) search reader over the
+    // FE-planned bucket split. Used when the scan range carries a
+    // TPaimonVectorPayload: the returned Arrow stream is best-first and carries the
+    // reader-produced distance column (__paimon_search_score_to_dis, converted
+    // from paimon-rust's __paimon_search_score field).
+    Status _open_vector_split_reader(const TFileRangeDesc& range);
+    // Fill the output block from one arrow record batch: arrow columns are
+    // matched by name (exact then lower-case, v1 semantics) onto fixed projected
+    // positions, then _fill_non_arrow_columns back-fills the rest.
+    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
+                                         Block* block, size_t rows);
     // Drop the per-split pipeline (read_builder .. record batch reader), keeping
     // the cached table handle for the next split of the same table.
     void _close_split_reader();
@@ -120,11 +213,6 @@ private:
     // apply it to the read builder. Best effort: non-convertible conjuncts are
     // dropped silently and re-applied by the scanner row-level filter.
     Status _apply_predicate();
-    // Fill the output block from one arrow record batch: arrow columns are
-    // matched by name (exact then lower-case, v1 semantics) onto fixed projected
-    // positions, then _fill_non_arrow_columns back-fills the rest.
-    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                         Block* block, size_t rows);
     // Materialize projected columns the arrow batch did not contain: partition
     // constants, default expressions, or a default/NULL fill as a last resort.
     Status _fill_non_arrow_columns(Block* block, size_t rows,
@@ -169,6 +257,12 @@ private:
     std::unordered_map<std::string, size_t> _output_name_to_idx;
     TFileRangeDesc _current_range;
     cctz::time_zone _ctz;
+    // Which score transform the incoming __paimon_search_score field needs undone,
+    // derived from the FE-supplied metric when the vector reader is built. Empty
+    // outside vector mode (and only then): an unset or unknown metric fails the
+    // scan rather than defaulting, since guessing l2 would wrongly sqrt
+    // inner_product results.
+    std::optional<ScoreTransform> _score_transform;
     // EOF belongs to the current split; reset when a new split is prepared.
     bool _split_eof = false;
 

@@ -22,11 +22,8 @@ import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.paimon.CoreOptions;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -130,10 +127,12 @@ public class PaimonReaderOptionsTest {
         FallbackReadFileStoreTable emptyThenExplicit = (FallbackReadFileStoreTable)
                 PaimonReaderOptions.runtimeSafeTable(
                         new FallbackReadFileStoreTable(empty, explicit, true), 512);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(explicit, empty, true),
-                Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "table"));
-        Table normalizedDelegate = PaimonReaderOptions.runtimeSafeTable(privileged, 512);
+        // Paimon 2.1 no longer produces non-fallback delegates, so an unknown one is rejected
+        // instead of being peeled with a single cap broadcast to every hidden branch.
+        Table unknownDelegate = new PlainDelegateFileStoreTable(
+                new FallbackReadFileStoreTable(explicit, empty, true));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonReaderOptions.runtimeSafeTable(unknownDelegate, 512));
 
         Assertions.assertEquals("256", safeEmpty.options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
@@ -145,9 +144,6 @@ public class PaimonReaderOptionsTest {
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assertions.assertEquals("1", emptyThenExplicit.other().options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-        Assertions.assertInstanceOf(FallbackReadFileStoreTable.class, normalizedDelegate);
-        Assertions.assertEquals("256", ((FallbackReadFileStoreTable) normalizedDelegate)
-                .other().options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 
     @Test
@@ -186,11 +182,9 @@ public class PaimonReaderOptionsTest {
         FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
         FileStoreTable fallback = newFileStoreTable("fallback", Collections.emptyMap());
         FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                pair, Mockito.mock(PrivilegeChecker.class),
-                Identifier.create("db", "privileged_fallback"));
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(pair);
 
-        Assertions.assertSame(pair, PaimonTableDecorators.unwrapToFallbackOrBase(privileged));
+        Assertions.assertSame(pair, PaimonTableDecorators.unwrapToFallbackOrBase(delegate));
     }
 
     @Test
@@ -282,18 +276,15 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
-    void testRejectUnsafeFallbackHiddenByPrivilegeDelegate() {
-        FileStoreTable main = newFileStoreTable("privileged_main", Collections.emptyMap());
+    void testRejectUnsafeFallbackHiddenByDelegate() {
+        FileStoreTable main = newFileStoreTable("delegate_main", Collections.emptyMap());
         FileStoreTable fallback = newFileStoreTable(
-                "privileged_fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
+                "delegate_fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
         FileStoreTable fallbackReadTable = new FallbackReadFileStoreTable(main, fallback, true);
-        FileStoreTable privilegedTable = PrivilegedFileStoreTable.wrap(
-                fallbackReadTable,
-                Mockito.mock(PrivilegeChecker.class),
-                Identifier.create("db", "table"));
+        FileStoreTable delegateTable = new PlainDelegateFileStoreTable(fallbackReadTable);
 
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PaimonReaderOptions.validateEffectiveTable(privilegedTable));
+                () -> PaimonReaderOptions.validateEffectiveTable(delegateTable));
     }
 
     private FileStoreTable newFileStoreTable(String name, Map<String, String> options) {

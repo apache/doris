@@ -28,15 +28,12 @@ import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.core.config.Property;
 import org.apache.paimon.CoreOptions;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -341,21 +338,16 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testBackendCapTraversesPrivilegeDelegate() {
+    public void testBackendCapTraversesPlainDelegate() {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
         FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(
+                new FallbackReadFileStoreTable(main, fallback, true));
 
         Table safe = PaimonJniScanner.applyBackendManifestParallelism(
-                privileged, null, 64);
+                delegate, null, 64);
         FileStoreTable planningTable = safe instanceof DelegatedFileStoreTable
                 && !(safe instanceof FallbackReadFileStoreTable)
                 ? ((DelegatedFileStoreTable) safe).wrapped() : (FileStoreTable) safe;
@@ -390,19 +382,14 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testSystemWrapperExposesSafeFallbackBehindPrivilegeDelegate() throws Exception {
+    public void testSystemWrapperExposesSafeFallbackBehindPlainDelegate() throws Exception {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
         FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "2"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
-        Table wrapper = SystemTableLoader.load("partitions", privileged);
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(
+                new FallbackReadFileStoreTable(main, fallback, true));
+        Table wrapper = SystemTableLoader.load("partitions", delegate);
 
         Table safe = PaimonJniScanner.applyBackendManifestParallelism(
                 wrapper, null, 64);
@@ -958,6 +945,10 @@ public class PaimonJniScannerTest {
             }
             if ("rowType".equals(method.getName())) {
                 return new RowType(Collections.emptyList());
+            }
+            if ("coreOptions".equals(method.getName())) {
+                // Paimon 2.1 system-table loading consults queryAuthEnabled() on the data table.
+                return new CoreOptions(options);
             }
             if ("schema".equals(method.getName())) {
                 return new TableSchema(0L, Collections.emptyList(), 0,

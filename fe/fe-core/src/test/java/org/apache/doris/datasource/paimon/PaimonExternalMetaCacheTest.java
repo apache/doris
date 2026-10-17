@@ -54,8 +54,6 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
@@ -1829,16 +1827,15 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testSnapshotEstimateSupportsPrivilegedTableWrapper() throws Exception {
-        FileStoreTable table = newPartitionedTable("privileged_estimate", Collections.emptyMap());
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                table, Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "tbl"));
+    public void testSnapshotEstimateSupportsDelegateTableWrapper() throws Exception {
+        FileStoreTable table = newPartitionedTable("delegate_estimate", Collections.emptyMap());
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(table);
         NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
         PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
                 mapping, 1L, table.schema().id(), 1L);
         PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
                 PaimonPartitionInfo.EMPTY,
-                new PaimonSnapshot(1L, table.schema().id(), privileged));
+                new PaimonSnapshot(1L, table.schema().id(), delegate));
 
         value.prepareForCachePublication(key);
 
