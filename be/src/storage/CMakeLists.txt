@@ -56,6 +56,9 @@ pch_reuse(Storage)
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
 set(STORAGE_UNITY_SKIP
+    # Keep this independent watchdog separate so existing storage unity batches
+    # retain their include order (PageDecoder relies on a preceding butil/macros.h).
+    ${CMAKE_CURRENT_SOURCE_DIR}/disk_health_check_watchdog.cpp
     # Keep the spill helpers independent: the PRX encoder requests ZSTD's static
     # workspace API, and inserting these files into the existing unity batches
     # exposes an unrelated LIMIT_REACH enum collision in olap_scan_common.cpp.
