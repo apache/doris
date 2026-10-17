@@ -97,6 +97,8 @@ public class RunTimeFilterTranslatorV2 {
                 targetExpr = new CastExpr(srcExpr.getType(), targetExpr, null);
             }
             targets.add(new RuntimeFilterTarget(filter.getLegacyTargetNode(), targetExpr));
+            RuntimeFilterTranslator.updateConditionCacheEligibility(filter.getLegacyTargetNode(),
+                    filter.getTargetExpression(), head.getSourceExpression().getDataType());
         }
 
         RuntimeFilter legacyFilter = new RuntimeFilter(

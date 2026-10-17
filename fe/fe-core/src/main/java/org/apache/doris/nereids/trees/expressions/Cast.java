@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -31,7 +32,10 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VariantType;
@@ -70,6 +74,48 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        // TIME has no date. These casts supply the date from the current query's clock.
+        return child().isNullLiteral() || !containsTimeToDateCast(child().getDataType(), targetType);
+    }
+
+    private static boolean containsTimeToDateCast(DataType sourceType, DataType targetType) {
+        if (sourceType.equals(targetType)) {
+            return false;
+        }
+        if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
+            return containsTimeToDateCast(((ArrayType) sourceType).getItemType(),
+                    ((ArrayType) targetType).getItemType());
+        }
+        if (sourceType instanceof MapType && targetType instanceof MapType) {
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return containsTimeToDateCast(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || containsTimeToDateCast(sourceMap.getValueType(), targetMap.getValueType());
+        }
+        if (sourceType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            // Incompatible struct shapes must not fail while determining foldability.
+            if (sourceFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                if (containsTimeToDateCast(sourceFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return sourceType.isTimeType() && targetType.isDateLikeType();
+    }
+
+    @Override
+    public boolean foldable() {
+        return isDeterministic();
     }
 
     public boolean isExplicitType() {

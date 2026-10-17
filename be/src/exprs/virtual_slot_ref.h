@@ -37,6 +37,8 @@ public:
     std::string expr_label() override;
     std::string debug_string() const override;
     bool is_constant() const override { return false; }
+    // The virtual column definition is stored outside _children and is not part of the digest.
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
     int column_id() const { return _column_id; }
     void set_column_id(int column_id) { _column_id = column_id; }
     int slot_id() const { return _slot_id; }

@@ -36,7 +36,6 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
@@ -112,11 +111,9 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
-import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -916,6 +913,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment getPlanFragmentForPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context,
             ScanNode scanNode,
             ExternalTable table, TupleDescriptor tupleDescriptor) {
+        scanNode.setEnableConditionCache(true);
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
@@ -1012,6 +1010,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode",
                 context.getScanContext());
+        olapScanNode.setEnableConditionCache(
+                !ExpressionUtils.containsNonCacheableExpression(olapScan.getVirtualColumns()));
         olapScanNode.setNereidsId(olapScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(olapScan.getId(), olapScanNode.getId());
 
@@ -1257,6 +1257,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        scanNode.setEnableConditionCache(true);
         if (scanNode instanceof LanceScanNode && tvfRelation instanceof PhysicalLazyMaterializeTVFScan) {
             for (Slot slot : ((PhysicalLazyMaterializeTVFScan) tvfRelation).getLazySlots()) {
                 ((LanceScanNode) scanNode).addLazyMaterializedColumn(
@@ -3187,6 +3188,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void addConjunctsToPlanNode(PhysicalFilter<? extends Plan> filter,
             PlanNode planNode,
             PlanTranslatorContext context) {
+        if (planNode instanceof ScanNode
+                && ExpressionUtils.containsNonCacheableExpression(filter.getConjuncts())) {
+            planNode.setEnableConditionCache(false);
+        }
         for (Expression conjunct : filter.getConjuncts()) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
                 planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
@@ -3670,54 +3675,33 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean result;
         if (plan instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<? extends Plan> aggregate = (PhysicalHashAggregate<? extends Plan>) plan;
-            if (hasUndeterministicExpression(aggregate.getGroupByExpressions())
-                    || hasUndeterministicExpression(aggregate.getOutputExpressions())) {
+            if (ExpressionUtils.containsNonCacheableExpression(aggregate.getGroupByExpressions())
+                    || ExpressionUtils.containsNonCacheableExpression(aggregate.getOutputExpressions())) {
                 result = true;
             } else {
                 result = hasUndeterministicExpression(aggregate.child());
             }
         } else if (plan instanceof PhysicalFilter) {
             PhysicalFilter<? extends Plan> filter = (PhysicalFilter<? extends Plan>) plan;
-            if (hasUndeterministicExpression(filter.getExpressions())) {
+            if (ExpressionUtils.containsNonCacheableExpression(filter.getExpressions())) {
                 result = true;
             } else {
                 result = hasUndeterministicExpression(filter.child());
             }
         } else if (plan instanceof PhysicalProject) {
             PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) plan;
-            if (hasUndeterministicExpression(project.getProjects())) {
+            if (ExpressionUtils.containsNonCacheableExpression(project.getProjects())) {
                 result = true;
             } else {
                 result = hasUndeterministicExpression(project.child());
             }
         } else if (plan instanceof PhysicalOlapScan) {
-            result = false;
+            result = ExpressionUtils.containsNonCacheableExpression(((PhysicalOlapScan) plan).getVirtualColumns());
         } else {
             // unsupported for query cache
             result = true;
         }
         plan.setMutableState(cacheKey, result);
         return result;
-    }
-
-    private boolean hasUndeterministicExpression(Collection<? extends Expression> expressions) {
-        for (Expression groupByExpression : expressions) {
-            if (groupByExpression.containsType(AliasFunction.class, Udf.class, UniqueFunction.class)) {
-                return true;
-            }
-
-            boolean nonDeterministic = groupByExpression.anyMatch(e -> {
-                if (e instanceof Expression) {
-                    if (!((Expression) e).isDeterministic()) {
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (nonDeterministic) {
-                return true;
-            }
-        }
-        return false;
     }
 }
