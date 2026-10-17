@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -758,8 +759,7 @@ public class AnalysisManager implements Writable {
         // Remove tableMetaStats if drop whole table stats.
         if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
                 || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+            removeTableStatsAndLog(tblId);
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
@@ -1484,6 +1484,70 @@ public class AnalysisManager implements Writable {
     public void removeTableStats(long tableId) {
         synchronized (idToTblStats) {
             idToTblStats.remove(tableId);
+        }
+    }
+
+    /**
+     * Remove the statistics record of a table and write the journal entry of the removal while holding the
+     * monitor of the statistics records, so that this transition and a concurrent truncation, which writes
+     * its own entry under the same monitor, are ordered the same way in memory and in the journal.
+     *
+     * <p>Only use this when the removal is the operation itself (whole table DROP STATS, the cleaner, the
+     * cleanup of an empty table by the analyzer) or when the replay of the enclosing operation does not
+     * remove the record (the schema change job). The operations whose own entry already removes the record
+     * when it is replayed (DROP TABLE/DATABASE, REPLACE TABLE, the light schema changes, rename column) use
+     * {@link #removeTableStats(long)}, and the replay paths use it as well, since they must not journal.
+     */
+    public void removeTableStatsAndLog(long tableId) {
+        synchronized (idToTblStats) {
+            idToTblStats.remove(tableId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+        }
+    }
+
+    /**
+     * TRUNCATE TABLE removes all the data of the table, but the table itself stays and can be loaded
+     * immediately. The stats record must be kept, otherwise the row count of the newly loaded data can
+     * never be reported: the backends report the row count of the new empty tablets with a delay of up to
+     * {@code tablet_stat_update_interval_second}, and without a record there is nothing to accumulate the
+     * loaded rows into. So reset the record to the state of an empty table instead of removing it.
+     *
+     * <p>The reset and the journal entry of the truncation are written while holding the monitor of the
+     * statistics records, and so is the deletion of a record, so that the order of two concurrent
+     * transitions between the states of a record is the same in memory and in the journal: otherwise a
+     * truncation and a deletion which do not share a table lock could be applied in one order and replayed
+     * in the other, leaving the followers with a record the master removed (or the reverse).
+     */
+    public void resetTableStats(OlapTable table, TruncateTableInfo truncateInfo) {
+        synchronized (idToTblStats) {
+            TableStatsMeta tableStats = idToTblStats.get(table.getId());
+            if (tableStats == null) {
+                tableStats = new TableStatsMeta(table);
+                idToTblStats.put(table.getId(), tableStats);
+            }
+            tableStats.reset(table);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(truncateInfo);
+        }
+    }
+
+    /**
+     * Apply the transition a TRUNCATE TABLE entry describes.
+     *
+     * <p>Entries are replayed in the order they were written, and every transition of a statistics record
+     * writes its entry while holding the monitor of the records, so the state of the record at this point is
+     * the state the master had when it truncated the table: a table which had a record gets it reset, a table
+     * which had none gets one created, exactly as the truncate did on the master. A record which another
+     * journaled transition removed is only absent here when the master removed it before the truncation too,
+     * in which case the truncation created it there as well.
+     */
+    public void replayResetTableStats(OlapTable table) {
+        synchronized (idToTblStats) {
+            TableStatsMeta tableStats = idToTblStats.get(table.getId());
+            if (tableStats == null) {
+                tableStats = new TableStatsMeta(table);
+                idToTblStats.put(table.getId(), tableStats);
+            }
+            tableStats.reset(table);
         }
     }
 

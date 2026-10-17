@@ -6231,6 +6231,8 @@ public class Env {
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
             AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            // Not journaled on its own: replayRenameColumn() removes the record itself before it replays this
+            // entry, so the transition already belongs to the entry of the rename.
             manager.removeTableStats(table.getId());
             manager.dropStats(table, null);
         }
@@ -6821,9 +6823,10 @@ public class Env {
             // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
             // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
-            if (info.isEntireTable()) {
-                Env.getCurrentEnv().getAnalysisManager().removeTableStats(info.getTblId());
-            } else {
+            // The stats record of a wholly truncated table is reset by InternalCatalog.replayTruncateTable()
+            // instead of being removed, so that the rows loaded after the truncation are still accounted
+            // for. Only the rows removed by a partition truncation are accounted here.
+            if (!info.isEntireTable()) {
                 Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(info.getUpdateRecords(),
                         info.getDbId(), info.getTblId(), 0);
             }
