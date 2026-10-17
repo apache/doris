@@ -243,7 +243,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()
+                || expr.getDataType().typeContainsFile()) {
             return true;
         }
 

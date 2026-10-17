@@ -44,12 +44,14 @@ class IColumnDummy;
 class ColumnMap;
 class ColumnVariantV2;
 class ColumnStruct;
+class ColumnFile;
 class ColumnVarbinary;
 class VariantField;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
 struct Struct;
+struct File;
 struct Map;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
@@ -102,6 +104,7 @@ class DataTypeNullable;
 class DataTypeVariantV2;
 using DataTypeVariant = DataTypeVariantV2;
 class DataTypeStruct;
+class DataTypeFile;
 class DataTypeBitMap;
 class DataTypeQuantileState;
 using DataTypeNullablePtr = std::shared_ptr<const DataTypeNullable>;
@@ -160,6 +163,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
     case TYPE_STRUCT:
+    case TYPE_FILE:
     case TYPE_MAP:
     case TYPE_HLL:
     case TYPE_VARBINARY:
@@ -226,7 +230,7 @@ constexpr bool is_var_len_object(PrimitiveType type) {
 }
 
 constexpr bool is_complex_type(PrimitiveType type) {
-    return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+    return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP || type == TYPE_FILE;
 }
 
 constexpr bool is_variant_string_type(PrimitiveType type) {
@@ -522,6 +526,13 @@ struct PrimitiveTypeTraits<TYPE_STRUCT> {
     using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_FILE> {
+    using CppType = File;
+    using StorageFieldType = CppType;
+    using DataType = DataTypeFile;
+    using ColumnType = ColumnFile;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARIANT> {

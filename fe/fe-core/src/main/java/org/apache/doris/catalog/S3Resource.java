@@ -18,16 +18,22 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TS3Resource;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -84,6 +90,34 @@ public class S3Resource extends Resource {
     public S3Resource(String name) {
         super(name, ResourceType.S3);
         properties = Maps.newHashMap();
+    }
+
+    /** Resolve an S3 resource and check the current query's USAGE privilege without remote IO. */
+    public static S3Resource checkResource(String resourceName, ConnectContext context) {
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (resource == null) {
+            throw new AnalysisException("Can not find resource: " + resourceName);
+        }
+        if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(context, resourceName, PrivPredicate.USAGE)) {
+            throw new AnalysisException(ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.USAGE.getPrivs().toString(), resourceName));
+        }
+        if (resource.getType() != ResourceType.S3) {
+            throw new AnalysisException("Requires an S3 resource: " + resourceName);
+        }
+        return (S3Resource) resource;
+    }
+
+    /** Reuse storage property conversion when sending S3-compatible configuration to BE. */
+    public TS3Resource toThrift() {
+        readLock();
+        try {
+            Map<String, String> backendProperties = getCopiedProperties();
+            backendProperties.putAll(StorageAdapter.of(new HashMap<>(backendProperties)).getBackendConfigProperties());
+            return new TS3Resource().setProperties(backendProperties);
+        } finally {
+            readUnlock();
+        }
     }
 
     public String getProperty(String propertyKey) {

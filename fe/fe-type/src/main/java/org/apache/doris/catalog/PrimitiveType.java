@@ -79,6 +79,7 @@ public enum PrimitiveType {
     // 8-byte pointer and 4-byte size and 1 bytes has_null (13 bytes total)
     // Aligning to 16 bytes total.
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT, false),
+    FILE("FILE", 16, TPrimitiveType.FILE, true),
     STRING("STRING", 16, TPrimitiveType.STRING, true),
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
@@ -263,6 +264,8 @@ public enum PrimitiveType {
                 return MAP;
             case STRUCT:
                 return STRUCT;
+            case FILE:
+                return FILE;
             case VARIANT:
                 return VARIANT;
             case VARBINARY:
@@ -366,7 +369,7 @@ public enum PrimitiveType {
     }
 
     public boolean isComplexType() {
-        return this == ARRAY || this == MAP || this == STRUCT;
+        return this == ARRAY || this == MAP || this == STRUCT || this == FILE;
     }
 
     public boolean isHllType() {
@@ -469,6 +472,8 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_JSON;
             case VARBINARY:
                 return MysqlColType.MYSQL_TYPE_VARSTRING;
+            case FILE:
+                return MysqlColType.MYSQL_TYPE_STRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }
