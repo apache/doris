@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/query/exec/chained_conjunction.h"
+#include "storage/index/inverted/query/exec/docid_sink.h"
 #include "storage/index/inverted/query/spi/postings_cursor.h"
 
 namespace doris::index_query {
@@ -58,6 +59,14 @@ Status for_each_block(PostingsCursor& cursor, Visit&& visit) {
         }
         RETURN_IF_ERROR(visit(block));
     }
+}
+
+// Appends every document the cursor lists from its position to `sink`, a dense block as a range.
+inline Status list_blocks(PostingsCursor& cursor, DocIdSink& sink) {
+    return for_each_block(cursor, [&sink](const PostingsBlock& block) {
+        return block.dense ? sink.append_range(block.range_begin, block.range_end)
+                           : sink.append_sorted(block.docs);
+    });
 }
 
 // Calls `visit(block, slice)` for every block of the cursor that can hold one of the
@@ -123,5 +132,12 @@ private:
 // narrows the cheapest cursor's rows by the others.
 Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
                      const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
+Status chain_cursors(std::span<PostingsCursor* const> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
+
+// Appends to `sink` the rows every one of `cursors` holds, a batch of at most 2^16 rows of the
+// cheapest cursor at a time, which the others narrow, so no list holds more than a batch. Each
+// cursor is read in order, which suits a source that reads on demand.
+Status stream_cursors(std::span<PostingsCursor* const> cursors, DocIdSink& sink);
 
 } // namespace doris::index_query
