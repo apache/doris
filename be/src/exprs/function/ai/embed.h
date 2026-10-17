@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_utils.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"

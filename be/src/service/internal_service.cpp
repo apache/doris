@@ -107,7 +107,7 @@
 #include "service/http/http_client.h"
 #include "service/point_query_executor.h"
 #include "storage/data_dir.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"

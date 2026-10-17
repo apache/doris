@@ -45,7 +45,7 @@
 #include "io/cache/block_file_cache_downloader.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/tablet/tablet.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache

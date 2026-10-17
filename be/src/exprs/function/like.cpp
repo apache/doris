@@ -38,6 +38,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "util/hyperscan_util.h"

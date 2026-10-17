@@ -44,7 +44,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {

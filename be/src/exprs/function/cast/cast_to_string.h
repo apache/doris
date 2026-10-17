@@ -589,8 +589,8 @@ public:
 
         DataTypeSerDe::FormatOptions options;
         auto time_zone = cctz::utc_time_zone();
-        options.timezone =
-                (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+        const auto* context_time_zone = context ? context->time_zone() : nullptr;
+        options.timezone = context_time_zone ? context_time_zone : &time_zone;
         ColumnPtr limited_col;
         const IColumn* col_to_serialize = &col_from;
         if (col_from.size() != input_rows_count) {
