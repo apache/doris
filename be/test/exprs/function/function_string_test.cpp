@@ -4288,4 +4288,170 @@ TEST(function_string_test, function_regexp_count_mixed_const_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_printf_integer_test) {
+    std::string func_name = "printf";
+    // Test basic format specifiers
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_INT};
+        DataSet data_set = {
+                {{std::string("%d"), std::int32_t(123)}, std::string("123")},
+                {{std::string("%5d"), std::int32_t(123)}, std::string("  123")},
+                {{std::string("%-5d"), std::int32_t(123)}, std::string("123  ")},
+                {{std::string("%05d"), std::int32_t(123)}, std::string("00123")},
+        };
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test different integer types
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT,
+                                    TYPE_BIGINT};
+        DataSet data_set = {{{std::string("%d %d %d %ld"), std::int8_t(-8), std::int16_t(-16),
+                              std::int32_t(-32), std::int64_t(-64)},
+                             std::string("-8 -16 -32 -64")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test different integer formats
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_INT, TYPE_INT, TYPE_INT, TYPE_INT};
+        DataSet data_set = {{{std::string("%d %o %x %X"), std::int32_t(123), std::int32_t(123),
+                              std::int32_t(123), std::int32_t(123)},
+                             std::string("123 173 7b 7B")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test same argument multiple times
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_INT};
+        DataSet data_set = {
+                {{std::string("%1$d %1$d %1$d"), std::int32_t(123)}, std::string("123 123 123")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_BOOLEAN};
+        DataSet data_set = {{{std::string("%d"), BOOLEAN(1)}, std::string("1")},
+                            {{std::string("%d"), BOOLEAN(0)}, std::string("0")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_printf_float_test) {
+    std::string func_name = "printf";
+
+    // Test floating point types and precision
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_FLOAT, TYPE_DOUBLE};
+        DataSet data_set = {
+                {{std::string("%f %f"), FLOAT(1.23), DOUBLE(4.56)},
+                 std::string("1.230000 4.560000")},
+                {{std::string("%.2f %.2f"), FLOAT(1.23), DOUBLE(4.56)}, std::string("1.23 4.56")},
+                {{std::string("%e %E"), FLOAT(1.23), DOUBLE(4.56)},
+                 std::string("1.230000e+00 4.560000E+00")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_printf_string_and_mixed_test) {
+    std::string func_name = "printf";
+
+    // Test string formatting
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_STRING};
+        DataSet data_set = {
+                {{std::string("%s"), std::string("hello")}, std::string("hello")},
+                {{std::string("%10s"), std::string("hello")}, std::string("     hello")},
+                {{std::string("%-10s"), std::string("hello")}, std::string("hello     ")},
+        };
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test mixed types
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_INT, TYPE_DOUBLE, TYPE_STRING, TYPE_BIGINT};
+        DataSet data_set = {{{std::string("int:%d float:%.1f str:%s int:%ld"), std::int32_t(-123),
+                              DOUBLE(45.67), std::string("hello"), std::int64_t(89)},
+                             std::string("int:-123 float:45.7 str:hello int:89")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test NULL handling
+    {
+        InputTypeSet input_types = {TYPE_STRING, TYPE_INT};
+        DataSet data_set = {{{Null(), std::int32_t(123)}, Null()},
+                            {{std::string("%d"), Null()}, Null()}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_printf_format_only_test) {
+    InputTypeSet input_types = {TYPE_STRING};
+    DataSet data_set = {{{std::string("hello")}, std::string("hello")},
+                        {{std::string("")}, std::string("")},
+                        {{std::string("100%%")}, std::string("100%")},
+                        {{std::string("中文")}, std::string("中文")},
+                        {{Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>("printf", input_types, data_set);
+}
+
+TEST(function_string_test, function_printf_char_varchar_test) {
+    auto check_string_types = [](PrimitiveType format_type, PrimitiveType arg_type) {
+        DataTypes arg_types = {std::make_shared<DataTypeString>(10, format_type),
+                               std::make_shared<DataTypeString>(10, arg_type)};
+        auto format_column = arg_types[0]->create_column();
+        format_column->insert_data("%s", 2);
+        format_column->insert_data("[%s]", 4);
+        auto arg_column = arg_types[1]->create_column();
+        arg_column->insert_data("hello", 5);
+        arg_column->insert_data("world", 5);
+        Block block;
+        block.insert({std::move(format_column), arg_types[0], "format"});
+        block.insert({std::move(arg_column), arg_types[1], "arg"});
+        auto return_type = std::make_shared<DataTypeString>();
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "printf", block.get_columns_with_type_and_name(), return_type);
+        ASSERT_NE(function.get(), nullptr);
+        FunctionUtils function_utils(return_type, arg_types, false);
+        auto* context = function_utils.get_fn_ctx();
+        ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+        block.insert({nullptr, return_type, "result"});
+        ASSERT_TRUE(function->execute(context, block, {0, 1}, 2, 2).ok());
+        const auto& result = assert_cast<const ColumnString&>(*block.get_by_position(2).column);
+        EXPECT_EQ(result.get_data_at(0).to_string(), "hello");
+        EXPECT_EQ(result.get_data_at(1).to_string(), "[world]");
+        ASSERT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    };
+    check_string_types(TYPE_CHAR, TYPE_VARCHAR);
+    check_string_types(TYPE_VARCHAR, TYPE_CHAR);
+}
+
+TEST(function_string_test, function_printf_dynamic_width_test) {
+    InputTypeSet input_types = {TYPE_STRING, TYPE_INT, TYPE_INT, TYPE_DOUBLE};
+    DataSet data_set = {
+            {{std::string("%*.*f"), INT(7), INT(2), DOUBLE(1.25)}, std::string("   1.25")},
+            {{std::string("%*.*f"), INT(-7), INT(1), DOUBLE(1.25)}, std::string("1.2    ")}};
+    check_function_all_arg_comb<DataTypeString, true>("printf", input_types, data_set);
+}
+
+TEST(function_string_test, function_printf_invalid_argument_test) {
+    auto check_error = [](const InputTypeSet& input_types, const DataSet& data_set,
+                          const std::string& message) {
+        auto status = check_function<DataTypeString>("printf", input_types, data_set, -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(message), std::string::npos) << status;
+    };
+    check_error({TYPE_STRING}, {{{std::string("%d")}, std::string("")}}, "failed to format string");
+    check_error({TYPE_STRING, TYPE_INT}, {{{std::string("%"), INT(1)}, std::string("")}},
+                "failed to format string");
+    check_error({TYPE_STRING, TYPE_DOUBLE}, {{{std::string("%d"), DOUBLE(1.25)}, std::string("")}},
+                "failed to format string");
+    check_error({TYPE_INT}, {{{INT(1)}, std::string("")}}, "must be string");
+    check_error({TYPE_STRING, TYPE_LARGEINT},
+                {{{std::string("%d"), __int128_t(1)}, std::string("")}},
+                "does not support printf type");
+}
+
 } // namespace doris
