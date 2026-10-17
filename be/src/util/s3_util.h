@@ -50,6 +50,10 @@ template <typename T>
 class Adder;
 }
 
+namespace doris::io {
+struct S3AuthConfig;
+} // namespace doris::io
+
 namespace doris {
 
 std::string hide_access_key(const std::string& ak);
@@ -138,6 +142,12 @@ struct S3Conf {
     }
 };
 
+// Compatibility entry for the legacy S3ClientConf, and owner of the AWS SDK lifetime and
+// the CA certificate path shared by every object storage client.
+//
+// create() validates the legacy conf, resolves it into an io::ObjClientConfig and
+// delegates to io::ObjClientFactory, whose S3/Azure client providers build and
+// cache the clients. No provider-specific construction or cache lives here any more.
 class S3ClientFactory {
 public:
     ~S3ClientFactory();
@@ -162,6 +172,12 @@ public:
 
     AwsCredentialResult create_aws_credentials_provider(const S3ClientConf& s3_conf);
 
+    AwsCredentialResult create_aws_credentials_provider(const io::S3AuthConfig& auth);
+
+    // The first valid path of config::ca_cert_file_paths, resolved lazily and cached; empty
+    // when none is valid yet, in which case the next call resolves it again.
+    std::string ca_cert_file_path() { return _get_ca_cert_file_path(); }
+
 #ifdef BE_TEST
     void set_client_creator_for_test(
             std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator);
@@ -173,15 +189,13 @@ private:
 #ifdef BE_TEST
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
-    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
-    Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
+#ifdef BE_TEST
     std::mutex _lock;
-    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
-            _cache;
+#endif
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST

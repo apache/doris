@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <utility>
@@ -28,6 +31,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "util/s3_util.h"
 
 namespace Aws::S3 {
@@ -38,22 +42,58 @@ class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
 namespace doris::io {
+// One immutable generation of an ObjClientHolder. The conf and the client built from it
+// are published together, so a caller never pairs a new conf with an old client. For
+// example, a reset from ak1 to ak2 that races with full_s3_path() and get() lets each
+// caller see either (ak1 conf, ak1 client) or (ak2 conf, ak2 client), never a mix.
+struct ObjClientState {
+    // The typed configuration the client is built from.
+    ObjClientConfig config;
+    // The legacy flat conf `config` was resolved from. Set for holders created from an
+    // S3ClientConf (Resource, Storage Vault, S3-style properties), whose reset() merges
+    // legacy fields; unset for holders created from a typed config such as the one decoded
+    // from TAzureClientConfig, which has no legacy representation (e.g. SAS).
+    std::optional<S3ClientConf> legacy_conf {};
+    // Null until init() succeeds.
+    std::shared_ptr<ObjStorageClient> client;
+    // Increases by one on every successful publish (init or reset).
+    uint64_t generation = 0;
+};
+
 // In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
 // The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
 // access S3 data with latest AK SK.
+//
+// The holder owns an immutable ObjClientState and replaces it as a whole. A request takes
+// a snapshot and calls the SDK outside the lock; requests that took the old snapshot keep
+// using the old client until they finish, later requests see the new one.
 class ObjClientHolder {
 public:
     explicit ObjClientHolder(S3ClientConf conf);
+    explicit ObjClientHolder(ObjClientConfig config);
     ~ObjClientHolder();
 
     Status init();
 
     // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
+    // Only holders created from an S3ClientConf can be reset: Resource and Storage Vault
+    // refreshes, the only callers, always build their holders from one.
+    //
+    // The new client is built outside the lock and published only if no other reset or
+    // init published in between. Otherwise the update is rejected rather than applied on
+    // top of a state it was not merged with, so an older conf cannot overwrite a newer one;
+    // the caller keeps the current state and retries with its next refresh.
     Status reset(const S3ClientConf& conf);
 
+    std::shared_ptr<const ObjClientState> state() const {
+        std::shared_lock lock(_mtx);
+        return _state;
+    }
+
+    // Called for every remote read, so copy only the client rather than the whole snapshot.
     std::shared_ptr<ObjStorageClient> get() const {
         std::shared_lock lock(_mtx);
-        return _client;
+        return _state->client;
     }
 
     Result<int64_t> object_file_size(const std::string& bucket, const std::string& key) const;
@@ -61,12 +101,31 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
-    const S3ClientConf& s3_client_conf() { return _conf; }
+    // A copy of the current legacy conf. Only valid for holders created from an S3ClientConf;
+    // use state() to read the typed config and client of one generation.
+    S3ClientConf s3_client_conf() const;
+
+#ifdef BE_TEST
+    // Publishes a new generation that keeps the current config and uses `client`.
+    void set_client_for_test(std::shared_ptr<ObjStorageClient> client) {
+        std::lock_guard lock(_mtx);
+        _state = std::make_shared<ObjClientState>(ObjClientState {
+                .config = _state->config,
+                .legacy_conf = _state->legacy_conf,
+                .client = std::move(client),
+                .generation = _state->generation + 1,
+        });
+    }
+#endif
 
 private:
+    // Replaces the state with (config, legacy_conf, client) if `expected` is still current.
+    Status _publish(const std::shared_ptr<const ObjClientState>& expected, ObjClientConfig config,
+                    std::optional<S3ClientConf> legacy_conf,
+                    std::shared_ptr<ObjStorageClient> client);
+
     mutable std::shared_mutex _mtx;
-    std::shared_ptr<ObjStorageClient> _client;
-    S3ClientConf _conf;
+    std::shared_ptr<const ObjClientState> _state;
 };
 
 // File system for S3 compatible object storage

@@ -29,13 +29,26 @@ class StorageSharedKeyCredential;
 namespace doris {
 
 enum class AzureCredentialType {
+    // Signs every request with the storage account key.
     SHARED_KEY,
+    // Appends a shared access signature to the container URL; no key or token credential.
+    SAS,
+    // Entra ID client credentials flow: the SDK obtains and refreshes bearer tokens itself.
+    CLIENT_SECRET,
 };
 
+// Only the fields of the selected type are read; the others stay empty.
 struct AzureCredentialOptions {
     AzureCredentialType type = AzureCredentialType::SHARED_KEY;
     std::string account_name;
     std::string account_key;
+    // SAS query string without the leading '?'.
+    std::string sas_token {};
+    std::string tenant_id {};
+    std::string client_id {};
+    std::string client_secret {};
+    // Empty means the SDK default authority (Azure public cloud).
+    std::string authority_host {};
 };
 
 struct AzureClientBuildResult {

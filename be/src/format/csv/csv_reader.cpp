@@ -231,6 +231,9 @@ void CsvReader::_init_system_properties() {
         _system_properties.system_type = _params.file_type;
     }
     _system_properties.properties = _params.properties;
+    if (_params.__isset.azure_client_config) {
+        _system_properties.azure_client_config = _params.azure_client_config;
+    }
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {
         _system_properties.broker_addresses.assign(_params.broker_addresses.begin(),

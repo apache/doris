@@ -138,7 +138,6 @@ public final class StorageAdapter {
                 ? AwsCredentialsProviderMode.fromString(feCoreS3CredentialsProviderType())
                 : null;
         this.forceParsingByStandardUriValue = resolveForceParsingByStandardUri();
-        checkAzureOauth2OnlyForIcebergRest();
     }
 
     /**
@@ -456,9 +455,10 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
-                // built inside fe-filesystem-azure). Routed out here so it never reaches the
-                // S3-family alignment below, exactly as before.
+                // Provider-owned, every auth type (the OAuth2 map is a hadoop Configuration dump
+                // built inside fe-filesystem-azure), including the neutral AZURE_* keys that
+                // AzureThriftAdapter turns into TAzureClientConfig. Routed out here so it never
+                // reaches the S3-family alignment below, exactly as before.
                 return spi.toBackendProperties()
                         .orElseThrow(() -> new IllegalStateException(
                                 "Provider " + providerKey + " exposes no backend properties"))
@@ -544,34 +544,6 @@ public final class StorageAdapter {
         return firstNonBlank(origProps.get("s3.credentials_provider_type"),
                 origProps.get("glue.credentials_provider_type"),
                 origProps.get("iceberg.rest.credentials_provider_type"));
-    }
-
-    /**
-     * Align fe-core AzureProperties.initNormalizeAndCheckProps: the temporary fe-core-only
-     * restriction that OAuth2 is supported only for the Iceberg REST catalog. This check reads
-     * catalog-level keys the SPI never sees, so it stays in the facade.
-     */
-    private void checkAzureOauth2OnlyForIcebergRest() {
-        // Align fe-core AzureProperties exactly: the REST-only gate compared CASE-SENSITIVELY
-        // ("OAuth2".equals(...)) while the rest of the class used equalsIgnoreCase — so a
-        // lowercase "oauth2" slipped past this gate in legacy (and old images may carry it).
-        // Replicate the asymmetry; tightening it would break replay of such images.
-        if (!"AZURE".equals(providerKey)
-                || !"OAuth2".equals(origProps.getOrDefault("azure.auth_type", "SharedKey"))) {
-            return;
-        }
-        boolean hasIcebergType = origProps.entrySet().stream()
-                .anyMatch(entry -> "type".equalsIgnoreCase(entry.getKey())
-                        && "iceberg".equalsIgnoreCase(entry.getValue()));
-        boolean hasTypeKey = origProps.keySet().stream().anyMatch("type"::equalsIgnoreCase);
-        boolean isIcebergRest = (hasIcebergType || !hasTypeKey)
-                && origProps.entrySet().stream()
-                        .anyMatch(entry -> "iceberg.catalog.type".equalsIgnoreCase(entry.getKey())
-                                && "rest".equalsIgnoreCase(entry.getValue()));
-        if (!isIcebergRest) {
-            throw new UnsupportedOperationException(
-                    "OAuth2 auth type is only supported for iceberg rest catalog");
-        }
     }
 
     private static String firstNonBlank(String... values) {

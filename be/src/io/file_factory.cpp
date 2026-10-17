@@ -46,6 +46,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
@@ -240,14 +241,28 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                system_properties.properties, s3_uri, &s3_conf));
-        auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+        std::shared_ptr<io::ObjClientHolder> client_holder;
+        if (system_properties.azure_client_config.has_value()) {
+            // FE sent typed Azure access. The S3-style keys in `properties` are not consulted:
+            // they cannot express SAS or client secret, and for SharedKey they only exist so
+            // that BEs without this field keep working.
+            auto config = io::ObjStorageConfigResolver::from_azure_client_config(
+                    *system_properties.azure_client_config, s3_uri.get_bucket());
+            if (!config.has_value()) {
+                return ResultError(std::move(config).error());
+            }
+            client_holder = std::make_shared<io::ObjClientHolder>(std::move(config).value());
+        } else {
+            S3Conf s3_conf;
+            RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
+                    system_properties.properties, s3_uri, &s3_conf));
+            client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+        }
         RETURN_IF_ERROR_RESULT(client_holder->init());
-        auto options = with_storage_in_cache_key(reader_options, s3_conf.client_conf.endpoint);
-        return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
-                                        file_description.file_size, profile)
+        auto options = with_storage_in_cache_key(reader_options,
+                                                 client_holder->state()->config.endpoint());
+        return io::S3FileReader::create(std::move(client_holder), s3_uri.get_bucket(),
+                                        s3_uri.get_key(), file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);
                 });
