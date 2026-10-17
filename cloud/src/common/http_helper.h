@@ -192,9 +192,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_recycle_instance(RecyclerServiceImpl* service,
                                                        brpc::Controller* cntl);
 
-[[maybe_unused]] HttpResponse process_statistics_recycle(RecyclerServiceImpl* service,
-                                                         brpc::Controller* cntl);
-
 [[maybe_unused]] HttpResponse process_recycle_copy_jobs(RecyclerServiceImpl* service,
                                                         brpc::Controller* cntl);
 

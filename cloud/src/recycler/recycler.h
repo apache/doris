@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,8 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -55,9 +58,6 @@ class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
 class SimpleThreadPool;
-class RecyclerMetricsContext;
-class TabletRecyclerMetricsContext;
-class SegmentRecyclerMetricsContext;
 
 int64_t calculate_tmp_rowset_expired_time(
         const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
@@ -151,107 +151,69 @@ struct RowsetDeleteTask {
     std::string rowset_ref_count_key;
 };
 
+class RecyclerMetricValue {
+public:
+    // Workers update counters concurrently; publishers read relaxed snapshots.
+    RecyclerMetricValue& operator+=(uint64_t delta) {
+        value_.fetch_add(delta, std::memory_order_relaxed);
+        return *this;
+    }
+
+    RecyclerMetricValue& operator++() {
+        *this += 1;
+        return *this;
+    }
+
+    uint64_t operator++(int) { return value_.fetch_add(1, std::memory_order_relaxed); }
+
+    void reset() { value_.store(0, std::memory_order_relaxed); }
+    void set(uint64_t v) { value_.store(v, std::memory_order_relaxed); }
+    uint64_t value() const { return value_.load(std::memory_order_relaxed); }
+
+private:
+    std::atomic_ullong value_ = 0;
+};
+
 class RecyclerMetricsContext {
 public:
-    RecyclerMetricsContext() = default;
+    explicit RecyclerMetricsContext(std::string instance_id, std::string operation_type);
+    ~RecyclerMetricsContext();
 
-    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
-            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
-        start();
-    }
+    void update_metrics();
 
-    ~RecyclerMetricsContext() = default;
+    RecyclerMetricValue kv_scanned_num;
+    RecyclerMetricValue kv_expired_num;
+    RecyclerMetricValue kv_recycled_num;
+    RecyclerMetricValue kv_recycled_bytes;
 
-    std::atomic_ullong total_need_recycle_data_size = 0;
-    std::atomic_ullong total_need_recycle_num = 0;
+    const std::string operation_type;
+    const std::string instance_id;
 
-    std::atomic_ullong total_recycled_data_size = 0;
-    std::atomic_ullong total_recycled_num = 0;
+private:
+    std::chrono::steady_clock::time_point start_time_;
 
-    std::string operation_type;
-    std::string instance_id;
-
-    double start_time = 0;
-
-    void start() {
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-    }
-
-    double duration() const {
-        return duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count() -
-               start_time;
-    }
-
-    void reset() {
-        total_need_recycle_data_size = 0;
-        total_need_recycle_num = 0;
-        total_recycled_data_size = 0;
-        total_recycled_num = 0;
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-    }
-
-    void finish_report() {
-        if (!operation_type.empty()) {
-            double cost = duration();
-            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
-                    {instance_id, operation_type}, cost);
-            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
-            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                    {instance_id, operation_type}, total_recycled_data_size.load());
-            g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                    {instance_id, operation_type}, total_recycled_num.load());
-            LOG(INFO) << "recycle instance: " << instance_id
-                      << ", operation type: " << operation_type << ", cost: " << cost
-                      << " ms, total recycled num: " << total_recycled_num.load()
-                      << ", total recycled data size: " << total_recycled_data_size.load()
-                      << " bytes";
-            if (cost != 0) {
-                if (total_recycled_num.load() != 0) {
-                    g_bvar_recycler_instance_recycle_time_per_resource.put(
-                            {instance_id, operation_type}, cost / total_recycled_num.load());
-                }
-                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
-            }
-        }
-    }
-
-    // `is_begin` is used to initialize total num of items need to be recycled
-    void report(bool is_begin = false) {
-        if (!operation_type.empty()) {
-            // is init
-            if (is_begin) {
-                auto value = total_need_recycle_num.load();
-
-                g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
-                        {instance_id, operation_type}, total_need_recycle_data_size.load());
-                g_bvar_recycler_instance_last_round_to_recycle_num.put(
-                        {instance_id, operation_type}, value);
-            } else {
-                g_bvar_recycler_instance_last_round_recycled_bytes.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
-                g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
-                                                                     total_recycled_num.load());
-            }
-        }
-    }
+    void reset();
+    void finish();
+    void publish_current_round_metrics(int64_t elapsed_ms);
 };
 
-class TabletRecyclerMetricsContext : public RecyclerMetricsContext {
+// Per-instance tablet or segment totals for one do_recycle() round.
+class RecyclerResourceMetricsContext {
 public:
-    TabletRecyclerMetricsContext() : RecyclerMetricsContext("global_recycler", "recycle_tablet") {}
-};
+    RecyclerResourceMetricsContext(std::string instance_id, std::string resource_type);
 
-class SegmentRecyclerMetricsContext : public RecyclerMetricsContext {
-public:
-    SegmentRecyclerMetricsContext()
-            : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
+    void start_round();
+    void update_metrics();
+    void finish_round();
+
+    RecyclerMetricValue recycled_num;
+    RecyclerMetricValue recycled_bytes;
+
+private:
+    const std::string instance_id_;
+    const std::string resource_type_;
+    // Empty between recycle rounds, including monitor updates after finish_round().
+    std::optional<std::chrono::steady_clock::time_point> start_time_;
 };
 
 struct OplogRecycleStats;
@@ -413,30 +375,6 @@ public:
 
     bool check_recycle_tasks();
 
-    int scan_and_statistics_indexes();
-
-    int scan_and_statistics_partitions();
-
-    int scan_and_statistics_rowsets();
-
-    int scan_and_statistics_tmp_rowsets();
-
-    int scan_and_statistics_abort_timeout_txn();
-
-    int scan_and_statistics_expired_txn_label();
-
-    int scan_and_statistics_copy_jobs();
-
-    int scan_and_statistics_stage();
-
-    int scan_and_statistics_expired_stage_objects();
-
-    int scan_and_statistics_versions();
-
-    int scan_and_statistics_restore_jobs();
-
-    void scan_and_statistics_operation_logs();
-
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *
@@ -467,7 +405,7 @@ private:
     int init_storage_vault_accessors();
 
     int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
-                       std::string_view recycle_key);
+                       std::string_view recycle_key, RecyclerMetricsContext& metrics_context);
 
     int recycle_table_stream_offset_prefix(std::string prefix,
                                            RecyclerMetricsContext* metrics_context);
@@ -477,7 +415,8 @@ private:
 
     int recycle_partition_table_stream_offsets(
             int64_t db_id, int64_t table_id, int64_t partition_id,
-            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams);
+            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams,
+            RecyclerMetricsContext& metrics_context);
 
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
@@ -583,7 +522,8 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task,
+                                     RecyclerMetricsContext& metrics_context);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
@@ -673,7 +613,8 @@ private:
 
     void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
-                                            std::atomic_long* num_recycled);
+                                            std::atomic_long* num_recycled,
+                                            RecyclerMetricsContext* metrics_context);
 
     void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
@@ -709,8 +650,8 @@ private:
     std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
     std::shared_ptr<ResourceManager> resource_mgr_;
 
-    TabletRecyclerMetricsContext tablet_metrics_context_;
-    SegmentRecyclerMetricsContext segment_metrics_context_;
+    RecyclerResourceMetricsContext tablet_metrics_context_;
+    RecyclerResourceMetricsContext segment_metrics_context_;
 
     // Data tablets in the same partition have the same MoW setting. Cache both true and false so
     // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
