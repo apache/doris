@@ -24,19 +24,27 @@ import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -45,6 +53,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -226,5 +235,166 @@ public class WriteConstraintExtractorTest {
     @Test
     public void nullPlanReturnsEmpty() {
         Assertions.assertFalse(WriteConstraintExtractor.extract(null, TARGET_ID, NO_EXCLUSION).isPresent());
+    }
+
+    // ───────── complete-predicate extraction (the whole-file "metadata delete" fast path) ─────────
+
+    /**
+     * The complete variant only accepts a plan that is provably "target table → filter(s) → sink": the leaf must
+     * be the target {@link org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation}, so a
+     * {@link LogicalEmptyRelation} (which cannot even arise from a DELETE, but would mean "no rows") is rejected
+     * rather than read as an unfiltered delete of everything.
+     */
+    private Plan completePlanOver(Set<Expression> conjuncts, SlotReference output) {
+        ExternalTable externalTarget = targetTableWithId();
+        return new LogicalFilter<>(conjuncts, new TargetScan(externalTarget, ImmutableList.of(output)));
+    }
+
+    private SlotReference externalSlot(ExternalTable table, String name) {
+        return SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table,
+                new Column(name, ScalarType.INT), ImmutableList.of());
+    }
+
+    private ExternalTable targetTableWithId() {
+        ExternalTable externalTarget = Mockito.mock(ExternalTable.class);
+        Mockito.when(externalTarget.getId()).thenReturn(TARGET_ID);
+        return externalTarget;
+    }
+
+    /** A minimal concrete target-table scan standing in for the DELETE's {@code LogicalFileScan} leaf. */
+    private static final class TargetScan extends LogicalCatalogRelation {
+        private final List<Slot> output;
+
+        TargetScan(TableIf table, List<Slot> output) {
+            super(new RelationId(0), PlanType.LOGICAL_FILE_SCAN, table, ImmutableList.of("db1"));
+            this.output = ImmutableList.copyOf(output);
+        }
+
+        @Override
+        public List<Slot> computeOutput() {
+            return output;
+        }
+
+        @Override
+        public LogicalCatalogRelation withRelationId(RelationId relationId) {
+            return this;
+        }
+
+        @Override
+        public LogicalCatalogRelation withTableAlias(String tableAlias) {
+            return this;
+        }
+
+        @Override
+        public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+            return this;
+        }
+
+        @Override
+        public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+            return this;
+        }
+    }
+
+    @Test
+    public void completePredicateIsExtractedOverTheTargetScan() {
+        ExternalTable externalTarget = targetTableWithId();
+        SlotReference id = externalSlot(externalTarget, "id");
+
+        Optional<ConnectorExpression> result = WriteConstraintExtractor.extractCompletePredicate(
+                completePlanOver(ImmutableSet.of(new EqualTo(id, new IntegerLiteral(1))), id),
+                TARGET_ID, NO_EXCLUSION);
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.get() instanceof ConnectorComparison);
+        Assertions.assertEquals("id",
+                ((ConnectorColumnRef) ((ConnectorComparison) result.get()).getLeft()).getColumnName());
+    }
+
+    @Test
+    public void completePredicateWithoutWhereClauseIsAlwaysTrue() {
+        ExternalTable externalTarget = targetTableWithId();
+        TargetScan scan = new TargetScan(externalTarget, ImmutableList.of());
+
+        Optional<ConnectorExpression> result =
+                WriteConstraintExtractor.extractCompletePredicate(scan, TARGET_ID, NO_EXCLUSION);
+
+        Assertions.assertTrue(result.isPresent(), "DELETE without WHERE is an always-true predicate");
+        Assertions.assertTrue(result.get() instanceof ConnectorLiteral);
+        Assertions.assertEquals(Boolean.TRUE, ((ConnectorLiteral) result.get()).getValue());
+    }
+
+    @Test
+    public void completePredicateBailsOutWhenAnyConjunctIsUnrepresentable() {
+        // The loose variant drops the column-to-column arm (safe there: it only widens a conflict filter), but a
+        // whole-file delete must not: a dropped conjunct would drop files that still hold live rows.
+        ExternalTable externalTarget = targetTableWithId();
+        SlotReference id = externalSlot(externalTarget, "id");
+        SlotReference v = externalSlot(externalTarget, "v");
+        SlotReference w = externalSlot(externalTarget, "w");
+        Plan plan = completePlanOver(ImmutableSet.of(
+                new EqualTo(id, new IntegerLiteral(1)),
+                new EqualTo(v, w)), id);
+
+        Assertions.assertTrue(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent(),
+                "the loose extractor keeps the representable arm");
+        Assertions.assertFalse(
+                WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, NO_EXCLUSION).isPresent(),
+                "the complete extractor must refuse the whole predicate instead of guessing");
+    }
+
+    @Test
+    public void completePredicateBailsOutOnCrossTableConjunct() {
+        ExternalTable externalTarget = targetTableWithId();
+        TableIf other = Mockito.mock(TableIf.class);
+        Mockito.when(other.getId()).thenReturn(2L);
+        SlotReference id = externalSlot(externalTarget, "id");
+        SlotReference otherId = slot(other, "id", ScalarType.INT);
+
+        Plan plan = completePlanOver(ImmutableSet.of(
+                new EqualTo(id, new IntegerLiteral(1)),
+                new EqualTo(otherId, new IntegerLiteral(2))), id);
+
+        Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, NO_EXCLUSION)
+                .isPresent(), "a conjunct over another table cannot be honoured by a whole-file delete");
+    }
+
+    @Test
+    public void completePredicateIgnoresSyntheticConjuncts() {
+        ExternalTable externalTarget = targetTableWithId();
+        SlotReference id = externalSlot(externalTarget, "id");
+        SlotReference rowId = externalSlot(externalTarget, "__DORIS_ICEBERG_ROWID_COL__");
+        Plan plan = completePlanOver(ImmutableSet.of(
+                new EqualTo(id, new IntegerLiteral(1)),
+                new EqualTo(rowId, new IntegerLiteral(0))), id);
+        Predicate<SlotReference> excludeRowId = s -> "__DORIS_ICEBERG_ROWID_COL__".equalsIgnoreCase(s.getName());
+
+        Optional<ConnectorExpression> result =
+                WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, excludeRowId);
+
+        Assertions.assertTrue(result.isPresent(), "engine-injected synthetic conjuncts are not user predicates");
+        Assertions.assertTrue(result.get() instanceof ConnectorComparison);
+        Assertions.assertEquals("id",
+                ((ConnectorColumnRef) ((ConnectorComparison) result.get()).getLeft()).getColumnName());
+    }
+
+    @Test
+    public void completePredicateBailsOutOnNonLinearPlan() {
+        // Anything that can restrict rows without showing up as a LogicalFilter (a join, set operation,
+        // aggregate, limit, ...) must disable the fast path: its predicate is not part of what we can see.
+        Plan join = Mockito.mock(LogicalJoin.class);
+
+        Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(join, TARGET_ID, NO_EXCLUSION)
+                .isPresent());
+    }
+
+    @Test
+    public void completePredicateBailsOutOnEmptyRelationLeaf() {
+        SlotReference id = externalSlot(targetTableWithId(), "id");
+        Plan plan = filterOver(ImmutableSet.of(new EqualTo(id, new IntegerLiteral(1))), id);
+
+        Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, NO_EXCLUSION)
+                .isPresent(), "a non-table leaf cannot prove the delete touches whole table files");
     }
 }

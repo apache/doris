@@ -29,6 +29,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Per-table strategy that turns a row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against an
@@ -77,4 +78,22 @@ public interface RowLevelDmlTransform {
      * when no target-only conjunct survives.
      */
     Optional<ConnectorPredicate> extractWriteConstraint(Plan analyzedPlan, TableIf table);
+
+    /**
+     * Whole-file "metadata delete" fast path for {@code DELETE}, attempted once the analyzed plan is available
+     * and before the row-level (position-delete) plan is executed.
+     *
+     * <p>The implementation asks the connector whether the statement's predicate can be honoured by dropping
+     * whole data files ({@code ConnectorWriteOps.deleteUsingMetadata}). A returned count means the connector
+     * already committed the remote delete, so {@link RowLevelDmlCommand} reports the result and skips the scan,
+     * the sink and the connector transaction entirely. Returning empty — the default for transforms whose
+     * connector has no such path — runs the ordinary row-level delete.</p>
+     *
+     * <p>Callers must only invoke this for a DELETE whose statement scope is exactly its predicate (no
+     * {@code PARTITION(...)} clause), because a predicate that silently ignores another row restriction would
+     * delete too much.</p>
+     */
+    default OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan) {
+        return OptionalLong.empty();
+    }
 }

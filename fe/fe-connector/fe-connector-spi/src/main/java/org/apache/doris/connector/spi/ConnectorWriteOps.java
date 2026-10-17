@@ -20,8 +20,11 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Write (DML) operations that a connector may support.
@@ -53,6 +56,39 @@ public interface ConnectorWriteOps {
      */
     default void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
         // default: no per-table mode constraint
+    }
+
+    /**
+     * Attempts to satisfy a {@code DELETE} entirely by dropping whole data files, without reading any rows
+     * ("metadata delete"): a remote atomic commit that removes the files whose rows must all disappear. Spark,
+     * StarRocks and Trino all take this path for whole-partition and whole-file predicates, and it is what makes
+     * {@code DELETE FROM t} / {@code DELETE FROM t WHERE <partition>} cheap.
+     *
+     * <p>The engine calls this before executing the row-level (position-delete) plan of a single-table
+     * {@code DELETE}; a returned value means the connector already committed the delete, so the engine skips the
+     * scan and the sink entirely. Returning empty is always legal and means "not applicable": the engine then
+     * falls back to the ordinary row-level delete.</p>
+     *
+     * <p><b>Contract on {@code predicate}.</b> The engine only calls this method when it could extract the
+     * statement's predicate <i>exactly</i> (every conjunct, target table only, no partition-clause scope), so an
+     * implementation may treat it as complete. That matters because a wider predicate would drop files that still
+     * hold live rows. {@code Optional.empty()} means the statement has no {@code WHERE} clause at all, i.e. every
+     * row of the table is deleted. An implementation MUST itself verify that the predicate only ever removes whole
+     * files (e.g. by checking file statistics / partition projections) and fall back — return empty, never a
+     * partial delete — when any candidate file is only partially matched.</p>
+     *
+     * <p>The default returns empty, so connectors without a whole-file delete path are unaffected.</p>
+     *
+     * @param session   the current session
+     * @param handle    the target table handle
+     * @param predicate the statement's complete delete predicate over the target's own columns, or empty for an
+     *                  unfiltered delete (always true)
+     * @return the number of deleted rows when the delete was fully executed as a metadata delete; empty to fall
+     *         back to row-level DML
+     */
+    default OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> predicate) {
+        return OptionalLong.empty();
     }
 
     /**
