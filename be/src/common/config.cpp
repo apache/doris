@@ -1709,6 +1709,7 @@ DEFINE_String(spill_storage_type, "local");
 // The BE deletes the objects of a spill file when the query is done with it. What a BE that
 // crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
 // the keys under <vault prefix>/spill/ and aborts incomplete multipart uploads.
+// Incomplete multipart uploads from failed or cancelled queries also rely on that rule.
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
     return config == "local" || config == "s3";
 });

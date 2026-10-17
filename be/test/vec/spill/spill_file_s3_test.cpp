@@ -117,7 +117,6 @@ struct MockS3Store {
     std::atomic<int64_t> list_requests {0};
     std::atomic<int64_t> delete_requests {0};
     std::atomic<int64_t> create_multipart_requests {0};
-    std::atomic<int64_t> abort_multipart_requests {0};
     std::atomic<int64_t> complete_multipart_requests {0};
 
     // True when this put/upload_part must fail (fail_uploads, or beyond fail_puts_after).
@@ -154,7 +153,6 @@ struct MockS3Store {
         list_requests = 0;
         delete_requests = 0;
         create_multipart_requests = 0;
-        abort_multipart_requests = 0;
         complete_multipart_requests = 0;
     }
 
@@ -274,14 +272,6 @@ public:
         if (_store->fail_complete_after_publish) {
             return make_error("injected complete_multipart_upload failure after publish");
         }
-        return io::ObjStorageResponse::OK();
-    }
-
-    io::ObjStorageResponse abort_multipart_upload(const io::ObjStoragePath& /*path*/,
-                                                  const std::string& upload_id) override {
-        _store->abort_multipart_requests++;
-        std::lock_guard lock(_store->mutex);
-        _store->uploads.erase(upload_id);
         return io::ObjStorageResponse::OK();
     }
 
@@ -1774,7 +1764,7 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotBlockWriters) {
 }
 
 // A writer waiting for the upload queue observes the cancellation of its query; the part is
-// not published and its multipart upload is aborted.
+// not published and its incomplete multipart upload is left to the bucket lifecycle rule.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
@@ -1805,7 +1795,7 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
             }
         }
         writes_done = true;
-        // Aborting the part waits for the stuck uploads; the test releases them below.
+        // Destroying the part waits for the stuck uploads; the test releases them below.
         close_status = writer->close();
     });
     // Declared after writer_thread so that it runs before the join: an early ASSERT return
@@ -1832,20 +1822,20 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
     writer_thread.join();
     ASSERT_TRUE(close_status.is<ErrorCode::CANCELLED>()) << close_status;
     ASSERT_FALSE(spill_file->ready_for_reading());
-    // After the failure: nothing published, the multipart upload aborted.
+    // Nothing is published; the incomplete multipart upload is left for lifecycle cleanup.
     ASSERT_TRUE(_query_objects("query_7").empty());
-    ASSERT_TRUE(_no_open_multipart_uploads());
-    ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
+    ASSERT_FALSE(_no_open_multipart_uploads());
+    ASSERT_EQ(mock_store().complete_multipart_requests, 0);
     writer.reset();
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
 // A query cancelled while a multipart upload is open: the last buffer is not uploaded, the
-// upload is aborted and nothing is left behind.
+// object is not published, and the incomplete upload is left to the bucket lifecycle rule.
 // GoogleTest assertions inflate the metric; retain the checks across the upload lifecycle.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
+TEST_F(SpillFileS3Test, CancelledQueryCloseLeavesIncompleteMultipart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
     std::mt19937 rng(43);
@@ -1870,10 +1860,10 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     auto st = writer->close();
     ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
     ASSERT_EQ(mock_store().put_requests, puts_before_close);
-    ASSERT_EQ(mock_store().abort_multipart_requests, 1);
+    ASSERT_EQ(mock_store().complete_multipart_requests, 0);
     ASSERT_FALSE(spill_file->ready_for_reading());
     ASSERT_TRUE(_query_objects("query_14").empty());
-    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_FALSE(_no_open_multipart_uploads());
     writer.reset();
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -1881,7 +1871,7 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
 
 // A writer can outlive its SpillFile when an error unwinds the owner of the file first (the
 // repartitioner keeps its writers while the output files live in the caller). Destroying the
-// file discards the unfinished part: the multipart upload is aborted, no footer is charged,
+// file discards the unfinished part: uploads are drained, no footer is charged,
 // and destroying the writer afterwards publishes nothing under the deleted prefix.
 // GoogleTest assertions inflate the metric; retain the checks across file and writer teardown.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -1901,9 +1891,9 @@ TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
     ASSERT_GT(_data_dir->get_spill_data_bytes(), 0);
 
     spill_file.reset();
-    ASSERT_EQ(mock_store().abort_multipart_requests, 1);
+    ASSERT_EQ(mock_store().complete_multipart_requests, 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_FALSE(_no_open_multipart_uploads());
 
     const int64_t puts_before = mock_store().put_requests;
     ASSERT_TRUE(writer->close().ok());
@@ -1989,13 +1979,10 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
               mock_store().create_multipart_requests);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
-    // Every multipart upload that was started for the failed part has been aborted.
+    // Failed uploads remain incomplete for the bucket lifecycle rule to reclaim.
     ASSERT_GE(mock_store().create_multipart_requests, 1);
-    ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
-    {
-        std::lock_guard lock(mock_store().mutex);
-        ASSERT_TRUE(mock_store().uploads.empty()) << "multipart uploads must be aborted";
-    }
+    ASSERT_EQ(mock_store().complete_multipart_requests, 0);
+    ASSERT_FALSE(_no_open_multipart_uploads());
     ASSERT_TRUE(_query_objects("query_8").empty());
     mock_store().fail_uploads = false;
     spill_file.reset();
@@ -2040,9 +2027,9 @@ TEST_F(SpillFileS3Test, FailedRotationDoesNotFinishFile) {
 }
 
 // One upload fails while earlier buffers of the same part are still in flight: the writer
-// turns failed, the footer write is refused, the part is never closed, and aborting it drains
-// the uploads in flight before its multipart upload is aborted.
-TEST_F(SpillFileS3Test, LateUploadFailureAbortsPart) {
+// turns failed, the footer write is refused, and destruction drains the uploads in flight
+// without publishing the part. The incomplete upload is left to the bucket lifecycle rule.
+TEST_F(SpillFileS3Test, LateUploadFailureDrainsPart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
     // Uploads 1 and 2 hang in the mock; upload 3 fails immediately while they are in flight.
@@ -2074,8 +2061,8 @@ TEST_F(SpillFileS3Test, LateUploadFailureAbortsPart) {
     writer_thread.join();
     ASSERT_FALSE(write_status.ok());
     ASSERT_GE(mock_store().create_multipart_requests, 1);
-    ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
-    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_EQ(mock_store().complete_multipart_requests, 0);
+    ASSERT_FALSE(_no_open_multipart_uploads());
     ASSERT_TRUE(_query_objects("query_11").empty());
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);

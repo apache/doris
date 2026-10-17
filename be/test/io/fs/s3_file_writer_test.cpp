@@ -33,7 +33,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -1161,12 +1160,6 @@ public:
 
     ObjStorageUploadResult upload_part(const ObjStoragePath& opts, const std::string& upload_id,
                                        std::string_view stream, int part_num) override {
-        {
-            std::unique_lock lock(_block_mutex);
-            uploads_started++;
-            _block_cv.notify_all();
-            _block_cv.wait(lock, [this]() { return !_block_uploads; });
-        }
         std::lock_guard lock(_mutex);
         upload_part_count++;
         // upload_part_params.push_back({opts, std::string(stream), part_num});
@@ -1195,15 +1188,6 @@ public:
         }
         complete[opts.path.native()] = final_obj;
         objects[opts.path.native()] = final_obj;
-        return default_response;
-    }
-
-    ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
-                                              const std::string& upload_id) override {
-        std::lock_guard lock(_mutex);
-        abort_multipart_count++;
-        last_opts = opts;
-        last_upload_id = upload_id;
         return default_response;
     }
 
@@ -1271,7 +1255,6 @@ public:
     int put_object_count = 0;
     int upload_part_count = 0;
     int complete_multipart_count = 0;
-    int abort_multipart_count = 0;
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
@@ -1311,7 +1294,6 @@ public:
         put_object_count = 0;
         upload_part_count = 0;
         complete_multipart_count = 0;
-        abort_multipart_count = 0;
 
         create_multipart_params.clear();
         put_object_params.clear();
@@ -1331,27 +1313,6 @@ private:
     }
 
     std::mutex _mutex;
-
-public:
-    // While blocked, upload_part() waits after counting the upload in uploads_started.
-    void set_block_uploads(bool block) {
-        {
-            std::lock_guard lock(_block_mutex);
-            _block_uploads = block;
-        }
-        _block_cv.notify_all();
-    }
-    bool wait_uploads_started(int count) {
-        std::unique_lock lock(_block_mutex);
-        return _block_cv.wait_for(lock, std::chrono::seconds(30),
-                                  [&]() { return uploads_started >= count; });
-    }
-    int uploads_started = 0;
-
-private:
-    std::mutex _block_mutex;
-    std::condition_variable _block_cv;
-    bool _block_uploads = false;
 };
 
 } // namespace io
@@ -1558,89 +1519,6 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     test('1', 2 * config::s3_write_buffer_size, fpath(__FILE__, __LINE__, ".dat"));
     test('2', 2 * config::s3_write_buffer_size + 1, fpath(__FILE__, __LINE__, ".dat"));
     // clang-format on
-}
-
-// abort() publishes nothing and aborts the multipart upload, if one was started.
-TEST_F(S3FileWriterTest, abort) {
-    bool enable_file_cache = config::enable_file_cache;
-    config::enable_file_cache = false;
-    Defer defer {[&]() { config::enable_file_cache = enable_file_cache; }};
-    auto sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    sp->clear_all_call_backs();
-
-    {
-        // Two full upload buffers were submitted, the rest is pending.
-        auto [mock_client, s3_file_writer] = create_s3_client("abort_multipart.dat");
-        std::string content = generate_test_string('a', 2 * config::s3_write_buffer_size + 1);
-        ASSERT_TRUE(s3_file_writer->append(content).ok());
-        ASSERT_TRUE(s3_file_writer->abort().ok());
-        EXPECT_EQ(s3_file_writer->state(), io::FileWriter::State::CLOSED);
-        EXPECT_EQ(mock_client->create_multipart_count, 1);
-        EXPECT_EQ(mock_client->abort_multipart_count, 1);
-        EXPECT_EQ(mock_client->last_upload_id, "mock-upload-id");
-        EXPECT_EQ(mock_client->complete_multipart_count, 0);
-        EXPECT_EQ(mock_client->put_object_count, 0);
-        EXPECT_TRUE(mock_client->objects.empty());
-        // An aborted writer cannot be published any more.
-        EXPECT_FALSE(s3_file_writer->close().ok());
-        EXPECT_EQ(mock_client->complete_multipart_count, 0);
-    }
-    {
-        // The pool runs at most 10 uploads: 10 buffers are uploading (blocked in the mock) and
-        // 2 are queued. abort() waits for the running ones before aborting the upload, and the
-        // queued ones skip their upload.
-        auto [mock_client, s3_file_writer] = create_s3_client("abort_running.dat");
-        mock_client->set_block_uploads(true);
-        std::atomic_bool aborted = false;
-        std::thread abort_thread;
-        Defer release {[&]() {
-            mock_client->set_block_uploads(false);
-            if (abort_thread.joinable()) {
-                abort_thread.join();
-            }
-        }};
-        std::string content = generate_test_string('d', 12 * config::s3_write_buffer_size + 1);
-        ASSERT_TRUE(s3_file_writer->append(content).ok());
-        ASSERT_TRUE(mock_client->wait_uploads_started(10));
-        abort_thread = std::thread([&]() {
-            EXPECT_TRUE(s3_file_writer->abort().ok());
-            aborted = true;
-        });
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        EXPECT_FALSE(aborted);
-        EXPECT_EQ(mock_client->abort_multipart_count, 0);
-        mock_client->set_block_uploads(false);
-        abort_thread.join();
-        EXPECT_TRUE(aborted);
-        EXPECT_EQ(mock_client->abort_multipart_count, 1);
-        EXPECT_EQ(mock_client->upload_part_count, 10);
-        EXPECT_EQ(mock_client->complete_multipart_count, 0);
-    }
-    {
-        // Less than one upload buffer: nothing was sent, so nothing is aborted.
-        auto [mock_client, s3_file_writer] = create_s3_client("abort_small.dat");
-        std::string content = generate_test_string('b', config::s3_write_buffer_size - 1);
-        ASSERT_TRUE(s3_file_writer->append(content).ok());
-        ASSERT_TRUE(s3_file_writer->abort().ok());
-        EXPECT_EQ(mock_client->create_multipart_count, 0);
-        EXPECT_EQ(mock_client->abort_multipart_count, 0);
-        EXPECT_EQ(mock_client->put_object_count, 0);
-        EXPECT_TRUE(mock_client->objects.empty());
-    }
-    {
-        // A writer whose close() failed can still be aborted.
-        auto [mock_client, s3_file_writer] = create_s3_client("abort_failed_close.dat");
-        std::string content = generate_test_string('c', 2 * config::s3_write_buffer_size);
-        ASSERT_TRUE(s3_file_writer->append(content).ok());
-        mock_client->default_response = {.status = {TStatusCode::IO_ERROR, "complete failed"}};
-        ASSERT_FALSE(s3_file_writer->close().ok());
-        EXPECT_EQ(mock_client->complete_multipart_count, 1);
-        mock_client->default_response = ObjStorageResponse::OK();
-        ASSERT_TRUE(s3_file_writer->abort().ok());
-        EXPECT_EQ(mock_client->abort_multipart_count, 1);
-        EXPECT_EQ(mock_client->last_upload_id, "mock-upload-id");
-    }
 }
 
 TEST_F(S3FileWriterTest, test_empty_file) {

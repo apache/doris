@@ -185,30 +185,6 @@ Status S3FileWriter::close(bool non_block) {
     return _st;
 }
 
-Status S3FileWriter::abort() {
-    DORIS_CHECK(state() == State::OPENED || (state() == State::CLOSED && !_st.ok()))
-            << "abort a published or async closing S3 file "
-            << _obj_storage_path_opts.path.native();
-    // Queued buffers see the failure and skip their upload.
-    _failed = true;
-    _wait_until_finish("Abort");
-    _state = State::CLOSED;
-    if (_st.ok()) {
-        _st = Status::Aborted("S3 file {} is aborted", _obj_storage_path_opts.path.native());
-    }
-    if (_upload_id.empty()) {
-        return Status::OK();
-    }
-    const auto& client = _obj_client->get();
-    if (nullptr == client) {
-        return Status::InternalError<false>("invalid obj storage client");
-    }
-    LOG(INFO) << "abort_multipart_upload " << _obj_storage_path_opts.path.native()
-              << " upload_id=" << _upload_id;
-    auto resp = client->abort_multipart_upload(_obj_storage_path_opts, _upload_id);
-    return {resp.status.code, std::move(resp.status.msg)};
-}
-
 void S3FileWriter::_record_close_latency() {
     if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
         return;
