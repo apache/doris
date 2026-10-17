@@ -20,8 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <iterator>
 #include <limits>
+#include <numeric>
+#include <random>
 #include <span>
 #include <utility>
 #include <vector>
@@ -238,6 +242,142 @@ TEST(CursorChainedPostings, ChainsCursorsThroughTheSharedConjunction) {
     EXPECT_EQ(wide_prefetches[0].candidates, (std::vector<uint32_t> {3, 9, 12}));
 }
 
+// The rows a sink is handed, batch by batch, a range as its rows.
+class BatchSink final : public DocIdSink {
+public:
+    Status append_sorted(std::span<const uint32_t> docids) override {
+        batches.emplace_back(docids.begin(), docids.end());
+        return Status::OK();
+    }
+    Status append_range(uint32_t first, uint64_t last_exclusive) override {
+        std::vector<uint32_t> rows(last_exclusive - first);
+        std::iota(rows.begin(), rows.end(), first);
+        batches.push_back(std::move(rows));
+        return Status::OK();
+    }
+
+    std::vector<uint32_t> rows() const {
+        std::vector<uint32_t> all;
+        for (const auto& batch : batches) {
+            all.insert(all.end(), batch.begin(), batch.end());
+        }
+        return all;
+    }
+
+    std::vector<std::vector<uint32_t>> batches;
+};
+
+constexpr uint32_t kBatch = 1U << 16;
+
+// A stream hands on at most 2^16 of the cheapest cursor's rows at a time, and another cursor's
+// block reaching into the next batch is read once.
+TEST(CursorChainedPostings, AStreamHandsOnABatchOfRowsAtATime) {
+    BlockedCursor rare({BlockedCursor::dense(0, 40000), BlockedCursor::dense(40000, 70000)});
+    BlockedCursor wide({BlockedCursor::listed({5, kBatch - 1, kBatch, 69999, 70001}),
+                        BlockedCursor::dense(80000, 200000)});
+    const std::vector<PostingsCursor*> cursors = {&wide, &rare};
+    BatchSink sink;
+    ASSERT_TRUE(stream_cursors(cursors, sink).ok());
+    EXPECT_EQ(sink.batches,
+              (std::vector<std::vector<uint32_t>> {{5, kBatch - 1}, {kBatch, 69999}}));
+    EXPECT_EQ(rare.decoded, 2U);
+    EXPECT_EQ(wide.decoded, 1U);
+}
+
+// The other cursors of a stream read only the blocks the cheapest cursor's rows reach.
+TEST(CursorChainedPostings, AStreamReadsOnlyTheBlocksTheCheapestRowsReach) {
+    BlockedCursor rare({BlockedCursor::listed({10, 3 * kBatch + 10})});
+    std::vector<BlockedCursor::Block> blocks;
+    for (uint32_t block = 0; block < 64; ++block) {
+        blocks.push_back(BlockedCursor::dense(block * 4096, block * 4096 + 4000));
+    }
+    BlockedCursor wide(blocks);
+    const std::vector<PostingsCursor*> cursors = {&wide, &rare};
+    BatchSink sink;
+    ASSERT_TRUE(stream_cursors(cursors, sink).ok());
+    EXPECT_EQ(sink.batches, (std::vector<std::vector<uint32_t>> {{10, 3 * kBatch + 10}}));
+    EXPECT_EQ(wide.decoded, 2U);
+}
+
+// A stream ends once a cursor holds no further row, without reading the cheapest cursor's later
+// blocks.
+TEST(CursorChainedPostings, AStreamEndsWhenACursorEnds) {
+    BlockedCursor rare({BlockedCursor::dense(0, kBatch),
+                        BlockedCursor::dense(100000, 100000 + kBatch),
+                        BlockedCursor::listed({300000}), BlockedCursor::listed({400000})});
+    BlockedCursor wide({BlockedCursor::dense(0, 140000)});
+    const std::vector<PostingsCursor*> cursors = {&rare, &wide};
+    BatchSink sink;
+    ASSERT_TRUE(stream_cursors(cursors, sink).ok());
+    ASSERT_EQ(sink.batches.size(), 2U);
+    EXPECT_EQ(sink.batches[0].size(), kBatch);
+    EXPECT_EQ(sink.batches[1].front(), 100000U);
+    EXPECT_EQ(sink.batches[1].back(), 139999U);
+    EXPECT_EQ(sink.batches[1].size(), 40000U);
+    EXPECT_EQ(rare.decoded, 3U);
+}
+
+// Random cursors of dense and listed blocks, some cheapest ones holding several batches: the
+// stream lists the rows the chain lists.
+TEST(CursorChainedPostings, AStreamListsTheRowsTheChainLists) {
+    std::mt19937 random(20261017);
+    for (int round = 0; round < 24; ++round) {
+        const size_t count = 2 + round % 3;
+        std::vector<std::vector<BlockedCursor::Block>> layouts(count);
+        std::vector<uint32_t> expected;
+        for (size_t c = 0; c < count; ++c) {
+            const double rate = std::array {0.002, 0.05, 0.5, 0.97}[(round + c) % 4];
+            std::bernoulli_distribution holds(rate);
+            std::vector<uint32_t> docs;
+            for (uint32_t row = 0; row < 3 * kBatch + 4096; ++row) {
+                if (holds(random)) {
+                    docs.push_back(row);
+                }
+            }
+            for (size_t begin = 0; begin < docs.size();) {
+                const size_t end = std::min(docs.size(), begin + 1 + random() % 600);
+                if (docs[end - 1] - docs[begin] == end - begin - 1) {
+                    layouts[c].push_back(BlockedCursor::dense(docs[begin], docs[end - 1] + 1));
+                } else {
+                    layouts[c].push_back(BlockedCursor::listed(
+                            std::vector<uint32_t>(docs.begin() + begin, docs.begin() + end)));
+                }
+                begin = end;
+            }
+            if (c == 0) {
+                expected = docs;
+            } else {
+                std::vector<uint32_t> both;
+                std::ranges::set_intersection(expected, docs, std::back_inserter(both));
+                expected.swap(both);
+            }
+        }
+        std::vector<BlockedCursor> streamed;
+        std::vector<BlockedCursor> chained;
+        streamed.reserve(count);
+        chained.reserve(count);
+        for (const auto& layout : layouts) {
+            streamed.emplace_back(layout);
+            chained.emplace_back(layout);
+        }
+        std::vector<PostingsCursor*> stream_input;
+        std::vector<PostingsCursor*> chain_input;
+        for (size_t c = 0; c < count; ++c) {
+            stream_input.push_back(&streamed[c]);
+            chain_input.push_back(&chained[c]);
+        }
+        BatchSink sink;
+        ASSERT_TRUE(stream_cursors(stream_input, sink).ok());
+        std::vector<uint32_t> rows;
+        ASSERT_TRUE(chain_cursors(chain_input, nullptr, &rows).ok());
+        EXPECT_EQ(rows, expected) << round;
+        EXPECT_EQ(sink.rows(), expected) << round;
+        for (const auto& batch : sink.batches) {
+            EXPECT_LE(batch.size(), kBatch) << round;
+        }
+    }
+}
+
 // A cursor without its own block positions reads each asked document through its positions.
 TEST(CursorChainedPostings, BlockPositionsByDefaultReadEachDocument) {
     FakePostingsCursor cursor({{.doc = 2, .positions = {1, 4}},
@@ -315,6 +455,34 @@ TEST(CursorChainedPostings, OrdinalIntersectionCoversSparseWideAndBoundedBlocks)
                     }
                     check_ordinals(docs, candidates);
                 }
+            }
+        }
+    }
+}
+
+// Random documents and candidates of a block's span, as unrelated terms of several densities meet.
+TEST(CursorChainedPostings, IntersectionHandlesRandomDensities) {
+    std::mt19937 random(20261016);
+    for (const uint32_t span : {256U, 1024U, 16384U}) {
+        for (const double doc_rate : {0.05, 0.5, 0.95}) {
+            for (const double candidate_rate : {0.05, 0.5, 0.95}) {
+                std::bernoulli_distribution holds_doc(doc_rate);
+                std::bernoulli_distribution holds_candidate(candidate_rate);
+                std::vector<uint32_t> docs;
+                std::vector<uint32_t> candidates;
+                for (uint32_t doc = 0; doc < span; ++doc) {
+                    if (holds_doc(random)) {
+                        docs.push_back(doc);
+                    }
+                    if (holds_candidate(random)) {
+                        candidates.push_back(doc);
+                    }
+                }
+                ASSERT_FALSE(docs.empty());
+                std::erase_if(candidates, [&](uint32_t doc) {
+                    return doc < docs.front() || doc > docs.back();
+                });
+                check_ordinals(docs, candidates);
             }
         }
     }
