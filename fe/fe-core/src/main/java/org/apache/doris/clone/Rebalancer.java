@@ -181,7 +181,7 @@ public abstract class Rebalancer {
     public void addPrioBackends(List<Backend> backends, long timeoutS) {
         long currentTimeMillis = System.currentTimeMillis();
         for (Backend backend : backends) {
-            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS);
+            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS * 1000L);
         }
     }
 
