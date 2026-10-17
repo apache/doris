@@ -586,6 +586,8 @@ message TabletSchemaPB {
 
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 43 [default = -1];
+    // Load segments omit ANN indexes; rewriting compaction builds them.
+    optional bool skip_ann_index_on_load = 44 [default = false];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -648,6 +650,7 @@ message TabletSchemaCloudPB {
 
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 44 [default = -1];
+    optional bool skip_ann_index_on_load = 45 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

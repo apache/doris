@@ -181,7 +181,11 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
         skip_inverted_index =
                 _opts.rowset_ctx->columns_to_do_index_compaction.contains(column.unique_id());
     }
-    // skip write inverted index on load if skip_write_index_on_load is true
+    // Segment compaction within a load writes with TYPE_COMPACTION but retains a direct-load
+    // rowset context. Leave deferred ANN indexes for background compaction in both cases.
+    const bool is_load = _opts.write_type == DataWriteType::TYPE_DIRECT ||
+                         (_opts.rowset_ctx != nullptr &&
+                          _opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT);
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
@@ -215,7 +219,8 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     }
     opts.index_file_writer = _index_file_writer;
 
-    if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
+    if (const auto* index = tablet_schema->ann_index(column);
+        index != nullptr && !(is_load && tablet_schema->skip_ann_index_on_load())) {
         opts.ann_index = index;
         opts.need_ann_index = true;
         DCHECK(_index_file_writer != nullptr);

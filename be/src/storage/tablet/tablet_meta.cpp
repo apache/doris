@@ -613,6 +613,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.skip_write_index_on_load) {
         tablet_schema_pb->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
+    if (tablet_schema.__isset.skip_ann_index_on_load) {
+        tablet_schema_pb->set_skip_ann_index_on_load(tablet_schema.skip_ann_index_on_load);
+    }
     if (tablet_schema.__isset.row_store_col_cids) {
         tablet_schema_pb->mutable_row_store_column_unique_ids()->Add(
                 tablet_schema.row_store_col_cids.begin(), tablet_schema.row_store_col_cids.end());

@@ -740,6 +740,10 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         // Expected to create index through normal compaction
         return false;
     }
+    if (_tablet->tablet_meta()->tablet_schema()->skip_ann_index_on_load()) {
+        // Deferred ANN indexes need a rewriting compaction to build them.
+        return false;
+    }
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction

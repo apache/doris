@@ -93,6 +93,20 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
+    public void testSkipAnnIndexOnLoad() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeSkipAnnIndexOnLoad(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD, "true");
+        Assertions.assertTrue(PropertyAnalyzer.analyzeSkipAnnIndexOnLoad(properties));
+        Assertions.assertFalse(properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD, "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeSkipAnnIndexOnLoad(properties));
+    }
+
+    @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("k1", PrimitiveType.INT));

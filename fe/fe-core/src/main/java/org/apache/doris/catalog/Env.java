@@ -4211,6 +4211,9 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
             sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
         }
+        if (olapTable.skipAnnIndexOnLoad()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD).append("\" = \"true\"");
+        }
 
         // compaction policy
         if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")

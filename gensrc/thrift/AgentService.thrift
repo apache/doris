@@ -57,6 +57,8 @@ struct TTabletSchema {
     28: optional i32 binlog_tso_idx = -1
     29: optional i32 binlog_lsn_idx = -1
     30: optional i32 binlog_op_idx = -1
+    // Defer ANN index construction until a rewriting compaction.
+    31: optional bool skip_ann_index_on_load = false
 }
 
 // this enum stands for different storage format in src_backends

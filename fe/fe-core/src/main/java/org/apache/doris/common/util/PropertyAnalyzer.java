@@ -180,6 +180,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
 
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
+    public static final String PROPERTIES_SKIP_ANN_INDEX_ON_LOAD = "skip_ann_index_on_load";
 
     public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
 
@@ -966,6 +967,17 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeSkipAnnIndexOnLoad(Map<String, String> properties) throws AnalysisException {
+        String value = properties.remove(PROPERTIES_SKIP_ANN_INDEX_ON_LOAD);
+        if (value == null || value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        }
+        throw new AnalysisException(PROPERTIES_SKIP_ANN_INDEX_ON_LOAD + " must be true or false");
     }
 
     public static String analyzeCompactionPolicy(Map<String, String> properties, KeysType keysType)

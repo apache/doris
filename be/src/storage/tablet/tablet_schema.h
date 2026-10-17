@@ -516,6 +516,8 @@ public:
     }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
+    // Only ANN indexes are deferred; other indexes retain their load-time behavior.
+    bool skip_ann_index_on_load() const { return _skip_ann_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
@@ -810,6 +812,7 @@ private:
     bool _disable_auto_compaction = false;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    bool _skip_ann_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
 
     // Contains column ids of which columns should be encoded into row store.

@@ -1626,6 +1626,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
                         olapTable.skipWriteIndexOnLoad().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD,
+                        Boolean.toString(olapTable.skipAnnIndexOnLoad()));
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, olapTable.getCompactionPolicy());
             }
@@ -2321,6 +2325,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
                             enableUniqueKeyMergeOnWrite, storagePolicy, tbl.disableAutoCompaction(),
                             tbl.skipWriteIndexOnLoad(),
+                            tbl.skipAnnIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -2952,6 +2957,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set skip inverted index on load
         boolean skipWriteIndexOnLoad = PropertyAnalyzer.analyzeSkipWriteIndexOnLoad(properties);
         olapTable.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
+        olapTable.setSkipAnnIndexOnLoad(PropertyAnalyzer.analyzeSkipAnnIndexOnLoad(properties));
 
         boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
 

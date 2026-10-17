@@ -111,6 +111,7 @@ public class TableProperty implements GsonPostProcessable {
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
+    private boolean skipAnnIndexOnLoad = false;
 
     private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
 
@@ -176,6 +177,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
+                buildSkipAnnIndexOnLoad();
                 buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
@@ -462,6 +464,16 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean skipWriteIndexOnLoad() {
         return skipWriteIndexOnLoad;
+    }
+
+    public TableProperty buildSkipAnnIndexOnLoad() {
+        skipAnnIndexOnLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD, "false"));
+        return this;
+    }
+
+    public boolean skipAnnIndexOnLoad() {
+        return skipAnnIndexOnLoad;
     }
 
     public TableProperty buildCompactionPolicy() {
@@ -977,6 +989,7 @@ public class TableProperty implements GsonPostProcessable {
         buildStoragePageSize();
         buildStorageDictPageSize();
         buildSkipWriteIndexOnLoad();
+        buildSkipAnnIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
         buildTimeSeriesCompactionFileCountThreshold();
