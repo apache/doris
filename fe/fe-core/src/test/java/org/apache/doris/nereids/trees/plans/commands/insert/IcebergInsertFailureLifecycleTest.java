@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -106,6 +107,7 @@ class IcebergInsertFailureLifecycleTest {
             Assertions.assertNotNull(globalTransactions.getTxnById(transactionId));
 
             StmtExecutor stmtExecutor = Mockito.mock(StmtExecutor.class);
+            Mockito.when(stmtExecutor.getSummaryProfile()).thenReturn(new SummaryProfile());
             if (emptyInsert) {
                 executor.executeEmptyInsert(stmtExecutor);
             } else {
