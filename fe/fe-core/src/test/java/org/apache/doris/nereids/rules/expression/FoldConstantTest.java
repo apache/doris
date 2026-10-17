@@ -152,6 +152,22 @@ import java.time.LocalDateTime;
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
+    void testOrdAndUnicodeFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        for (String name : ImmutableList.of("ord", "unicode")) {
+            assertRewriteAfterTypeCoercion(name + "('A')", "65");
+            assertRewriteAfterTypeCoercion(name + "('中text')", "20013");
+            assertRewriteAfterTypeCoercion(name + "('😀')", "128512");
+            assertRewriteAfterTypeCoercion(name + "('')", "-1");
+            assertRewriteAfterTypeCoercion(name + "(NULL)", "NULL");
+            assertRewriteAfterTypeCoercion(name + "(CAST(NULL AS STRING))", "NULL");
+            assertRewriteAfterTypeCoercion(name + "(CAST('A' AS VARCHAR(10)))", "65");
+        }
+    }
+
+    @Test
     void testCaseWhenFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
