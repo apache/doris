@@ -907,7 +907,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                             TSchemaHash schema_hash, std::string_view meta_binary,
                                             bool update_meta, bool force, bool restore,
-                                            bool check_path) {
+                                            bool check_path, const TBinlogConfig* binlog_config) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status status = tablet_meta->deserialize(meta_binary);
     if (!status.ok()) {
@@ -940,6 +940,13 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     }
 
     TabletSharedPtr tablet = std::make_shared<Tablet>(_engine, std::move(tablet_meta), data_dir);
+    // A clone can carry a snapshot taken before an ALTER TTL (for example 1 -> 86400).
+    // Install its target policy before publishing the tablet to the TTL scanner.
+    if (binlog_config != nullptr) {
+        BinlogConfig target_config;
+        target_config = *binlog_config;
+        RETURN_IF_ERROR(tablet->set_binlog_config(target_config));
+    }
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
     // case 1: BE start;
@@ -991,7 +998,8 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                            SchemaHash schema_hash, const string& schema_hash_path,
-                                           bool force, bool restore) {
+                                           bool force, bool restore,
+                                           const TBinlogConfig* binlog_config) {
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
@@ -1081,7 +1089,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
-                                  true),
+                                  true, binlog_config),
             absl::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return Status::OK();

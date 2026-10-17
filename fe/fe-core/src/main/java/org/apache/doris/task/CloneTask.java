@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TStorageMedium;
@@ -36,6 +37,7 @@ public class CloneTask extends AgentTask {
     private TBackend destBackend;
 
     private long visibleVersion;
+    private final BinlogConfig binlogConfig;
 
     private long srcPathHash = -1;
     private long destPathHash = -1;
@@ -46,7 +48,7 @@ public class CloneTask extends AgentTask {
 
     public CloneTask(TBackend destBackend, long backendId, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long replicaId, int schemaHash, List<TBackend> srcBackends,
-            TStorageMedium storageMedium, long visibleVersion, int timeoutS) {
+            TStorageMedium storageMedium, long visibleVersion, int timeoutS, BinlogConfig binlogConfig) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.destBackend = destBackend;
         this.replicaId = replicaId;
@@ -55,6 +57,7 @@ public class CloneTask extends AgentTask {
         this.storageMedium = storageMedium;
         this.visibleVersion = visibleVersion;
         this.timeoutS = timeoutS;
+        this.binlogConfig = new BinlogConfig(binlogConfig);
     }
 
     public int getSchemaHash() {
@@ -92,6 +95,7 @@ public class CloneTask extends AgentTask {
         }
         request.setTimeoutS(timeoutS);
         request.setTableId(tableId);
+        request.setBinlogConfig(binlogConfig.toThrift());
         return request;
     }
 

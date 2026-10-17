@@ -190,13 +190,28 @@ Status EngineCloneTask::_do_clone() {
 
     // Check local tablet exist or not
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
+    // Install the target even for no-op repair, and reject a delayed configuration before
+    // replacing an older replica. The transition guard serializes clone and migration.
+    if (tablet && _clone_req.__isset.binlog_config) {
+        BinlogConfig target_config;
+        target_config = _clone_req.binlog_config;
+        RETURN_IF_ERROR(tablet->set_binlog_config(target_config));
+        std::shared_lock header_lock(tablet->get_header_lock());
+        tablet->save_meta();
+    }
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
     // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
-    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
-                     << tablet->tablet_id();
+    // A timed-out ROW binlog clone can outlive its FE replica and expire events with an old TTL.
+    // Its versions remain complete, so a new replica must download the data again instead of
+    // reusing that tablet through incremental or no-op repair.
+    if (tablet &&
+        (tablet->tablet_state() == TABLET_NOTREADY ||
+         (tablet->is_row_binlog_tablet() && tablet->replica_id() < _clone_req.replica_id))) {
+        LOG(WARNING) << "rebuild local tablet for clone, tablet_id=" << tablet->tablet_id()
+                     << ", replica_id=" << tablet->replica_id()
+                     << ", requested_replica_id=" << _clone_req.replica_id;
         RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
                                                               tablet->replica_id(), false));
         tablet.reset();
@@ -303,9 +318,12 @@ Status EngineCloneTask::_do_clone() {
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
         auto tablet_manager = _engine.tablet_manager();
-        RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
-                                                                      _clone_req.schema_hash,
-                                                                      tablet_dir, false));
+        RETURN_IF_ERROR_(
+                status,
+                tablet_manager->load_tablet_from_dir(
+                        store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false,
+                        false,
+                        _clone_req.__isset.binlog_config ? &_clone_req.binlog_config : nullptr));
         auto nested_tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
         if (!nested_tablet) {
             status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);

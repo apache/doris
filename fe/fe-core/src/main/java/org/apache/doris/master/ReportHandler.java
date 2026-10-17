@@ -77,6 +77,7 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TBinlogConfig;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
@@ -1619,6 +1620,32 @@ public class ReportHandler extends Daemon {
                                 replicaId);
                         return false;
                     } while (false);
+                }
+
+                BinlogConfig binlogConfig = olapTable.getBinlogConfig();
+                if (binlogConfig.isEnableForStreaming()) {
+                    // The scheduler may have added this replica since the report snapshot. Leave known
+                    // replicas to sync/clone completion instead of dropping them using a stale report.
+                    if (tablet.getReplicaByBackendId(backendId) != null) {
+                        return true;
+                    }
+                    // A timed-out clone can finish on BE after FE removes its CLONE replica. Reports
+                    // must enforce the same installed target as clone completion before adopting it.
+                    TBinlogConfig expectedConfig = binlogConfig.toThrift();
+                    if (!backendTabletInfo.isSetBinlogConfigVersion() || !backendTabletInfo.isSetBinlogTtlSeconds()) {
+                        LOG.warn("cannot adopt ROW binlog replica without installed configuration: "
+                                + "tablet {}, replica {}, backend {}", tabletId, replicaId, backendId);
+                        return false;
+                    }
+                    if (backendTabletInfo.getBinlogConfigVersion() != expectedConfig.getConfigVersion()
+                            || backendTabletInfo.getBinlogTtlSeconds() != expectedConfig.getTtlSeconds()) {
+                        LOG.warn("cannot adopt ROW binlog replica with mismatched configuration: tablet {}, "
+                                        + "replica {}, backend {}, reported generation/TTL {}/{}, expected {}/{}",
+                                tabletId, replicaId, backendId, backendTabletInfo.getBinlogConfigVersion(),
+                                backendTabletInfo.getBinlogTtlSeconds(), expectedConfig.getConfigVersion(),
+                                expectedConfig.getTtlSeconds());
+                        return false;
+                    }
                 }
 
                 // use replicaId reported by BE to maintain replica meta consistent between FE and BE

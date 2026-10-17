@@ -35,6 +35,7 @@ import java.util.Map;
 public class BinlogConfig {
     // Internal persistence property, not a user-settable table property.
     public static final String CONFIG_VERSION = "__binlog_config_version";
+    public static final String PENDING_TTL_SECONDS = "__binlog_pending_ttl_seconds";
 
     @SerializedName("configVersion")
     private long configVersion;
@@ -44,6 +45,11 @@ public class BinlogConfig {
 
     @SerializedName("ttlSeconds")
     private long ttlSeconds;
+
+    // During an extension, readers retain the old TTL until all replicas acknowledge the target.
+    // Persist the target as well so clones and replayed metadata send one BE policy per generation.
+    @SerializedName("pendingTtlSeconds")
+    private long pendingTtlSeconds;
 
     @SerializedName("maxBytes")
     private long maxBytes;
@@ -105,6 +111,7 @@ public class BinlogConfig {
         this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums,
                 config.getBinlogFormat(), config.needHistoricalValue);
         configVersion = config.configVersion;
+        pendingTtlSeconds = config.pendingTtlSeconds;
     }
 
     public BinlogConfig() {
@@ -121,6 +128,9 @@ public class BinlogConfig {
         }
         if (force && properties.containsKey(CONFIG_VERSION)) {
             configVersion = Long.parseLong(properties.get(CONFIG_VERSION));
+        }
+        if (force && properties.containsKey(PENDING_TTL_SECONDS)) {
+            pendingTtlSeconds = Long.parseLong(properties.get(PENDING_TTL_SECONDS));
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
@@ -194,6 +204,14 @@ public class BinlogConfig {
         this.ttlSeconds = ttlSeconds;
     }
 
+    public long getPendingTtlSeconds() {
+        return pendingTtlSeconds;
+    }
+
+    public void setPendingTtlSeconds(long pendingTtlSeconds) {
+        this.pendingTtlSeconds = pendingTtlSeconds;
+    }
+
     public void applyExplicitRowTtl(long ttlSeconds) throws AnalysisException {
         if (isEnableForStreaming() && ttlSeconds <= 0) {
             throw new AnalysisException("ROW binlog.ttl_seconds must be greater than 0");
@@ -252,7 +270,7 @@ public class BinlogConfig {
     public TBinlogConfig toThrift() {
         TBinlogConfig tBinlogConfig = new TBinlogConfig();
         tBinlogConfig.setEnable(enable);
-        tBinlogConfig.setTtlSeconds(ttlSeconds);
+        tBinlogConfig.setTtlSeconds(pendingTtlSeconds > 0 ? pendingTtlSeconds : ttlSeconds);
         tBinlogConfig.setMaxBytes(maxBytes);
         tBinlogConfig.setMaxHistoryNums(maxHistoryNums);
         if (binlogFormat != null) {
@@ -266,7 +284,7 @@ public class BinlogConfig {
     public OlapFile.BinlogConfigPB toProtobuf() {
         OlapFile.BinlogConfigPB.Builder binlogConfigBuilder = OlapFile.BinlogConfigPB.newBuilder();
         binlogConfigBuilder.setEnable(enable);
-        binlogConfigBuilder.setTtlSeconds(ttlSeconds);
+        binlogConfigBuilder.setTtlSeconds(pendingTtlSeconds > 0 ? pendingTtlSeconds : ttlSeconds);
         binlogConfigBuilder.setMaxBytes(maxBytes);
         binlogConfigBuilder.setMaxHistoryNums(maxHistoryNums);
         if (binlogFormat != null) {
@@ -281,6 +299,8 @@ public class BinlogConfig {
         Map<String, String> properties = new HashMap<>();
         if (configVersion != 0) {
             properties.put(CONFIG_VERSION, String.valueOf(configVersion));
+            // Include zero on completion: journal replay merges properties and must clear the target.
+            properties.put(PENDING_TTL_SECONDS, String.valueOf(pendingTtlSeconds));
         }
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(enable));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttlSeconds));
@@ -300,6 +320,7 @@ public class BinlogConfig {
         return enable == other.enable
                 && configVersion == other.configVersion
                 && ttlSeconds == other.ttlSeconds
+                && pendingTtlSeconds == other.pendingTtlSeconds
                 && maxBytes == other.maxBytes
                 && maxHistoryNums == other.maxHistoryNums
                 && binlogFormat == other.binlogFormat

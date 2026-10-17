@@ -51,6 +51,9 @@ struct TTabletInfo {
     23: optional i64 local_segment_size = 0    // .dat
     24: optional i64 remote_index_size = 0     // .idx
     25: optional i64 remote_segment_size = 0   // .dat
+    // Installed retention policy; clone completion checks it before making the replica queryable.
+    26: optional i64 binlog_config_version
+    27: optional i64 binlog_ttl_seconds
     
     // For cloud
     1000: optional bool is_persistent

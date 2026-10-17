@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalReplica;
@@ -49,6 +50,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TBinlogConfig;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
@@ -157,6 +159,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private long tabletId;
     private int schemaHash;
     private TStorageMedium storageMedium;
+    private BinlogConfig binlogConfig;
 
     private long createTime = -1;
     private long finishedTime = -1;
@@ -419,6 +422,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public void setVersionInfo(long visibleVersion, long committedVersion) {
         this.visibleVersion = visibleVersion;
         this.committedVersion = committedVersion;
+    }
+
+    public void setBinlogConfig(BinlogConfig binlogConfig) {
+        this.binlogConfig = new BinlogConfig(binlogConfig);
     }
 
     public void setDest(Long destBeId, long destPathHash) {
@@ -1169,7 +1176,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         cloneTask = new CloneTask(tDestBe, destBackendId, dbId, tblId, partitionId, indexId, tabletId,
                 replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, (int) (taskTimeoutMs / 1000));
+                visibleVersion, (int) (taskTimeoutMs / 1000), binlogConfig);
         destOldVersion = replica.getVersion();
         cloneTask.setPathHash(srcPathHash, destPathHash);
         LOG.info("create clone task to repair replica, tabletId={}, replica={}, visible version {}, tablet status {}",
@@ -1292,6 +1299,27 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (replica == null) {
                 throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                         "replica does not exist. backend id: " + destBackendId);
+            }
+
+            BinlogConfig currentBinlogConfig = olapTable.getBinlogConfig();
+            if (currentBinlogConfig.isEnableForStreaming()) {
+                // ALTER can advance the target while the clone runs. Only the configuration installed
+                // on BE may admit the replica; the task snapshot or a matching TTL alone is insufficient.
+                // toThrift also includes a pending retention extension before its visible TTL is published.
+                TBinlogConfig expectedBinlogConfig = currentBinlogConfig.toThrift();
+                if (!reportedTablet.isSetBinlogConfigVersion() || !reportedTablet.isSetBinlogTtlSeconds()) {
+                    throw new SchedException(Status.RUNNING_FAILED,
+                            "clone report is missing installed ROW binlog configuration. tablet: " + tabletId);
+                }
+                if (reportedTablet.getBinlogConfigVersion() != expectedBinlogConfig.getConfigVersion()
+                        || reportedTablet.getBinlogTtlSeconds() != expectedBinlogConfig.getTtlSeconds()) {
+                    throw new SchedException(Status.RUNNING_FAILED,
+                            "clone ROW binlog configuration does not match current target. tablet: " + tabletId
+                                    + ", reported generation/TTL: " + reportedTablet.getBinlogConfigVersion()
+                                    + "/" + reportedTablet.getBinlogTtlSeconds()
+                                    + ", expected generation/TTL: " + expectedBinlogConfig.getConfigVersion()
+                                    + "/" + expectedBinlogConfig.getTtlSeconds());
+                }
             }
 
             replica.updateWithReport(reportedTablet);
