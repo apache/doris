@@ -310,6 +310,8 @@ struct OlapReaderStatistics {
     int64_t cached_pages_num = 0;
 
     int64_t rows_inverted_index_filtered = 0;
+    int64_t rows_bitmap_allowlist_filtered = 0;
+    int64_t bitmap_allowlist_filter_timer = 0;
     int64_t inverted_index_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;

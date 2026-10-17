@@ -76,7 +76,7 @@ struct BitmapTypeCode {
         // RoaringBitmap containing only the lower 32 bits. Thus we could use
         // map<uint32_t, RoaringBitmap> to represent bitmap of 64-bits ints.
         //
-        // Since there is no standard format for 64-bits RoaringBitmap, we define our own as below
+        // Doris uses its own 64-bit payload, distinct from the portable Roaring 64-bit extension.
         // Payload := NumRoaring(vint64), { MapKey, MapValue }^NumRoaring
         // - MapKey := the shared high 32 bits in UInt32LittleEndian(4 byte)
         // - MapValue := the standard RoaringBitmap format
@@ -830,6 +830,44 @@ public:
             result.emplaceOrInsert(key, std::move(read_var));
         }
         return result;
+    }
+
+    // The portable 64-bit format uses a fixed-width bucket count, unlike Doris serialization.
+    static bool readPortableSafe(const char* data, size_t size, Roaring64Map* result) {
+        if (size < sizeof(uint64_t)) {
+            return false;
+        }
+        const uint64_t bucket_count = decode_fixed64_le(reinterpret_cast<const uint8_t*>(data));
+        if (bucket_count > std::numeric_limits<uint32_t>::max() ||
+            bucket_count > (size - sizeof(uint64_t)) / (sizeof(uint32_t) + 8)) {
+            return false;
+        }
+        size_t offset = sizeof(uint64_t);
+        uint32_t previous_key = 0;
+        for (uint64_t index = 0; index < bucket_count; ++index) {
+            if (size - offset < sizeof(uint32_t)) {
+                return false;
+            }
+            const uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(data + offset));
+            if (index != 0 && key <= previous_key) {
+                return false;
+            }
+            offset += sizeof(uint32_t);
+            const size_t roaring_size = roaring::api::roaring_bitmap_portable_deserialize_size(
+                    data + offset, size - offset);
+            if (roaring_size == 0 || roaring_size > size - offset) {
+                return false;
+            }
+            try {
+                result->emplaceOrInsert(key,
+                                        roaring::Roaring::readSafe(data + offset, roaring_size));
+            } catch (const std::runtime_error&) {
+                return false;
+            }
+            offset += roaring_size;
+            previous_key = key;
+        }
+        return offset == size;
     }
 
     /**
@@ -2553,6 +2591,31 @@ public:
                        << static_cast<int>(*src);
             return false;
         }
+        return true;
+    }
+
+    // Accept portable 32-bit Roaring or the unsigned map-based 64-bit extension, including
+    // bytes produced by Go roaring64.Bitmap.WritePortableTo. Doris-tagged bytes use deserialize().
+    bool deserialize_portable(const char* src, size_t size) {
+        reset();
+        const size_t roaring32_size =
+                roaring::api::roaring_bitmap_portable_deserialize_size(src, size);
+        if (roaring32_size == size && size != 0) {
+            try {
+                _bitmap = std::make_shared<detail::Roaring64Map>(
+                        roaring::Roaring::readSafe(src, size));
+            } catch (const std::runtime_error&) {
+                return false;
+            }
+        } else {
+            auto bitmap = std::make_shared<detail::Roaring64Map>();
+            if (!detail::Roaring64Map::readPortableSafe(src, size, bitmap.get())) {
+                return false;
+            }
+            _bitmap = std::move(bitmap);
+        }
+        _type = BITMAP;
+        _is_shared = false;
         return true;
     }
 

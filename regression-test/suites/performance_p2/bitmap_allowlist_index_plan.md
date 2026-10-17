@@ -1,0 +1,104 @@
+# Bitmap allowlist index benchmark and scan plan
+
+## Benchmark
+
+[`bitmap_allowlist_index_scan.groovy`](bitmap_allowlist_index_scan.groovy) compares two native Doris tables with the same 30 million rows and layout. Both use `DUPLICATE KEY(org_id)`, list partitions for `org_id = 101` and `202`, and eight `resource_id` hash buckets. Only one table adds `INDEX idx_resource_id (resource_id) USING INVERTED`. Keeping `resource_id` out of the key isolates the inverted index from short-key pruning. The target org has 20 million rows; the other org has 10 million. Both share `BIGINT` resource IDs above `2^32`.
+
+For each allowlist size, the suite checks that the bitmap and `IN (subquery)` queries return the same count and sum, both with `payload LIKE '%needle%'`. It asserts one of two org partitions is selected and verifies through a profile counter that an indexed point lookup prunes rows. Base64 construction is outside the timed queries. SQL and query caches are disabled; each shape is warmed and measured in two balanced sets of five executions.
+
+Average query latency in milliseconds on one local macOS arm64 Release FE/BE, with warm data:
+
+| Allowlist IDs | Plain bitmap | Plain `IN` | Indexed `IN` | Indexed bitmap |
+| ---: | ---: | ---: | ---: | ---: |
+| 250,000 | 80.5 | 25.0 | 25.9 | 82.5 |
+| 1,000,000 | 143.6 | 39.2 | 39.4 | 145.2 |
+| 5,000,000 | 105.9 | 91.0 | 93.9 | 107.0 |
+| 10,000,000 | 108.0 | 131.0 | 134.7 | 108.7 |
+
+The indexed point lookup used the inverted index, but bitmap membership and `IN` did not. Separate profiles of the indexed table at 250,000 and 10 million IDs showed `RowsInvertedIndexFiltered = 0` for both query shapes. Bitmap queries scanned all 20 million selected-org rows, read about 1.67 GB, and reported `LazyReadTime = 0ns`. The `IN` query used a runtime filter at 250,000 IDs but also scanned all 20 million fact rows. These profiles were separate single executions, so their wall times are not part of the averages above. The index alone therefore gives no measurable improvement to these allowlist queries in the current path.
+
+Reproduce with a running local FE/BE:
+
+```sh
+./run-regression-test.sh --run -d performance_p2 -s bitmap_allowlist_index_scan
+```
+
+The suite passed: one suite, zero failures and zero skips. These numbers compare query shapes on one host, not production latency.
+
+## Early native scan result
+
+The BE now recognizes a constant `bitmap_contains(bitmap, BIGINT resource_id)` at segment initialization. It reads candidate resource IDs after partition and ordinary index pruning, tests bitmap membership, and narrows the segment row bitmap before later scan expressions. A full 4,096-row sample switches back to the normal vectorized scan when more than 2% match. Empty and null bitmaps eliminate the segment immediately. The original expression still runs on surviving rows.
+
+The same suite passed after this change: one suite, zero failures and zero skips. Average query latency in milliseconds on the same local macOS arm64 Release FE/BE, with warm data:
+
+| Allowlist IDs | Plain bitmap | Plain `IN` | Indexed `IN` | Indexed bitmap |
+| ---: | ---: | ---: | ---: | ---: |
+| 250,000 | 57.8 | 23.2 | 23.5 | 58.6 |
+| 1,000,000 | 129.8 | 35.6 | 34.6 | 131.7 |
+| 5,000,000 | 94.8 | 90.4 | 90.7 | 93.1 |
+| 10,000,000 | 94.6 | 128.7 | 130.5 | 95.6 |
+
+At 250,000 IDs, the indexed bitmap query is about 29% faster than the earlier 82.5 ms baseline. Its profile reports `RowsBitmapAllowlistFiltered = 19,750,000` and only 250,000 rows entering later expression evaluation. It still reports `RowsInvertedIndexFiltered = 0` and reads 1.82 GB of uncompressed data, compared with 1.67 GB in the original bitmap scan: uniformly scattered matching IDs touch most column pages, and the prepass reads the ID column again. At 10 million IDs the sample abandons the prepass: `RowsBitmapAllowlistFiltered = 0`, `RowsExprPredInput = 20,000,000`, and 1.67 GB is read. Timings vary with cache state, so the table supports a sparse-list latency improvement in this setup, not a general performance guarantee. The `IN` path remains much faster for 250,000 and 1 million IDs; it uses a different runtime-filter plan.
+
+## Indexed BKD prototype: no-go
+
+An experimental reader traversed the native BIGINT BKD index once, checked each indexed value against the roaring allowlist, and intersected the resulting physical row IDs with the segment candidates. The same regression suite passed with the prototype, including an assertion that the indexed bitmap query filtered rows through the index. At 250,000 IDs, the warm-data averages were 57.0 ms for the plain bitmap query, **100.8 ms for the indexed bitmap query**, and 22.3 ms for indexed `IN (subquery)`. The other sizes used the dense-list fallback and stayed close to the prior run. This prototype was removed from the query path after measurement.
+
+The 250,000-ID indexed profile reported `RowsInvertedIndexFiltered = 19,750,000`, 91.95 MB of index reads, 1.67 GB of scan reads, and 1.04 seconds of summed bitmap/index traversal time across scanners. The column prepass profile had about 289 ms of summed filter time; the index saved an ID-column reread but did not avoid scattered payload pages. This is evidence against a full BKD traversal for these uniformly distributed IDs, not against every possible index design. A different postings layout or resource-ID clustering needs its own benchmark before it is considered for the default path.
+
+The full-index traversal remains removed. A small constant bitmap now uses BKD point lookups when an inverted index is available, with a limit of 16 values; larger bitmaps retain the column prepass. The focused regression suite passes and checks that a two-ID bitmap query reports inverted-index filtering. This path is intended for selective point lists, not the 250,000 to 10 million ID benchmark cases.
+
+Subquery-produced bitmaps normally become a semi-join with `bitmap_contains`; its nested-loop plan does not push a runtime filter into the fact scan. An opt-in `enable_bitmap_subquery_hash_join` rewrite expands the bitmap into IDs and uses a hash semi join, which produces the existing scan runtime filter. The regression suite checks the default and opt-in plans, runtime-filter presence, matching rows, empty bitmaps, nullable resource IDs, and IDs above `2^32`. The exact hash join remains the final membership check.
+
+## Bitmap subquery evaluation
+
+The same 30-million-row indexed native table now compares `resource_id IN (SELECT bitmap_agg(resource_id) ...)` with the default compressed nested-loop plan and the opt-in expanded hash semi join. Both query shapes include bitmap construction, `org_id = 101`, and `payload LIKE '%needle%'`. Each has a warmup and five timed executions; count and sum are checked against the ordinary `IN (subquery)` result. Warm local macOS arm64 Release FE/BE averages in milliseconds:
+
+| Allowlist IDs | Base64 characters | Compressed nested-loop | Expanded hash semi join |
+| ---: | ---: | ---: | ---: |
+| 250,000 | 669,952 | 103.0 | 32.0 |
+| 1,000,000 | 2,669,952 | 108.8 | 50.2 |
+| 5,000,000 | 3,342,376 | 129.2 | 151.6 |
+| 10,000,000 | 3,345,620 | 137.8 | 228.4 |
+
+Profiles for the indexed fact scan showed `RowsExprPredInput = 20,000,000` under the nested-loop plan at both 250,000 and 10 million IDs. With the expanded hash join it was about 250,512 and 10,031,148 respectively. Both plans still read about 1.67 GB of uncompressed fact data. The hash plan waited about 7 ms for its scan runtime filter at 250,000 IDs and 176 ms at 10 million IDs. These profiles were separate executions from the timings; they show that the runtime filter reduces downstream work but does not save fact-column I/O on this scattered layout. Peak memory and distributed transfer cost have not yet been measured.
+
+This is a measured crossover, not a universal threshold. It supports retaining both query shapes while evaluating a compressed scan filter, and it makes expansion of every bitmap into hash-join rows a poor default for multi-million-ID allowlists.
+
+`bitmap_count` or the bitmap object's cardinality can guide a **runtime** choice after the subquery has produced the bitmap. The FE cannot know that cardinality while planning a data-dependent subquery. The compressed filter now uses point lookups for very small cardinality and samples the fact column before a selective scan prepass; a general adaptive choice between join shapes and explicit memory limits remain future work.
+
+[PR #64314](https://github.com/apache/doris/pull/64314) removed the old bitmap runtime-filter planner and BE predicate path, leaving its Thrift IDs deprecated for compatibility. [PR #66145](https://github.com/apache/doris/pull/66145) pushes late scalar runtime filters into segment iterators but leaves complex-type filters at the scanner; [PR #66742](https://github.com/apache/doris/pull/66742) caches the cardinality of the segment's **row-position** bitmap. Neither supplies a compressed resource-ID runtime filter.
+
+The removal commit calls the old filter path obsolete and says it was no longer intended to be planned; it does not attribute removal to C++/Java Roaring incompatibility. Its merge implementation assumed the bitmap-producing join already held the full bitmap, and the remote `PFilterType` protocol had no bitmap filter kind. The new filter fills those gaps with partial bitmap union and a distinct wire kind. Portable Roaring32 works across C++, Java, and Go, but C++ `Roaring64Map` bytes are not Java `Roaring64NavigableMap` bytes. [Doris documents](https://doris.apache.org/community/developer-guide/bitmap-hll-file-format/) its own flagged `BitmapValue` `BITMAP64` format for cross-language exchange. The filter carries that Doris format; it does not treat arbitrary Roaring64 bytes as interchangeable and currently has no separate outer wire version.
+
+## Compressed subquery runtime filter
+
+The opt-in `enable_bitmap_subquery_runtime_filter` now sends Doris `BitmapValue` bytes from the build side of a positive bitmap semi join to its `BIGINT` fact scan. The new runtime filter unions partial bitmaps, uses the same native segment prepass as a constant bitmap when selective, and falls back to vectorized membership for dense lists. The exact semi join remains in the plan. The new Thrift enum and optional Protobuf payload use IDs checked against branches 3.1, 4.0, 4.1, and 4.2. Enable the option only after FE and BE nodes are upgraded, since older nodes do not understand the new filter kind.
+
+The focused suite passed with count and sum equal to the ordinary `IN` result at every size, including nullable and empty bitmap cases. Warm local macOS arm64 Release averages in milliseconds from five executions per shape:
+
+| Allowlist IDs | Default compressed join | Compressed runtime filter | Expanded hash semi join |
+| ---: | ---: | ---: | ---: |
+| 250,000 | 97.4 | 54.4 | 30.8 |
+| 1,000,000 | 102.0 | 73.6 | 49.8 |
+| 5,000,000 | 122.0 | 81.4 | 136.4 |
+| 10,000,000 | 125.0 | 94.0 | 214.4 |
+
+At 250,000 IDs, the compressed filter profile reports `RowsBitmapAllowlistFiltered = 19,750,000`, `RowsExprPredInput = 250,000`, and 5.4 ms waiting for the filter. At 10 million IDs, the dense-list fallback reports zero rows filtered in the prepass, 20 million rows entering expressions, and 34.7 ms waiting for the filter. The fact scan still reads about 1.7–1.8 GB of uncompressed data because matching IDs are scattered. These are single-host warm-data measurements, not a network or Iceberg result; memory use and remote filter transfer cost still need measurement.
+
+## Implementation order
+
+1. **Filter before later expressions.** Implemented for constant BIGINT bitmap predicates in native `SegmentIterator`, with a dense-list sample fallback. The 250,000-ID case evaluates later expressions on fewer rows, but scattered matches do not reduce bytes read. The bitmap is decoded by the existing constant expression machinery per segment; sharing it across segments is a possible further improvement.
+2. **Prototype indexed candidate generation.** A full BIGINT BKD traversal was tested and removed after it lost to the column prepass at 250,000 IDs. BKD equality point probes are implemented for constant bitmaps with at most 16 IDs. Any larger-list index design should avoid scanning every indexed value, demonstrate a lower index traversal cost, and retain the column-only fallback. Do not assume the bitmap's resource IDs are segment-local row positions.
+3. **Deliver subquery-produced bitmaps to scans.** Implemented as an opt-in compressed runtime filter for a positive bitmap semi join. The earlier opt-in expanded hash join remains as a control. The scan checks bitmap cardinality for point probes and samples the fact column for dense-list fallback. Distributed transfer, memory limits, and Iceberg pruning remain separate evaluation work. The deprecated `TRuntimeFilterType.BITMAP` value remains unused.
+4. **Measure early Iceberg row filtering.** The [Iceberg selectivity follow-up](bitmap_allowlist_scan_results.md#iceberg-row-filter-selectivity-follow-up) confirms that the scan filter can avoid a costly downstream bitmap join when a broad text predicate leaves many candidate rows, but still reads every selected-org Parquet row group and the same file bytes. With `LIKE`, the runtime filter plan reads both predicate columns for all 20 million rows and reports no lazy-read filtering. Investigate selected-row-safe text predicates or a specialized bitmap-first reader stage without suppressing expression errors; require lower payload reads or predicate CPU in a profile before claiming earlier Parquet column pruning.
+
+The column prepass remains the default sparse-bitmap path above 16 IDs. The compressed subquery filter is opt-in while its distributed transfer and memory use are evaluated. A postings-based index or clustered data layout needs its own benchmark against both the bitmap path and the `IN (subquery)` control.
+
+## Acceptance checks
+
+- Keep the four allowlist sizes and compare count plus sum across indexed and plain bitmap and `IN` paths. Add empty, singleton, duplicate, absent-ID, and `BIGINT` IDs above `2^32` cases to the kernel tests.
+- Test the selective indexed point lookup as a positive control, and test bitmap behavior with and without the index. Keep org partition pruning visible in `EXPLAIN`; the bitmap does not replace tenant isolation.
+- Add BE unit tests for bitmap predicate creation, constant decoding, row membership, and fallback. Add regression coverage for subquery-produced bitmaps when that delivery path exists. Do not assert timing thresholds in regression tests.
+- Record fact scan rows, payload bytes, lazy-read counts, index lookups, index candidate rows, and final result rows for each size. Require an indexed path to reduce bytes or time against both current bitmap and `IN` baselines before enabling that path by default.
+- Test Iceberg separately. A Doris native inverted index cannot prune Iceberg files; the relevant first step there is early `resource_id` filtering in the Parquet scan, followed by any metadata-based file or row-group skipping that the layout supports.

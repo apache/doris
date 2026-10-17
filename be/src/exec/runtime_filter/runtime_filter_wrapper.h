@@ -32,6 +32,7 @@
 
 namespace doris {
 class BloomFilterFuncBase;
+class BitmapValue;
 class RuntimeFilterExpr;
 using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;
 
@@ -84,10 +85,12 @@ public:
     std::shared_ptr<MinMaxFuncBase> minmax_func() const { return _minmax_func; }
     std::shared_ptr<HybridSetBase> hybrid_set() const { return _hybrid_set; }
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func() const { return _bloom_filter_func; }
+    std::shared_ptr<BitmapValue> bitmap_allowlist() const { return _bitmap_allowlist; }
 
     Status to_protobuf(PInFilter* filter);
     Status to_protobuf(PMinMaxFilter* filter);
     Status to_protobuf(PBloomFilter* filter, char** data, int* filter_length);
+    Status to_protobuf(PBitmapAllowlistFilter* filter);
 
     PrimitiveType column_type() const { return _column_return_type; }
 
@@ -163,6 +166,7 @@ private:
     std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
+    std::shared_ptr<BitmapValue> _bitmap_allowlist;
 
     // disable always_true logic if detected in filter
     // to make left_semi_direct_return_opt work correctly

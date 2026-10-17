@@ -89,6 +89,18 @@ public class MarkJoinTest extends TestWithFeService {
     }
 
     @Test
+    public void testBitmapSubqueryAndBase64Membership() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT c2 FROM test_sq_dj1 WHERE c2 IN "
+                        + "(SELECT k4 FROM test_sq_dj2 WHERE c1 = 1) "
+                        + "AND bitmap_contains(bitmap_from_roaring_base64("
+                        + "'OjAAAAEAAAAAAAIAEAAAAG8A3gBNAQ=='), c2)");
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT c2 FROM test_sq_dj1 WHERE bitmap_contains("
+                        + "bitmap_from_base64('AQEAAAA='), c2)");
+    }
+
+    @Test
     public void test2() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c1 > (SELECT AVG(c1) FROM test_sq_dj2) OR c1 < 10;");

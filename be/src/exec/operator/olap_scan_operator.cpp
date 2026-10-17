@@ -259,6 +259,9 @@ Status OlapScanLocalState::_init_profile() {
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
     _conditions_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
+    _bitmap_allowlist_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsBitmapAllowlistFiltered", TUnit::UNIT);
+    _bitmap_allowlist_filter_timer = ADD_TIMER(_segment_profile, "BitmapAllowlistFilterTime");
     _key_range_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
 

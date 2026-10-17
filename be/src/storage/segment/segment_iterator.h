@@ -198,6 +198,7 @@ private:
     void _init_column_states();
     void _rebuild_scan_predicate_states();
     void _mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated);
+    Status _prune_by_bitmap_allowlist();
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }

@@ -29,6 +29,7 @@
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/function/function_test_util.h"
+#include "util/coding.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -105,6 +106,70 @@ std::string encode_bitmap_to_base64(const BitmapValue& bitmap) {
     std::string encoded;
     base64_encode(serialized, &encoded);
     return encoded;
+}
+
+TEST(function_bitmap_test, function_bitmap_from_portable_roaring_base64) {
+    roaring::Roaring roaring32;
+    roaring32.add(1);
+    roaring32.add(std::numeric_limits<uint32_t>::max());
+    std::string portable32(roaring32.getSizeInBytes(), '\0');
+    roaring32.write(portable32.data());
+
+    roaring::Roaring low;
+    low.add(2);
+    roaring::Roaring high;
+    high.add(3);
+    std::string portable64(8 + 4 + low.getSizeInBytes() + 4 + high.getSizeInBytes(), '\0');
+    auto* bytes = reinterpret_cast<uint8_t*>(portable64.data());
+    encode_fixed64_le(bytes, 2);
+    encode_fixed32_le(bytes + 8, 0);
+    low.write(portable64.data() + 12);
+    const size_t high_offset = 12 + low.getSizeInBytes();
+    encode_fixed32_le(bytes + high_offset, 1);
+    high.write(portable64.data() + high_offset + 4);
+
+    std::string encoded32;
+    std::string encoded64;
+    base64_encode(portable32, &encoded32);
+    base64_encode(portable64, &encoded64);
+    BitmapValue expected32(std::vector<uint64_t> {1, std::numeric_limits<uint32_t>::max()});
+    BitmapValue expected64(std::vector<uint64_t> {2, 4294967299ULL});
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {{{encoded32}, &expected32},
+                        {{encoded64}, &expected64},
+                        {{std::string("invalid")}, Null()},
+                        {{Null()}, Null()}};
+    for (size_t i = 0; i < data_set.size(); ++i) {
+        SCOPED_TRACE(i);
+        static_cast<void>(check_function<DataTypeBitMap, true>("bitmap_from_roaring_base64",
+                                                               input_types, {data_set[i]}));
+    }
+    static_cast<void>(check_function<DataTypeBitMap, true>("bitmap_from_roaring_base64",
+                                                           input_types, data_set));
+    const DataSet doris_format = {{{std::string("AQEAAAA=")}, Null()}};
+    const auto status = check_function<DataTypeBitMap, true>(
+            "bitmap_from_roaring_base64", input_types, doris_format, -1, -1, true);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+
+    BitmapValue decoded;
+    EXPECT_TRUE(decoded.deserialize_portable(portable32.data(), portable32.size()));
+    EXPECT_TRUE(decoded.get_type_code() == BitmapTypeCode::BITMAP32 ||
+                decoded.get_type_code() == BitmapTypeCode::BITMAP32_V2);
+    EXPECT_TRUE(decoded.deserialize_portable(portable64.data(), portable64.size()));
+    EXPECT_TRUE(decoded.get_type_code() == BitmapTypeCode::BITMAP64 ||
+                decoded.get_type_code() == BitmapTypeCode::BITMAP64_V2);
+    EXPECT_TRUE(decoded.contains(4294967299ULL));
+    EXPECT_FALSE(decoded.contains(4294967298ULL));
+    std::string duplicate_key = portable64;
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(duplicate_key.data()) + high_offset, 0);
+    EXPECT_FALSE(decoded.deserialize_portable(duplicate_key.data(), duplicate_key.size()));
+    EXPECT_FALSE(decoded.deserialize_portable(portable32.data(), portable32.size() - 1));
+    EXPECT_FALSE(decoded.deserialize_portable(portable64.data(), portable64.size() - 1));
+    portable64.push_back('\0');
+    EXPECT_FALSE(decoded.deserialize_portable(portable64.data(), portable64.size()));
+    const std::string empty64(8, '\0');
+    EXPECT_TRUE(decoded.deserialize_portable(empty64.data(), empty64.size()));
+    EXPECT_EQ(decoded.cardinality(), 0);
 }
 
 TEST(function_bitmap_test, function_bitmap_to_base64) {
