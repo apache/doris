@@ -1463,6 +1463,25 @@ static Status create_variant_root_reader(const SegmentFooterPB& footer,
 
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
+    // Parent VARIANT column with an extracted VARIANT subcolumn `v.payload`, i.e. the layout
+    // VariantSubcolumnWriter is responsible for.
+    void init_extracted_variant_schema(int64_t tablet_id) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->init_from_pb(schema_pb);
+        const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+        TabletColumn extracted_column;
+        extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+        extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        extracted_column.set_parent_unique_id(parent_column.unique_id());
+        extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+        extracted_column.set_is_nullable(true);
+        _tablet_schema->append_column(extracted_column);
+        init_tablet_from_current_schema(tablet_id);
+    }
+
     void SetUp() override {
         // absolute dir
         char buffer[MAX_PATH_LEN];
@@ -1826,9 +1845,10 @@ protected:
         return Status::OK();
     }
 
-    Status write_extracted_variant_segment(const ColumnPtr& source, const DataTypePtr& source_type,
-                                           std::string_view rowset_id, SegmentFooterPB* footer,
-                                           std::string* file_path, size_t first_batch_rows = 0) {
+    Status write_extracted_variant_segment(
+            const ColumnPtr& source, const DataTypePtr& source_type, std::string_view rowset_id,
+            SegmentFooterPB* footer, std::string* file_path, size_t first_batch_rows = 0,
+            size_t batch_rows = 0, const std::function<void(ColumnWriter*)>& after_batch = {}) {
         DORIS_CHECK(source.get() != nullptr);
         DORIS_CHECK(source_type != nullptr);
         DORIS_CHECK(footer != nullptr);
@@ -1873,11 +1893,28 @@ protected:
             converter.clear_source_content(0);
             return Status::OK();
         };
-        if (first_batch_rows > 0 && first_batch_rows < source->size()) {
+        if (batch_rows > 0) {
+            for (size_t row_pos = 0; row_pos < source->size(); row_pos += batch_rows) {
+                const size_t rows = std::min(batch_rows, source->size() - row_pos);
+                RETURN_IF_ERROR(append_batch(row_pos, rows));
+                if (after_batch) {
+                    after_batch(writer.get());
+                }
+            }
+        } else if (first_batch_rows > 0 && first_batch_rows < source->size()) {
             RETURN_IF_ERROR(append_batch(0, first_batch_rows));
+            if (after_batch) {
+                after_batch(writer.get());
+            }
             RETURN_IF_ERROR(append_batch(first_batch_rows, source->size() - first_batch_rows));
+            if (after_batch) {
+                after_batch(writer.get());
+            }
         } else {
             RETURN_IF_ERROR(append_batch(0, source->size()));
+            if (after_batch) {
+                after_batch(writer.get());
+            }
         }
 
         RETURN_IF_ERROR(writer->finish());
@@ -8961,6 +8998,248 @@ TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
     RowsetSharedPtr output_rowset;
     ASSERT_TRUE(output_writer->build(output_rowset).ok());
     ASSERT_EQ(output_rowset->num_rows(), 4);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_large_values) {
+    // A large VARIANT subcolumn must be flushed in bounded chunks: a single segment-sized
+    // ColumnString is what overflows ColumnStr<uint32_t> at 4 GiB. Compare the chunked output with
+    // the single-chunk reference and check the observed chunk budget.
+    init_extracted_variant_schema(11401);
+    constexpr size_t kRows = 3000;
+    constexpr size_t kBatchRows = 300;
+    const std::string value(1024, 'x');
+    const std::string json = "\"" + value + "\"";
+    std::vector<std::string> jsons(kRows, json);
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_chunk_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+    ASSERT_EQ(ref_rows.size(), kRows);
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(250); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    size_t max_chunks = 0;
+    size_t max_chunk_bytes = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_chunk_values", &chunked_footer,
+                        &chunked_path, 0, kBatchRows,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                            max_chunk_bytes = std::max(max_chunk_bytes,
+                                                       subcolumn->max_chunk_bytes_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+    // A chunk holds at most the configured budget plus the batch that crossed it.
+    EXPECT_LE(max_chunk_bytes, 250 * 1024 + kBatchRows * 1024);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+    EXPECT_EQ(chunked_rows.front(), ref_rows.front());
+    EXPECT_EQ(chunked_rows.back(), ref_rows.back());
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_type_promotion) {
+    // Values that widen the inferred type across a chunk boundary (int -> string -> JSONB) must
+    // still produce the same column as the single-chunk path.
+    init_extracted_variant_schema(11402);
+    constexpr size_t kHalf = 2000;
+    std::vector<std::string> jsons;
+    jsons.reserve(2 * kHalf);
+    for (size_t i = 0; i < kHalf; ++i) {
+        jsons.push_back(std::to_string(i));
+    }
+    for (size_t i = 0; i < kHalf; ++i) {
+        jsons.push_back("\"s" + std::to_string(i) + "\"");
+    }
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_promote_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(500); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    size_t max_chunks = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_promote_chunked", &chunked_footer,
+                        &chunked_path, 0, 300,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_sparse_rows) {
+    // Rows without the subcolumn become nulls. When chunks split a gap the dense materialization
+    // must still place every value on its logical row.
+    init_extracted_variant_schema(11403);
+    constexpr size_t kRows = 3000;
+    std::vector<std::string> jsons(kRows, "\"v\"");
+    std::vector<UInt8> outer_nulls(kRows, 0);
+    for (size_t row = 0; row < kRows; row += 3) {
+        outer_nulls[row] = 1;
+    }
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, outer_nulls,
+                                             &source, &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_sparse_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(200); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    size_t max_chunks = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_sparse_chunked", &chunked_footer,
+                        &chunked_path, 0, 300,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+    ASSERT_FALSE(chunked_rows.empty());
+    EXPECT_EQ(chunked_rows[0], "NULL");
+    EXPECT_EQ(chunked_rows[1], ref_rows[1]);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_all_null) {
+    // A subcolumn whose every row is null must still append the right number of nulls per chunk.
+    init_extracted_variant_schema(11404);
+    constexpr size_t kRows = 2000;
+    std::vector<std::string> jsons(kRows, "\"v\"");
+    std::vector<UInt8> outer_nulls(kRows, 1);
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, outer_nulls,
+                                             &source, &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_null_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(100); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_null_chunked",
+                                                &chunked_footer, &chunked_path, 0, 300)
+                        .ok());
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+    for (const auto& row : chunked_rows) {
+        EXPECT_EQ(row, "NULL");
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_by_bytes) {
+    // The byte budget (kChunkBytes) seals a chunk even when the value count is small, e.g. few very
+    // wide strings. The chunk must still be flushed independently and read back unchanged.
+    init_extracted_variant_schema(11405);
+    constexpr size_t kRows = 3000;
+    constexpr size_t kBatchRows = 200;
+    const std::string value(1024, 'y');
+    const std::string json = "\"" + value + "\"";
+    std::vector<std::string> jsons(kRows, json);
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_bytes_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_bytes_for_test(256 * 1024); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_bytes_for_test(0); }
+    } guard;
+    size_t max_chunks = 0;
+    size_t max_chunk_bytes = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_bytes_chunked", &chunked_footer,
+                        &chunked_path, 0, kBatchRows,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                            max_chunk_bytes = std::max(max_chunk_bytes,
+                                                       subcolumn->max_chunk_bytes_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+    EXPECT_LE(max_chunk_bytes, 256 * 1024 + kBatchRows * 1024);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
 }
 
 } // namespace doris

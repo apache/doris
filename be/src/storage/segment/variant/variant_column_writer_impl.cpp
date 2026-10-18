@@ -1979,6 +1979,11 @@ uint64_t VariantColumnWriterImpl::get_total_data_pages_bytes(
     return 0;
 }
 
+#ifdef BE_TEST
+static size_t g_chunk_bytes_for_test = 0;
+static size_t g_chunk_values_for_test = 0;
+#endif
+
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
                                                TabletColumnPtr column)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
@@ -2055,11 +2060,24 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
         auto encoded_batch = ColumnVariantV2::create();
         RETURN_IF_CATCH_EXCEPTION({
             encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+            encoded_batch->ensure_encoded();
         });
         RETURN_IF_ERROR(append_encoded(encoded_batch->read_view(), 0));
     }
     _chunk_rows = _num_rows + num_rows - _chunk_row_begin;
-    if (_v2_builder->byte_size() >= kChunkBytes || _v2_builder->non_null_rows() >= kChunkValues) {
+    const size_t chunk_bytes =
+#ifdef BE_TEST
+            g_chunk_bytes_for_test != 0 ? g_chunk_bytes_for_test : kChunkBytes;
+#else
+            kChunkBytes;
+#endif
+    const size_t chunk_values =
+#ifdef BE_TEST
+            g_chunk_values_for_test != 0 ? g_chunk_values_for_test : kChunkValues;
+#else
+            kChunkValues;
+#endif
+    if (_v2_builder->byte_size() >= chunk_bytes || _v2_builder->non_null_rows() >= chunk_values) {
         RETURN_IF_ERROR(_seal_chunk());
     }
     return Status::OK();
@@ -2110,6 +2128,28 @@ Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** 
 Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return _append(nullptr, ptr, num_rows);
 }
+
+#ifdef BE_TEST
+void VariantSubcolumnWriter::set_chunk_bytes_for_test(size_t bytes) {
+    g_chunk_bytes_for_test = bytes;
+}
+
+void VariantSubcolumnWriter::set_chunk_values_for_test(size_t values) {
+    g_chunk_values_for_test = values;
+}
+
+size_t VariantSubcolumnWriter::num_chunks_for_test() const {
+    return _chunks.size() + (_v2_builder != nullptr ? 1 : 0);
+}
+
+size_t VariantSubcolumnWriter::max_chunk_bytes_for_test() const {
+    size_t max = _v2_builder != nullptr ? _v2_builder->byte_size() : 0;
+    for (const auto& chunk : _chunks) {
+        max = std::max(max, chunk.builder->byte_size());
+    }
+    return max;
+}
+#endif
 
 uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
     if (is_finalized()) {

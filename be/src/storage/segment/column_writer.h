@@ -647,6 +647,14 @@ public:
 
     size_t get_non_null_size() const { return none_null_size; }
 
+#ifdef BE_TEST
+    // Force small chunk budgets so tests can exercise multi-chunk flushes cheaply.
+    static void set_chunk_bytes_for_test(size_t bytes);
+    static void set_chunk_values_for_test(size_t values);
+    size_t num_chunks_for_test() const;
+    size_t max_chunk_bytes_for_test() const;
+#endif
+
     Status finalize();
 
 private:
