@@ -21,20 +21,24 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.IncrementalSplit;
+import org.apache.paimon.table.source.Split;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.LongFunction;
 
 /**
- * The JVM heap BE's JNI reader of a paimon {@link DataSplit} holds, declared to BE's JNI heap gate
+ * The JVM heap BE's JNI reader of a paimon split holds, declared to BE's JNI heap gate
  * ({@code TFileRangeDesc.jni_heap_bytes}) for a statement that sets {@code enable_jni_heap_admission}.
  *
- * <p>A JNI read of a split whose files overlap - a primary-key table written to since it was last
+ * <p>A JNI read of a {@link DataSplit} whose files overlap - a primary-key table written to since it was last
  * compacted - merges them: paimon opens one file of every sorted run of a section at once, and an open
  * parquet file keeps the compressed column chunks of its current row group in the heap until it moves
  * on to the next, when the old and the new are there together for a moment. ORC keeps a stripe the
@@ -45,9 +49,17 @@ import java.util.function.LongFunction;
  * overlap, which are read one section after another. A split that needs no merging reads its files one
  * after another and holds one file's share.
  *
- * <p>A file's row groups and columns are those of the schema version it was written under
- * ({@link DataFileMeta#schemaId()}): paimon's writers take the row group size from the table's options,
- * and an ALTER TABLE that changes them, or the columns, leaves the files written before it as they are.
+ * <p>A diff read between two snapshots ({@code @incr} with {@code incrementalBetweenScanMode} diff) plans an
+ * {@link IncrementalSplit} instead, of the files only the earlier snapshot has and those only the later one
+ * has. Of a primary-key table it merges each of the two and compares the merges, which are open together,
+ * so it holds what one merge of all those files holds; of an append table it reads the later snapshot's
+ * files one after another. The other splits that are not DataSplits, those of the metadata system tables
+ * and of format tables, hold little and declare nothing.
+ *
+ * <p>A file's row groups, dictionary pages and columns are those of the schema version it was written under
+ * ({@link DataFileMeta#schemaId()}): paimon's writers take the row group size and the largest parquet
+ * dictionary page ({@code parquet.dictionary.page.size}) from the table's options, and an ALTER TABLE that
+ * changes them, or the columns, leaves the files written before it as they are.
  * A write job can also pass the row group size as a dynamic option, which no schema version records; a
  * file written so is taken by its schema version's options, and declared below what it holds when the
  * job's row groups were larger.
@@ -69,14 +81,19 @@ final class PaimonJniHeapEstimate {
     // set (CoreOptions.FILE_BLOCK_SIZE).
     static final long DEFAULT_PARQUET_ROW_GROUP_BYTES = 128L * 1024 * 1024;
     static final long DEFAULT_ORC_STRIPE_BYTES = 64L * 1024 * 1024;
-    // The largest dictionary page paimon's parquet writer keeps for a column.
-    static final long DICTIONARY_BYTES_PER_COLUMN = 1024L * 1024;
+    // The largest dictionary page paimon's parquet writer keeps for a column unless the table's
+    // parquet.dictionary.page.size says otherwise (parquet's DEFAULT_DICTIONARY_PAGE_SIZE); an ORC file is
+    // allowed as much for each of its columns.
+    static final long DEFAULT_DICTIONARY_PAGE_BYTES = 1024L * 1024;
 
+    // A primary-key table's diff read merges its files; an append table's reads them one after another.
+    private final boolean primaryKeyTable;
     // How the files written under a schema version are laid out, by its id, each worked out once.
     private final LongFunction<FileLayout> layoutOfSchema;
     private final Map<Long, FileLayout> layouts = new HashMap<>();
 
-    PaimonJniHeapEstimate(LongFunction<FileLayout> layoutOfSchema) {
+    PaimonJniHeapEstimate(boolean primaryKeyTable, LongFunction<FileLayout> layoutOfSchema) {
+        this.primaryKeyTable = primaryKeyTable;
         this.layoutOfSchema = layoutOfSchema;
     }
 
@@ -86,7 +103,7 @@ final class PaimonJniHeapEstimate {
      */
     static PaimonJniHeapEstimate of(FileStoreTable table, LongFunction<TableSchema> schemaAt) {
         TableSchema own = table.schema();
-        return new PaimonJniHeapEstimate(
+        return new PaimonJniHeapEstimate(!own.primaryKeys().isEmpty(),
                 schemaId -> FileLayout.of(schemaId == own.id() ? own : schemaAt.apply(schemaId)));
     }
 
@@ -94,30 +111,49 @@ final class PaimonJniHeapEstimate {
     static PaimonJniHeapEstimate of(Table table) {
         FileLayout layout = FileLayout.of(table.options(), table.rowType().getFieldCount(),
                 table.primaryKeys().size());
-        return new PaimonJniHeapEstimate(schemaId -> layout);
+        return new PaimonJniHeapEstimate(!table.primaryKeys().isEmpty(), schemaId -> layout);
     }
 
-    long bytesOf(DataSplit split) {
-        long total = 0;
-        long largest = 0;
-        for (DataFileMeta file : split.dataFiles()) {
-            long share = layouts.computeIfAbsent(file.schemaId(), layoutOfSchema::apply).bytesHeld(file);
-            total += share;
-            largest = Math.max(largest, share);
+    long bytesOf(Split split) {
+        if (split instanceof DataSplit) {
+            DataSplit dataSplit = (DataSplit) split;
+            return dataSplit.rawConvertible() ? largest(dataSplit.dataFiles()) : total(dataSplit.dataFiles());
         }
-        return split.rawConvertible() ? largest : total;
+        // A fallback-branch table wraps the splits that are not DataSplits; its FallbackDataSplit is one.
+        Split read = split instanceof FallbackReadFileStoreTable.FallbackSplit
+                ? ((FallbackReadFileStoreTable.FallbackSplit) split).wrapped()
+                : split;
+        if (!(read instanceof IncrementalSplit)) {
+            return 0;
+        }
+        IncrementalSplit diff = (IncrementalSplit) read;
+        return primaryKeyTable ? total(diff.beforeFiles()) + total(diff.afterFiles()) : largest(diff.afterFiles());
     }
 
-    /** The row group size and the columns of the files written under one schema version. */
+    private long total(List<DataFileMeta> files) {
+        return files.stream().mapToLong(this::bytesHeld).sum();
+    }
+
+    private long largest(List<DataFileMeta> files) {
+        return files.stream().mapToLong(this::bytesHeld).max().orElse(0);
+    }
+
+    private long bytesHeld(DataFileMeta file) {
+        return layouts.computeIfAbsent(file.schemaId(), layoutOfSchema::apply).bytesHeld(file);
+    }
+
+    /** How the files written under one schema version are laid out: row groups, dictionaries, columns. */
     static final class FileLayout {
         private final long parquetRowGroupBytes;
         private final long orcStripeBytes;
-        private final long dictionaryBytes;
+        private final long parquetDictionaryBytes;
+        private final long orcDictionaryBytes;
 
-        FileLayout(long parquetRowGroupBytes, long orcStripeBytes, int columns) {
+        FileLayout(long parquetRowGroupBytes, long orcStripeBytes, long parquetDictionaryPageBytes, int columns) {
             this.parquetRowGroupBytes = parquetRowGroupBytes;
             this.orcStripeBytes = orcStripeBytes;
-            this.dictionaryBytes = columns * DICTIONARY_BYTES_PER_COLUMN;
+            this.parquetDictionaryBytes = columns * parquetDictionaryPageBytes;
+            this.orcDictionaryBytes = columns * DEFAULT_DICTIONARY_PAGE_BYTES;
         }
 
         static FileLayout of(TableSchema schema) {
@@ -132,20 +168,22 @@ final class PaimonJniHeapEstimate {
                     DEFAULT_PARQUET_ROW_GROUP_BYTES);
             long orc = bytes(blockSize != null ? blockSize : options.get("orc.stripe.size"),
                     DEFAULT_ORC_STRIPE_BYTES);
+            // paimon hands the table's parquet.* options to its parquet writer, this one as the largest
+            // dictionary page it keeps for a column.
+            long dictionaryPage = bytes(options.get("parquet.dictionary.page.size"), DEFAULT_DICTIONARY_PAGE_BYTES);
             // A primary-key table's data file stores the keys a second time, as _KEY_ columns, beside the
             // sequence number and the row kind.
-            return new FileLayout(parquet, orc, fields + (primaryKeys > 0 ? primaryKeys + 2 : 0));
+            return new FileLayout(parquet, orc, dictionaryPage, fields + (primaryKeys > 0 ? primaryKeys + 2 : 0));
         }
 
         // A row group - two for a file that has more than one - and a dictionary page for every column.
         long bytesHeld(DataFileMeta file) {
-            long rowGroup = file.fileName().toLowerCase(Locale.ROOT).endsWith(".orc")
-                    ? orcStripeBytes
-                    : parquetRowGroupBytes;
+            boolean orc = file.fileName().toLowerCase(Locale.ROOT).endsWith(".orc");
+            long rowGroup = orc ? orcStripeBytes : parquetRowGroupBytes;
             long rowGroups = file.fileSize() <= rowGroup
                     ? file.fileSize()
                     : Math.min(file.fileSize(), 2 * rowGroup);
-            return rowGroups + dictionaryBytes;
+            return rowGroups + (orc ? orcDictionaryBytes : parquetDictionaryBytes);
         }
 
         private static long bytes(String value, long defaultBytes) {
