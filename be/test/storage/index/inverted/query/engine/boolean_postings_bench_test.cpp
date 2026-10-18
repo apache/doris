@@ -202,7 +202,7 @@ uint64_t posting_row_checksum(uint32_t doc, float score, bool scoring) {
 uint64_t expected_posting_checksum(const PostingSpec& spec, uint32_t profile, bool sparse,
                                    bool scoring) {
     BM25Similarity similarity(2.0F, 8.0F);
-    const float term_score = similarity.score(1.0F, 0);
+    const float term_score = similarity.score(1.0F, 1);
     uint64_t result = 0;
     for (uint32_t doc = 0; doc < kPostingRows; ++doc) {
         bool required = true;
@@ -255,7 +255,7 @@ PhysicalTruthRows expected_physical_truth(const PostingSpec& spec, uint32_t prof
     PhysicalTruthRows result;
     result.scores.resize(kPostingRows);
     BM25Similarity similarity(2.0F, 8.0F);
-    const float term_score = similarity.score(1.0F, 0);
+    const float term_score = similarity.score(1.0F, 1);
     for (uint32_t doc = 0; doc < kPostingRows; ++doc) {
         bool required_true = true;
         bool required_possible = true;
