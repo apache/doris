@@ -502,7 +502,10 @@ public class SPMOptimizer {
             // OptimizeResult#tableSnapshot).
             return new OptimizeResult((PhysicalPlan) resultPlan,
                     extractCost((PhysicalPlan) resultPlan),
-                    snapshotTables(statementContext.getTables()));
+                    snapshotTables(statementContext.getTables()),
+                    statementContext instanceof CaptureStatementContext
+                            ? ((CaptureStatementContext) statementContext).getTableFingerprints()
+                            : java.util.Map.of());
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -528,7 +531,7 @@ public class SPMOptimizer {
      */
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
-        return new StatementContext(ctx, new OriginStatement(originSql, 0));
+        return new CaptureStatementContext(ctx, originSql);
     }
 
     /**
@@ -680,15 +683,32 @@ public class SPMOptimizer {
          */
         private final java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot;
 
+        /**
+         * Table fingerprint entries hashed WHILE the planning locks were held (see
+         * {@link CaptureStatementContext}): lower-case bare / db-qualified /
+         * catalog-qualified table name to the entry. The TableIf objects are MUTABLE in
+         * place, so a fingerprint computed after optimize() returned could pair the frozen
+         * output slots with a NEWER schema.
+         */
+        private final java.util.Map<String, String> tableFingerprints;
+
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
-            this(physicalPlan, cost, java.util.Map.of());
+            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of());
         }
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot) {
+            this(physicalPlan, cost, tableSnapshot, java.util.Map.of());
+        }
+
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
+                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
+                java.util.Map<String, String> tableFingerprints) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
+            this.tableFingerprints = tableFingerprints == null
+                    ? java.util.Map.of() : tableFingerprints;
         }
 
         public PhysicalPlan getPhysicalPlan() {
@@ -707,6 +727,49 @@ public class SPMOptimizer {
          */
         public java.util.Map<String, org.apache.doris.catalog.TableIf> getTableSnapshot() {
             return tableSnapshot;
+        }
+
+        /**
+         * The table fingerprint entries hashed under the planning locks (see the field
+         * javadoc).
+         *
+         * @return lowercase table name to the fingerprint entry
+         */
+        public java.util.Map<String, String> getTableFingerprints() {
+            return tableFingerprints;
+        }
+    }
+
+    /**
+     * The nested statement context of one baseline-plan optimization: it records the
+     * fingerprint of EVERY table the capture analysis resolves, at the moment the table is
+     * cached - i.e. while the planning locks are held.
+     *
+     * A TableIf is mutable in place: `ALTER TABLE ... ADD COLUMN` updates the SAME object, so
+     * describing it after `planWithLock` released the locks hashed a schema the frozen output
+     * slots (and the decompiled planSql) never saw. The replay guard then accepted the stale
+     * baseline and silently returned the old column set.
+     */
+    private static final class CaptureStatementContext extends StatementContext {
+        private final java.util.Map<String, String> tableFingerprints =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
+        CaptureStatementContext(ConnectContext ctx, String originSql) {
+            super(ctx, new OriginStatement(originSql, 0));
+        }
+
+        @Override
+        public org.apache.doris.catalog.TableIf getAndCacheTable(List<String> tableQualifier,
+                TableFrom tableFrom,
+                java.util.Optional<org.apache.doris.nereids.analyzer.UnboundRelation> unboundRelation) {
+            org.apache.doris.catalog.TableIf table =
+                    super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table);
+            return table;
+        }
+
+        java.util.Map<String, String> getTableFingerprints() {
+            return tableFingerprints;
         }
     }
 

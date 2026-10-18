@@ -364,7 +364,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
         }
         long id = nextId++;
-        SpmConstVar placeholder = SpmConstVar.of(id, markerPayload(literal, parent));
+        SpmConstVar placeholder = SpmConstVar.of(id,
+                markerPayload(literal, parent, currentProjectItem() >= 0));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
@@ -390,10 +391,23 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @param parent  the literal's parent expression (null at an expression root)
      * @return the payload the placeholder keeps
      */
-    private static Literal markerPayload(Literal literal, Expression parent) {
+    private static Literal markerPayload(Literal literal, Expression parent,
+            boolean projectionItem) {
         boolean booleanOperand = parent instanceof And || parent instanceof Or
                 || parent instanceof Not;
         if (literal.isNullLiteral() && booleanOperand) {
+            return NullLiteral.BOOLEAN_INSTANCE;
+        }
+        // A projected NULL (`SELECT NULL AS n` / a bare `SELECT NULL`) exposes a NullType
+        // SLOT, and a consumer that binds it as a BOOLEAN operand (an enclosing OR / AND /
+        // WHERE, even in another query block) has the analyzer replace that operand with a
+        // typed constant NULL - dropping the slot, and with it this marker. A TRUE variant of
+        // the derived column then has nothing to substitute and the replay keeps NULL.
+        // Typing the projected NULL BOOLEAN removes the NullType from the tree; a NULL value
+        // stays NULL through any later coercion, so the only thing that changes is that the
+        // marker (and the slot that carries it) survives.
+        if (literal.isNullLiteral() && projectionItem
+                && (parent == null || parent instanceof org.apache.doris.nereids.trees.expressions.Alias)) {
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         return literal;
