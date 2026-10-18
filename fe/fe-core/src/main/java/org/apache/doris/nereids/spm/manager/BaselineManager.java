@@ -1190,6 +1190,20 @@ public class BaselineManager {
     private final AtomicLong hashMutationSeq = new AtomicLong();
 
     /**
+     * CONTENT signature of the rows behind every known hash (see knownHashes).
+     *
+     * The epoch above used to advance only for changes the LOCAL CACHE observed
+     * (applySnapshot's updated count) or for a key-set change. A refresh that only
+     * rewrote rows of a COLD hash - no cached bucket, so nothing the cache reported as
+     * updated - therefore kept the old epoch, and a by-hash miss that had read the OLD
+     * rows still passed its epoch check and published them: the stale read became a WARM
+     * hit that served the pre-flip status until the next refresh. Comparing the snapshot's
+     * own signature (id / status / stored second / plan text identity) keeps the epoch tied
+     * to the DURABLE content, cached or not.
+     */
+    private volatile Map<Long, Long> knownHashSignatures = new ConcurrentHashMap<>();
+
+    /**
      * Bounded LRU cache of COMPLETE per-bindSql row sets for the matching path: one entry
      * holds EVERY baseline row of ONE bindSqlHash (all statuses / plan texts), so the
      * digest filter / priority ordering always see the full candidate set. A cache miss is
@@ -1578,6 +1592,49 @@ public class BaselineManager {
         Map<Long, Long> next = new HashMap<>(knownHashes);
         next.put(hash, hashMutationSeq.incrementAndGet());
         knownHashes = next;
+    }
+
+    /**
+     * The CONTENT signature of one hash's row set (see knownHashSignatures): the fields
+     * every reader observes (identity, status, stored second, frozen text identity).
+     *
+     * @param rows the rows behind one bindSqlHash
+     * @return a deterministic signature
+     */
+    private static long hashContentSignature(List<BaselinePlan> rows) {
+        long signature = 1L;
+        for (BaselinePlan row : rows) {
+            long rowSignature = java.util.Objects.hash(row.getId(), row.getStatus(),
+                    row.getUpdateTime(), row.getQueryId(), row.getPlanSql(),
+                    row.getPlanFrozen(), row.getSchemaFingerprint(), row.getCost(),
+                    row.getQueryTimeMs());
+            signature = signature * 31L + rowSignature;
+        }
+        return signature;
+    }
+
+    /**
+     * Advances the epoch of every hash whose DURABLE rows changed since the last publish,
+     * including hashes with no cached bucket (see knownHashSignatures). The caller holds
+     * stateLock.
+     *
+     * @param byHash          the rows being published, per hash
+     * @param nextHashes      the epoch map being built (mutated in place)
+     */
+    private void bumpChangedHashEpochsLocked(Map<Long, List<BaselinePlan>> byHash,
+            Map<Long, Long> nextHashes) {
+        Map<Long, Long> nextSignatures = new HashMap<>();
+        for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
+            long signature = hashContentSignature(entry.getValue());
+            nextSignatures.put(entry.getKey(), signature);
+            Long previous = knownHashSignatures.get(entry.getKey());
+            if (previous == null || previous != signature) {
+                // the rows behind this hash changed: a miss that read the OLD set must not
+                // become a warm hit, whether or not a bucket was cached locally
+                nextHashes.put(entry.getKey(), hashMutationSeq.incrementAndGet());
+            }
+        }
+        knownHashSignatures = nextSignatures;
     }
 
     /** The LRU capacity (spm_baseline_cache_size, test-scriptable via the seam). */
@@ -2433,6 +2490,10 @@ public class BaselineManager {
                 throw e;
             }
             removeCachedBaseline(removed);
+            // The DROP also retired rows DURABLY (same-key twins, lingering incarnations):
+            // a warm bucket that still held one of them would keep replaying it until the
+            // next refresh (see evictRetiredRows).
+            evictRetiredRows(retiredTwins);
             // A DELAYED status INSERT of a demoted master can commit AFTER this delete
             // and revive the row: the append-only tombstone makes every
             // later load treat that incarnation as deleted, whatever the commit order.
@@ -2483,10 +2544,16 @@ public class BaselineManager {
      */
     private void removeCachedBaseline(BaselinePlan plan) {
         long id = plan.getId();
-        Long cachedHash = baselineCache.removeRow(id);
-        long hash = cachedHash != null ? cachedHash : plan.getBindSqlHash();
+        // The removal and the epoch advance MUST be one critical section: taking the row out
+        // first left a window in which a by-hash miss that read this row BEFORE the DROP
+        // could publish (and CACHE) it, because the epoch it compares against was still the
+        // pre-DROP one - the stale row became a warm hit the completed DROP had removed.
+        // Under the lock, any publication that observed the old epoch either ran before the
+        // removal (and is followed by it) or is rejected by the bumped epoch.
         stateLock.writeLock().lock();
         try {
+            Long cachedHash = baselineCache.removeRow(id);
+            long hash = cachedHash != null ? cachedHash : plan.getBindSqlHash();
             if (hash != 0) {
                 bumpHashEpochLocked(hash);
             }
@@ -2496,6 +2563,31 @@ public class BaselineManager {
             stateVersion++;
         } finally {
             stateLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Evicts the rows a DROP retired DURABLY (the same-key twins of the dropped key, and any
+     * lingering incarnation of the same id) from the local cache, with their publication
+     * epochs (see removeCachedBaseline).
+     *
+     * A warm hash bucket can hold ONLY the twin (`id40`) while the row being dropped
+     * (`id41`) is not cached at all: the cache-miss drop path deleted and tombstoned the
+     * twin durably but left `id40` in the complete bucket, and completeRowsForHash serves
+     * that bucket BEFORE any tombstone / fence reconciliation - so later queries kept
+     * replaying a baseline the DROP had retired until the next refresh or eviction.
+     *
+     * @param retired the durably retired rows (may be null / empty)
+     */
+    private void evictRetiredRows(List<BaselinePlan> retired) {
+        if (retired == null) {
+            return;
+        }
+        for (BaselinePlan row : retired) {
+            if (row == null || row.getId() <= 0) {
+                continue;
+            }
+            removeCachedBaseline(row);
         }
     }
 
@@ -2558,9 +2650,17 @@ public class BaselineManager {
         // retire the KEY's superseded same-key twins as well: this cache-miss DROP path
         // must not leave the loser of a handoff twin pair durable (see
         // retireSupersededKeyTwins)
+        List<BaselinePlan> retiredKeys = new ArrayList<>();
         for (BaselinePlan row : durable) {
-            droppedRows.addAll(retireSupersededKeyTwins(row));
+            retiredKeys.addAll(retireSupersededKeyTwins(row));
         }
+        // A warm hash bucket can hold ONLY the twin while the dropped id is not cached at
+        // all: the durable retirement above is invisible to the local cache, and
+        // completeRowsForHash serves a warm bucket BEFORE any tombstone / fence
+        // reconciliation - so the twin must leave the cache here, with its epoch (see
+        // evictRetiredRows).
+        evictRetiredRows(retiredKeys);
+        droppedRows.addAll(retiredKeys);
         noteDroppedIdState(id);
         recordPendingMutationFence(id, null, 0);
         // prove the tombstones readable before reporting the DROP (see dropBaseline)
@@ -2578,9 +2678,9 @@ public class BaselineManager {
      * success while the real row stays.
      */
     private List<BaselinePlan> wipeDurableRowsById(long id, BaselinePlan alreadyDeleted) {
-        List<BaselinePlan> retiredTwins = new ArrayList<>();
+        List<BaselinePlan> retired = new ArrayList<>();
         if (!persistence.isDurable()) {
-            return retiredTwins;
+            return retired;
         }
         List<BaselinePlan> rows = readPersistedById(id);
         for (BaselinePlan row : rows) {
@@ -2593,12 +2693,15 @@ public class BaselineManager {
             // the wiped incarnation gets its own tombstone: a still-in-flight write of
             // THAT identity must not revive it either
             noteDroppedSeqState(row);
+            // ... and it leaves the local cache with its publication epoch (see
+            // evictRetiredRows): a cached copy would keep serving rows this DROP removed
+            retired.add(row);
         }
         // Retire the KEY's superseded twins as well (see retireSupersededKeyTwins); their
         // identities ride into the DROP's durable confirmation (see
         // confirmDropTombstonesDurable)
-        retiredTwins.addAll(retireSupersededKeyTwins(alreadyDeleted));
-        return retiredTwins;
+        retired.addAll(retireSupersededKeyTwins(alreadyDeleted));
+        return retired;
     }
 
     /**
@@ -2855,11 +2958,16 @@ public class BaselineManager {
                     // accepting the match would then be reverted. Only a fence-free id may
                     // be repaired from a MATCHING read.
                     requireNoContradictingStatusFence(id, status);
+                    // A SUCCESSFUL no-op must still MOVE the durable intent (see
+                    // persistNoOpStatusIntent): an opposite-status write dispatched earlier
+                    // - stalled past its shared window, possibly across a handoff - carries a
+                    // stored second derived from the row it saw and would otherwise win the
+                    // durable pick when it finally lands, reversing this successful ALTER.
+                    long intentTime = persistNoOpStatusIntent(plan, status);
                     // the durable row already carries the requested status (the cache
                     // missed an earlier flip): repair the live object and report success
-                    // without rewriting the row
                     if (previousStatus != status) {
-                        publishStatus(plan, status, System.currentTimeMillis());
+                        publishStatusAndFence(plan, status, intentTime);
                     }
                     return true;
                 }
@@ -2913,15 +3021,35 @@ public class BaselineManager {
             BaselinePlan durablePlan = plan.copyPersistedScalars();
             durablePlan.setStatus(status);
             durablePlan.setUpdateTime(newUpdateTime);
+            // FENCE FROM DISPATCH: the shared mutation window opens with the statement, but
+            // the PROCESS-LOCAL fence used to be recorded only when the statement FAILED.
+            // A successor ALTER that read a MATCHING status while this write was still on
+            // its way therefore accepted a no-op success that this row could reverse. The id
+            // is unresolved from the moment the statement may commit; the outcome below
+            // replaces / removes the entry.
             boolean insertWritten;
+            PendingMutationFence dispatchFence = null;
             try {
                 assertLeaderForWrite();
-                insertWritten = persistTransitionInsert(durablePlan, previousStatus);
+                // FENCE FROM DISPATCH: the statement may commit from the moment it is sent,
+                // but the PROCESS-LOCAL fence used to be recorded only when it FAILED. A
+                // successor ALTER that read a MATCHING status while this write was still on
+                // its way therefore accepted a no-op success that this row could reverse.
+                // Installed after the leadership check (a rejected ALTER never ran and must
+                // not mask the id) and BEFORE the statement is dispatched; the outcome below
+                // replaces / removes the entry.
+                dispatchFence = new PendingMutationFence(status,
+                        System.currentTimeMillis(), newUpdateTime);
+                pendingMutationFences.put(id, dispatchFence);
+                insertWritten = persistTransitionInsert(durablePlan, previousStatus, newestSecond);
             } catch (MutationWindowUnavailableException e) {
                 // The window of this flip could not be made VISIBLE, so its INSERT was never
                 // dispatched (see beginRowMutation): nothing changed, there is no ambiguous
                 // outcome to reconcile, and no fence may be kept for a statement that never
                 // ran - recording one would mask the id for the fence's whole bound.
+                if (dispatchFence != null) {
+                    pendingMutationFences.remove(id, dispatchFence);
+                }
                 throw e;
             } catch (UnconfirmedVisibleException e) {
                 // The conditional INSERT WROTE the new-status row (the affected-row count /
@@ -2931,13 +3059,13 @@ public class BaselineManager {
                 // durable winner (pickDurableWinner). Keeping the OLD cached status here
                 // let ordinary queries keep replaying a baseline whose durable winner is
                 // already the requested status. Publish the proven flip.
-                publishStatus(plan, status, newUpdateTime);
+                publishStatusAndFence(plan, status, newUpdateTime);
                 LOG.warn("SPM status update of baseline {} reported success but its row is"
                         + " not READABLE yet; the committed flip is the durable winner -"
                         + " publishing it", id);
-                // the row may stay unreadable for a while: fence the id so a stale
-                // snapshot cannot revert the committed flip
-                recordConfirmedMutationFence(id, status, newUpdateTime);
+                // the row may stay unreadable for a while: the CONFIRMED fence installed
+                // with the publication (see publishStatusAndFence) keeps a stale snapshot
+                // from reverting the committed flip
                 return true;
             } catch (AmbiguousInsertException e) {
                 // The conditional INSERT reported an ERROR that may have been raised AFTER
@@ -2988,10 +3116,7 @@ public class BaselineManager {
                 // lags its publication. The cache MUST follow that winner: leaving the OLD
                 // status let this FE keep replaying a baseline the durable table has
                 // already flipped until the next refresh.
-                publishStatus(plan, status, newUpdateTime);
-                // the old row may linger readable for a while: fence the id so a snapshot
-                // still dominated by it cannot revert the confirmed winner
-                recordConfirmedMutationFence(id, status, newUpdateTime);
+                publishStatusAndFence(plan, status, newUpdateTime);
                 if (NO_LONGER_MASTER.equals(e.getMessage())) {
                     // a fenced write is reported to the client (retrying converges: the
                     // retry's probe sees the requested status durably), but the cache still
@@ -3006,10 +3131,7 @@ public class BaselineManager {
                         + " next flip", id, e.getMessage());
                 return true;
             }
-            publishStatus(plan, status, newUpdateTime);
-            // the committed row's publication may lag: fence the id until a snapshot
-            // shows the flip
-            recordConfirmedMutationFence(id, status, newUpdateTime);
+            publishStatusAndFence(plan, status, newUpdateTime);
             return true;
         }
     }
@@ -3034,6 +3156,11 @@ public class BaselineManager {
 
     /** Publishes a CONFIRMED status flip on the live object under the state lock. */
     private void publishStatus(BaselinePlan plan, BaselineStatus status, long updateTime) {
+        publishStatus(plan, status, updateTime, false);
+    }
+
+    private void publishStatus(BaselinePlan plan, BaselineStatus status, long updateTime,
+            boolean installConfirmedFence) {
         stateLock.writeLock().lock();
         try {
             // The object the flip STARTED on may no longer be the row the cache holds: an
@@ -3057,9 +3184,94 @@ public class BaselineManager {
             // advance the epoch so a matching-path cache-miss read that started before
             // this point cannot publish its pre-flip rows over the completed state.
             bumpHashEpochLocked(plan.getBindSqlHash());
+            if (installConfirmedFence) {
+                // same critical section (see publishStatusAndFence): no load may see the
+                // flushed cache without the fence that masks the lagging row
+                recordConfirmedMutationFence(plan.getId(), status, updateTime);
+            }
         } finally {
             stateLock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Publishes a CONFIRMED status flip AND installs its confirmed mutation fence in the SAME
+     * critical section (see publishStatus).
+     *
+     * The two steps used to be separate: the epoch bump / cache mutation ran under the state
+     * lock, the fence was installed afterwards. A by-hash load that started AFTER the bump but
+     * read a pre-flip row (its publication lags) compared an UNCHANGED epoch, found no fence
+     * yet and published that stale row - turning the stale miss into a warm hit that served
+     * the pre-flip status. Installing the fence where the flip becomes visible closes that
+     * window: a load that could observe the stale row must take the state lock after this
+     * section, where the fence is already installed and masks the id.
+     *
+     * @param plan       the cached row the flip started on
+     * @param status     the confirmed status
+     * @param updateTime the stored second the confirmed row carries
+     */
+    private void publishStatusAndFence(BaselinePlan plan, BaselineStatus status,
+            long updateTime) {
+        publishStatus(plan, status, updateTime, true);
+    }
+
+    /**
+     * Records the INTENT of a successful NO-OP status statement durably and returns the stored
+     * second the caller publishes.
+     *
+     * The no-op used to write nothing at all, so an OPPOSITE-status statement dispatched
+     * earlier - stalled past its shared mutation window, possibly across a leader handoff -
+     * still found its previous-status precondition intact and landed with a stored second
+     * derived from the row it saw, reversing this successful ALTER. Appending a row that
+     * carries the requested status and a STRICTLY LATER stored second makes the durable order
+     * say "the intent is now": the earlier statement's conditional INSERT requires that no
+     * newer row exists (see conditionalStatusInsertSql), so it writes nothing and reports a
+     * retryable conflict instead of flipping the baseline back.
+     *
+     * The write is best effort: the requested status IS already durable, so a failure here
+     * only weakens the ordering guard (warned), it never fails the statement.
+     *
+     * @param plan   the cached row
+     * @param status the requested (already durable) status
+     * @return the stored second (epoch millis) the intent row carries
+     */
+    private long persistNoOpStatusIntent(BaselinePlan plan, BaselineStatus status) {
+        long intentTime = nextStoredUpdateMillis(plan.getId());
+        if (!persistence.isDurable()) {
+            return intentTime;
+        }
+        BaselinePlan intent = plan.copyPersistedScalars();
+        intent.setStatus(status);
+        intent.setUpdateTime(intentTime);
+        try {
+            persistInsert(intent);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM could not record the intent of the no-op status statement of"
+                    + " baseline {} ({}); a stalled earlier flip may still win the durable"
+                    + " pick until the next statement", plan.getId(), e.getMessage());
+        }
+        return intentTime;
+    }
+
+    /**
+     * The next stored second (epoch millis) a row of this id may carry: strictly later than
+     * every stored second of the id, so the row this statement writes is the durable winner
+     * among the id's own rows (see the DATETIME-second bump in updateStatus).
+     *
+     * @param id the baseline id
+     * @return the update time to store
+     */
+    private long nextStoredUpdateMillis(long id) {
+        long now = System.currentTimeMillis();
+        long newestSecond;
+        try {
+            newestSecond = readNewestStoredUpdateSecond(id);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM cannot read the newest stored second of baseline {} ({}); falling"
+                    + " back to the wall clock", id, e.getMessage());
+            return now;
+        }
+        return now / 1000L <= newestSecond ? (newestSecond + 1) * 1000L : now;
     }
 
     /** Outcome of the durable status probe (see updateStatus). */
@@ -3967,6 +4179,11 @@ public class BaselineManager {
         for (Long hash : byHash.keySet()) {
             next.put(hash, hashMutationSeq.incrementAndGet());
         }
+        Map<Long, Long> signatures = new HashMap<>();
+        for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
+            signatures.put(entry.getKey(), hashContentSignature(entry.getValue()));
+        }
+        knownHashSignatures = signatures;
         knownHashes = next;
         baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         // the snapshot read every row: no row above this id can exist undiscovered
@@ -4781,6 +4998,11 @@ public class BaselineManager {
                 next.put(hash, hashMutationSeq.incrementAndGet());
             }
         }
+        // A refresh can rewrite the rows of a hash that has NO cached bucket: applySnapshot
+        // reports nothing for it, so the epoch above would stay untouched and a miss that
+        // read the OLD rows would publish them as a warm hit. The snapshot's own content
+        // signature advances the epoch whenever the DURABLE rows changed, cached or not.
+        bumpChangedHashEpochsLocked(byHash, next);
         knownHashes = next;
         if (maxId >= idGenerator.get()) {
             idGenerator.set(maxId + 1);
@@ -7584,6 +7806,7 @@ public class BaselineManager {
             try {
                 loaded = false;
                 knownHashes = new ConcurrentHashMap<>();
+                knownHashSignatures = new ConcurrentHashMap<>();
                 baselineCache.clear();
                 // Pending-create records are NOT cleared here: they describe
                 // writes THIS FE committed, and a reload cannot see an unpublished row.
@@ -7777,6 +8000,31 @@ public class BaselineManager {
     }
 
     /**
+     * The conditional status INSERT with the DURABLE-ORDER term (see
+     * INSERT_IF_PREVIOUS_STATUS_SQL): the statement also requires that NO newer row of the
+     * id exists, i.e. that the state it flips from is still the latest intent.
+     *
+     * A status statement that stalled past its shared mutation window (or crossed a leader
+     * handoff) used to find its previous-status precondition intact and land with a stored
+     * second derived from the row it saw - reversing a successor's successful no-op ENABLE,
+     * which wrote nothing at all. A successor now writes its own intent (see
+     * persistNoOpStatusIntent) and this term voids the older statement's precondition, so the
+     * late flip writes nothing and reports a retryable conflict instead.
+     *
+     * @param previousUpdateSecond the stored second the flip is based on (0 = unknown)
+     * @return the statement text
+     */
+    static String conditionalStatusInsertSql(long previousUpdateSecond) {
+        if (previousUpdateSecond <= 0) {
+            return INSERT_IF_PREVIOUS_STATUS_SQL;
+        }
+        return INSERT_IF_PREVIOUS_STATUS_SQL.replace(" LIMIT 1",
+                " AND NOT EXISTS (SELECT 1 FROM " + SPM_BASELINES_TABLE
+                        + " WHERE `id` = ${id} AND UNIX_TIMESTAMP(`update_time`)"
+                        + " > ${previousUpdateSecond}) LIMIT 1");
+    }
+
+    /**
      * The CONDITIONAL INSERT half of a status flip (see
      * INSERT_IF_PREVIOUS_STATUS_SQL): the new-status row is coupled to the
      * PREVIOUS-status row still being durable.
@@ -7790,7 +8038,8 @@ public class BaselineManager {
      * a vanished previous row writes nothing; the conflict is then reported as a
      * retryable failure instead of a silent success.
      */
-    private boolean persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus) {
+    private boolean persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus,
+            long previousUpdateSecond) {
         if (!persistence.isDurable()) {
             return true; // in-memory only (no durable status rows exist)
         }
@@ -7800,7 +8049,8 @@ public class BaselineManager {
         boolean windowHeld = false;
         try {
             try {
-                if (!persistence.insertIfPreviousPresent(p, previousStatus)) {
+                if (!persistence.insertIfPreviousPresent(p, previousStatus,
+                        previousUpdateSecond)) {
                     return false; // nothing written: the previous-status row was gone
                 }
             } catch (RuntimeException e) {
@@ -7858,15 +8108,17 @@ public class BaselineManager {
      *         previous-status row and wrote nothing
      */
     private boolean writeConditionalStatusInsert(BaselinePlan p,
-            BaselineStatus previousStatus) {
+            BaselineStatus previousStatus, long previousUpdateSecond) {
         Map<String, String> params = insertParams(p);
         params.put("previousStatus", previousStatus.name());
+        params.put("previousUpdateSecond", String.valueOf(Math.max(0L, previousUpdateSecond)));
         // insertParams already bound schemaFingerprint: the WHERE predicate couples the
         // previous-status row to the CACHED row's fingerprint, so a reused id carrying a
         // DIFFERENT incarnation's (digest, planSql, fingerprint) cannot be flipped
         try {
             QueryState state = inInternalIoMode(() -> StatisticsUtil.execUpdate(
-                    INSERT_IF_PREVIOUS_STATUS_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS));
+                    conditionalStatusInsertSql(previousUpdateSecond), params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS));
             long affectedRows = state == null ? -1 : state.getAffectedRows();
             if (!insertWroteRows(affectedRows)) {
                 LOG.warn("SPM persist (status insert) wrote no row for baseline {}: no durable"
@@ -8693,7 +8945,13 @@ public class BaselineManager {
 
         @Override
         public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus) {
-            return owner.writeConditionalStatusInsert(plan, previousStatus);
+            return owner.writeConditionalStatusInsert(plan, previousStatus, 0L);
+        }
+
+        @Override
+        public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus,
+                long previousUpdateSecond) {
+            return owner.writeConditionalStatusInsert(plan, previousStatus, previousUpdateSecond);
         }
 
         @Override

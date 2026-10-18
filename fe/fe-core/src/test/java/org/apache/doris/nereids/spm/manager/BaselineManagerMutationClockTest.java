@@ -417,8 +417,10 @@ public class BaselineManagerMutationClockTest {
             clock.closeWindow(foreignWindow);
             Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.ENABLED),
                     "a quiet clock lets the already-durable status be confirmed");
-            Assertions.assertTrue(store.operations.isEmpty(),
-                    "confirming a matching read stays a no-op: " + store.operations);
+            Assertions.assertEquals(List.of("insert:ENABLED"), store.operations,
+                    "a successful no-op still records its INTENT durably - the same status with a"
+                            + " strictly later stored second - so a stalled earlier flip cannot win"
+                            + " the durable pick and reverse it: " + store.operations);
         } finally {
             doubles.mutationClockStore = null;
             doubles.statusProtocolStore = null;

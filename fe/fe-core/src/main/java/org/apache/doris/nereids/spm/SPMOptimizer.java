@@ -222,6 +222,15 @@ public class SPMOptimizer {
             SessionVariable.INLINE_CTE_REFERENCED_THRESHOLD,
             SessionVariable.CTE_INLINE_MODE);
 
+    /**
+     * Depth of the SPM CAPTURE optimizations running on this thread (see
+     * {@link #isCaptureInProgress}): the parameterized plan of a baseline is optimized by
+     * this class, and a rule that must not lose a piece of USER-VISIBLE intent while that
+     * plan is turned into the frozen text (an explicit CAST over a substitutable literal)
+     * consults it.
+     */
+    private static final ThreadLocal<Integer> CAPTURE_DEPTH = ThreadLocal.withInitial(() -> 0);
+
     private SPMOptimizer() {
     }
 
@@ -466,8 +475,19 @@ public class SPMOptimizer {
             // The root physical plan is the RETURN value of planWithLock: the planner's
             // physicalPlan field is only assigned through the lockCallback used by
             // plan(), so planner.getPhysicalPlan() would be null here.
-            Plan resultPlan = planner.planWithLock(logicalPlan,
-                    PhysicalProperties.ANY, ExplainLevel.NONE);
+            //
+            // The result becomes the FROZEN text, so the thread is marked as a CAPTURE
+            // while it is produced: a rule that would erase user-visible intent the frozen
+            // text must keep (an explicit CAST over a substitutable literal, see
+            // SimplifyCastRule) holds back.
+            CAPTURE_DEPTH.set(CAPTURE_DEPTH.get() + 1);
+            Plan resultPlan;
+            try {
+                resultPlan = planner.planWithLock(logicalPlan,
+                        PhysicalProperties.ANY, ExplainLevel.NONE);
+            } finally {
+                CAPTURE_DEPTH.set(CAPTURE_DEPTH.get() - 1);
+            }
             if (!(resultPlan instanceof PhysicalPlan)) {
                 throw new AnalysisException("SPM failed to plan SQL: " + originSql);
             }
@@ -476,8 +496,13 @@ public class SPMOptimizer {
             // may have been produced without a guard - fail the freeze instead of
             // publishing it.
             verifySpmOverridesIntact(sessionVar);
+            // The bind-side tables of this plan were resolved UNDER the locks taken above
+            // and are read here, while the nested statement context that owns them is still
+            // open: a fingerprint computed later can only re-resolve the LIVE catalog (see
+            // OptimizeResult#tableSnapshot).
             return new OptimizeResult((PhysicalPlan) resultPlan,
-                    extractCost((PhysicalPlan) resultPlan));
+                    extractCost((PhysicalPlan) resultPlan),
+                    snapshotTables(statementContext.getTables()));
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -504,6 +529,33 @@ public class SPMOptimizer {
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
         return new StatementContext(ctx, new OriginStatement(originSql, 0));
+    }
+
+    /**
+     * The locked bind-side tables of one nested plan, keyed like
+     * SPMPlanTreeSupport#lockedTablesByQualifiedName (bare name and database-qualified
+     * name, lower case). MUST be read before the nested statement context is closed.
+     *
+     * @param tables the nested statement's resolved tables (qualifier to TableIf)
+     * @return lowercase bare / db-qualified table name to the under-lock TableIf
+     */
+    private static java.util.Map<String, org.apache.doris.catalog.TableIf> snapshotTables(
+            java.util.Map<List<String>, org.apache.doris.catalog.TableIf> tables) {
+        if (tables == null || tables.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<String, org.apache.doris.catalog.TableIf> snapshot = new java.util.HashMap<>();
+        for (org.apache.doris.catalog.TableIf table : tables.values()) {
+            if (table == null || table.getName() == null) {
+                continue;
+            }
+            snapshot.putIfAbsent(table.getName().toLowerCase(Locale.ROOT), table);
+            if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
+                snapshot.putIfAbsent((table.getDatabase().getFullName() + "." + table.getName())
+                        .toLowerCase(Locale.ROOT), table);
+            }
+        }
+        return snapshot;
     }
 
     /**
@@ -616,10 +668,27 @@ public class SPMOptimizer {
     public static class OptimizeResult {
         private final PhysicalPlan physicalPlan;
         private final double cost;
+        /**
+         * The under-lock metadata snapshot of the statement's catalog relations, keyed by
+         * bare / database-qualified lowercase table name (see
+         * SPMPlanTreeSupport#schemaFingerprintForCreate). The nested statement context
+         * that owns these TableIf objects is CLOSED when optimize() returns, so a
+         * fingerprint computed afterwards could only re-resolve the tables from the LIVE
+         * catalog - hashing a schema a concurrent ALTER may already have changed while
+         * the frozen output slots still describe the older one (the CREATE-time
+         * fingerprint would then accept a replay of the stale frozen plan).
+         */
+        private final java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot;
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
+            this(physicalPlan, cost, java.util.Map.of());
+        }
+
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
+                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
+            this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
         }
 
         public PhysicalPlan getPhysicalPlan() {
@@ -629,5 +698,30 @@ public class SPMOptimizer {
         public double getCost() {
             return cost;
         }
+
+        /**
+         * The bind-side tables as they were resolved UNDER the planning locks (see the
+         * field javadoc); empty when unknown.
+         *
+         * @return lowercase bare / db-qualified table name to the locked TableIf
+         */
+        public java.util.Map<String, org.apache.doris.catalog.TableIf> getTableSnapshot() {
+            return tableSnapshot;
+        }
+    }
+
+    /**
+     * Whether the current thread is optimizing a BASELINE CAPTURE plan (see
+     * SPMOptimizer#optimize): SimplifyCastRule keeps an EXPLICIT cast that it would
+     * otherwise discard as redundant, because the placeholder it wraps reports the
+     * CAPTURED literal's type - eliminating the conversion froze a plan that silently
+     * dropped the user's cast, and a matching query whose literal has a WIDER type then
+     * substituted it without any conversion.
+     *
+     * @return true while a capture optimization (or its replan probe) is running here
+     */
+    public static boolean isCaptureInProgress() {
+        Integer depth = CAPTURE_DEPTH.get();
+        return depth != null && depth > 0;
     }
 }
