@@ -624,7 +624,9 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int6
                     ws_field_name, segment_doc_count, scoring_stats.token_count,
                     scoring_stats.has_positions, scoring_stats.has_norms, &segment_accumulator,
                     segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
-                            collect_info.index_meta->properties())));
+                            collect_info.index_meta->properties()) &&
+                            !segment_v2::IndexReaderHelper::is_normalizer_only(
+                                    collect_info.index_meta->properties())));
 
             // The document frequency of a term in this segment, without its hidden rows.
             const auto visible_doc_freq =
@@ -756,6 +758,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int6
         // Keyword indexes instead use unit document length.
         if (!scoring_stats.has_norms &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    collect_info.index_meta->properties()) &&
+            !segment_v2::IndexReaderHelper::is_normalizer_only(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                     "BM25 scoring requires norms, but segment {} was written without norms for "
