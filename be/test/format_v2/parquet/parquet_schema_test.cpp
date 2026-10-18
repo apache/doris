@@ -17,6 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
@@ -37,6 +40,10 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/io_common.h"
+#include "util/coding.h"
+#include "util/thrift_util.h"
 
 namespace doris::format::parquet {
 
@@ -220,6 +227,118 @@ std::vector<tparquet::SchemaElement> shredded_array_variant_schema(bool include_
 }
 
 } // namespace
+
+namespace {
+
+class FooterDiagnosticFileReader final : public io::FileReader {
+public:
+    explicit FooterDiagnosticFileReader(std::string bytes) : _bytes(std::move(bytes)) {}
+    Status close() override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _bytes.size(); }
+    bool closed() const override { return false; }
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        *bytes_read = offset < _bytes.size() ? std::min(result.size, _bytes.size() - offset) : 0;
+        if (*bytes_read != 0) {
+            memcpy(result.data, _bytes.data() + offset, *bytes_read);
+        }
+        return Status::OK();
+    }
+
+private:
+    io::Path _path {"s3://example-bucket/nested.parquet"};
+    std::string _bytes;
+};
+
+Status open_diagnostic_footer(const std::vector<tparquet::SchemaElement>& schema) {
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_schema(schema);
+    metadata.__set_num_rows(0);
+    metadata.__set_row_groups({});
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(true, 1024);
+    RETURN_IF_ERROR(serializer.serialize(&metadata, &footer));
+    std::string bytes = "PAR1";
+    bytes.append(reinterpret_cast<const char*>(footer.data()), footer.size());
+    std::array<uint8_t, 4> length;
+    encode_fixed32_le(length.data(), static_cast<uint32_t>(footer.size()));
+    bytes.append(reinterpret_cast<const char*>(length.data()), length.size());
+    bytes.append("PAR1");
+    auto file = std::make_shared<FooterDiagnosticFileReader>(std::move(bytes));
+    ParquetFileContext context;
+    return context.open(file, nullptr, false, io::FileDescription(), false, false, nullptr);
+}
+
+} // namespace
+
+TEST(ParquetSchemaTest, VariantFallbackErrorReportsPathAndActualSchema) {
+    // A typed carrier still needs an optional fallback; only fallback-only elements may require it.
+    auto schema = shredded_array_variant_schema(true, true);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    auto status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("s3://example-bucket/nested.parquet"), std::string::npos);
+    EXPECT_NE(status.to_string().find("variant_path=payload.typed_value.element.value"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("physical_type=BYTE_ARRAY"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=REQUIRED"), std::string::npos);
+    EXPECT_NE(status.to_string().find("children=0"), std::string::npos);
+
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ASSERT_TRUE(open_diagnostic_footer(schema).ok());
+    schema[7].__set_type(tparquet::Type::INT64);
+    status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("physical_type=INT64"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=OPTIONAL"), std::string::npos);
+
+    schema[7].__set_type(tparquet::Type::BYTE_ARRAY);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("physical_type=BYTE_ARRAY"), std::string::npos);
+    EXPECT_NE(status.to_string().find("repetition=REPEATED"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, VariantFallbackGroupErrorReportsActualChildren) {
+    auto schema = shredded_object_variant_schema();
+    auto child = schema[6];
+    child.__set_name("child");
+    schema[6].__isset.type = false;
+    schema[6].__set_num_children(1);
+    schema.insert(schema.begin() + 7, child);
+    const auto status = open_diagnostic_footer(schema);
+    ASSERT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("variant_path=payload.typed_value.field.value"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("physical_type=GROUP"), std::string::npos);
+    EXPECT_NE(status.to_string().find("children=1"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, FooterContextPreservesUnsupportedAndCorruptionCodes) {
+    auto schema = unshredded_variant_schema(2);
+    NativeFieldDescriptor descriptor;
+    const auto expected = descriptor.parse_from_thrift(schema);
+    ASSERT_FALSE(expected.ok());
+    const auto unsupported = open_diagnostic_footer(schema);
+    EXPECT_EQ(unsupported.code(), expected.code());
+    EXPECT_NE(unsupported.to_string().find(expected.msg()), std::string::npos);
+    EXPECT_NE(unsupported.to_string().find("s3://example-bucket/nested.parquet"),
+              std::string::npos);
+
+    auto file = std::make_shared<FooterDiagnosticFileReader>("PAR1");
+    ParquetFileContext context;
+    const auto corrupt =
+            context.open(file, nullptr, false, io::FileDescription(), false, false, nullptr);
+    ASSERT_TRUE(corrupt.is<ErrorCode::CORRUPTION>()) << corrupt;
+    EXPECT_NE(corrupt.to_string().find("s3://example-bucket/nested.parquet"), std::string::npos);
+    EXPECT_NE(corrupt.to_string().find("too small for a footer"), std::string::npos);
+}
 
 TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
     for (const auto version : {std::optional<int8_t> {}, std::optional<int8_t> {1}}) {
