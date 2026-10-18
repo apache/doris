@@ -29,23 +29,25 @@ Status collect_expanded_rows(index_query::IndexSource& source, index_query::Term
                              int32_t max_expansions, const roaring::Roaring* candidates,
                              roaring::Roaring* rows);
 
-// Every document that holds a term the pattern expands to, with a constant score.
+// Every document that holds an expanded term; scored regexp and wildcard clauses sum BM25.
 class ExpandWeight : public Weight {
 public:
     ExpandWeight(IndexQueryContextPtr context, std::wstring field,
-                 index_query::TermPatternKind kind, std::string pattern);
+                 index_query::TermPatternKind kind, std::string pattern,
+                 bool enable_scoring = false);
     ~ExpandWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
     bool lists_rows(const QueryExecutionContext&, const std::string&) const override {
-        return true;
+        return !_enable_scoring;
     }
     index_query::TruthSet listed_rows(const QueryExecutionContext& context,
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override;
 
 private:
+    ScorerPtr _scored_terms(const QueryExecutionContext& context, const std::string& binding_key);
     std::shared_ptr<roaring::Roaring> _rows(const QueryExecutionContext& context,
                                             const std::string& binding_key,
                                             const roaring::Roaring* candidates);
@@ -53,6 +55,7 @@ private:
     std::wstring _field;
     index_query::TermPatternKind _kind;
     std::string _pattern;
+    bool _enable_scoring;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2
