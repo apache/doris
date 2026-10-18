@@ -122,6 +122,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -179,8 +180,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
     private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // Session variable name (byte-identical to SessionVariable.ENABLE_JNI_HEAP_ADMISSION). When true each
-    // JNI DataSplit declares the JVM heap its reader will hold (PaimonJniHeapEstimate), so that BE admits
-    // the readers by it; default false, and then no range declares anything.
+    // JNI split declares the JVM heap its reader will hold (PaimonJniHeapEstimate: a DataSplit, or the
+    // IncrementalSplit of a diff read), so that BE admits the readers by it; default false, and then no range
+    // declares anything.
     private static final String ENABLE_JNI_HEAP_ADMISSION = "enable_jni_heap_admission";
     private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
@@ -955,9 +957,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // splits). Session-only, so compute once here (before any split is built). DISTINCT from the
         // file-splitting targetSplitSize below — named weightDenominator to make a positional swap impossible.
         long weightDenominator = resolveSplitWeightDenominator(session);
-        // Only a statement that asked for JNI heap admission has its JNI DataSplits declare their heap.
-        PaimonJniHeapEstimate jniHeapEstimate =
-                isJniHeapAdmissionEnabled(session) ? jniHeapEstimate(table, paimonHandle) : null;
+        // Only a statement that asked for JNI heap admission has its JNI splits declare their heap.
+        ToLongFunction<Split> jniHeapBytes =
+                isJniHeapAdmissionEnabled(session) ? jniHeapBytes(table, paimonHandle) : null;
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
@@ -969,7 +971,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 validateMetadataColumnReader(true, false);
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
-                    Collections.emptyMap(), false, weightDenominator, 0));
+                    Collections.emptyMap(), false, weightDenominator,
+                    jniHeapBytes == null ? 0 : jniHeapBytes.applyAsLong(split)));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -1039,7 +1042,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
             boolean legacyOrcTimestamp = false;
             if (nativeEligible && containsTimestampType(rowType) && (!rustEligible || aggregatePushdown)) {
-                FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
+                FileStoreTable splitTable = splitBranch((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
                 Set<Integer> splitReadFieldIds = branchReadFieldIds(rowType, splitTable.rowType(), readFieldIds);
                 legacyOrcTimestamp = withSchemaHistoryAuthentication(() ->
                         requiresCrossFamilyTimestampReader(splitTable, optRawFiles, splitReadFieldIds,
@@ -1107,7 +1110,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
                         partitionValues, true, weightDenominator,
-                        jniHeapEstimate == null ? 0 : jniHeapEstimate.bytesOf(dataSplit)));
+                        jniHeapBytes == null ? 0 : jniHeapBytes.applyAsLong(dataSplit)));
             }
         }
 
@@ -2237,20 +2240,29 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * What the JNI DataSplits of {@code table} declare (PaimonJniHeapEstimate). A file holds row groups of
-     * the size set by the schema version it was written under, which an ALTER TABLE since leaves as it is,
-     * so the estimate reads the versions its files were written under. $ro reads its base table's files,
-     * under that table's schema ids, as {@link #physicalVariantSchemaIds} resolves it; the other system
-     * tables are estimated by the options they show.
+     * What the JNI splits of {@code table} declare (PaimonJniHeapEstimate). A file holds row groups of the
+     * size set by the schema version it was written under, which an ALTER TABLE since leaves as it is, so
+     * the estimate reads the versions its files were written under, of the branch that planned its split: a
+     * scan.fallback-branch or scan.primary-branch table plans the splits of two branches, each numbering its
+     * schema versions on its own. $ro reads its base table's files, under that table's schema ids, as
+     * {@link #physicalVariantSchemaIds} resolves it; the other system tables are estimated by the options
+     * they show.
      */
-    private PaimonJniHeapEstimate jniHeapEstimate(Table table, PaimonTableHandle handle) {
+    private ToLongFunction<Split> jniHeapBytes(Table table, PaimonTableHandle handle) {
         Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
         if (!(physicalSchemaTable instanceof FileStoreTable)) {
-            return PaimonJniHeapEstimate.of(table);
+            return PaimonJniHeapEstimate.of(table)::bytesOf;
         }
         FileStoreTable fileStoreTable = (FileStoreTable) physicalSchemaTable;
-        SchemaManager schemaManager = fileStoreTable.schemaManager();
-        return PaimonJniHeapEstimate.of(fileStoreTable, schemaId -> readSchema(schemaManager, schemaId));
+        Map<FileStoreTable, PaimonJniHeapEstimate> branchEstimates = new java.util.IdentityHashMap<>();
+        return split -> branchEstimates.computeIfAbsent(splitBranch(fileStoreTable, split), this::jniHeapEstimate)
+                .bytesOf(split);
+    }
+
+    // The files of a branch, each laid out by the schema version of that branch it was written under.
+    private PaimonJniHeapEstimate jniHeapEstimate(FileStoreTable branch) {
+        SchemaManager schemaManager = branch.schemaManager();
+        return PaimonJniHeapEstimate.of(branch, schemaId -> readSchema(schemaManager, schemaId));
     }
 
     // A schema file, read under the FE-injected authenticator as planSplits reads the manifests.
@@ -2345,7 +2357,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return branchIds;
     }
 
-    static FileStoreTable legacyOrcSplitTable(FileStoreTable table, DataSplit split) {
+    /**
+     * The branch whose options and schema versions the files of {@code split} were written under: the
+     * table's own, or, of a scan.fallback-branch or scan.primary-branch table, the one of its two branches
+     * that planned the split.
+     */
+    static FileStoreTable splitBranch(FileStoreTable table, Split split) {
         FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
         if (base instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
@@ -2399,7 +2416,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         int binaryField = nonNullField.getAsInt();
         FileStoreTable splitTable = schemaTable.get() == null
-                ? null : legacyOrcSplitTable((FileStoreTable) schemaTable.get(), split);
+                ? null : splitBranch((FileStoreTable) schemaTable.get(), split);
         Table optionsTable = splitTable == null ? table : splitTable;
         CoreOptions options = CoreOptions.fromMap(optionsTable.options());
         boolean legacyLookup = options.legacyPartitionName();
