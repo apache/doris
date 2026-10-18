@@ -29,6 +29,7 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
     String database = "uuid_input_roundtrip"
     String canonical = "00112233-4455-6677-8899-aabbccddeeff"
     String compact = canonical.replace("-", "")
+    def originalStrictCast = sql("SELECT @@enable_strict_cast")[0][0]
     try {
         sql "DROP CATALOG IF EXISTS ${catalog}"
         sql """CREATE CATALOG ${catalog} PROPERTIES (
@@ -181,6 +182,40 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
                     MAP('${otherUuid}', '${otherUuid}')) FROM numbers("number"="32")"""
             "qt_${maps}_volatile" """SELECT COUNT(*), SUM(MAP_KEYS(m)[1] = MAP_VALUES(m)[1])
                 FROM ${maps} WHERE id >= 100"""
+            sql "SET enable_strict_cast=false"
+            String mixed = "uuid_mixed_${format}"
+            sql "DROP TABLE IF EXISTS ${mixed}"
+            sql """CREATE TABLE ${mixed} (id INT, m MAP<UUID,INT>)
+                PROPERTIES("write.format.default"="${format}")"""
+            // UUID validation must not make the unrelated BIGINT-to-INT overflow strict.
+            sql """INSERT INTO ${mixed} SELECT number,
+                IF(number = 0, map('${canonical}', CAST(2147483648 AS BIGINT)),
+                    map('${compact}', CAST(7 AS BIGINT))) FROM numbers("number"="2")"""
+            assertEquals([[0, canonical, null], [1, canonical, 7]], sql("""SELECT id,
+                CAST(map_keys(m)[1] AS STRING), map_values(m)[1] FROM ${mixed} ORDER BY id"""))
+            sql """INSERT INTO ${mixed} SELECT 2,
+                IF(number = 0, '{"${compact}":2147483648}', NULL) FROM numbers("number"="1")"""
+            assertEquals([[canonical, null]], sql("""SELECT CAST(map_keys(m)[1] AS STRING),
+                map_values(m)[1] FROM ${mixed} WHERE id = 2"""))
+            // Serialized containers must retain UUID text until strict leaf validation runs.
+            for (def input : [
+                    [table: nested, column: "items", value: '["invalid-uuid"]'],
+                    [table: nested, column: "record", value: '{"invalid-uuid", "text"}'],
+                    [table: maps, column: "m", value: '{"invalid-uuid":"' + canonical + '"}'],
+                    [table: maps, column: "m", value: '{"' + canonical + '":"invalid-uuid"}'],
+                    [table: maps, column: "a", value: '[{"k":"invalid-uuid"}]']]) {
+                test {
+                    sql """INSERT INTO ${input.table}(id, ${input.column}) SELECT 200,
+                        IF(number = 0, '${input.value}', NULL) FROM numbers("number"="1")"""
+                    exception "parse uuid failed"
+                }
+            }
+            sql """INSERT INTO ${nested}(id, items, record) SELECT number + 200,
+                IF(number = 0, '["${compact}", null]', NULL),
+                IF(number = 0, '{"${compact}", "text"}', NULL) FROM numbers("number"="2")"""
+            assertEquals([[200, canonical, null, canonical, "text"], [201, null, null, null, null]],
+                sql("""SELECT id, CAST(items[1] AS STRING), CAST(items[2] AS STRING),
+                    CAST(record.u AS STRING), record.text FROM ${nested} WHERE id >= 200 ORDER BY id"""))
             test {
                 sql "INSERT INTO ${maps} VALUES (99, map('invalid-uuid', '${canonical}'), NULL, NULL)"
                 exception "uuid"
@@ -191,6 +226,7 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
             }
         }
     } finally {
+        sql "SET enable_strict_cast=${originalStrictCast}"
         sql "SWITCH internal"
     }
 }

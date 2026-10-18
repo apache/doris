@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UuidType;
@@ -74,6 +75,10 @@ public final class IcebergUuidWriteConverter {
         if (!needsConversion(input.getDataType(), targetType)) {
             return input;
         }
+        // Parse serialized containers with UUID leaves kept as text. Nullable complex SerDes
+        // otherwise consume malformed UUIDs as NULL before the write validator can see them.
+        input = TypeCoercionUtils.castIfNotSameType(input,
+                uuidIntermediateType(input.getDataType(), targetType, true));
         if (targetType instanceof ArrayType) {
             DataType elementTarget = ((ArrayType) targetType).getItemType();
             ArrayItemReference item = new ArrayItemReference("item", input);
@@ -102,9 +107,9 @@ public final class IcebergUuidWriteConverter {
                 }
                 return TypeCoercionUtils.processBoundFunction(new CreateMap(children.toArray(new Expression[0])));
             }
-            // Cast the entire map once: separately extracting keys and values would evaluate
-            // a volatile source twice and could pair keys with values from a different map.
-            return new Cast(input, targetType, false, true);
+            // Evaluate the map once, but change only UUID text leaves in the strict cast.
+            // Narrowing non-UUID siblings here would override ordinary sink cast semantics.
+            return new Cast(input, uuidIntermediateType(input.getDataType(), targetType, false), false, true);
         }
         if (targetType instanceof StructType) {
             if (!(input instanceof SlotReference) && !(input instanceof StructLiteral)) {
@@ -136,6 +141,9 @@ public final class IcebergUuidWriteConverter {
     }
 
     private static boolean needsConversion(DataType input, DataType semantic) {
+        if (input.isStringLikeType() && containsUuid(semantic)) {
+            return true;
+        }
         if (semantic instanceof UuidType) {
             return input.isStringLikeType();
         }
@@ -160,6 +168,61 @@ public final class IcebergUuidWriteConverter {
             }
         }
         return false;
+    }
+
+    /** Preserve source siblings while parsing containers or validating UUID text leaves. */
+    private static DataType uuidIntermediateType(DataType input, DataType target, boolean parseContainers) {
+        if (input.isStringLikeType() && containsUuid(target)) {
+            if (target.isUuidType()) {
+                return parseContainers ? input : target;
+            }
+            return parseContainers ? uuidTextType(target) : input;
+        }
+        if (input instanceof ArrayType && target instanceof ArrayType) {
+            return ArrayType.of(uuidIntermediateType(((ArrayType) input).getItemType(),
+                    ((ArrayType) target).getItemType(), parseContainers));
+        }
+        if (input instanceof MapType && target instanceof MapType) {
+            return MapType.of(uuidIntermediateType(((MapType) input).getKeyType(),
+                    ((MapType) target).getKeyType(), parseContainers),
+                    uuidIntermediateType(((MapType) input).getValueType(),
+                            ((MapType) target).getValueType(), parseContainers));
+        }
+        if (input instanceof StructType && target instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) input).getFields();
+            List<StructField> targetFields = ((StructType) target).getFields();
+            if (sourceFields.size() == targetFields.size()) {
+                List<StructField> fields = new ArrayList<>();
+                for (int i = 0; i < sourceFields.size(); i++) {
+                    StructField source = sourceFields.get(i);
+                    fields.add(source.withDataType(uuidIntermediateType(source.getDataType(),
+                            targetFields.get(i).getDataType(), parseContainers)));
+                }
+                return new StructType(fields);
+            }
+        }
+        return input;
+    }
+
+    private static DataType uuidTextType(DataType type) {
+        if (type.isUuidType()) {
+            return StringType.INSTANCE;
+        }
+        if (type instanceof ArrayType) {
+            return ArrayType.of(uuidTextType(((ArrayType) type).getItemType()));
+        }
+        if (type instanceof MapType) {
+            return MapType.of(uuidTextType(((MapType) type).getKeyType()),
+                    uuidTextType(((MapType) type).getValueType()));
+        }
+        if (type instanceof StructType) {
+            List<StructField> fields = new ArrayList<>();
+            for (StructField field : ((StructType) type).getFields()) {
+                fields.add(field.withDataType(uuidTextType(field.getDataType())));
+            }
+            return new StructType(fields);
+        }
+        return type;
     }
 
 }

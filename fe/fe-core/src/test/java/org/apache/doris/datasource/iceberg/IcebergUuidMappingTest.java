@@ -24,6 +24,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
@@ -35,6 +38,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
 
@@ -80,6 +84,59 @@ public class IcebergUuidMappingTest {
         Assert.assertEquals(new NullLiteral(UuidType.INSTANCE),
                 IcebergUuidWriteConverter.convert(NullLiteral.INSTANCE, UuidType.INSTANCE));
         Assert.assertSame(text, IcebergUuidWriteConverter.convert(text, StringType.INSTANCE));
+    }
+
+    @Test
+    public void mapUuidValidationPreservesOrdinarySiblingCasts() {
+        SlotReference source = new SlotReference("m", MapType.of(StringType.INSTANCE, BigIntType.INSTANCE));
+        MapType target = MapType.of(UuidType.INSTANCE, IntegerType.INSTANCE);
+        Expression result = IcebergUuidWriteConverter.convert(source, target);
+        Assert.assertEquals(target, result.getDataType());
+        Assert.assertTrue(result instanceof Cast);
+        Assert.assertFalse(((Cast) result).isStrict());
+        Cast validation = (Cast) result.child(0);
+        Assert.assertTrue(validation.isStrict());
+        Assert.assertEquals(MapType.of(UuidType.INSTANCE, BigIntType.INSTANCE), validation.getDataType());
+        Assert.assertSame(source, validation.child(0));
+    }
+
+    @Test
+    public void mapValidationPreservesNestedSiblingTypesAndNullability() {
+        StructType sourceValue = new StructType(Arrays.asList(
+                new StructField("u", StringType.INSTANCE, true, ""),
+                new StructField("n", BigIntType.INSTANCE, true, "")));
+        StructType targetValue = new StructType(Arrays.asList(
+                new StructField("u", UuidType.INSTANCE, true, ""),
+                new StructField("n", IntegerType.INSTANCE, true, "")));
+        SlotReference source = new SlotReference("m", MapType.of(StringType.INSTANCE, ArrayType.of(sourceValue)));
+        Expression result = IcebergUuidWriteConverter.convert(source,
+                MapType.of(StringType.INSTANCE, ArrayType.of(targetValue)));
+        Assert.assertFalse(((Cast) result).isStrict());
+        Cast validation = (Cast) result.child(0);
+        Assert.assertTrue(validation.isStrict());
+        Assert.assertSame(source, validation.child(0));
+        Assert.assertEquals(MapType.of(StringType.INSTANCE, ArrayType.of(new StructType(Arrays.asList(
+                new StructField("u", UuidType.INSTANCE, true, ""),
+                new StructField("n", BigIntType.INSTANCE, true, ""))))), validation.getDataType());
+    }
+
+    @Test
+    public void serializedContainersValidateUuidTextBeforeOrdinaryCoercion() {
+        SlotReference source = new SlotReference("text", StringType.INSTANCE);
+        for (DataType target : Arrays.asList(ArrayType.of(UuidType.INSTANCE),
+                MapType.of(UuidType.INSTANCE, IntegerType.INSTANCE),
+                new StructType(Arrays.asList(new StructField("u", UuidType.INSTANCE, true, ""),
+                        new StructField("n", IntegerType.INSTANCE, true, ""))),
+                ArrayType.of(MapType.of(StringType.INSTANCE, UuidType.INSTANCE)))) {
+            Expression result = IcebergUuidWriteConverter.convert(source, target);
+            Assert.assertEquals(target, result.getDataType());
+            Assert.assertTrue("Missing UUID validation for " + target, result.anyMatch(
+                    e -> e instanceof Cast && ((Cast) e).isStrict()
+                            && IcebergUuidWriteConverter.containsUuid(((Cast) e).getDataType())));
+            Assert.assertFalse("Serialized UUID text must survive initial parsing", result.anyMatch(
+                    e -> e instanceof Cast && e.child(0).equals(source)
+                            && IcebergUuidWriteConverter.containsUuid(((Cast) e).getDataType())));
+        }
     }
 
     @Test
