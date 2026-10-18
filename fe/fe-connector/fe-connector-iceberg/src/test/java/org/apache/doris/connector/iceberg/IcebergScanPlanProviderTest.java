@@ -1204,6 +1204,103 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void rowIdScanKeepsNullOfRetainedVoidFieldWhoseSourceColumnWasDropped() {
+        // A v1 table keeps a removed partition field as void(p), whose value is always null. Dropping p leaves the
+        // field without a type, but a null needs none: DML must keep working on files written under the void spec,
+        // which rewriting historical files cannot get rid of. MUTATION: serializing a null by its type -> red.
+        Table table = retainedVoidFieldTable("pv", true);
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pv")).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TIcebergFileDesc desc = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(1, desc.getPartitionSpecId());
+        Assertions.assertEquals("[null,\"5\"]", desc.getPartitionDataJson());
+    }
+
+    @Test
+    public void rowIdScanAcceptsAllVoidSpecWhoseSourceColumnWasDropped() {
+        // The same evolution when void(p) is the only field left: the spec is no longer partitioned.
+        Table table = retainedVoidFieldTable("pav", false);
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pav")).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TIcebergFileDesc desc = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(1, desc.getPartitionSpecId());
+    }
+
+    @Test
+    public void scannedPartitionCountKeepsPartitionsWhoseSourceColumnWasDropped() {
+        // Files of a historical identity(p) whose source column was dropped have no partition_data_json, but they
+        // are still scanned partitions: EXPLAIN partition=N/M and sql_block_rule partition_num must count them,
+        // each distinct tuple once, as legacy IcebergScanNode did by keying on PartitionData.
+        // MUTATION: counting only ranges with partition_data_json -> 1 -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "q", Types.IntegerType.get()));
+        PartitionSpec byP = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("pc", schema, byP);
+        table.newAppend()
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=7/a.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=7/b.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=8/c.parquet", 1024, null, "p=8"))
+                .commit();
+        table.updateSpec().removeField("p").addField("q").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/pc/q=1/d.parquet", 1024, null, "q=1"))
+                .commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                scanOf(new IcebergTableHandle("db1", "pc")).build());
+
+        Assertions.assertEquals(4, ranges.size());
+        Assertions.assertEquals(OptionalLong.of(3), provider.scannedPartitionCount(ranges));
+    }
+
+    /**
+     * A v1 table partitioned by p (and q when {@code keepQ}): p is removed from the spec, which v1 keeps as
+     * void(p), a file is written under that spec, p is dropped from the schema and the table is upgraded to v2.
+     */
+    private static Table retainedVoidFieldTable(String name, boolean keepQ) {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "q", Types.IntegerType.get()));
+        PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("p");
+        if (keepQ) {
+            spec.identity("q");
+        }
+        Table table = createTable(name, schema, spec.build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        table.updateSpec().removeField("p").commit();
+        PartitionSpec voidSpec = table.spec();
+        PartitionData partition = new PartitionData(voidSpec.partitionType());
+        if (keepQ) {
+            partition.set(1, 5);
+        }
+        table.newAppend()
+                .appendFile(DataFiles.builder(voidSpec)
+                        .withPath("s3://b/db/" + name + "/new.parquet")
+                        .withFileSizeInBytes(1024)
+                        .withRecordCount(10)
+                        .withFormat(FileFormat.PARQUET)
+                        .withPartition(partition)
+                        .build())
+                .commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "2").commit();
+        return table;
+    }
+
+    @Test
     public void planScanKeepsUnpartitionedSpecIdentityAfterEvolvingToPartitioned() {
         // Guard for the DML $row_id contract: a file written before identity(p) was added must still report
         // spec 0 with an (empty) partition_data_json, so BE commits its delete file under spec 0 instead of

@@ -62,10 +62,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final int formatVersion;
     private final Integer partitionSpecId;
     private final String partitionDataJson;
-    // FE-only: the file's partition tuple has a value that cannot be serialized (a historical partition field
-    // whose source column was dropped), so partitionDataJson is absent. Ordinary reads do not need it; a scan
-    // that produces row IDs is rejected (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData).
-    private final boolean partitionDataUnavailable;
+    // FE-only, set when the file's partition tuple has a value that cannot be serialized (a historical partition
+    // field whose source column was dropped), so partitionDataJson is absent: the raw values identify the
+    // partition for getScannedPartitionKey, and a scan that produces row IDs is rejected
+    // (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData). Ordinary reads need neither.
+    private final String rawPartitionKey;
     private final Long firstRowId;
     private final Long lastUpdatedSequenceNumber;
     // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
@@ -138,7 +139,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.formatVersion = builder.formatVersion;
         this.partitionSpecId = builder.partitionSpecId;
         this.partitionDataJson = builder.partitionDataJson;
-        this.partitionDataUnavailable = builder.partitionDataUnavailable;
+        this.rawPartitionKey = builder.rawPartitionKey;
         this.firstRowId = builder.firstRowId;
         this.lastUpdatedSequenceNumber = builder.lastUpdatedSequenceNumber;
         this.partitionValues = builder.partitionValues != null
@@ -238,17 +239,22 @@ public class IcebergScanRange implements ConnectorScanRange {
      * A distinct-faithful key for the native iceberg partition this file belongs to (FIX-L12), or
      * {@code null} when the file carries no {@code PartitionData} (unpartitioned / current spec
      * unpartitioned). Combines the partition-spec id with the serialized {@code PartitionData}
-     * ({@code partitionDataJson}) so that two files are keyed equal iff they share the same spec and
+     * ({@code partitionDataJson}), or with its raw values when they cannot be serialized
+     * ({@code rawPartitionKey}), so that two files are keyed equal iff they share the same spec and
      * partition tuple — mirroring legacy {@code IcebergScanNode}'s de-dup by
      * {@code (PartitionData) file().partition()}, and disambiguating cross-spec value collisions
      * (e.g. {@code identity(id)=2} vs {@code bucket(id)=2}) that the value-only json would merge.
      * {@code IcebergScanPlanProvider} counts distinct non-null keys for {@code selectedPartitionNum}.
      */
     String getScannedPartitionKey() {
-        if (partitionDataJson == null || !countsAsScannedPartition) {
+        if (!countsAsScannedPartition) {
             return null;
         }
-        return partitionSpecId + "|" + partitionDataJson;
+        if (partitionDataJson != null) {
+            return partitionSpecId + "|" + partitionDataJson;
+        }
+        // The marker keeps a raw tuple apart from a serialized one of the same spec.
+        return rawPartitionKey == null ? null : partitionSpecId + "|raw" + rawPartitionKey;
     }
 
     Integer getPartitionSpecId() {
@@ -256,7 +262,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     }
 
     boolean isPartitionDataUnavailable() {
-        return partitionDataUnavailable;
+        return rawPartitionKey != null;
     }
 
     /**
@@ -491,7 +497,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private int formatVersion = 2;
         private Integer partitionSpecId;
         private String partitionDataJson;
-        private boolean partitionDataUnavailable;
+        private String rawPartitionKey;
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
@@ -583,8 +589,8 @@ public class IcebergScanRange implements ConnectorScanRange {
             return this;
         }
 
-        public Builder partitionDataUnavailable(boolean partitionDataUnavailable) {
-            this.partitionDataUnavailable = partitionDataUnavailable;
+        public Builder rawPartitionKey(String rawPartitionKey) {
+            this.rawPartitionKey = rawPartitionKey;
             return this;
         }
 

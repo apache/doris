@@ -525,6 +525,49 @@ public class IcebergPartitionUtilsTest {
                 () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
     }
 
+    @Test
+    public void partitionDataJsonKeepsNullOfFieldWhoseSourceColumnWasDropped() {
+        // A null needs no type: the void field a v1 table keeps for a removed partition field is always null, and a
+        // historical NULL partition is one, so both still serialize after the source column is dropped.
+        // MUTATION: serializing a null by its type -> UnsupportedOperationException -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, null);
+
+        Assertions.assertEquals("[null]", IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void rawPartitionKeyIdentifiesTupleThatCannotBeSerialized() {
+        // The scanned-partition count keys such a tuple by its raw values: binary as hex (a ByteBuffer has no
+        // content-based toString), and a null apart from the string "null".
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "s", Types.StringType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").identity("b").identity("s")
+                .build());
+        table.updateSpec().removeField("p").removeField("b").commit();
+        table.updateSchema().deleteColumn("p").deleteColumn("b").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+        pd.set(1, ByteBuffer.wrap(new byte[] {0x61, 0x62}));
+        pd.set(2, null);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+        Assertions.assertEquals("[\"7\",\"0x6162\",null]", IcebergPartitionUtils.getRawPartitionKey(pd));
+        pd.set(2, "null");
+        Assertions.assertEquals("[\"7\",\"0x6162\",\"null\"]", IcebergPartitionUtils.getRawPartitionKey(pd));
+    }
+
     // ---- parsePartitionValueFromString: legacy IcebergUtils.parsePartitionValueFromString matrix (T04) ----
     // The write-direction inverse of serializePartitionValue: BE sends human-readable partition strings, the
     // connector converts them to iceberg internal partition objects for PartitionData. Mirrors legacy cell-by-cell.

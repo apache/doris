@@ -1627,7 +1627,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private DataFile file;
         private Integer partitionSpecId;
         private String partitionDataJson;
-        private boolean partitionDataUnavailable;
+        private String rawPartitionKey;
         private Map<String, String> partitionValues = Collections.emptyMap();
         // The table's CURRENT spec isPartitioned() — scan-invariant, memoized with the rest so the display
         // gate (see IcebergScanRange#getScannedPartitionKey) costs one table.spec() per file, not per slice.
@@ -1682,7 +1682,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .formatVersion(formatVersion)
                 .partitionSpecId(file.partitionSpecId)
                 .partitionDataJson(file.partitionDataJson)
-                .partitionDataUnavailable(file.partitionDataUnavailable)
+                .rawPartitionKey(file.rawPartitionKey)
                 .firstRowId(file.firstRowId)
                 .lastUpdatedSequenceNumber(file.lastUpdatedSequenceNumber)
                 .partitionValues(file.partitionValues)
@@ -1708,7 +1708,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         perFileInvariantComputeCount++;
         Integer partitionSpecId = null;
         String partitionDataJson = null;
-        boolean partitionDataUnavailable = false;
+        String rawPartitionKey = null;
         Map<String, String> partitionValues = Collections.emptyMap();
         if (partitioned && dataFile.partition() instanceof PartitionData) {
             PartitionData partitionData = (PartitionData) dataFile.partition();
@@ -1719,8 +1719,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 partitionDataJson = IcebergPartitionUtils.getPartitionDataJson(partitionData, spec, zone);
             } catch (UnsupportedOperationException e) {
                 // A historical partition field whose source column was dropped has no serializable type. Only
-                // row IDs need the tuple, so the file stays readable and a row-ID scan is rejected per call.
-                partitionDataUnavailable = true;
+                // row IDs need the tuple, so the file stays readable and a row-ID scan is rejected per call; the
+                // raw values still count the file's partition in EXPLAIN partition=N/M and sql_block_rule.
+                rawPartitionKey = IcebergPartitionUtils.getRawPartitionKey(partitionData);
             }
             // Order the identity values as the path_partition_keys list (legacy getOrderedPathPartitionKeys),
             // filtered to keys this file carries — so columns-from-path matches legacy ordering exactly.
@@ -1761,7 +1762,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.file = dataFile;
         file.partitionSpecId = partitionSpecId;
         file.partitionDataJson = partitionDataJson;
-        file.partitionDataUnavailable = partitionDataUnavailable;
+        file.rawPartitionKey = rawPartitionKey;
         file.partitionValues = partitionValues;
         // Display-only gate (see IcebergScanRange#getScannedPartitionKey): a table whose CURRENT spec is
         // unpartitioned reports no partitions, so the old-spec partitions its files still carry must not

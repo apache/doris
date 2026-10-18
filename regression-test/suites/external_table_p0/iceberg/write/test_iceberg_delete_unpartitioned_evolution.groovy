@@ -147,6 +147,12 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         }
         checkRows(table, expected)
         assertEquals([[0L]], sql("""select count(*) from ${table}\$delete_files"""))
+        // A NULL partition value needs no type, so the file of partition_key = NULL still takes DML.
+        def expectedAfterNullPartitionDelete = spark_iceberg """
+            select record_key, metric from demo.${dbName}.${table} where record_key <> 3 order by record_key
+        """
+        sql """delete from ${table} where record_key = 3"""
+        checkRows(table, expectedAfterNullPartitionDelete)
     }
 
     // Historical binary partitions must retain their bytes, not become NULL delete partitions.
