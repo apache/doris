@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -39,11 +40,17 @@ protected:
     using Admission = JniScanHeapGate::Admission;
 
     void SetUp() override {
-        _saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
-        config::jni_scanner_heap_max_wait_ms = 60000;
+        _saved_max_wait_ms = config::get_jni_scanner_heap_max_wait_ms();
+        set_max_wait_ms(60000);
     }
 
-    void TearDown() override { config::jni_scanner_heap_max_wait_ms = _saved_max_wait_ms; }
+    void TearDown() override { set_max_wait_ms(_saved_max_wait_ms); }
+
+    // Through set_config(), which publishes the value the gate reads.
+    static void set_max_wait_ms(int64_t ms) {
+        auto st = config::set_config("jni_scanner_heap_max_wait_ms", std::to_string(ms));
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
     // For a reader whose scan never stops.
     std::unique_ptr<Admission> request(int64_t mb) {
@@ -199,7 +206,7 @@ TEST_F(JniScanHeapGateTest, AStoppedReaderFirstInLineLetsTheNextOneIn) {
 }
 
 TEST_F(JniScanHeapGateTest, AdmitsAReaderThatWaitedLongerThanTheLongestWait) {
-    config::jni_scanner_heap_max_wait_ms = 200;
+    set_max_wait_ms(200);
     auto holder = request(500);
 
     auto late = request(100);
@@ -217,7 +224,7 @@ TEST_F(JniScanHeapGateTest, ReadersThatWaitedTooLongTogetherAreAllAdmittedAboveT
     // admitted whatever the account says. It is there for a holder that cannot finish until a
     // waiter does (a join whose build side waits for shares the probe side keeps until the build is
     // done); with a holder that merely runs long, the readers behind it open above the budget at once.
-    config::jni_scanner_heap_max_wait_ms = 300;
+    set_max_wait_ms(300);
     auto holder = request(500);
     std::vector<std::unique_ptr<Admission>> waiters;
     for (int i = 0; i < 4; ++i) {

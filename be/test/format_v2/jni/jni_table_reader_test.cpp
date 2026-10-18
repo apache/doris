@@ -17,6 +17,7 @@
 
 #include "format_v2/jni/jni_table_reader.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -151,14 +152,20 @@ class TenMegabyteProcessGate {
 public:
     static constexpr int64_t BUDGET = 10L * 1024 * 1024;
 
-    TenMegabyteProcessGate() : _saved_ratio(config::jni_scanner_heap_budget_ratio) {
-        config::jni_scanner_heap_budget_ratio =
-                static_cast<double>(BUDGET) /
-                static_cast<double>(std::numeric_limits<size_t>::max());
+    TenMegabyteProcessGate() : _saved_ratio(config::get_jni_scanner_heap_budget_ratio()) {
+        set_ratio(static_cast<double>(BUDGET) /
+                  static_cast<double>(std::numeric_limits<size_t>::max()));
     }
-    ~TenMegabyteProcessGate() { config::jni_scanner_heap_budget_ratio = _saved_ratio; }
+    ~TenMegabyteProcessGate() { set_ratio(_saved_ratio); }
 
 private:
+    // Through set_config(), which publishes the value the gate reads. "{}" writes the shortest text
+    // that parses back to the same double.
+    static void set_ratio(double ratio) {
+        auto st = config::set_config("jni_scanner_heap_budget_ratio", fmt::format("{}", ratio));
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
     const double _saved_ratio;
 };
 
