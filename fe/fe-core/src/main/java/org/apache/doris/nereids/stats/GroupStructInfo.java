@@ -21,8 +21,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -77,8 +77,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -951,19 +949,6 @@ public class GroupStructInfo {
         }
     }
 
-    /**
-     * The description of a CTE producer and whether a consumer already inherited its scan tokens (the
-     * tables of the producer are read once, so only the first reference counts them).
-     */
-    private static final class Producer {
-        private final Node node;
-        private boolean tokensInherited;
-
-        private Producer(Node node) {
-            this.node = node;
-        }
-    }
-
     // ---------------------------------------------------------------- build (memo level)
 
     /**
@@ -985,25 +970,13 @@ public class GroupStructInfo {
             return conditionsNode(Kind.FILTER, ((Filter) plan).getConjuncts(), ge, ctx);
         }
         if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer) {
-            // a consumer reads the result of its producer, so it is described as the producer's sub tree:
-            // a plan which consumes a CTE then has the same key as the same plan with that CTE inlined.
-            // The two consumer classes are handled identically - both are leaves which reference the
-            // producer by id and neither has a sub tree of its own.
-            Producer producer = ctx.cteProducers.get(cteIdOf(plan));
-            if (producer == null) {
-                // the producer is not on the path the traversal took (its anchor is not an ancestor of
-                // this consumer, or the producer could not be described), so the consumer cannot be
-                // followed - and neither can any plan which contains it
-                return invalidNode("unsupported=cte consumer without a memo edge", ctx);
-            }
-            // the tables of the producer are read once: the first reference inherits the scan tokens and
-            // every later one is a repeated reference (see Child#repeated)
-            boolean repeated = producer.tokensInherited;
-            producer.tokensInherited = true;
-            Node node = new Node(Kind.PASSTHROUGH);
-            node.children = new ArrayList<>(1);
-            node.children.add(new Child(producer.node, repeated));
-            return node;
+            // both consumers are leaves which reference their producer by id, and neither has a sub tree
+            // which this description could follow: the producer is reachable only from its anchor, and a
+            // group is described bottom-up (DeriveStatsJob, collectHboPlanInfo, the explain annotation),
+            // so the consumer side is visited before the anchor and no producer is known there yet. A plan
+            // which contains a consumer therefore stays undescribed - the same message for both classes,
+            // because the reason is the same.
+            return invalidNode("unsupported=cte consumer without a memo edge", ctx);
         }
         if (plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
             // a producer materializes the sub tree it was given: transparent
@@ -1020,18 +993,17 @@ public class GroupStructInfo {
                 return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
                         + plan.getClass().getSimpleName(), ctx);
             }
-            describeCteProducer(cteIdOf(plan), ge, ctx);
             return passthroughNode(ge, 1, ctx);
         }
         if (plan instanceof LogicalFileScan) {
             LogicalFileScan fileScan = (LogicalFileScan) plan;
-            return fileScanNode(fileScan.getTable(),
-                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+            return fileScanNode(fileScan.getTable(), fileScan.getTableSnapshot().isPresent()
+                    || fileScan.getScanParams().isPresent() || fileScan.getTableSample().isPresent(), ctx);
         }
         if (plan instanceof PhysicalFileScan) {
             PhysicalFileScan fileScan = (PhysicalFileScan) plan;
-            return fileScanNode(fileScan.getTable(),
-                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+            return fileScanNode(fileScan.getTable(), fileScan.getTableSnapshot().isPresent()
+                    || fileScan.getScanParams().isPresent(), ctx);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
@@ -1263,9 +1235,9 @@ public class GroupStructInfo {
     }
 
     /**
-     * A scan of an external table. Its identity is the table name only, which is why two explicit
-     * snapshots of one table would share it although they hold different rows: such a scan is not
-     * described until the selector is part of the identity.
+     * A scan of an external table. Its identity is the table name only, which is why a scan which reads an
+     * explicit snapshot or a sampled part of one would share it although it holds different rows: such a
+     * scan is not described until the selector is part of the identity.
      */
     private static Node fileScanNode(TableIf table, boolean explicitlyVersioned, Ctx ctx) {
         String name = HboScanDescriptor.qualifiedNameOf(table);
@@ -1275,7 +1247,7 @@ public class GroupStructInfo {
             return invalidNode("delimiter in table name " + name, ctx);
         }
         if (explicitlyVersioned) {
-            return invalidNode("versioned file scan " + name, ctx);
+            return invalidNode("selected file scan " + name, ctx);
         }
         return scanRecord(Kind.FILE_SCAN, HboScanDescriptor.ofUnreadableState(table));
     }
@@ -1325,43 +1297,6 @@ public class GroupStructInfo {
             children.add(new Child(child.root(), false));
         }
         return children;
-    }
-
-    /**
-     * Describe the producer of a CTE so that its consumers can be described as its sub tree. The anchor
-     * renders only its consumer side, so the producer's text is written once per consumer and never by
-     * the anchor; the description is still built here, because this is the only point of the traversal
-     * which can reach the producer's group.
-     */
-    private static void describeCteProducer(CTEId cteId, GroupExpression ge, Ctx ctx) {
-        if (cteId == null || ctx.cteProducers.containsKey(cteId) || !ctx.describingCte.add(cteId)) {
-            return;
-        }
-        try {
-            GroupStructInfo producer = describeChild(ge, 0, ctx);
-            if (producer != null) {
-                ctx.cteProducers.put(cteId, new Producer(producer.root()));
-            }
-        } finally {
-            ctx.describingCte.remove(cteId);
-        }
-    }
-
-    /** The CTE id of a consumer or of an anchor, or null for another plan. */
-    private static CTEId cteIdOf(Plan plan) {
-        if (plan instanceof LogicalCTEConsumer) {
-            return ((LogicalCTEConsumer) plan).getCteId();
-        }
-        if (plan instanceof PhysicalCTEConsumer) {
-            return ((PhysicalCTEConsumer) plan).getCteId();
-        }
-        if (plan instanceof LogicalCTEAnchor) {
-            return ((LogicalCTEAnchor<?, ?>) plan).getCteId();
-        }
-        if (plan instanceof PhysicalCTEAnchor) {
-            return ((PhysicalCTEAnchor<?, ?>) plan).getCteId();
-        }
-        return null;
     }
 
     private static Node invalidNode(String reason, Ctx ctx) {
@@ -1541,7 +1476,13 @@ public class GroupStructInfo {
             // first definition and `rank() AS x` with it are the same definition set, but a predicate
             // above the window keeps a different number of rows from x in the two plans. The name is
             // encoded like every other value, so a name carrying a delimiter can not split the entry
-            out.append(encodeLiteralValue(namedExpression.toSlot().getName())).append('=');
+            if (namedExpression instanceof Alias) {
+                // only an explicit alias names the output in a way the user chose; the generated name of an
+                // unaliased window is the source text of its definition, which would make the key depend on
+                // the spelling of the statement
+                out.append(encodeLiteralValue(namedExpression.toSlot().getName()).replace("=", "%3D"))
+                        .append('=');
+            }
             // the definition of a window decides the values a node above it reads, so its literals are
             // part of the identity and are written in both modes (see Kind.literalsAreIdentity)
             out.append(identityText(windowExpression.getFunction()));
@@ -2261,10 +2202,6 @@ public class GroupStructInfo {
 
     /** The state of one build: it describes the sub tree of the group it was started at. */
     private static class Ctx {
-        /** The producer of every CTE the traversal passed, keyed by the id its consumers reference. */
-        private final Map<CTEId, Producer> cteProducers = new LinkedHashMap<>();
-        /** The producers being described right now: a recursive reference can not be described. */
-        private final Set<CTEId> describingCte = new LinkedHashSet<>();
 
         private boolean valid = true;
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */

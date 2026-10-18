@@ -33,6 +33,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.hash.Hashing;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -211,13 +212,16 @@ public class HboStatisticsCommand extends Command {
                 // double rounds a value above 2^53 before it can be stored. The check needs the token and
                 // the type - a fan-out factor above that bound is legitimate, which is why the parser can
                 // not decide it - so it happens here
-                if (valueText != null && isIntegerToken(valueText)) {
+                if (valueText != null) {
+                    // a row count has to be an exact integer: a double rounds a value above 2^53, and the
+                    // token is the only place where the number the user wrote is still exact - a decimal
+                    // token (`9007199254740993.0`) has to reach the same check as an integer one
                     long exact;
                     try {
-                        exact = Long.parseLong(valueText);
-                    } catch (NumberFormatException e) {
-                        throw new AnalysisException(
-                                "hbo statistics VALUE is too large to be represented: " + valueText);
+                        exact = new BigDecimal(valueText).longValueExact();
+                    } catch (ArithmeticException | NumberFormatException e) {
+                        throw new AnalysisException("hbo statistics VALUE is not an exact row count: " + valueText
+                                + " (the largest exact value is " + (1L << 53) + ")");
                     }
                     if (!Double.isFinite(value) || (long) value != exact) {
                         throw new AnalysisException("hbo statistics VALUE is not an exact row count: " + valueText
@@ -407,11 +411,6 @@ public class HboStatisticsCommand extends Command {
         throw new AnalysisException("hbo statistics STRUCT does not match the fingerprint " + targetFingerprint
                 + " for LITERAL_MODE=" + literalMode.name().toLowerCase(java.util.Locale.ROOT)
                 + ", copy the struct= value of the target node from EXPLAIN");
-    }
-
-    /** Whether a VALUE token is written without a fraction or an exponent, i.e. as an integer. */
-    private static boolean isIntegerToken(String text) {
-        return text.indexOf('.') < 0 && text.indexOf('e') < 0 && text.indexOf('E') < 0;
     }
 
     /**

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
@@ -933,11 +934,16 @@ public class GroupStructInfoGoldenTest {
         WindowExpression rowNumber = new WindowExpression(new RowNumber(), ImmutableList.of(), orderKeys, frame);
         WindowExpression ntile = new WindowExpression(new Ntile(new IntegerLiteral(4)),
                 ImmutableList.of(), orderKeys, frame);
+        // the definitions stay in the same order; only the names of their outputs are swapped, which is
+        // exactly the pair the name prefix exists for (without it both render the same header)
         Alias x = new Alias(xIsRowNumber ? rowNumber : ntile, "x");
         Alias y = new Alias(xIsRowNumber ? ntile : rowNumber, "y");
-        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(ImmutableList.of(x, y), t1);
+        Slot outputX = xIsRowNumber ? x.toSlot() : y.toSlot();
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(
+                ImmutableList.of(new Alias(rowNumber, xIsRowNumber ? "x" : "y"),
+                        new Alias(ntile, xIsRowNumber ? "y" : "x")), t1);
         return describe(new LogicalFilter<>(ImmutableSet.of(
-                new EqualTo(x.toSlot(), new IntegerLiteral(1))), window));
+                new EqualTo(outputX, new IntegerLiteral(1))), window));
     }
 
     private static GroupStructInfo windowFunctionWithFourBuckets() {
