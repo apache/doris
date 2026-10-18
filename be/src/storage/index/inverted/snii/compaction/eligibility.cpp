@@ -74,6 +74,26 @@ Status validate_source_shape(const reader::LogicalIndexReader& source, size_t so
     return Status::OK();
 }
 
+Status validate_source_shape(const reader::LogicalIndexReader& source, size_t source_ordinal,
+                             bool has_positions) {
+    if (source.has_positions() != has_positions ||
+        source.tier() != (has_positions ? format::IndexTier::kT2 : format::IndexTier::kT1)) {
+        return reject(
+                fmt::format("source {} position shape differs from destination", source_ordinal));
+    }
+    // Gram indexes may omit common postings and need their scheme retained on output.
+    if (!has_positions && source.gram_scheme().has_value()) {
+        return reject(fmt::format("source {} carries a gram scheme", source_ordinal));
+    }
+    const auto& stats = source.stats();
+    if (stats.indexed_doc_count > stats.doc_count ||
+        stats.null_count != stats.doc_count - stats.indexed_doc_count) {
+        return reject(fmt::format("source {} document statistics violate indexed + null = doc",
+                                  source_ordinal));
+    }
+    return Status::OK();
+}
+
 Status reject_legacy_bigram(const reader::LogicalIndexReader& source, size_t source_ordinal) {
     bool found_legacy_bigram = false;
     RETURN_IF_ERROR(source.visit_prefix_terms(
@@ -117,8 +137,9 @@ Status resolve_destination_analyzer(const TabletIndex& destination_index,
 Status validate_destination_policy(const TabletIndex& destination_index,
                                    const AnalyzerProviderFactory& analyzer_provider_factory) {
     const auto& properties = destination_index.properties();
-    if (get_parser_phrase_support_string_from_properties(properties) !=
-        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+    if (properties.contains(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) &&
+        get_parser_phrase_support_string_from_properties(properties) !=
+                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
         return reject("destination does not request phrase positions");
     }
     if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)) {
@@ -146,8 +167,10 @@ Status validate_plain_t2_source_eligibility(const reader::LogicalIndexReader& so
 
 Status validate_snii_source_eligibility(const reader::LogicalIndexReader& source,
                                         size_t source_ordinal,
-                                        const SniiCompactionEligibility& /*eligibility*/) {
-    return validate_plain_t2_source_eligibility(source, source_ordinal);
+                                        const SniiCompactionEligibility& eligibility) {
+    RETURN_IF_ERROR(
+            validate_source_shape(source, source_ordinal, eligibility.destination_has_positions));
+    return reject_legacy_bigram(source, source_ordinal);
 }
 
 Status validate_plain_t2_compaction_eligibility(
@@ -206,10 +229,14 @@ Status validate_snii_compaction_eligibility(
     if (!destination_index.is_inverted_index()) {
         return reject("destination is not an inverted index");
     }
-    if (get_parser_phrase_support_string_from_properties(destination_index.properties()) !=
-        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
-        return reject("destination does not request phrase positions");
-    }
+    const auto& destination_properties = destination_index.properties();
+    const bool explicit_phrase_policy =
+            destination_properties.contains(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY);
+    out->destination_has_positions =
+            explicit_phrase_policy
+                    ? get_parser_phrase_support_string_from_properties(destination_properties) ==
+                              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
+                    : sources.front().reader.get().has_positions();
 
     const TabletIndex& first_index_meta = sources.front().index_meta.get();
     if (!first_index_meta.is_inverted_index()) {
@@ -238,18 +265,18 @@ Status validate_snii_compaction_eligibility(
     }
 
     for (size_t source_ordinal = 0; source_ordinal < sources.size(); ++source_ordinal) {
-        if (sources[source_ordinal].reader.get().tier() != format::IndexTier::kT2) {
-            return reject(fmt::format("source {} is not a positional (T2) index", source_ordinal));
-        }
-        RETURN_IF_ERROR(validate_plain_t2_source_eligibility(sources[source_ordinal].reader.get(),
-                                                             source_ordinal));
+        RETURN_IF_ERROR(validate_snii_source_eligibility(sources[source_ordinal].reader.get(),
+                                                         source_ordinal, *out));
     }
-    RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
+    if (out->destination_has_positions) {
+        RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
+    }
     // Merged norms are rebuilt from the postings, so the destination follows the same norms
     // policy as a fresh write whether or not the sources carry norms.
-    out->destination_writes_norms = inverted_index::InvertedIndexAnalyzer::should_analyzer(
-                                            destination_index.properties()) &&
-                                    should_write_index_norms(destination_index);
+    out->destination_writes_norms =
+            out->destination_has_positions &&
+            inverted_index::InvertedIndexAnalyzer::should_analyzer(destination_properties) &&
+            should_write_index_norms(destination_index);
     return Status::OK();
 }
 
