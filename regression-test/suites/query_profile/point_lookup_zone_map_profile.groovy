@@ -34,6 +34,10 @@ suite('point_lookup_zone_map_profile', 'nonConcurrent') {
         INSERT INTO point_lookup_zone_map_profile
         SELECT number, number FROM numbers("number" = "200000")
     '''
+    // An INSERT ... SELECT can create several segments depending on sink parallelism, and the
+    // segment-level zone map then charges whole segments as stats-filtered before the per-segment
+    // key range runs. Compact first so the key-range accounting below is checked on one segment.
+    trigger_and_wait_compaction('point_lookup_zone_map_profile', 'full', 1800)
 
     sql 'set enable_profile=true'
     sql 'set profile_level=2'
