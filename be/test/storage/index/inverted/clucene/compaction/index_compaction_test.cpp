@@ -1808,7 +1808,6 @@ TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_
 TEST_F(IndexCompactionTest, snii_native_merge_compacts_phrase_and_docs_only_siblings) {
     _build_snii_multi_index_tablet(/*second_supports_phrase=*/false);
     const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
-    constexpr int32_t output_segment_start_id = 10;
     auto check_merge = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
         EXPECT_EQ(ctx.snii_indexes_to_do_compaction,
@@ -1816,18 +1815,15 @@ TEST_F(IndexCompactionTest, snii_native_merge_compacts_phrase_and_docs_only_sibl
         EXPECT_EQ(compaction._output_rowset->num_segments(), 2);
     };
     RowsetSharedPtr output;
-    const Status status =
-            IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true, output,
-                                                check_merge, 1000, output_segment_start_id);
+    const Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                              output, check_merge, 1000);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(output, nullptr);
     std::vector<uint32_t> segment_rows;
     output->rowset_meta()->get_num_segment_rows(&segment_rows);
     ASSERT_EQ(segment_rows.size(), output->num_segments());
     for (uint32_t segment_pos = 0; segment_pos < output->num_segments(); ++segment_pos) {
-        const auto segment = output->segment(segment_pos);
-        EXPECT_EQ(segment.id(), output_segment_start_id + segment_pos);
-        const auto segment_path = segment.path();
+        const auto segment_path = output->segment_path(segment_pos);
         ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
         auto file_reader = IndexCompactionUtils::init_index_file_reader(
                 output, segment_path.value(), InvertedIndexStorageFormatPB::SNII);
@@ -1846,8 +1842,8 @@ TEST_F(IndexCompactionTest, snii_native_merge_compacts_phrase_and_docs_only_sibl
     ASSERT_NE(raw_rebuild, nullptr);
     ASSERT_EQ(output->num_segments(), raw_rebuild->num_segments());
     for (uint32_t segment_pos = 0; segment_pos < output->num_segments(); ++segment_pos) {
-        EXPECT_EQ(_read_index_file_bytes(output, output->segment(segment_pos).id()),
-                  _read_index_file_bytes(raw_rebuild, raw_rebuild->segment(segment_pos).id()));
+        EXPECT_EQ(_read_index_file_bytes(output, segment_pos),
+                  _read_index_file_bytes(raw_rebuild, segment_pos));
     }
 }
 
