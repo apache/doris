@@ -315,7 +315,8 @@ writer::TrackedEncodedNorms SniiPlainT2MergePlan::take_destination_encoded_norms
 }
 
 format::IndexConfig SniiPlainT2MergePlan::destination_index_config() const {
-    return format::IndexConfig::kDocsPositions;
+    return eligibility_.destination_has_positions ? format::IndexConfig::kDocsPositions
+                                                  : format::IndexConfig::kDocsOnly;
 }
 
 Status SniiPlainT2MergePlan::poison(Status status) {
@@ -338,8 +339,8 @@ Status SniiPlainT2MergePlan::take_front_source(TermMergeFrontier* frontier, Curr
     }
 
     const bool source_has_positions = posting_entry_has_positions(entry);
-    if (!source_has_positions) {
-        return index_compaction_merge_corruption("ordinary term has docs-only posting shape");
+    if (source_has_positions != eligibility_.destination_has_positions) {
+        return index_compaction_merge_corruption("term position shape differs from destination");
     }
     if (!current->has_positions.has_value()) {
         current->has_positions = source_has_positions;

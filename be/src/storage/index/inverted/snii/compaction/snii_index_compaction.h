@@ -37,8 +37,8 @@ namespace doris::snii::compaction {
 
 class TermMergeFrontier;
 
-// Prepared, one-shot merge of one plain positions-only logical index across
-// source segments. prepare() performs every O(1)-metadata, row-id and NULL
+// Prepared, one-shot merge of one homogeneous SNII index across source segments.
+// prepare() performs metadata, row-id and NULL
 // preflight before the caller creates destination streamed sessions. execute()
 // then performs exactly one dictionary/posting pass and seals every session.
 //
