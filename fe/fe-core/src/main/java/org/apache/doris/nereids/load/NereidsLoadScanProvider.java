@@ -32,6 +32,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ComplexTypeDefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.thrift.TFileFormatType;
@@ -460,6 +462,7 @@ public class NereidsLoadScanProvider {
             // the unknown column will be checked later.
             return originExpr;
         }
+        boolean nativeComplex = readsNativeComplexType(column);
 
         // To compatible with older load version
         if (originExpr instanceof Function) {
@@ -485,14 +488,15 @@ public class NereidsLoadScanProvider {
                     exprs.add(new Not(new IsNull(slot)));
                     exprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        exprs.add(canonicalizeComplexValue(column, funcExpr.child(1)));
+                        exprs.add(mappingValue(column, funcExpr.child(1), nativeComplex));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
-                            exprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
+                            exprs.add(mappingValue(column, NereidsLoadUtils.parseExpressionSeq(exprSql).get(0),
+                                    nativeComplex));
                         } else {
                             if (column.isAllowNull()) {
-                                exprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                                exprs.add(nullMappingValue(nativeComplex));
                             } else {
                                 throw new UserException("Column(" + columnName + ") has no default value.");
                             }
@@ -502,17 +506,18 @@ public class NereidsLoadScanProvider {
                     // case 2
                     exprs.add(new Not(new IsNull(slot)));
                     List<Expression> innerIfExprs = Lists.newArrayList();
-                    innerIfExprs.add(new Not(new EqualTo(slot, funcExpr.child(0))));
+                    innerIfExprs.add(new Not(searchValueComparison(slot, column, funcExpr.child(0), nativeComplex)));
                     innerIfExprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        innerIfExprs.add(canonicalizeComplexValue(column, funcExpr.child(1)));
+                        innerIfExprs.add(mappingValue(column, funcExpr.child(1), nativeComplex));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
-                            innerIfExprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
+                            innerIfExprs.add(mappingValue(column,
+                                    NereidsLoadUtils.parseExpressionSeq(exprSql).get(0), nativeComplex));
                         } else {
                             if (column.isAllowNull()) {
-                                innerIfExprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                                innerIfExprs.add(nullMappingValue(nativeComplex));
                             } else {
                                 throw new UserException("Column(" + columnName + ") has no default value.");
                             }
@@ -520,7 +525,7 @@ public class NereidsLoadScanProvider {
                     }
                     UnboundFunction innerIfFn = new UnboundFunction("if", innerIfExprs);
                     exprs.add(innerIfFn);
-                    exprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                    exprs.add(nullMappingValue(nativeComplex));
                 }
 
                 if (LOG.isDebugEnabled()) {
@@ -596,5 +601,57 @@ public class NereidsLoadScanProvider {
         }
         return new StringLiteral(ComplexTypeDefaultValue.canonicalize(
                 DataType.fromCatalogType(column.getOriginType()), ((StringLikeLiteral) value).getStringValue()));
+    }
+
+    /**
+     * Arrow reads a column with its declared type, so an ARRAY/MAP/STRUCT column keeps the complex type
+     * in its scan slot instead of being read as VARCHAR like the text formats. The mapping expressions
+     * have to work on that complex type, otherwise the IF branches mix complex and string values.
+     */
+    private boolean readsNativeComplexType(Column column) {
+        return column.getOriginType().isComplexType()
+                && fileGroupInfo.getFileGroup().getFileFormatProperties().getFileFormatType()
+                        == TFileFormatType.FORMAT_ARROW;
+    }
+
+    /**
+     * The mapping value of a complex column is written as canonical text. When the scan slot keeps the
+     * native complex type, parse that text into the column type: a string branch and a complex branch
+     * have no common type under the legacy type coercion behavior ({@code
+     * enable_new_type_coercion_behavior=false}).
+     */
+    private static Expression mappingValue(Column column, Expression value, boolean nativeComplex) {
+        Expression canonical = canonicalizeComplexValue(column, value);
+        if (!nativeComplex) {
+            return canonical;
+        }
+        return new Cast(canonical, DataType.fromCatalogType(column.getOriginType()));
+    }
+
+    /**
+     * The NULL branch of a mapping IF. The typed VARCHAR NULL used for text sources has no common type
+     * with a native complex branch under the legacy type coercion behavior, so leave it untyped.
+     */
+    private static Expression nullMappingValue(boolean nativeComplex) {
+        return nativeComplex ? new NullLiteral() : new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * A text source compares its raw value with the search text of {@code replace_value}. A native
+     * complex slot cannot be compared directly: MAP and STRUCT comparisons are rejected before type
+     * coercion, and the comparison has to work in both coercion modes. Compare the values rendered by
+     * the same complex SerDe instead, after parsing the search literal into the column type.
+     */
+    private static Expression searchValueComparison(Expression slot, Column column, Expression search,
+            boolean nativeComplex) {
+        if (!nativeComplex) {
+            return new EqualTo(slot, search);
+        }
+        DataType complexType = DataType.fromCatalogType(column.getOriginType());
+        Expression value = canonicalizeComplexValue(column, search);
+        if (search instanceof StringLikeLiteral) {
+            value = new Cast(value, complexType);
+        }
+        return new EqualTo(new Cast(slot, StringType.INSTANCE), new Cast(value, StringType.INSTANCE));
     }
 }

@@ -126,6 +126,20 @@ suite("test_complex_default_value") {
         sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<VARCHAR(2)> DEFAULT '["中"]'"""
         exception "Default value is too long: 中"
     }
+    // CHAR values are cut at the first NUL by the page decoder and by the default value iterator,
+    // but the row-store fill keeps every byte, so a nested CHAR default must not contain NUL
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<CHAR(3)> DEFAULT '["a\\0b"]'"""
+        exception "CHAR default value must not contain NUL"
+    }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v MAP<CHAR(3), INT> DEFAULT '{"a\\0b": 1}'"""
+        exception "CHAR default value must not contain NUL"
+    }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v STRUCT<f1:CHAR(3)> DEFAULT '{"a\\0b"}'"""
+        exception "CHAR default value must not contain NUL"
+    }
 
     // a multi-byte value whose UTF-8 byte length exactly fits the declared length is accepted and
     // materialized for omitted columns on later inserts

@@ -27,13 +27,21 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -169,23 +177,24 @@ public class NereidsLoadScanProviderTest {
                 Pair.of("default_value", Lists.newArrayList("[1e3, \"7\"]")));
         Assertions.assertEquals(canonical, context.exprMap.get("v"));
 
-        // v = replace_value(null, '[1e3, "7"]') becomes if(v is not null, v, '[1000, 7]')
+        // v = replace_value(null, '[1e3, "7"]') becomes if(v is not null, v, cast('[1000, 7]' as ARRAY<INT>))
         context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(new NullLiteral(),
                         new StringLiteral("[1e3, \"7\"]"))),
                 Pair.of("replace_value", Lists.newArrayList(null, "[1e3, \"7\"]")));
         Expression replaced = context.exprMap.get("v");
         Assertions.assertTrue(replaced instanceof UnboundFunction, replaced.toSql());
-        Assertions.assertEquals(canonical, replaced.child(2));
+        Assertions.assertEquals(canonical, ((Cast) replaced.child(2)).child());
 
-        // v = replace_value('[]', '[1e3, "7"]') becomes if(v is not null, if(v != '[]', v, '[1000, 7]'), null)
+        // v = replace_value('[]', '[1e3, "7"]') becomes
+        // if(v is not null, if(v != '[]', v, cast('[1000, 7]' as ARRAY<INT>)), null)
         context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"),
                         new StringLiteral("[1e3, \"7\"]"))),
                 Pair.of("replace_value", Lists.newArrayList("[]", "[1e3, \"7\"]")));
         replaced = context.exprMap.get("v");
         Assertions.assertTrue(replaced instanceof UnboundFunction, replaced.toSql());
-        Assertions.assertEquals(canonical, replaced.child(1).child(2));
+        Assertions.assertEquals(canonical, ((Cast) replaced.child(1).child(2)).child());
 
         // the value is validated as a literal of the column type before it is rewritten
         UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(table,
@@ -200,19 +209,98 @@ public class NereidsLoadScanProviderTest {
         Assertions.assertEquals(new StringLiteral("007"), context.exprMap.get("k"));
     }
 
+    @Test
+    public void testComplexColumnMappingOnTextSourceKeepsStringSpace() throws Exception {
+        OlapTable table = mockComplexTable();
+        StringLiteral canonical = new StringLiteral("[1000, 7]");
+        CsvFileFormatProperties textFormat = new CsvFileFormatProperties(FileFormatProperties.FORMAT_CSV);
+
+        // the text formats read the column as VARCHAR, so the replacement stays a string
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new NullLiteral(),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList(null, "[1e3, \"7\"]")), textFormat);
+        Expression replaced = context.exprMap.get("v");
+        Assertions.assertEquals(canonical, replaced.child(2));
+
+        // and the search value is compared with the raw text
+        context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList("[]", "[1e3, \"7\"]")), textFormat);
+        replaced = context.exprMap.get("v");
+        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertTrue(comparison.left() instanceof UnboundSlot, comparison.left().toSql());
+        Assertions.assertEquals(new StringLiteral("[]"), comparison.right());
+        Assertions.assertEquals(canonical, replaced.child(1).child(2));
+        Assertions.assertTrue(replaced.child(2) instanceof NullLiteral);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, replaced.child(2).getDataType());
+    }
+
+    @Test
+    public void testComplexColumnMappingOnArrowSourceUsesComplexType() throws Exception {
+        OlapTable table = mockComplexTable();
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral canonical = new StringLiteral("[1000, 7]");
+
+        // Arrow keeps the native complex type in the scan slot, so the replacement is parsed into it
+        // and the IF arms share one type under both coercion behaviors
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new NullLiteral(),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList(null, "[1e3, \"7\"]")));
+        Expression replaced = context.exprMap.get("v");
+        Cast replacement = (Cast) replaced.child(2);
+        Assertions.assertEquals(complexType, replacement.getDataType());
+        Assertions.assertEquals(canonical, replacement.child());
+
+        // MAP/STRUCT comparisons are rejected before coercion, so the search value is compared as the
+        // text produced by the complex SerDe on both sides
+        context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList("[]", "[1e3, \"7\"]")));
+        replaced = context.exprMap.get("v");
+        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertEquals(StringType.INSTANCE, comparison.left().getDataType());
+        Cast search = (Cast) comparison.right();
+        Assertions.assertEquals(StringType.INSTANCE, search.getDataType());
+        Cast searchLiteral = (Cast) search.child();
+        Assertions.assertEquals(complexType, searchLiteral.getDataType());
+        Assertions.assertEquals(new StringLiteral("[]"), searchLiteral.child());
+        Cast innerReplacement = (Cast) replaced.child(1).child(2);
+        Assertions.assertEquals(complexType, innerReplacement.getDataType());
+        Assertions.assertEquals(canonical, innerReplacement.child());
+        // the NULL branch must stay untyped, a VARCHAR NULL has no common type with a complex branch
+        Assertions.assertTrue(replaced.child(2) instanceof NullLiteral);
+        Assertions.assertTrue(replaced.child(2).getDataType().isNullType());
+    }
+
     private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,
             Pair<String, List<String>> hadoopFunction) throws UserException {
         return createMappingLoadContext(table, "v", mapping, hadoopFunction);
     }
 
+    private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,
+            Pair<String, List<String>> hadoopFunction, FileFormatProperties fileFormatProperties)
+            throws UserException {
+        return createMappingLoadContext(table, "v", mapping, hadoopFunction, fileFormatProperties);
+    }
+
     private NereidsParamCreateContext createMappingLoadContext(OlapTable table, String column, Expression mapping,
             Pair<String, List<String>> hadoopFunction) throws UserException {
+        return createMappingLoadContext(table, column, mapping, hadoopFunction, new ArrowFileFormatProperties());
+    }
+
+    private NereidsParamCreateContext createMappingLoadContext(OlapTable table, String column, Expression mapping,
+            Pair<String, List<String>> hadoopFunction, FileFormatProperties fileFormatProperties)
+            throws UserException {
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columnToHadoopFunction.put(column, hadoopFunction);
         return createLoadContext(table,
                 ImmutableList.of(new NereidsImportColumnDesc("k"), new NereidsImportColumnDesc("v"),
                         new NereidsImportColumnDesc(column, mapping)),
-                columnToHadoopFunction, new ArrowFileFormatProperties());
+                columnToHadoopFunction, fileFormatProperties);
     }
 
     private NereidsParamCreateContext createArrowLoadContext(

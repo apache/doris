@@ -187,6 +187,13 @@ public class ComplexTypeDefaultValue {
             if (maxLength >= 0 && value.getBytes(StandardCharsets.UTF_8).length > maxLength) {
                 throw new AnalysisException("Default value is too long: " + value);
             }
+            // CHAR pages are zero padded and every reader cuts a CHAR value at the first NUL, while the
+            // row-store path that fills a missing column from JSONB keeps every byte, so the same stored
+            // default would read back differently depending on the plan. Reject it instead. VARCHAR and
+            // STRING are length delimited and keep NUL in all of those paths.
+            if (type.isCharType() && value.indexOf('\0') >= 0) {
+                throw new AnalysisException("CHAR default value must not contain NUL");
+            }
             return renderQuoted(literal, value);
         }
         literal = (Literal) literal.checkedCastTo(type);

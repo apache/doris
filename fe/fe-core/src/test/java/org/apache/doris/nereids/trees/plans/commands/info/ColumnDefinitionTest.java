@@ -249,6 +249,18 @@ public class ColumnDefinitionTest {
         assertRejectsDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[\"😀\"]",
                 "Default value is too long: 😀");
         assertCanonicalDefaultValue(ArrayType.of(VarcharType.createVarcharType(4)), "[\"😀\"]", "[\"😀\"]");
+        // the CHAR page decoder and the default value iterator cut a CHAR value at the first NUL, while
+        // the row-store JSONB fill keeps every byte, so a NUL in a nested CHAR default is rejected
+        assertRejectsDefaultValue(ArrayType.of(CharType.createCharType(3)), "[\"a\\0b\"]",
+                "CHAR default value must not contain NUL");
+        assertRejectsDefaultValue(MapType.of(CharType.createCharType(3), IntegerType.INSTANCE),
+                "{\"a\\0b\": 1}", "CHAR default value must not contain NUL");
+        assertRejectsDefaultValue(new StructType(Arrays.asList(
+                new StructField("f1", CharType.createCharType(3), true, ""))),
+                "{\"a\\0b\"}", "CHAR default value must not contain NUL");
+        // VARCHAR and STRING are length delimited, so every materialization path keeps the NUL
+        assertCanonicalDefaultValue(ArrayType.of(VarcharType.createVarcharType(3)), "[\"a\\0b\"]",
+                "[\"a\0b\"]");
 
         MapType stringIntMap = MapType.of(StringType.INSTANCE, IntegerType.INSTANCE);
         assertCanonicalDefaultValue(stringIntMap, "{}", "{}");
