@@ -20,6 +20,8 @@ package org.apache.doris.nereids.spm.builder;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
+import org.apache.doris.nereids.spm.placeholder.SpmConstList;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -73,6 +75,8 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
@@ -573,17 +577,62 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitCast(Cast cast, SQLRelation context) {
-        if (!cast.isExplicitType()) {
+        if (!cast.isExplicitType() && !preservesLoweredAccumulator(cast)) {
             // analyzer / optimizer inserted coercion CAST (type alignment, DECIMAL scale
-            // adjustment for division, placeholder typing, ...) - an execution detail that
-            // would otherwise pin the result type/scale in the frozen planSql. Strip it so
-            // the replayed SQL analyzes the user-level expression and derives the same
-            // types/coercions as the original query (e.g. DECIMAL division keeps its full
+            // adjustment for division, placeholder typing, ...) - an execution
+            // detail that would otherwise pin the result type/scale in the frozen planSql.
+            // Strip it so the replayed SQL analyzes the user-level expression and derives the
+            // same types/coercions as the original query (e.g. DECIMAL division keeps its full
             // scale: "0.0286487413" instead of the coerced "0.02864874"). Explicit user
             // CAST (isExplicitType = true) is preserved verbatim.
             return cast.child().accept(this, context);
         }
         return "CAST(" + cast.child().accept(this, context) + " AS " + cast.getDataType().toSql() + ")";
+    }
+
+    /**
+     * Whether an ANALYZER-inserted cast is part of the frozen plan's SEMANTICS rather than an
+     * execution detail that may be stripped.
+     *
+     * The AVG lowering (AVG_DISTINCT_TO_SUM_DIV_COUNT) rewrites `avg(DISTINCT k)` into
+     * `sum(DISTINCT CAST(k AS LARGEINT)) / count(...)`, and that widening IS the LARGEINT
+     * accumulator AVG computes in. Stripping it made the frozen SQL re-analyze
+     * `SUM(DISTINCT k)` with a BIGINT accumulator, so two distinct values 5e18 and 6e18 - which
+     * the original AVG averages to 5.5e18 - overflowed the frozen replay's sum, even for the
+     * identical SQL (the CREATE probe only RE-PLANS the text, it never executes it).
+     *
+     * Only an integral WIDENING over a REAL value qualifies: a cast over a substituted
+     * placeholder / literal is exactly the type pinning the stripping exists to avoid, and a
+     * narrowing or same-width cast carries no accumulator guarantee.
+     *
+     * @param cast the analyzer-inserted cast
+     * @return true when the cast must survive into the frozen SQL
+     */
+    private static boolean preservesLoweredAccumulator(Cast cast) {
+        Expression child = cast.child();
+        if (child.containsType(SpmConstVar.class)
+                || child.containsType(SpmConstList.class)) {
+            // A substituted placeholder ANYWHERE inside pins the CAPTURED literal's type on
+            // the caller's value (the analyzer may widen `ph1 + ph2` to INT, and the same
+            // arithmetic over wider user literals must stay wider). Only a cast over a REAL
+            // column / expression qualifies.
+            return false;
+        }
+        try {
+            DataType childType = child.getDataType();
+            DataType targetType = cast.getDataType();
+            // LARGEINT is the SUM / AVG accumulator: the lowering of avg(DISTINCT k) writes
+            // exactly this widening, and re-deriving SUM over the SMALLER type is what
+            // overflows. An ordinary arithmetic widening (INT -> BIGINT and friends) is an
+            // execution detail the strip exists for, so it is NOT kept - it would only pin
+            // coercions the re-analyzed user expression derives by itself.
+            return childType.isIntegralType() && targetType instanceof LargeIntType
+                    && targetType.width() > childType.width();
+        } catch (RuntimeException e) {
+            // an unbound child has no type here: keeping the strip decision is the
+            // historical behavior and cannot break a bound plan
+            return false;
+        }
     }
 
     @Override

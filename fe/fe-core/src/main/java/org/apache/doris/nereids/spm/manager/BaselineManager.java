@@ -655,6 +655,36 @@ public class BaselineManager {
             + " AND `schema_fingerprint` = ''";
 
     /**
+     * Reclaims the SUPERSEDED versions of one baseline identity (see
+     * BaselineManager#pruneSupersededVersionsFromTable): a successful no-op ALTER appends an
+     * ordering-intent row and nothing ever removed the earlier ones, so one baseline
+     * accumulated unbounded durable rows - and every cold match re-parsed ALL of them before
+     * collapsing by id. `update_time` is a BARE column on the left of the predicate (the
+     * duplicate-key delete fallback rejects a functional left side, see
+     * deleteByIdAndStatusSql), and only strictly EARLIER versions are removed, so the intent
+     * row itself and every NEWER concurrent version survive.
+     */
+    private static final String DELETE_SUPERSEDED_VERSIONS_SQL = "DELETE FROM "
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /** See DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT: the NULL-fingerprint variant. */
+    private static final String DELETE_SUPERSEDED_VERSIONS_SQL_NULL_FINGERPRINT =
+            "DELETE FROM " + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND `schema_fingerprint` IS NULL"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /** See DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT: the empty-STRING variant. */
+    private static final String DELETE_SUPERSEDED_VERSIONS_SQL_EMPTY_FINGERPRINT =
+            "DELETE FROM " + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND `schema_fingerprint` = ''"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /**
      * INSERT half of a STATUS FLIP, CONDITIONAL on the previous-status row: the SELECT
      * yields one row only while a durable row still carries (id, previousStatus), so a
      * baseline that a concurrent DROP removed while the ALTER was in flight (or stalled
@@ -3245,10 +3275,33 @@ public class BaselineManager {
         intent.setUpdateTime(intentTime);
         try {
             persistInsert(intent);
+        } catch (UnconfirmedVisibleException e) {
+            // The row IS durable (the insert is proven to have written) and only its
+            // publication lags: the ordering evidence this statement needs exists, so the
+            // ALTER may stay successful - but the id must stay fenced until a snapshot shows
+            // it, exactly like a lagging status flip.
+            recordConfirmedMutationFence(plan.getId(), status, intentTime);
         } catch (RuntimeException e) {
-            LOG.warn("SPM could not record the intent of the no-op status statement of"
-                    + " baseline {} ({}); a stalled earlier flip may still win the durable"
-                    + " pick until the next statement", plan.getId(), e.getMessage());
+            // The intent was NOT written. Reporting success here let an opposite-status
+            // statement - dispatched before this one, its shared mutation window long expired
+            // - land later with a stored second derived from the row it saw, win the durable
+            // pick and REVERSE this ALTER although it reported success. The ordering
+            // guarantee the no-op needs is missing, so fail retryably instead.
+            throw new IllegalStateException("SPM cannot record the ordering intent of the"
+                    + " status statement of baseline " + plan.getId()
+                    + "; retry the ALTER", e);
+        }
+        // The intent row is the newest version of this identity: the versions it SUPERSEDES
+        // can go. A successful no-op used to leave its row behind forever (nothing removes
+        // them, and the refresh only picks a per-id winner), so one baseline accumulated
+        // unbounded durable rows and every cold match re-parsed all of them before
+        // collapsing by id. The predicate keeps everything strictly NEWER, so a concurrent
+        // writer's row survives.
+        try {
+            persistence.pruneSupersededVersions(intent, Math.max(0L, intentTime / 1000L));
+        } catch (RuntimeException e) {
+            LOG.warn("SPM could not reclaim the superseded versions of baseline {} ({});"
+                    + " the next statement prunes them", plan.getId(), e.getMessage());
         }
         return intentTime;
     }
@@ -8764,6 +8817,50 @@ public class BaselineManager {
     }
 
     /**
+     * The live implementation half of {@link BaselinePersistence#pruneSupersededVersions}
+     * (see the SQL constants): removes the versions of one identity whose stored second is
+     * strictly earlier than the retained one.
+     *
+     * @param identity       the identity scoping the delete
+     * @param keepFromSecond the stored second to keep from (0 = nothing to prune)
+     */
+    private static void pruneSupersededVersionsFromTable(BaselinePlan identity,
+            long keepFromSecond) {
+        if (!persistenceEnabled() || keepFromSecond <= 0) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(identity.getId()));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(identity.getBindSqlDigest()));
+        params.put("planSql", StatisticsUtil.escapeSQL(identity.getPlanSql()));
+        String fingerprint = identity.getSchemaFingerprint() == null
+                ? "" : identity.getSchemaFingerprint();
+        params.put("schemaFingerprint", StatisticsUtil.escapeSQL(fingerprint));
+        params.put("keepFrom", toTs(keepFromSecond * 1000L));
+        List<String> deleteSqls = pruneSupersededVersionsSql(fingerprint);
+        inInternalIoMode(() -> {
+            for (String deleteSql : deleteSqls) {
+                StatisticsUtil.execUpdate(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
+            }
+            return null;
+        });
+    }
+
+    /**
+     * The prune statements for one identity (see DELETE_SUPERSEDED_VERSIONS_SQL): ONE
+     * normally, TWO for an empty fingerprint - a TVF-only baseline stores an empty
+     * fingerprint and `IFNULL(...) = ''` is rejected by DeleteFromCommand, so the NULL and
+     * empty-string shapes need separate simple predicates.
+     */
+    private static List<String> pruneSupersededVersionsSql(String fingerprint) {
+        if (fingerprint == null || fingerprint.isEmpty()) {
+            return List.of(DELETE_SUPERSEDED_VERSIONS_SQL_NULL_FINGERPRINT,
+                    DELETE_SUPERSEDED_VERSIONS_SQL_EMPTY_FINGERPRINT);
+        }
+        return List.of(DELETE_SUPERSEDED_VERSIONS_SQL);
+    }
+
+    /**
      * The status-cleanup DELETE with the old row's stored VERSION bound (the reviewer's
      * round-58 finding): matching (id, old status, identity) alone also deleted the row a
      * LATER flip BACK to that status had written, because the stored second is not part of
@@ -8963,6 +9060,11 @@ public class BaselineManager {
         public void deleteByIdAndStatus(BaselinePlan plan, BaselineStatus status,
                 long oldUpdateTimeMs) {
             deleteByIdAndStatusFromTable(plan, status, oldUpdateTimeMs);
+        }
+
+        @Override
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
+            pruneSupersededVersionsFromTable(identity, keepFromSecond);
         }
 
         @Override

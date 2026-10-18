@@ -258,6 +258,23 @@ public interface BaselinePersistence {
             long oldUpdateTimeMs) {
     }
 
+    /**
+     * Reclaims the SUPERSEDED versions of one baseline identity: every row of the id whose
+     * stored second is strictly EARLIER than keepFromSecond (see
+     * BaselineManager#persistNoOpStatusIntent).
+     *
+     * A successful no-op ALTER appends an ordering-intent row and nothing ever removed the
+     * earlier ones, so one baseline accumulated unbounded durable rows - and every cold match
+     * re-parsed ALL of them before collapsing by id. The predicate preserves the intent row
+     * itself and every NEWER concurrent version.
+     *
+     * @param identity       the baseline identity scoping the delete (id, digest, plan text,
+     *                       fingerprint)
+     * @param keepFromSecond the stored second to keep from (0 = nothing to prune)
+     */
+    default void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
+    }
+
     // ==================== id allocation / identity records ====================
 
     /** The baselines table's own MAX(id) (see the manager's "Id source"). */
