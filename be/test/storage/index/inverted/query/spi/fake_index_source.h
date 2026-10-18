@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <span>
 #include <string>
@@ -214,6 +215,17 @@ public:
     void remove(uint32_t doc) { _deleted.insert(doc); }
     void set_doc_count(uint32_t doc_count) { _doc_count = doc_count; }
 
+    void set_scoring_stats(IndexScoringStats stats) { _scoring_stats = stats; }
+
+    Status scoring_stats(IndexScoringStats* out) const override {
+        // Most fixtures do not score expansions and deliberately provide no source statistics.
+        if (!_scoring_stats.has_value()) {
+            return IndexSource::scoring_stats(out);
+        }
+        *out = *_scoring_stats;
+        return Status::OK();
+    }
+
     uint32_t doc_count() const override { return _doc_count; }
     bool batches_reads() const override { return batches; }
 
@@ -331,6 +343,7 @@ private:
     std::map<std::string, std::vector<Posting>> _terms;
     std::set<uint32_t> _deleted;
     uint32_t _doc_count = 0;
+    std::optional<IndexScoringStats> _scoring_stats;
 };
 
 } // namespace doris::index_query::testing
