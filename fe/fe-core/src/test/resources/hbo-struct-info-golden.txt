@@ -38,8 +38,32 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 36, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 38, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
+[PLAN a_column_whose_name_carries_a_dot]
+desc = a filter on the column `a.b` of the table t
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = d3800acc7e1432051a565832fa270eb77b19532f60ed3f90b75016ab6db8dc08
+NO_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1})
+NO_LITERAL.fingerprint = d3800acc7e1432051a565832fa270eb77b19532f60ed3f90b75016ab6db8dc08
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN a_table_whose_alias_carries_a_dot]
+desc = a filter on the column b of the table aliased t.a
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = 4c87fc27266716f2c59d47486a02a3fad3072352cf72742ee8a3b69cb5fb954c
+NO_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 4c87fc27266716f2c59d47486a02a3fad3072352cf72742ee8a3b69cb5fb954c
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
 valid = true

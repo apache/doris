@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -814,6 +815,13 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("invalid_too_many_scans",
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
+        // a dot inside a column name and a dot inside an alias must not render one identity
+        cases.add(new PlanCase("a_column_whose_name_carries_a_dot",
+                "a filter on the column `a.b` of the table t",
+                GroupStructInfoGoldenTest::filterOnColumnWithADot));
+        cases.add(new PlanCase("a_table_whose_alias_carries_a_dot",
+                "a filter on the column b of the table aliased t.a",
+                GroupStructInfoGoldenTest::filterOnAliasedTableWithADot));
         cases.add(new PlanCase("filter_one_of_those_conjuncts",
                 "a filter with one conjunct: the shape a two conjunct filter must not share a key with",
                 GroupStructInfoGoldenTest::filterOneOfThoseConjuncts));
@@ -898,6 +906,18 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<Expression>of(new LessThan(new IntegerLiteral(1), t2.getOutput().get(0)),
                         new LessThan(new IntegerLiteral(2), t1.getOutput().get(0))),
                 t1, t2, null));
+    }
+
+    private static GroupStructInfo filterOnColumnWithADot() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference dotted = new SlotReference("a.b", IntegerType.INSTANCE, true, ImmutableList.of("t"));
+        return describe(new LogicalFilter<>(ImmutableSet.of(new IsNull(dotted)), t1));
+    }
+
+    private static GroupStructInfo filterOnAliasedTableWithADot() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference plain = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t.a"));
+        return describe(new LogicalFilter<>(ImmutableSet.of(new IsNull(plain)), t1));
     }
 
     private static GroupStructInfo filterOneOfThoseConjuncts() {

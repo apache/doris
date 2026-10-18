@@ -2009,6 +2009,16 @@ public class GroupStructInfo {
     }
 
     /**
+     * One component of a slot name. A dot inside the component is encoded, so a column named {@code a.b}
+     * of the table {@code t} and a column {@code b} of the aliased table {@code t.a} cannot render one
+     * identity (both would read as {@code col(internal.db.t.a.b)}). The encoding is the identity for an
+     * ordinary component, so no key of a slot without a dot moves.
+     */
+    private static String encodeSlotComponent(String component) {
+        return encodeLiteralValue(component).replace(".", "%2E");
+    }
+
+    /**
      * Append both forms of one expression while walking its tree once: the literal carrying form into
      * {@code withLiteral} and the constant agnostic one into {@code noLiteral}. The operands of a
      * commutative operator are sorted per form, because a literal value may order two operands
@@ -2024,9 +2034,9 @@ public class GroupStructInfo {
             // it hashes. The encoding is the identity for an ordinary name, so no key of one moves.
             StringBuilder text = new StringBuilder("col(");
             for (String qualifierPart : slot.getQualifier()) {
-                text.append(encodeLiteralValue(qualifierPart)).append('.');
+                text.append(encodeSlotComponent(qualifierPart)).append('.');
             }
-            text.append(encodeLiteralValue(slot.getName()));
+            text.append(encodeSlotComponent(slot.getName()));
             // the sub path of a variant column is part of the identity of the slot: after the variant sub
             // path pruning `v['age']` and `v['score']` are two slots which read different values, so a
             // predicate above them keeps a different number of rows, while the column name alone is the
