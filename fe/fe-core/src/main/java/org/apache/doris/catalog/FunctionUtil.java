@@ -30,6 +30,9 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CleanUDFCacheTask;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -48,6 +51,37 @@ import java.util.stream.Collectors;
 public class FunctionUtil {
     private static final Logger LOG = LogManager.getLogger(FunctionUtil.class);
 
+    public static void cleanUdfCache(Map<Long, String> functionSignatures) {
+        if (functionSignatures.isEmpty()) {
+            // No function generation was removed. Never fall back to signature-based cleanup,
+            // which could delete a newly created function's cache when an old task arrives late.
+            return;
+        }
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds(false)) {
+            for (Map.Entry<Long, String> function : functionSignatures.entrySet()) {
+                CleanUDFCacheTask task = new CleanUDFCacheTask(backendId, function.getValue(), function.getKey());
+                batchTask.addTask(task);
+                LOG.info("clean udf cache in be {}, functionId {}", backendId, function.getKey());
+            }
+        }
+        if (batchTask.getTaskNum() > 0) {
+            AgentTaskExecutor.submit(batchTask);
+        }
+    }
+
+    public static void cleanUdfCache(Database db) {
+        Map<Long, String> functionSignatures;
+        db.readLock();
+        try {
+            functionSignatures = db.getFunctions().stream()
+                    .filter(function -> function.getBinaryType() == Function.BinaryType.PYTHON_UDF)
+                    .collect(Collectors.toMap(Function::getId, Function::signatureString));
+        } finally {
+            db.readUnlock();
+        }
+        cleanUdfCache(functionSignatures);
+    }
 
     /**
      * @param function

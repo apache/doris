@@ -34,7 +34,8 @@ suite("test_pythonudf_pkg_isolation") {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_x.evaluate",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
         sql """
@@ -42,7 +43,8 @@ suite("test_pythonudf_pkg_isolation") {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_x.evaluate",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 
@@ -55,7 +57,8 @@ suite("test_pythonudf_pkg_isolation") {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_y.evaluate",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 
@@ -68,7 +71,8 @@ suite("test_pythonudf_pkg_isolation") {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_y.evaluate",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 

@@ -498,10 +498,14 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
 }
 
 Status UserFunctionCache::get_pypath(int64_t fid, const std::string& url,
-                                     const std::string& checksum, std::string* libpath) {
+                                     const std::string& checksum, std::string* libpath,
+                                     std::shared_ptr<UserFunctionCacheEntry>* cache_entry) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::PY_ZIP));
     *libpath = entry->lib_file;
+    if (cache_entry != nullptr) {
+        *cache_entry = std::move(entry);
+    }
     return Status::OK();
 }
 
@@ -579,17 +583,11 @@ void UserFunctionCache::drop_function_cache(int64_t fid) {
         _entry_map.erase(it);
     }
 
-    // For Python UDF, clear module cache in Python server before deleting files
-    if (entry->type == LibType::PY_ZIP && !entry->lib_file.empty()) {
-        auto status = PythonServerManager::instance().clear_module_cache(entry->lib_file);
-        if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << "drop_function_cache: failed to clear Python module cache for "
-                         << entry->lib_file << ": " << status.to_string();
-        }
-    }
-
     // Mark for deletion, destructor will delete the files
     entry->should_delete_library.store(true);
+    if (entry->type == LibType::PY_ZIP) {
+        PythonServerManager::instance().drop_function(fid);
+    }
 }
 
 } // namespace doris

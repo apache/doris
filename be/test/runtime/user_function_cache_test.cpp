@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "util/md5.h"
 
 namespace doris {
 
@@ -97,6 +98,16 @@ protected:
         std::ofstream ofs(path);
         ofs << content;
         ofs.close();
+    }
+
+    std::string file_md5(const std::string& path) {
+        std::ifstream input(path, std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(input)),
+                          std::istreambuf_iterator<char>());
+        Md5Digest digest;
+        digest.update(bytes.data(), bytes.size());
+        digest.digest();
+        return digest.hex();
     }
 
 private:
@@ -539,6 +550,27 @@ TEST_F(UserFunctionCacheTest, LoadEntryFromLibInvalidFileName) {
 
     Status status = ufc._load_entry_from_lib(sub_dir, invalid_name);
     EXPECT_FALSE(status.ok());
+}
+
+TEST_F(UserFunctionCacheTest, PythonZipDeletionWaitsForRuntimeReference) {
+    const std::string cache_dir = test_dir_ + "/cache";
+    ASSERT_TRUE(ufc.init(cache_dir).ok());
+
+    const std::string zip_path = test_dir_ + "/shared.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"shared.py", "def evaluate(x): return x"}}));
+    const std::string checksum = file_md5(zip_path);
+    const std::string source_location = "file://" + zip_path;
+
+    std::string local_path;
+    std::shared_ptr<UserFunctionCacheEntry> runtime_reference;
+    ASSERT_TRUE(
+            ufc.get_pypath(2001, source_location, checksum, &local_path, &runtime_reference).ok());
+
+    ufc.drop_function_cache(2001);
+    EXPECT_TRUE(std::filesystem::exists(local_path));
+    runtime_reference.reset();
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+    EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
 }
 
 } // namespace doris

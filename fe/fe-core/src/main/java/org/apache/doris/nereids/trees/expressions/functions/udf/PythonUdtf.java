@@ -60,6 +60,8 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     private final String checkSum;
     private final boolean isStaticLoad;
     private final long expirationTime;
+    private final int poolSize;
+    private final long autoSuspend;
     private final String runtimeVersion;
     private final String functionCode;
 
@@ -72,7 +74,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
             String objectFile, String symbol,
             String prepareFn, String closeFn,
             String checkSum, boolean isStaticLoad, long expirationTime,
-            String runtimeVersion, String functionCode, Expression... args) {
+            String runtimeVersion, String functionCode, int poolSize, long autoSuspend, Expression... args) {
         super(name, args);
         this.dbName = dbName;
         this.functionId = functionId;
@@ -88,6 +90,8 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
         this.checkSum = checkSum;
         this.isStaticLoad = isStaticLoad;
         this.expirationTime = expirationTime;
+        this.poolSize = poolSize;
+        this.autoSuspend = autoSuspend;
         this.runtimeVersion = runtimeVersion;
         this.functionCode = functionCode;
     }
@@ -101,7 +105,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
         return new PythonUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
                 volatility, volatileIdentity, objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad,
                 expirationTime,
-                runtimeVersion, functionCode, children.toArray(new Expression[0]));
+                runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     @Override
@@ -115,7 +119,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
         return new PythonUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
                 volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
                 objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
-                runtimeVersion, functionCode, children.toArray(new Expression[0]));
+                runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     @Override
@@ -126,7 +130,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
         return new PythonUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
                 volatility, VolatileIdentity.newVolatileIdentity(),
                 objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
-                runtimeVersion, functionCode, children.toArray(new Expression[0]));
+                runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     @Override
@@ -179,6 +183,8 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
             expr.setExpirationTime(expirationTime);
             expr.setUDTFunction(true);
             expr.setRuntimeVersion(runtimeVersion);
+            expr.setPoolSize(poolSize);
+            expr.setAutoSuspend(autoSuspend);
             expr.setFunctionCode(functionCode);
             expr.setVolatility(volatility);
             return expr;
@@ -218,7 +224,7 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
                 scalar.isStaticLoad(),
                 scalar.getExpirationTime(),
                 scalar.getRuntimeVersion(),
-                scalar.getFunctionCode(),
+                scalar.getFunctionCode(), scalar.getPoolSize(), scalar.getAutoSuspend(),
                 arguments);
 
         PythonUdtfBuilder builder = new PythonUdtfBuilder(udtf);
