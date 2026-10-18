@@ -67,7 +67,7 @@ public:
     bool is_blockable() const override { return true; }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             // Release this execution context's cached clients.
             context->set_function_state(scope, nullptr);
         }
@@ -181,11 +181,12 @@ protected:
                                FunctionContext* context) const {
         // Retain the cache across batches/Blocks.
         auto* executor = static_cast<AIRequestExecutor*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         if (executor == nullptr) {
             auto state = std::make_shared<AIRequestExecutor>();
             executor = state.get();
-            context->set_function_state(FunctionContext::THREAD_LOCAL, std::move(state));
+            context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                        std::move(state));
         }
         return executor->execute(request_body, response, config, *adapter,
                                  context->state()->get_query_ctx());

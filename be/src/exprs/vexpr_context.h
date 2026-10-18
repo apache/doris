@@ -355,7 +355,8 @@ public:
     }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
-        return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+        return _is_clone ? FunctionContext::FunctionStateScope::THREAD_LOCAL
+                         : FunctionContext::FunctionStateScope::FRAGMENT_LOCAL;
     }
 
     void clone_fn_contexts(VExprContext* other);

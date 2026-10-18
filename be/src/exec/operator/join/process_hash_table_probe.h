@@ -39,7 +39,7 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 struct ProcessHashTableProbe {
     ProcessHashTableProbe(HashJoinProbeLocalState* parent, int batch_size);
     ~ProcessHashTableProbe() = default;

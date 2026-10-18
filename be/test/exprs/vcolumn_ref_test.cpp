@@ -82,7 +82,8 @@ static void open_expr(const VExprSPtr& expr, VExprContext* context) {
     RuntimeState state;
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static std::vector<int32_t> get_int_values(const ColumnPtr& column) {
