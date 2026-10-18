@@ -1356,7 +1356,8 @@ TEST_F(RuntimeFilterWrapperTest, TestClone) {
         ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>({1, 2}), 0).ok());
         wrapper->hybrid_set()->insert((const void*)nullptr);
         wrapper->set_state(RuntimeFilterWrapper::State::READY);
-        auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataType>());
+        auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataType>(),
+                                                                  TDistributionHashType::CRC32, 8);
         ASSERT_EQ(hashes->size(), 3);
 
         std::shared_ptr<RuntimeFilterWrapper> cloned;

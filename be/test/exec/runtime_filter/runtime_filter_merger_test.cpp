@@ -114,7 +114,8 @@ TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
             producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     auto wrapper = producer->wrapper();
-    auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>());
+    auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                              TDistributionHashType::CRC32, 8);
     ASSERT_EQ(hashes->size(), 1);
 
     bool ready = false;
@@ -158,7 +159,8 @@ TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
     ASSERT_EQ(wrapper->_state, RuntimeFilterWrapper::State::READY);
     ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
     ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
-    ASSERT_EQ(wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>()),
+    ASSERT_EQ(wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                          TDistributionHashType::CRC32, 8),
               hashes);
 }
 
