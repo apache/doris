@@ -2602,7 +2602,7 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     }
     if (drop_by_function_id) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
-        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
+        PythonServerManager::instance().drop_function(clean_req.function_id);
     }
 
     LOG(INFO) << "clean udf cache callback finish: function_signature="

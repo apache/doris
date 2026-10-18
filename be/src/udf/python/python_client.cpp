@@ -72,22 +72,20 @@ Status PythonClient::init(const PythonUDFMeta& func_meta, ProcessPtr process) {
 }
 
 Status PythonClient::close() {
-    if (!_inited || !_writer) {
-        return Status::OK();
+    if (_inited && _writer) {
+        auto writer_res = _writer->Close();
+        if (!writer_res.ok()) {
+            LOG(WARNING) << "Error closing Python client writer: " << writer_res.message();
+        }
     }
-
-    auto writer_res = _writer->Close();
-    if (!writer_res.ok()) {
-        // Don't propagate error from close, just log it
-        LOG(WARNING) << "Error closing Python client writer: " << writer_res.message();
-    }
-
+    // Error handling may already have reset the writer; still release the pool lease.
     _inited = false;
     _begin = false;
     _arrow_client.reset();
     _writer.reset();
     _reader.reset();
     _process.reset();
+    _pool_lease.reset();
 
     return Status::OK();
 }

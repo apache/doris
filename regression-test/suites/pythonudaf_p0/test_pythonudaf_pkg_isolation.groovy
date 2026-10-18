@@ -45,7 +45,8 @@ suite('test_pythonudaf_pkg_isolation') {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_x.SumAgg",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
         sql """
@@ -53,7 +54,8 @@ suite('test_pythonudaf_pkg_isolation') {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_x.SumAgg",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 
@@ -66,7 +68,8 @@ suite('test_pythonudaf_pkg_isolation') {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_y.SumAgg",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 
@@ -79,7 +82,8 @@ suite('test_pythonudaf_pkg_isolation') {
                 "type" = "PYTHON_UDF",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_y.SumAgg",
-                "runtime_version" = "${runtime_version}"
+                "runtime_version" = "${runtime_version}",
+                "pool_size" = "1"
             )
         """
 
