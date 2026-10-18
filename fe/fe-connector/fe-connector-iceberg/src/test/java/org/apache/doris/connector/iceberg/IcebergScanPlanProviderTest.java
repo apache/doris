@@ -1140,6 +1140,70 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void rowIdScanRejectsFilesWhosePartitionSourceColumnWasDropped() {
+        // From branch-4.x #68481: dropping the source column of a historical partition field leaves the field with
+        // no type, so the file's partition tuple cannot be serialized. An ordinary read does not need it and keeps
+        // working. A scan producing row IDs (DELETE / UPDATE / MERGE) is rejected: the row IDs carry the partition
+        // of the delete files BE writes, and a NULL partition there leaves a delete file Doris cannot read back.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+
+        List<ConnectorScanRange> ranges = provider.planScan(session, scanOf(handle).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertFalse(desc.getTableFormatParams().getIcebergParams().isSetPartitionDataJson());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, rowIdScanOf(handle).build()));
+        Assertions.assertEquals("Cannot produce Iceberg row IDs with unsupported partition types in spec 0. "
+                + "Rewrite historical data files before DELETE or UPDATE.", ex.getMessage());
+    }
+
+    @Test
+    public void statementReuseStillRejectsRowIdScanWithoutPartitionData() {
+        // The reuse key leaves the projection out, so a row-ID scan served from an ordinary scan's memoized ranges
+        // must still be checked. MUTATION: checking only freshly planned ranges -> the second call returns -> red.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        ConnectorSession session = reuseSession(new TestStatementScope(), 0L);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+
+        provider.planScan(session, scanOf(handle).build());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, rowIdScanOf(handle).build()));
+    }
+
+    @Test
+    public void streamSplitsRejectsRowIdScanWithoutPartitionData() throws IOException {
+        // Batch mode builds its ranges lazily on the split-pump thread, so it checks each range as it is built.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pt")).filter(Optional.empty()).limit(-1L).build())) {
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+            Assertions.assertTrue(ex.getMessage().contains("unsupported partition types in spec 0"), ex.getMessage());
+        }
+    }
+
+    /** A file written under identity(p), after p is removed from the spec and then dropped from the schema. */
+    private static Table droppedPartitionSourceTable() {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        return table;
+    }
+
+    private static ConnectorScanRequest.Builder rowIdScanOf(IcebergTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Arrays.asList(new IcebergColumnHandle("id", 1),
+                new IcebergColumnHandle("__DORIS_ICEBERG_ROWID_COL__", -1)));
+    }
+
+    @Test
     public void planScanKeepsUnpartitionedSpecIdentityAfterEvolvingToPartitioned() {
         // Guard for the DML $row_id contract: a file written before identity(p) was added must still report
         // spec 0 with an (empty) partition_data_json, so BE commits its delete file under spec 0 instead of
@@ -1528,6 +1592,26 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(-1L, params.getCurrentSchemaId());
         Assertions.assertEquals(1, params.getHistorySchemaInfoSize());
         // Keyed off the requested column "id" only (CI #969249: the -1 entry == the scan slots).
+        Assertions.assertEquals(1, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesLeavesHiddenRowIdOutOfDict() throws Exception {
+        // getColumnHandles returns a handle for the hidden DML row-id column so a DML scan request carries it, but
+        // the column is synthesized by the reader and not in the schema. MUTATION: keeping it in the requested
+        // names -> "requested column ... not found in the table schema" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = providerOver(table);
+        List<ConnectorColumnHandle> columns = Arrays.asList(new IcebergColumnHandle("id", 1),
+                new IcebergColumnHandle("__DORIS_ICEBERG_ROWID_COL__", -1));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), columns, Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
         Assertions.assertEquals(1, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
         Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(0).getFieldPtr().getName());

@@ -125,6 +125,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
     private static final String ICEBERG_FILE_PATH_COL = "_file";
     private static final String ICEBERG_ROW_POSITION_COL = "_pos";
+    // The hidden DML row-id column, fe-core Column.ICEBERG_ROWID_COL (pinned by
+    // IcebergScanPlanProviderClassifyColumnTest through the scan provider's copy).
+    private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
@@ -783,7 +786,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             rejectReservedMetadataColumns(schema);
         }
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
-                fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
+                fields.size() + (appendDataFileMetadataColumns ? 3 : 0));
         for (Types.NestedField field : fields) {
             String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
@@ -791,6 +794,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (appendDataFileMetadataColumns) {
             handles.put(ICEBERG_FILE_PATH_COL, new IcebergColumnHandle(ICEBERG_FILE_PATH_COL, -1));
             handles.put(ICEBERG_ROW_POSITION_COL, new IcebergColumnHandle(ICEBERG_ROW_POSITION_COL, -1));
+            // Synthesized by the reader for DML and never in the schema. Its handle tells the scan provider that a
+            // scan produces row IDs (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData).
+            handles.put(DORIS_ICEBERG_ROWID_COL, new IcebergColumnHandle(DORIS_ICEBERG_ROWID_COL, -1));
         }
         return handles;
     }

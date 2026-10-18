@@ -62,6 +62,10 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final int formatVersion;
     private final Integer partitionSpecId;
     private final String partitionDataJson;
+    // FE-only: the file's partition tuple has a value that cannot be serialized (a historical partition field
+    // whose source column was dropped), so partitionDataJson is absent. Ordinary reads do not need it; a scan
+    // that produces row IDs is rejected (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData).
+    private final boolean partitionDataUnavailable;
     private final Long firstRowId;
     private final Long lastUpdatedSequenceNumber;
     // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
@@ -134,6 +138,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.formatVersion = builder.formatVersion;
         this.partitionSpecId = builder.partitionSpecId;
         this.partitionDataJson = builder.partitionDataJson;
+        this.partitionDataUnavailable = builder.partitionDataUnavailable;
         this.firstRowId = builder.firstRowId;
         this.lastUpdatedSequenceNumber = builder.lastUpdatedSequenceNumber;
         this.partitionValues = builder.partitionValues != null
@@ -244,6 +249,14 @@ public class IcebergScanRange implements ConnectorScanRange {
             return null;
         }
         return partitionSpecId + "|" + partitionDataJson;
+    }
+
+    Integer getPartitionSpecId() {
+        return partitionSpecId;
+    }
+
+    boolean isPartitionDataUnavailable() {
+        return partitionDataUnavailable;
     }
 
     /**
@@ -478,6 +491,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private int formatVersion = 2;
         private Integer partitionSpecId;
         private String partitionDataJson;
+        private boolean partitionDataUnavailable;
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
@@ -566,6 +580,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder partitionDataJson(String partitionDataJson) {
             this.partitionDataJson = partitionDataJson;
+            return this;
+        }
+
+        public Builder partitionDataUnavailable(boolean partitionDataUnavailable) {
+            this.partitionDataUnavailable = partitionDataUnavailable;
             return this;
         }
 
