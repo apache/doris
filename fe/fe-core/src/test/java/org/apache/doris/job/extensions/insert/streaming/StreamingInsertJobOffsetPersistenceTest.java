@@ -507,6 +507,11 @@ public class StreamingInsertJobOffsetPersistenceTest {
         private int journalCount;
 
         @Override
+        protected void logUpdateOperation(String persistInfo) {
+            journalCount++;
+        }
+
+        @Override
         public void logUpdateOperation() {
             journalCount++;
         }
