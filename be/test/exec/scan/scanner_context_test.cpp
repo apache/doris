@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
 #include <thread>
 #include <tuple>
 
@@ -295,6 +296,12 @@ public:
     }
 
     static constexpr int64_t HEAP_GATE_BUDGET = 100L * 1024 * 1024;
+
+    // Through set_config(), which publishes the value the heap gate reads.
+    static void set_heap_gate_max_wait_ms(int64_t ms) {
+        auto st = config::set_config("jni_scanner_heap_max_wait_ms", std::to_string(ms));
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
 private:
     class MockBlock : public Block {
@@ -1682,9 +1689,9 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
 // worker, a wait inside the worker would leave the admitted scanner none for its second block until
 // jni_scanner_heap_max_wait_ms ran out, and then admit every waiter above the budget at once.
 TEST_F(ScannerContextTest, thread_pool_heap_waiters_park_and_leave_the_worker_to_the_holder) {
-    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
-    config::jni_scanner_heap_max_wait_ms = 600000;
-    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    const int64_t saved_max_wait_ms = config::get_jni_scanner_heap_max_wait_ms();
+    set_heap_gate_max_wait_ms(600000);
+    Defer restore_max_wait = [&] { set_heap_gate_max_wait_ms(saved_max_wait_ms); };
     JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
     ThreadPoolSimplifiedScanScheduler scheduler("heap_parking_test", cgroup_cpu_ctl);
     ASSERT_TRUE(scheduler.start(1, 1, 16, 1).ok());
@@ -1694,9 +1701,9 @@ TEST_F(ScannerContextTest, thread_pool_heap_waiters_park_and_leave_the_worker_to
 
 // The same on the TaskExecutor, which runs external-table scans by default.
 TEST_F(ScannerContextTest, task_executor_heap_waiters_park_and_leave_the_worker_to_the_holder) {
-    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
-    config::jni_scanner_heap_max_wait_ms = 600000;
-    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    const int64_t saved_max_wait_ms = config::get_jni_scanner_heap_max_wait_ms();
+    set_heap_gate_max_wait_ms(600000);
+    Defer restore_max_wait = [&] { set_heap_gate_max_wait_ms(saved_max_wait_ms); };
     JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
     TaskExecutorSimplifiedScanScheduler scheduler("heap_parking_task_executor_test",
                                                   cgroup_cpu_ctl);
@@ -1710,9 +1717,9 @@ TEST_F(ScannerContextTest, task_executor_heap_waiters_park_and_leave_the_worker_
 // the admitted scanner's next turns pass with workers to spare; had the waiters counted as in
 // flight, the holder could not have run again until they were admitted, which needed its share.
 TEST_F(ScannerContextTest, thread_pool_heap_waiters_leave_the_busy_pools_slot_to_the_holder) {
-    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
-    config::jni_scanner_heap_max_wait_ms = 600000;
-    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    const int64_t saved_max_wait_ms = config::get_jni_scanner_heap_max_wait_ms();
+    set_heap_gate_max_wait_ms(600000);
+    Defer restore_max_wait = [&] { set_heap_gate_max_wait_ms(saved_max_wait_ms); };
     JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
     ThreadPoolSimplifiedScanScheduler scheduler("heap_parking_busy_pool_test", cgroup_cpu_ctl);
     ASSERT_TRUE(scheduler.start(4, 4, 16, 1).ok());

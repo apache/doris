@@ -1936,10 +1936,12 @@ DECLARE_mInt64(hdfs_jni_write_max_retry_time);
 // declare together. Only statements with enable_jni_heap_admission declare it
 // (util/jni_scan_heap_gate.h)
 DECLARE_mDouble(jni_scanner_heap_budget_ratio);
+double get_jni_scanner_heap_budget_ratio();
 // The longest the Java scanner of one split that declared its heap waits for its share before it
 // opens anyway, in milliseconds. A scan of many splits can wait this long once per split. The wait
 // holds no scan thread: the scanner is parked until the share comes
 DECLARE_mInt64(jni_scanner_heap_max_wait_ms);
+int64_t get_jni_scanner_heap_max_wait_ms();
 
 // The min thread num for NonBlockCloseThreadPool
 DECLARE_Int64(min_nonblock_close_thread_num);
