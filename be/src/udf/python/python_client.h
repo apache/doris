@@ -28,6 +28,8 @@
 
 namespace doris {
 
+class PythonUDFPoolLease;
+
 /**
  * Base class for Python UDF/UDAF/UDTF clients
  * 
@@ -102,6 +104,9 @@ protected:
      */
     Status read_batch(std::shared_ptr<arrow::RecordBatch>* output);
 
+    // Released after the stream and process, so idle reclamation cannot interrupt cleanup.
+    std::shared_ptr<PythonUDFPoolLease> _pool_lease;
+
     // Common state
     bool _inited = false;
     bool _begin = false;         // Track if Begin() has been called
@@ -112,6 +117,8 @@ protected:
     ProcessPtr _process;
 
 private:
+    friend class PythonServerManager;
+
     DISALLOW_COPY_AND_ASSIGN(PythonClient);
 };
 

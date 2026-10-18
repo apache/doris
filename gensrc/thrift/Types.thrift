@@ -420,6 +420,8 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+  20: optional i32 pool_size = 3
+  21: optional i64 auto_suspend = -1 // idle timeout in seconds; negative values disable suspension
 
   // New FE sends true for Python functions; absent fields preserve the legacy DATETIME mapping.
   // Keep this field id reserved after removing the compatibility option.
