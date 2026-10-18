@@ -222,11 +222,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-2.11.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.11.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-2.11.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-2.11.0
-LIBRDKAFKA_MD5SUM="bc611d0340e269abaa8886d42ff9c558"
+# librdkafka-2.15.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.15.0.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.15.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.15.0
+LIBRDKAFKA_MD5SUM="8e864b5d22dae795e734a6fed05acc22"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
