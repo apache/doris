@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -254,26 +256,105 @@ public class NereidsLoadScanProviderTest {
         Assertions.assertEquals(complexType, replacement.getDataType());
         Assertions.assertEquals(canonical, replacement.child());
 
-        // MAP/STRUCT comparisons are rejected before coercion, so the search value is compared as the
-        // text produced by the complex SerDe on both sides
+        // ARRAY comparisons are structural: the search is cast to the column type, not rendered as
+        // the display text whose nested strings are not escaped
         context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"),
                         new StringLiteral("[1e3, \"7\"]"))),
                 Pair.of("replace_value", Lists.newArrayList("[]", "[1e3, \"7\"]")));
         replaced = context.exprMap.get("v");
         EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
-        Assertions.assertEquals(StringType.INSTANCE, comparison.left().getDataType());
+        Assertions.assertTrue(comparison.left() instanceof UnboundSlot, comparison.left().toSql());
         Cast search = (Cast) comparison.right();
-        Assertions.assertEquals(StringType.INSTANCE, search.getDataType());
-        Cast searchLiteral = (Cast) search.child();
-        Assertions.assertEquals(complexType, searchLiteral.getDataType());
-        Assertions.assertEquals(new StringLiteral("[]"), searchLiteral.child());
+        Assertions.assertEquals(complexType, search.getDataType());
+        Assertions.assertEquals(new StringLiteral("[]"), search.child());
         Cast innerReplacement = (Cast) replaced.child(1).child(2);
         Assertions.assertEquals(complexType, innerReplacement.getDataType());
         Assertions.assertEquals(canonical, innerReplacement.child());
         // the NULL branch must stay untyped, a VARCHAR NULL has no common type with a complex branch
         Assertions.assertTrue(replaced.child(2) instanceof NullLiteral);
         Assertions.assertTrue(replaced.child(2).getDataType().isNullType());
+    }
+
+    @Test
+    public void testArrowComplexSearchSlotIsCastToColumnType() throws Exception {
+        OlapTable table = mockComplexTable();
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        UnboundSlot searchSlot = new UnboundSlot("w");
+
+        // v = replace_value(w, NULL): every search expression, not only a literal, is parsed into the
+        // column type so the comparison is structural
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(searchSlot, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("w", null)));
+        Expression replaced = context.exprMap.get("v");
+        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertTrue(comparison.left() instanceof UnboundSlot, comparison.left().toSql());
+        Cast search = (Cast) comparison.right();
+        Assertions.assertEquals(complexType, search.getDataType());
+        Assertions.assertEquals(searchSlot, search.child());
+    }
+
+    @Test
+    public void testArrowComplexSearchIsNotCanonicalizedAsDefault() throws Exception {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(ScalarType.createStringType(), true), true)));
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral search = new StringLiteral("[\"it's\"]");
+
+        // A search is a transient comparison value. The default value format rejects quotes, but the
+        // complex cast that parses the search accepts them, so the search must stay verbatim.
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("[\"it's\"]", null)));
+        Expression replaced = context.exprMap.get("v");
+        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
+        Cast searchCast = (Cast) comparison.right();
+        Assertions.assertEquals(complexType, searchCast.getDataType());
+        Assertions.assertEquals(search, searchCast.child());
+    }
+
+    @Test
+    public void testArrowMapSearchUsesJsonComparison() throws Exception {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new MapType(ScalarType.createStringType(), ScalarType.INT, true, true), true)));
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral search = new StringLiteral("{\"a\": 1}");
+
+        // MAP is rejected by ComparisonPredicate, so compare the JSON rendering of both sides: JSON
+        // escapes nested strings and cannot conflate distinct values like the display text does
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{\"a\": 1}", null)));
+        Expression replaced = context.exprMap.get("v");
+        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertEquals(StringType.INSTANCE, comparison.left().getDataType());
+        Cast left = (Cast) comparison.left();
+        Assertions.assertTrue(left.child() instanceof ToJson, left.child().toSql());
+        Assertions.assertTrue(left.child().child(0) instanceof UnboundSlot);
+        Assertions.assertEquals(StringType.INSTANCE, comparison.right().getDataType());
+        Cast right = (Cast) comparison.right();
+        Assertions.assertTrue(right.child() instanceof ToJson, right.child().toSql());
+        Cast searchCast = (Cast) right.child().child(0);
+        Assertions.assertEquals(complexType, searchCast.getDataType());
+        Assertions.assertEquals(search, searchCast.child());
+    }
+
+    @Test
+    public void testArrowMapSearchWithNonStringKeyIsRejected() {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new MapType(ScalarType.INT, ScalarType.INT, true, true), true)));
+
+        // to_json can only render string-like map keys, and the display text is ambiguous, so the
+        // combination is rejected instead of compared with either of them
+        UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("{}"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{}", null))));
+        Assertions.assertTrue(exception.getMessage().contains("not supported for Arrow files"),
+                exception.getMessage());
     }
 
     private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,

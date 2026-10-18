@@ -42,14 +42,19 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ComplexTypeDefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.thrift.TFileFormatType;
@@ -637,21 +642,73 @@ public class NereidsLoadScanProvider {
     }
 
     /**
-     * A text source compares its raw value with the search text of {@code replace_value}. A native
-     * complex slot cannot be compared directly: MAP and STRUCT comparisons are rejected before type
-     * coercion, and the comparison has to work in both coercion modes. Compare the values rendered by
-     * the same complex SerDe instead, after parsing the search literal into the column type.
+     * A text source compares its raw value with the search value of {@code replace_value}. A native
+     * complex slot needs a type-aware comparison instead of the display text, whose nested strings are
+     * not escaped: a single element {@code a", "b} renders exactly like the two element array
+     * {@code ["a", "b"]}. The search is a transient comparison value, so it must not be canonicalized
+     * as a column default, whose format rejects quotes and backslashes that the complex cast accepts.
      */
     private static Expression searchValueComparison(Expression slot, Column column, Expression search,
-            boolean nativeComplex) {
+            boolean nativeComplex) throws AnalysisException {
         if (!nativeComplex) {
             return new EqualTo(slot, search);
         }
         DataType complexType = DataType.fromCatalogType(column.getOriginType());
-        Expression value = canonicalizeComplexValue(column, search);
-        if (search instanceof StringLikeLiteral) {
-            value = new Cast(value, complexType);
+        // Cast the search expression, literal or slot, to the column type so that the comparison sees
+        // exactly the bytes the sink writes.
+        Expression typedSearch = new Cast(search, complexType);
+        if (supportsStructuralComparison(complexType)) {
+            // ARRAY is compared structurally by the engine, element by element.
+            return new EqualTo(slot, typedSearch);
         }
-        return new EqualTo(new Cast(slot, StringType.INSTANCE), new Cast(value, StringType.INSTANCE));
+        // MAP and STRUCT (and ARRAYs of them) are rejected by ComparisonPredicate before type coercion.
+        // Compare their JSON rendering instead: JSON quotes and escapes every nested string, so two
+        // different values cannot render as the same text.
+        if (!supportsJsonComparison(complexType)) {
+            throw new AnalysisException(String.format(
+                    "replace_value search on %s is not supported for Arrow files: the complex comparison "
+                            + "requires JSON-serializable nested types and string-like map keys",
+                    column.getOriginType().toSql()));
+        }
+        return new EqualTo(new Cast(new ToJson(slot), StringType.INSTANCE),
+                new Cast(new ToJson(typedSearch), StringType.INSTANCE));
+    }
+
+    /**
+     * Whether the engine has a structural comparison for the type. Mirrors
+     * {@code TypeCoercionUtils#supportCompare(type, false)}: ARRAYs recurse into their item type, and
+     * JSON, Variant and the non-primitive types are not comparable.
+     */
+    private static boolean supportsStructuralComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsStructuralComparison(((ArrayType) type).getItemType());
+        }
+        return type.isPrimitive() && !type.isJsonType() && !type.isObjectOrVariantType();
+    }
+
+    /**
+     * Whether {@code to_json} can serialize every nested value of the type. A MAP can be rendered as a
+     * JSON object only when its keys are string-like, and the version one DATE/DATETIME and the sketch
+     * types have no JSONB serde.
+     */
+    private static boolean supportsJsonComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsJsonComparison(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            return mapType.getKeyType().isStringLikeType() && supportsJsonComparison(mapType.getValueType());
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (!supportsJsonComparison(field.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return type.isPrimitive() && !type.isDateType() && !type.isDateTimeType()
+                && !type.isHllType() && !type.isBitmapType() && !type.isQuantileStateType()
+                && !type.isAggStateType();
     }
 }
