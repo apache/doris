@@ -17,6 +17,7 @@
 
 #include <utility>
 
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
@@ -26,6 +27,7 @@
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_to_array.h"
 #include "exprs/function/cast/cast_to_jsonb.h"
 #include "exprs/function/cast/cast_to_map.h"
@@ -65,7 +67,26 @@ WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
         return cast_from_string_to_generic;
     }
 
-    return CastWrapper::create_unsupport_wrapper("Cast to Varbinary only support from String type");
+    if (from_type_untyped->get_primitive_type() == TYPE_UUID) {
+        return [](FunctionContext*, Block& block, const ColumnNumbers& arguments, uint32_t result,
+                  size_t rows, const NullMap::value_type*) {
+            const auto& source =
+                    assert_cast<const ColumnUUID&>(*block.get_by_position(arguments[0]).column);
+            auto binary = ColumnVarbinary::create();
+            binary->reserve(rows);
+            for (size_t i = 0; i < rows; ++i) {
+                // File Scanner V2 decodes UUIDs before mapping Hive BINARY columns. Recreate the
+                // file's big-endian bytes, not the host integer layout or canonical UUID text.
+                const auto bytes = UUIDValue::to_big_endian(source.get_data()[i]);
+                binary->insert_data(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            }
+            block.get_by_position(result).column = std::move(binary);
+            return Status::OK();
+        };
+    }
+
+    return CastWrapper::create_unsupport_wrapper(
+            "Cast to Varbinary only support from String or UUID type");
 }
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,

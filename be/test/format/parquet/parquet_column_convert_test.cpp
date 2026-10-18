@@ -63,11 +63,14 @@ TEST(ParquetColumnConvertTest, UuidTextAndBinaryCarriersPreserveNullsAcrossBatch
             "00000000-0000-0000-0000-000000000000", "7f7f7f7f-7f7f-7f7f-7f7f-7f7f7f7f7f7f",
             "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff",
             "61626344-6546-4768-696a-6b4c6d6e4f70", "00000000-0000-0000-0000-000000000000"};
-    for (const bool preserve_binary : {false, true}) {
+    for (int carrier = 0; carrier < 3; ++carrier) {
+        const bool preserve_binary = carrier == 1;
+        const auto dst_type = DataTypeFactory::instance().create_data_type(
+                carrier == 2 ? TYPE_VARBINARY : TYPE_STRING, true);
         auto converter = PhysicalToLogicalConverter::get_converter(
-                &field, field.data_type, field.data_type, nullptr, false, preserve_binary);
+                &field, field.data_type, dst_type, nullptr, false, preserve_binary);
         ASSERT_TRUE(converter->support());
-        ColumnPtr dst = field.data_type->create_column();
+        ColumnPtr dst = dst_type->create_column();
         for (size_t batch = 0; batch < 2; ++batch) {
             auto values = ColumnFixedLengthObject::create(16);
             auto nulls = ColumnUInt8::create();
@@ -76,14 +79,14 @@ TEST(ParquetColumnConvertTest, UuidTextAndBinaryCarriersPreserveNullsAcrossBatch
                 nulls->insert_value(i == 5);
             }
             ColumnPtr src = ColumnNullable::create(std::move(values), std::move(nulls));
-            ASSERT_TRUE(converter->convert(src, field.data_type, field.data_type, dst, false).ok());
+            ASSERT_TRUE(converter->convert(src, field.data_type, dst_type, dst, false).ok());
             EXPECT_EQ(dst->size(), (batch + 1) * 3);
         }
         const auto& nullable = assert_cast<const ColumnNullable&>(*dst);
         for (size_t i = 0; i < raw_values.size(); ++i) {
             EXPECT_EQ(nullable.get_null_map_data()[i], i == 5);
             EXPECT_EQ(nullable.get_nested_column().get_data_at(i).to_string(),
-                      preserve_binary ? raw_values[i] : text_values[i]);
+                      carrier != 0 ? raw_values[i] : text_values[i]);
         }
     }
 }
