@@ -98,6 +98,7 @@ public class FunctionToThriftConverter {
             }
             tfn.setRuntimeVersion(fn.getRuntimeVersion());
             tfn.setPoolSize(fn.getPoolSize());
+            tfn.setAutoSuspend(fn.getAutoSuspend());
         }
         if (fn.getDictFunction() != null) {
             tfn.setDictFunction(fn.getDictFunction());
@@ -146,6 +147,7 @@ public class FunctionToThriftConverter {
             }
             tfn.setRuntimeVersion(fn.getRuntimeVersion());
             tfn.setPoolSize(fn.getPoolSize());
+            tfn.setAutoSuspend(fn.getAutoSuspend());
         }
 
         return tfn;

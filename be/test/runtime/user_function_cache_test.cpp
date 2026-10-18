@@ -573,4 +573,37 @@ TEST_F(UserFunctionCacheTest, PythonZipDeletionWaitsForRuntimeReference) {
     EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
 }
 
+TEST_F(UserFunctionCacheTest, RepeatedDropCannotDeletePackageHeldByAnActiveRuntime) {
+    ASSERT_TRUE(ufc.init(test_dir_ + "/cache").ok());
+    const std::string zip_path = test_dir_ + "/pinned.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"pinned.py", "def evaluate(x): return x"},
+                                           {"data.txt", "active query resource"}}));
+    const std::string checksum = file_md5(zip_path);
+    const std::string source_location = "file://" + zip_path;
+    std::string local_path;
+    std::shared_ptr<UserFunctionCacheEntry> active_runtime;
+    ASSERT_TRUE(ufc.get_pypath(2002, source_location, checksum, &local_path, &active_runtime).ok());
+    ufc.drop_function_cache(2002);
+
+    // A late MODULE open must not recreate an independent owner of the same package directory.
+    std::string late_path;
+    auto late_status = ufc.get_pypath(2002, source_location, checksum, &late_path);
+    EXPECT_FALSE(late_status.ok());
+    ufc.drop_function_cache(2002);
+    EXPECT_TRUE(std::filesystem::exists(local_path + "/data.txt"));
+    active_runtime.reset();
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+}
+
+TEST_F(UserFunctionCacheTest, DropBeforeFirstModuleOpenPreventsPackageCreation) {
+    ASSERT_TRUE(ufc.init(test_dir_ + "/cache").ok());
+    const std::string zip_path = test_dir_ + "/late.zip";
+    ASSERT_TRUE(create_zip_file(zip_path, {{"late.py", "def evaluate(x): return x"}}));
+    ufc.drop_function_cache(2003);
+    std::string local_path;
+    auto status = ufc.get_pypath(2003, "file://" + zip_path, file_md5(zip_path), &local_path);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(ufc._entry_map.empty());
+}
+
 } // namespace doris

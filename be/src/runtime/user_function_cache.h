@@ -22,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -101,6 +102,9 @@ private:
 
     std::mutex _cache_lock;
     std::unordered_map<int64_t, std::shared_ptr<UserFunctionCacheEntry>> _entry_map;
+    // Catalog ids are never reused. Keep late MODULE opens from creating another owner of a
+    // dropped entry's package directory while an active Python process still holds that entry.
+    std::unordered_set<int64_t> _dropped_function_ids;
 };
 
 } // namespace doris

@@ -235,6 +235,11 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
+        // A late open must not create E2: its next DROP could delete the path still pinned by E.
+        if (type == LibType::PY_ZIP && _dropped_function_ids.contains(fid)) {
+            return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                    "Python function {} has been dropped", fid);
+        }
         auto it = _entry_map.find(fid);
         if (it != _entry_map.end()) {
             entry = it->second;
@@ -575,6 +580,9 @@ void UserFunctionCache::drop_function_cache(int64_t fid) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     {
         std::lock_guard<std::mutex> l(_cache_lock);
+        // Record even a cache miss: DROP can precede the first MODULE open. This uses the same
+        // lock as entry creation, so repeated cleanup can never retire a second owner of E's path.
+        _dropped_function_ids.insert(fid);
         auto it = _entry_map.find(fid);
         if (it == _entry_map.end()) {
             return;

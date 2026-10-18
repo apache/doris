@@ -46,6 +46,25 @@
 
 namespace doris {
 
+// A client holds this from pool acquisition through stream/state cleanup. The pool may outlive
+// its manager after DROP; releasing a lease must therefore only access the pool itself.
+class PythonUDFPoolLease {
+public:
+    explicit PythonUDFPoolLease(std::shared_ptr<PythonServerManager::FunctionProcessPool> pool)
+            : _pool(std::move(pool)) {}
+
+    ~PythonUDFPoolLease() {
+        std::scoped_lock lock(_pool->mutex);
+        DCHECK_GT(_pool->active_clients, 0);
+        if (--_pool->active_clients == 0) {
+            _pool->idle_since = std::chrono::steady_clock::now();
+        }
+    }
+
+private:
+    std::shared_ptr<PythonServerManager::FunctionProcessPool> _pool;
+};
+
 void PythonServerManager::ProcessRegistry::add(const ProcessPtr& process) {
     std::scoped_lock lock(mutex);
     processes.emplace_back(process);
@@ -67,7 +86,8 @@ std::vector<ProcessPtr> PythonServerManager::ProcessRegistry::snapshot() {
 Result<std::shared_ptr<PythonServerManager::FunctionProcessPool>>
 PythonServerManager::_get_or_create_process_pool(
         const PythonUDFMeta& meta, const PythonVersion& version,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry) {
+        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
+        std::shared_ptr<PythonUDFPoolLease>* lease) {
     std::scoped_lock lock(_pools_mutex);
     // shutdown() owns the manager lifecycle. Once it starts, creating a new pool would let detached
     // init workers publish Python processes that the manager no longer tracks.
@@ -90,9 +110,16 @@ PythonServerManager::_get_or_create_process_pool(
         pool->process_registry = _process_registry;
         pool->function_id = meta.id;
         pool->pool_size = meta.pool_size;
+        pool->auto_suspend = meta.auto_suspend;
         pool->package_cache_entry = std::move(package_cache_entry);
         // The first process can serve a client before the remaining slots finish initialization.
         _start_health_check_thread();
+    }
+    if (lease) {
+        auto acquired = std::make_shared<PythonUDFPoolLease>(pool);
+        std::scoped_lock pool_lock(pool->mutex);
+        ++pool->active_clients;
+        *lease = std::move(acquired);
     }
     return pool;
 }
@@ -188,8 +215,9 @@ Status PythonServerManager::get_client(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<ClientType>* client, const std::shared_ptr<arrow::Schema>& data_schema,
         std::shared_ptr<UserFunctionCacheEntry> package_cache_entry) {
-    std::shared_ptr<FunctionProcessPool> function_pool =
-            DORIS_TRY(_ensure_pool_initialized(func_meta, version, std::move(package_cache_entry)));
+    std::shared_ptr<PythonUDFPoolLease> lease;
+    std::shared_ptr<FunctionProcessPool> function_pool = DORIS_TRY(
+            _ensure_pool_initialized(func_meta, version, std::move(package_cache_entry), &lease));
 
     ProcessPtr process;
     RETURN_IF_ERROR(_get_process(version, function_pool, &process));
@@ -200,6 +228,7 @@ Status PythonServerManager::get_client(
         RETURN_IF_ERROR(ClientType::create(func_meta, std::move(process), client));
     }
 
+    (*client)->_pool_lease = std::move(lease);
     return Status::OK();
 }
 
@@ -281,9 +310,10 @@ void PythonServerManager::_start_pool_initialization(
 Result<std::shared_ptr<PythonServerManager::FunctionProcessPool>>
 PythonServerManager::_ensure_pool_initialized(
         const PythonUDFMeta& meta, const PythonVersion& version,
-        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry) {
+        std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
+        std::shared_ptr<PythonUDFPoolLease>* lease) {
     auto function_pool_result =
-            _get_or_create_process_pool(meta, version, std::move(package_cache_entry));
+            _get_or_create_process_pool(meta, version, std::move(package_cache_entry), lease);
     if (!function_pool_result.has_value()) {
         return ResultError(function_pool_result.error());
     }
@@ -507,14 +537,47 @@ Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* proce
     return Status::OK();
 }
 
+void PythonServerManager::_reclaim_idle_pools(std::chrono::steady_clock::time_point now) {
+    std::vector<std::shared_ptr<FunctionProcessPool>> retired;
+    {
+        std::scoped_lock lock(_pools_mutex);
+        std::erase_if(_process_pools, [&](const auto& entry) {
+            const auto& pool = entry.second;
+            std::scoped_lock pool_lock(pool->mutex);
+            if (pool->auto_suspend < 0 || pool->active_clients != 0 ||
+                std::chrono::duration_cast<std::chrono::seconds>(now - pool->idle_since).count() <
+                        pool->auto_suspend) {
+                return false;
+            }
+            // Stop late initialization/repair workers, but allow the next call to create a new pool.
+            pool->state = PoolState::STOPPED;
+            pool->has_available_process = false;
+            retired.emplace_back(pool);
+            return true;
+        });
+    }
+    for (const auto& pool : retired) {
+        pool->cv.notify_all();
+        std::vector<ProcessPtr> processes;
+        {
+            std::scoped_lock lock(pool->mutex);
+            processes.swap(pool->processes);
+        }
+        for (const auto& process : processes) {
+            if (process) {
+                process->shutdown();
+            }
+        }
+    }
+}
+
 void PythonServerManager::_start_health_check_thread() {
     std::scoped_lock lock(_health_check_mutex);
     if (_health_check_thread || _shutdown_flag.load(std::memory_order_acquire)) return;
 
-    LOG(INFO) << "Starting Python process health check thread (interval: 30 seconds)";
+    LOG(INFO) << "Starting Python process monitor";
 
     _health_check_thread = std::make_unique<std::thread>([this]() {
-        // Health check loop
         while (!_shutdown_flag.load(std::memory_order_acquire)) {
             // Wait for interval or shutdown signal
             {
@@ -526,6 +589,7 @@ void PythonServerManager::_start_health_check_thread() {
 
             if (_shutdown_flag.load(std::memory_order_acquire)) break;
 
+            _reclaim_idle_pools(std::chrono::steady_clock::now());
             _check_and_recreate_processes();
             _refresh_memory_stats();
         }

@@ -218,6 +218,69 @@ public class CreateFunctionTest extends TestWithFeService {
     }
 
     @Test
+    public void testAutoSuspend() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database python_auto_suspend_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("python_auto_suspend_db");
+        for (String kind : new String[]{"", "aggregate ", "tables "}) {
+            String prefix = kind.isEmpty() ? "scalar" : kind.trim();
+            String ret = kind.equals("tables ") ? "array<int>" : "int";
+            String definition = "(int) returns " + ret + " properties('type'='PYTHON_UDF', "
+                    + "'symbol'='evaluate', 'runtime_version'='3.10.2'";
+            createFunction("create " + kind + "function python_auto_suspend_db." + prefix + "_default"
+                    + definition + ");", ctx);
+            assertAutoSuspendMetadata(findFunction(db, prefix + "_default"), -1);
+            if (kind.equals("tables ")) {
+                assertAutoSuspendMetadata(findFunction(db, prefix + "_default_outer"), -1);
+            }
+            long[] values = {Long.MIN_VALUE, -2, -1, 0, 30, Long.MAX_VALUE};
+            for (int i = 0; i < values.length; i++) {
+                String name = prefix + "_explicit_" + i;
+                createFunction("create " + kind + "function python_auto_suspend_db." + name
+                        + definition + ", 'auto_suspend'='" + values[i] + "');", ctx);
+                assertAutoSuspendMetadata(findFunction(db, name), values[i]);
+                if (kind.equals("tables ")) {
+                    assertAutoSuspendMetadata(findFunction(db, name + "_outer"), values[i]);
+                }
+            }
+        }
+    }
+
+    private void assertAutoSuspendMetadata(Function fn, long expected) {
+        Assertions.assertEquals(expected, fn.getAutoSuspend());
+        Assertions.assertTrue(FunctionToSqlConverter.toSql(fn, false)
+                .contains("\"AUTO_SUSPEND\"=\"" + expected + "\""));
+        Assertions.assertEquals(expected, FunctionToThriftConverter.toThrift(
+                fn, fn.getReturnType(), fn.getArgs(), new Boolean[]{true}).getAutoSuspend());
+    }
+
+    @Test
+    public void testJavaUdfRejectsAutoSuspend() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database java_auto_suspend_db;");
+        createFunction("create function java_auto_suspend_db.java_default(timestamp_ns) returns timestamp_ns "
+                + "properties('type'='JAVA_UDF', 'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
+        assertCreateFunctionAnalysisException(ctx,
+                "create function java_auto_suspend_db.java_auto_suspend(timestamp_ns) returns timestamp_ns "
+                        + "properties('type'='JAVA_UDF', 'symbol'='org.apache.doris.catalog.TimestampNsUdf', "
+                        + "'auto_suspend'='0');",
+                "auto_suspend property only supports PYTHON_UDF");
+    }
+
+    @Test
+    public void testAutoSuspendRejectsInvalidValues() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database invalid_auto_suspend_db;");
+        for (String invalid : new String[]{"abc", "1.5", "9223372036854775808", "-9223372036854775809"}) {
+            assertCreateFunctionAnalysisException(ctx,
+                    "create function invalid_auto_suspend_db.invalid_fn(int) returns int "
+                            + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                            + "'runtime_version'='3.10.2', 'auto_suspend'='" + invalid + "');",
+                    "auto_suspend must be an integer number of seconds");
+        }
+    }
+
+    @Test
     public void testCreatePythonFunctionRejectsObjectTypes() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         createDatabase(ctx, "create database py_obj_type_db;");

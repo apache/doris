@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +48,37 @@ public class FunctionToThriftConverterTest {
     // ======================== ScalarFunction Tests ========================
 
     @Test
+    void testAutoSuspendSurvivesCopySerializationAndThrift() {
+        ScalarFunction scalar = ScalarFunction.createUdf(BinaryType.PYTHON_UDF,
+                new FunctionName("db1", "python_fn"), new Type[]{Type.INT}, Type.INT,
+                false, null, "evaluate", null, null);
+        AggregateFunction aggregate = new AggregateFunction(
+                new FunctionName("db1", "python_agg"), new Type[]{Type.INT}, Type.INT, false,
+                Type.INT, null, "init", "update", "merge", null, null, null, null);
+        aggregate.setBinaryType(BinaryType.PYTHON_UDF);
+        for (Function fn : new Function[]{scalar, aggregate}) {
+            Assertions.assertEquals(-1, fn.getAutoSuspend());
+            JsonObject oldJson = GsonUtils.GSON.toJsonTree(fn).getAsJsonObject();
+            oldJson.remove("as");
+            Function oldRestored = GsonUtils.GSON.fromJson(oldJson, fn.getClass());
+            Assertions.assertEquals(-1, oldRestored.getAutoSuspend());
+            for (long value : new long[]{Long.MIN_VALUE, -2, 0, 30, Long.MAX_VALUE}) {
+                fn.setAutoSuspend(value);
+                Function copy = fn.clone();
+                Assertions.assertEquals(value, copy.getAutoSuspend());
+                JsonObject json = GsonUtils.GSON.toJsonTree(fn).getAsJsonObject();
+                Assertions.assertEquals(value, json.get("as").getAsLong());
+                Function restored = GsonUtils.GSON.fromJson(json, fn.getClass());
+                Assertions.assertEquals(value, restored.getAutoSuspend());
+                TFunction thrift = FunctionToThriftConverter.toThrift(
+                        copy, Type.INT, new Type[]{Type.INT}, new Boolean[]{true});
+                Assertions.assertTrue(thrift.isSetAutoSuspend());
+                Assertions.assertEquals(value, thrift.getAutoSuspend());
+            }
+        }
+    }
+
+    @Test
     void testScalarFunctionJavaUdf_symbolIsPopulated() {
         FunctionName name = new FunctionName("db1", "java_udf_fn");
         Type[] argTypes = {Type.INT, Type.STRING};
@@ -58,6 +90,7 @@ public class FunctionToThriftConverterTest {
 
         Assertions.assertTrue(result.isSetScalarFn());
         Assertions.assertFalse(result.isSetAggregateFn());
+        Assertions.assertFalse(result.isSetAutoSuspend());
         Assertions.assertEquals("com.example.MyFn", result.getScalarFn().getSymbol());
     }
 

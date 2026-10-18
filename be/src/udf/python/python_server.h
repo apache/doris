@@ -34,6 +34,7 @@
 
 namespace doris {
 struct UserFunctionCacheEntry;
+class PythonUDFPoolLease;
 class PythonServerManager {
 public:
     PythonServerManager() = default;
@@ -78,6 +79,8 @@ public:
 #endif
 
 private:
+    friend class PythonUDFPoolLease;
+
     enum class PoolState {
         UNINITIALIZED,
         INITIALIZING,
@@ -105,6 +108,9 @@ private:
         std::shared_ptr<ProcessRegistry> process_registry;
         int64_t function_id = 0;
         int32_t pool_size = 3;
+        int64_t auto_suspend = -1;
+        size_t active_clients = 0;
+        std::chrono::steady_clock::time_point idle_since = std::chrono::steady_clock::now();
         std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
         std::mutex mutex;
         // Coordinates initialization and repair workers with foreground requests.
@@ -122,7 +128,8 @@ private:
      */
     Result<std::shared_ptr<FunctionProcessPool>> _ensure_pool_initialized(
             const PythonUDFMeta& meta, const PythonVersion& version,
-            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr);
+            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry = nullptr,
+            std::shared_ptr<PythonUDFPoolLease>* lease = nullptr);
 
     /**
      * Pick an available process from specific pool, recreating one on demand if needed.
@@ -143,6 +150,8 @@ private:
      * Thread periodically checks process health and refreshes memory stats
      */
     void _start_health_check_thread();
+
+    void _reclaim_idle_pools(std::chrono::steady_clock::time_point now);
 
     /**
      * Check process health and recreate dead processes
@@ -177,7 +186,8 @@ private:
 
     Result<std::shared_ptr<FunctionProcessPool>> _get_or_create_process_pool(
             const PythonUDFMeta& meta, const PythonVersion& version,
-            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry);
+            std::shared_ptr<UserFunctionCacheEntry> package_cache_entry,
+            std::shared_ptr<PythonUDFPoolLease>* lease = nullptr);
     std::vector<std::shared_ptr<FunctionProcessPool>> _snapshot_process_pools();
     static bool _select_alive_process_from_pool(const std::vector<ProcessPtr>& pool,
                                                 ProcessPtr* process);

@@ -122,10 +122,36 @@ class UdfVolatilityTest {
         Assertions.assertEquals(3, udtf.withChildren(udtf.children()).getCatalogFunction().getPoolSize());
     }
 
+    @Test
+    void testAutoSuspendSurvivesExpressionCopies() {
+        for (long value : new long[]{-2, 0, 30}) {
+            PythonUdf udf = pythonUdf(FunctionVolatility.VOLATILE,
+                    Udf.createVolatileIdentity(FunctionVolatility.VOLATILE), value);
+            PythonUdaf udaf = pythonUdaf(FunctionVolatility.VOLATILE, value);
+            PythonUdtf udtf = pythonUdtf(FunctionVolatility.VOLATILE, value);
+            for (Function fn : new Function[]{
+                    udf.withChildren(udf.children()).getCatalogFunction(),
+                    udf.withIgnoreUniqueId(true).getCatalogFunction(),
+                    udf.withFreshVolatileIdentity().getCatalogFunction(),
+                    udaf.withDistinctAndChildren(true, udaf.children()).getCatalogFunction(),
+                    udaf.withIgnoreUniqueId(true).getCatalogFunction(),
+                    udaf.withFreshVolatileIdentity().getCatalogFunction(),
+                    udtf.withChildren(udtf.children()).getCatalogFunction(),
+                    udtf.withIgnoreUniqueId(true).getCatalogFunction(),
+                    udtf.withFreshVolatileIdentity().getCatalogFunction()}) {
+                Assertions.assertEquals(value, fn.getAutoSuspend());
+            }
+        }
+    }
+
     private PythonUdf pythonUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
+        return pythonUdf(volatility, volatileIdentity, -1);
+    }
+
+    private PythonUdf pythonUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity, long autoSuspend) {
         return new PythonUdf("py_fn", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
-                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3,
+                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3, autoSuspend,
                 new IntegerLiteral(1));
     }
 
@@ -136,16 +162,24 @@ class UdfVolatilityTest {
     }
 
     private PythonUdaf pythonUdaf(FunctionVolatility volatility) {
+        return pythonUdaf(volatility, -1);
+    }
+
+    private PythonUdaf pythonUdaf(FunctionVolatility volatility, long autoSuspend) {
         return new PythonUdaf("py_agg", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 IntegerType.INSTANCE, NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
                 null, "Agg", null, null, null, null, null, null, null, false, "", false, 360,
-                "3.10.2", "", 3, new IntegerLiteral(1));
+                "3.10.2", "", 3, autoSuspend, new IntegerLiteral(1));
     }
 
     private PythonUdtf pythonUdtf(FunctionVolatility volatility) {
+        return pythonUdtf(volatility, -1);
+    }
+
+    private PythonUdtf pythonUdtf(FunctionVolatility volatility, long autoSuspend) {
         return new PythonUdtf("py_table", 1, "db1", Function.BinaryType.PYTHON_UDF, signature(),
                 NullableMode.ALWAYS_NULLABLE, volatility, Udf.createVolatileIdentity(volatility),
-                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3, new IntegerLiteral(1));
+                null, "evaluate", null, null, "", false, 360, "3.10.2", "", 3, autoSuspend, new IntegerLiteral(1));
     }
 
     private FunctionSignature signature() {
