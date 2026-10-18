@@ -144,6 +144,7 @@ TEST(SchemaColumnsScannerTest, varbinary_metadata_in_block) {
     EXPECT_EQ("varbinary", value_at("COLUMN_TYPE", 1).get<TYPE_STRING>());
     EXPECT_TRUE(value_at("CHARACTER_MAXIMUM_LENGTH", 1).is_null());
     EXPECT_TRUE(value_at("CHARACTER_OCTET_LENGTH", 1).is_null());
+}
 
 // COLUMN_TYPE is the text information_schema clients read a schema back from, so a
 // STRUCT has to name its fields there. The names arrive lower cased from the FE, while
