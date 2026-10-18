@@ -229,6 +229,22 @@ public interface BaselinePersistence {
         return true;
     }
 
+    /**
+     * As insertIfPreviousPresent, with the DURABLE ORDER attached: the statement must also
+     * observe that no NEWER row of the id exists, so a stalled earlier flip cannot land after
+     * a successor already moved the intent (see
+     * BaselineManager#conditionalStatusInsertSql).
+     *
+     * @param plan                 the new-status row
+     * @param previousStatus       the status the flip starts from
+     * @param previousUpdateSecond the stored second the flip is based on (0 = unknown)
+     * @return whether a row was written
+     */
+    default boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus,
+            long previousUpdateSecond) {
+        return insertIfPreviousPresent(plan, previousStatus);
+    }
+
     /** Identity-scoped delete (id + digest + planSql + fingerprint). */
     default void deleteByIdentity(BaselinePlan plan) {
     }

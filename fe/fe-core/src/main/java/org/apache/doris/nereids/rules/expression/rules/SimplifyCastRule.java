@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -73,7 +74,8 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
         // remove redundant cast
         // CAST(value as type), value is type
         if (cast.getDataType().equals(child.getDataType())) {
-            if (child.containsType(SpmConstVar.class)) {
+            if (child.containsType(SpmConstVar.class)
+                    || (cast.isExplicitType() && SPMOptimizer.isCaptureInProgress())) {
                 // An SPM placeholder stands for a value SUBSTITUTED at rewrite time, so its
                 // captured literal's type says nothing about the future value:
                 // parameterizing CAST(1 AS TINYINT) types the placeholder TINYINT (the
@@ -82,6 +84,16 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
                 // requested conversion and the result type on that replay. Keep the
                 // explicit conversion; the ordinary elimination below still applies to
                 // every other expression.
+                //
+                // The placeholder can also reach the cast through a derived-table SLOT:
+                // `SELECT CAST(kk AS TINYINT) FROM (SELECT <literal> AS kk) t` exposes a
+                // slot whose type IS the captured literal's type, so the marker is not a
+                // descendant of the cast and the check above cannot see it - while the
+                // same substitution hazard applies unchanged. Every EXPLICIT cast met
+                // during a CAPTURE optimization (SPMOptimizer.isCaptureInProgress) is
+                // therefore user-visible intent that the frozen text must keep; an
+                // eliminated copy silently dropped the conversion before the projects
+                // merged, and the replay then substituted a wider literal unconverted.
                 return cast;
             }
             return child;

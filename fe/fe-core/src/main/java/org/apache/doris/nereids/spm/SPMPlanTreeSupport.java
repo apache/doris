@@ -3745,11 +3745,32 @@ public final class SPMPlanTreeSupport {
             node = node.child(0);
         }
         if (node instanceof LogicalSubQueryAlias) {
-            return wanted.equals(((LogicalSubQueryAlias<?>) node).getAlias());
+            // A derived table is visible under its BARE alias only: `db.t.*` never addresses
+            // it, even when its alias happens to be `t` next to a real db.t of the same
+            // join. Matching by the last qualifier part alone selected that alias first and
+            // derived the WRONG side's labels (the reviewer's
+            // `SELECT db.t.* FROM (SELECT k AS wrong FROM u) t CROSS JOIN db.t`).
+            return qualifier.size() == 1
+                    && wanted.equals(((LogicalSubQueryAlias<?>) node).getAlias());
         }
         if (node instanceof UnboundRelation) {
             List<String> parts = ((UnboundRelation) node).getNameParts();
-            return !parts.isEmpty() && wanted.equals(parts.get(parts.size() - 1));
+            if (parts.isEmpty() || !wanted.equals(parts.get(parts.size() - 1))) {
+                return false;
+            }
+            // Every qualifier component the caller WROTE must be answered by the relation
+            // name, part by part from the right: `db.t.*` answers a `db.t` relation (and an
+            // unqualified `t`, which the analyzer resolves in the session's database), and
+            // `cat.db.t.*` answers all three. A relation whose own name contradicts the
+            // qualifier (`other.t` against `db.t.*`) never matches, so a join cannot resolve
+            // the star to a different side.
+            int q = qualifier.size() - 1;
+            for (int p = parts.size() - 1; p >= 0 && q >= 0; p--, q--) {
+                if (!parts.get(p).equalsIgnoreCase(qualifier.get(q))) {
+                    return false;
+                }
+            }
+            return true;
         }
         return false;
     }
@@ -6088,7 +6109,7 @@ public final class SPMPlanTreeSupport {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
-        collectBindSideFingerprintEntries(ctx, plan, Map.of(), entries);
+        collectBindSideFingerprintEntries(ctx, plan, Map.of(), entries, true);
         return joinFingerprintEntries(entries);
     }
 
@@ -6121,13 +6142,45 @@ public final class SPMPlanTreeSupport {
      * @return the fingerprint (possibly empty, never null)
      */
     public static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
+            Plan optimizedPlan, String storedPlanSql, Map<String, TableIf> bindTables) {
+        return schemaFingerprintForCreate(ctx, bindPlan, optimizedPlan, storedPlanSql,
+                bindTables, false);
+    }
+
+    /**
+     * CREATE-time fingerprint without the locked bind-side snapshot: the bind relations
+     * that the optimized plan cannot answer are resolved from the catalog. Only the
+     * in-memory / unit-test entry uses this form - the production CREATE path passes the
+     * snapshot and never reads the live catalog (see the main overload).
+     */
+    public static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
             Plan optimizedPlan, String storedPlanSql) {
+        return schemaFingerprintForCreate(ctx, bindPlan, optimizedPlan, storedPlanSql,
+                Map.of(), true);
+    }
+
+    private static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
+            Plan optimizedPlan, String storedPlanSql, Map<String, TableIf> bindTables,
+            boolean allowLiveResolve) {
         if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
-        collectBindSideFingerprintEntries(ctx, bindPlan,
-                lockedTablesByQualifiedName(optimizedPlan), entries);
+        // The bind side is resolved against the SAME under-lock snapshot the frozen output
+        // slots were built from: the physical plan's own relations PLUS the bind-side tables
+        // the capture optimization locked (SPMOptimizer keeps them because its nested
+        // statement context is closed on return). Nothing here may touch the LIVE catalog:
+        // this runs AFTER planWithLock released the table locks, so re-resolving a table
+        // would hash a schema a concurrent ALTER may already have changed while the frozen
+        // planSql still describes the older one - and the replay guard would then accept the
+        // stale baseline.
+        Map<String, TableIf> lockedTables = new HashMap<>(lockedTablesByQualifiedName(optimizedPlan));
+        if (bindTables != null) {
+            for (Map.Entry<String, TableIf> entry : bindTables.entrySet()) {
+                lockedTables.putIfAbsent(entry.getKey(), entry.getValue());
+            }
+        }
+        collectBindSideFingerprintEntries(ctx, bindPlan, lockedTables, entries, allowLiveResolve);
         collectPhysicalTableEntries(optimizedPlan, entries);
         // Functions used ONLY by the stored plan (bind "SELECT k FROM t", plan
         // "SELECT f(k) AS k FROM t") must be pinned too: the bind side never mentions
@@ -6165,7 +6218,7 @@ public final class SPMPlanTreeSupport {
         TreeSet<String> entries = new TreeSet<>();
         if (bindPlan != null && ctx.getStatementContext() != null) {
             collectBindSideFingerprintEntries(ctx, bindPlan,
-                    lockedTablesByQualifiedName(plannedPlan), entries);
+                    lockedTablesByQualifiedName(plannedPlan), entries, true);
         }
         collectPhysicalTableEntries(plannedPlan, entries);
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
@@ -6174,7 +6227,8 @@ public final class SPMPlanTreeSupport {
 
     /** Bind-side table + function entries (see the callers' contracts). */
     private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
-            Map<String, TableIf> lockedTables, TreeSet<String> entries) {
+            Map<String, TableIf> lockedTables, TreeSet<String> entries,
+            boolean allowLiveResolve) {
         walkPlansScoped(plan, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
@@ -6203,9 +6257,19 @@ public final class SPMPlanTreeSupport {
                     // the cached instance, so the lock and the post-plan fingerprint both
                     // operate on the old table). The replay path revalidates against the
                     // relations the plan actually locked (verifyReplayMetadata).
-                    TableIf table = locked != null ? locked
-                            : ctx.getStatementContext().resolveTableWithoutCache(
-                                    qualifier, Optional.of(relation));
+                    TableIf table = locked;
+                    if (table == null) {
+                        if (!allowLiveResolve) {
+                            // CREATE: a bind-side relation that is NOT part of the under-lock
+                            // snapshot (the optimizer pruned it, so the frozen plan never reads
+                            // it) must not be resolved live - its entry would describe a NEWER
+                            // schema than the frozen output. The plan-side entries still pin
+                            // every table the frozen plan actually reads.
+                            return;
+                        }
+                        table = ctx.getStatementContext().resolveTableWithoutCache(
+                                qualifier, Optional.of(relation));
+                    }
                     entries.add(describeTableForFingerprint(table));
                 } catch (RuntimeException e) {
                     // unresolvable: not part of the fingerprint, the analysis pass reports

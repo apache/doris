@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.spm.placeholder;
 
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -360,10 +364,39 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
         }
         long id = nextId++;
-        SpmConstVar placeholder = SpmConstVar.of(id, literal);
+        SpmConstVar placeholder = SpmConstVar.of(id, markerPayload(literal, parent));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
+    }
+
+    /**
+     * The literal the placeholder keeps as its PAYLOAD (readability only - the replay
+     * substitutes the whole placeholder by id).
+     *
+     * A captured NULL is special: a NULL literal's type is NullType, and the analyzer
+     * COERCES a NullType operand of AND / OR / NOT to a typed BOOLEAN null literal
+     * (ExpressionAnalyzer.visitOr / visitAnd / visitNot). That rewrite REPLACES the whole
+     * operand, i.e. it deleted the placeholder: the frozen SQL of
+     * `k > 0 OR NULL` contained `k > _spm_const_var(1, 0) OR NULL` and the second id was
+     * gone, so a matching `k > 0 OR TRUE` (same literal-masked digest, id 2 extracted as
+     * TRUE) had no marker left to substitute and the replay returned NULL instead of TRUE.
+     * Typing the payload BOOLEAN keeps the marker where the analyzer expects a boolean
+     * operand: it is not a NullType operand any more, the value substituted at replay
+     * still lands in the same slot, and matching is unaffected (a placeholder accepts any
+     * user literal, see SPMAstCheckVisitor).
+     *
+     * @param literal the captured literal
+     * @param parent  the literal's parent expression (null at an expression root)
+     * @return the payload the placeholder keeps
+     */
+    private static Literal markerPayload(Literal literal, Expression parent) {
+        boolean booleanOperand = parent instanceof And || parent instanceof Or
+                || parent instanceof Not;
+        if (literal.isNullLiteral() && booleanOperand) {
+            return NullLiteral.BOOLEAN_INSTANCE;
+        }
+        return literal;
     }
 
     // ==================== IN (constant list) -> list placeholder ====================
