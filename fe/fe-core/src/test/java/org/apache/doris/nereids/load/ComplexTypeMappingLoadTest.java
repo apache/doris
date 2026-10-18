@@ -60,6 +60,10 @@ public class ComplexTypeMappingLoadTest extends TestWithFeService {
     private static final String ARRAY_TABLE = "complex_mapping_array";
     private static final String MAP_TABLE = "complex_mapping_map";
     private static final String STRUCT_TABLE = "complex_mapping_struct";
+    private static final String MAP_INT_KEY_TABLE = "complex_mapping_map_int_key";
+    private static final String STRUCT_WITH_MAP_TABLE = "complex_mapping_struct_with_map";
+    private static final String MAP_WITH_STRUCT_VALUE_TABLE = "complex_mapping_map_struct_value";
+    private static final String ARRAY_STRUCT_TABLE = "complex_mapping_array_struct";
     private static final String ARRAY_DEFAULT_TABLE = "complex_mapping_array_default";
     private static final String MAP_DEFAULT_TABLE = "complex_mapping_map_default";
     private static final String STRUCT_DEFAULT_TABLE = "complex_mapping_struct_default";
@@ -73,6 +77,17 @@ public class ComplexTypeMappingLoadTest extends TestWithFeService {
         createTable("create table " + MAP_TABLE + " (k int, v map<string, int>) duplicate key(k) "
                 + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
         createTable("create table " + STRUCT_TABLE + " (k int, v struct<f1: int, f2: string>) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
+        createTable("create table " + MAP_INT_KEY_TABLE + " (k int, v map<int, int>) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
+        createTable("create table " + STRUCT_WITH_MAP_TABLE
+                + " (k int, v struct<f1: int, f2: map<string, int>>) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
+        createTable("create table " + MAP_WITH_STRUCT_VALUE_TABLE
+                + " (k int, v map<string, struct<f1: int>>) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
+        createTable("create table " + ARRAY_STRUCT_TABLE
+                + " (k int, v array<struct<f1: int>>) duplicate key(k) "
                 + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
         createTable("create table " + ARRAY_DEFAULT_TABLE + " (k int, v array<int> default '[1, 2]') "
                 + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num' = '1')");
@@ -92,13 +107,19 @@ public class ComplexTypeMappingLoadTest extends TestWithFeService {
                 for (TableFixture fixture : ImmutableList.of(
                         new TableFixture(ARRAY_TABLE, ARRAY_DEFAULT_TABLE, "[]", "[1e3]"),
                         new TableFixture(MAP_TABLE, MAP_DEFAULT_TABLE, "{}", "{\"a\": 1}"),
-                        new TableFixture(STRUCT_TABLE, STRUCT_DEFAULT_TABLE, "{}", "{7, \"x\"}"))) {
+                        new TableFixture(STRUCT_TABLE, STRUCT_DEFAULT_TABLE, "{}", "{7, \"x\"}"),
+                        new TableFixture(MAP_INT_KEY_TABLE, null, "{1: 2}", "{3: 4}"),
+                        new TableFixture(STRUCT_WITH_MAP_TABLE, null, "{7, {\"a\": 1}}", "{7, {\"a\": 2}}"),
+                        new TableFixture(MAP_WITH_STRUCT_VALUE_TABLE, null, "{\"a\": {1}}", "{\"a\": {2}}"),
+                        new TableFixture(ARRAY_STRUCT_TABLE, null, "[{1}]", "[{2}]"))) {
                     assertLoadPlanBinds(fixture, false, null, new StringLiteral(fixture.replacement));
                     assertLoadPlanBinds(fixture, false, new NullLiteral(), new StringLiteral(fixture.replacement));
                     assertLoadPlanBinds(fixture, false, new StringLiteral(fixture.search),
                             new StringLiteral(fixture.replacement));
                     // replace_value(NULL) falls back to the schema default of the column
-                    assertLoadPlanBinds(fixture, true, null, null);
+                    if (fixture.defaultTable != null) {
+                        assertLoadPlanBinds(fixture, true, null, null);
+                    }
                 }
             }
         } finally {

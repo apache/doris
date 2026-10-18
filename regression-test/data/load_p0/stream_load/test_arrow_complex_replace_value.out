@@ -15,3 +15,23 @@
 1	\N	\N
 2	{"a":1}	{"f1":8, "f2":"y"}
 
+-- !null_key --
+1	{"":1}
+2	{"a":1}
+
+-- !empty_key --
+1	{"z":9}
+2	{"a":1}
+
+-- !long_key --
+1	{"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx":1}
+2	{"a":1}
+
+-- !long_key_match --
+1	{"z":9}
+2	{"a":1}
+
+-- !null_search --
+1	{"z":9}
+2	{"z":9}
+

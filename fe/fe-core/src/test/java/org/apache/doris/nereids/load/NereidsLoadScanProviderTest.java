@@ -33,16 +33,18 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
@@ -283,7 +285,8 @@ public class NereidsLoadScanProviderTest {
         UnboundSlot searchSlot = new UnboundSlot("w");
 
         // v = replace_value(w, NULL): every search expression, not only a literal, is parsed into the
-        // column type so the comparison is structural
+        // column type so the comparison is structural. The cast is strict so that a malformed search
+        // fails instead of silently becoming NULL and replacing every row.
         NereidsParamCreateContext context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(searchSlot, new NullLiteral())),
                 Pair.of("replace_value", Lists.newArrayList("w", null)));
@@ -292,6 +295,7 @@ public class NereidsLoadScanProviderTest {
         Assertions.assertTrue(comparison.left() instanceof UnboundSlot, comparison.left().toSql());
         Cast search = (Cast) comparison.right();
         Assertions.assertEquals(complexType, search.getDataType());
+        Assertions.assertTrue(search.isStrict(), search.toSql());
         Assertions.assertEquals(searchSlot, search.child());
     }
 
@@ -312,49 +316,143 @@ public class NereidsLoadScanProviderTest {
         EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
         Cast searchCast = (Cast) comparison.right();
         Assertions.assertEquals(complexType, searchCast.getDataType());
-        Assertions.assertEquals(search, searchCast.child());
+        Assertions.assertEquals(search, searchCast.child(0));
     }
 
     @Test
-    public void testArrowMapSearchUsesJsonComparison() throws Exception {
+    public void testArrowMapSearchComparesKeysAndValues() throws Exception {
         OlapTable table = mockTable(Arrays.asList(
                 new Column("k", PrimitiveType.INT, true),
                 new Column("v", new MapType(ScalarType.createStringType(), ScalarType.INT, true, true), true)));
         DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
         StringLiteral search = new StringLiteral("{\"a\": 1}");
 
-        // MAP is rejected by ComparisonPredicate, so compare the JSON rendering of both sides: JSON
-        // escapes nested strings and cannot conflate distinct values like the display text does
+        // MAP is rejected by ComparisonPredicate, so its keys and values are compared as arrays. A key
+        // array keeps the key NULL bitmap and has no 255 byte key limit like a JSON object key, and a
+        // NULL search keeps the text format three-valued result through the guard.
         NereidsParamCreateContext context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
                 Pair.of("replace_value", Lists.newArrayList("{\"a\": 1}", null)));
         Expression replaced = context.exprMap.get("v");
-        EqualTo comparison = (EqualTo) ((Not) replaced.child(1).child(0)).child();
-        Assertions.assertEquals(StringType.INSTANCE, comparison.left().getDataType());
-        Cast left = (Cast) comparison.left();
-        Assertions.assertTrue(left.child() instanceof ToJson, left.child().toSql());
-        Assertions.assertTrue(left.child().child(0) instanceof UnboundSlot);
-        Assertions.assertEquals(StringType.INSTANCE, comparison.right().getDataType());
-        Cast right = (Cast) comparison.right();
-        Assertions.assertTrue(right.child() instanceof ToJson, right.child().toSql());
-        Cast searchCast = (Cast) right.child().child(0);
-        Assertions.assertEquals(complexType, searchCast.getDataType());
-        Assertions.assertEquals(search, searchCast.child());
+        UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertEquals("if", condition.getName());
+        Assertions.assertTrue(condition.child(0) instanceof IsNull, condition.toSql());
+        Assertions.assertTrue(condition.child(1) instanceof NullLiteral, condition.toSql());
+        And equality = (And) condition.child(2);
+        Assertions.assertEquals(2, equality.children().size(), equality.toSql());
+        assertMapArrayComparison(equality.child(0), "map_keys", complexType, search);
+        assertMapArrayComparison(equality.child(1), "map_values", complexType, search);
     }
 
     @Test
-    public void testArrowMapSearchWithNonStringKeyIsRejected() {
+    public void testArrowStructSearchComparesFields() throws Exception {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("f1", ScalarType.INT),
+                        new org.apache.doris.catalog.StructField("f2", ScalarType.createStringType())), true)));
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral search = new StringLiteral("{7, \"x\"}");
+
+        // STRUCT is rejected by ComparisonPredicate, so every field is compared by its 1-based
+        // constant index; a nested NULL field matches another NULL field through <=>.
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{7, \"x\"}", null)));
+        Expression replaced = context.exprMap.get("v");
+        UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertEquals("if", condition.getName());
+        And equality = (And) condition.child(2);
+        Assertions.assertEquals(2, equality.children().size(), equality.toSql());
+        assertStructFieldComparison(equality.child(0), 1, complexType, search);
+        assertStructFieldComparison(equality.child(1), 2, complexType, search);
+    }
+
+    @Test
+    public void testArrowMapSearchSupportsNonStringKeys() throws Exception {
         OlapTable table = mockTable(Arrays.asList(
                 new Column("k", PrimitiveType.INT, true),
                 new Column("v", new MapType(ScalarType.INT, ScalarType.INT, true, true), true)));
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral search = new StringLiteral("{1: 2}");
 
-        // to_json can only render string-like map keys, and the display text is ambiguous, so the
-        // combination is rejected instead of compared with either of them
+        // map_keys is compared as an array, so a key that is not string-like no longer needs a JSON
+        // object key and is supported instead of rejected.
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{1: 2}", null)));
+        Expression replaced = context.exprMap.get("v");
+        UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
+        And equality = (And) condition.child(2);
+        assertMapArrayComparison(equality.child(0), "map_keys", complexType, search);
+        assertMapArrayComparison(equality.child(1), "map_values", complexType, search);
+    }
+
+    @Test
+    public void testArrowMapSearchWithNestedMapValueIsRejected() {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new MapType(ScalarType.createStringType(),
+                        new MapType(ScalarType.createStringType(), ScalarType.INT, true, true), true, true), true)));
+
+        // JSONB object keys are limited to 255 bytes and lose the key NULL flag, so a MAP value
+        // cannot be compared through to_json; a nested MAP is rejected instead of compared wrongly.
         UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("{}"), new NullLiteral())),
                 Pair.of("replace_value", Lists.newArrayList("{}", null))));
-        Assertions.assertTrue(exception.getMessage().contains("not supported for Arrow files"),
+        Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
                 exception.getMessage());
+    }
+
+    @Test
+    public void testArrowStructArraySearchRejectsUnsupportedJsonLeaf() {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("f", ScalarType.createHllType())),
+                        true), true)));
+
+        // The engine cannot compare ARRAY<STRUCT> as an array, and HLL has no JSONB serde, so the
+        // type is rejected at plan time instead of failing later during the load.
+        UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("[]", null))));
+        Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
+                exception.getMessage());
+    }
+
+    private static void assertMapArrayComparison(Expression equality, String function, DataType complexType,
+            StringLiteral search) {
+        Assertions.assertTrue(equality instanceof NullSafeEqual, equality.toSql());
+        Expression left = equality.child(0);
+        Expression right = equality.child(1);
+        Assertions.assertTrue(left instanceof UnboundFunction, left.toSql());
+        Assertions.assertTrue(right instanceof UnboundFunction, right.toSql());
+        Assertions.assertEquals(function, ((UnboundFunction) left).getName());
+        Assertions.assertEquals(function, ((UnboundFunction) right).getName());
+        Assertions.assertTrue(left.child(0) instanceof UnboundSlot, left.toSql());
+        Expression searchCast = right.child(0);
+        Assertions.assertTrue(searchCast instanceof Cast, searchCast.toSql());
+        Assertions.assertEquals(complexType, searchCast.getDataType());
+        Assertions.assertTrue(((Cast) searchCast).isStrict(), searchCast.toSql());
+        Assertions.assertEquals(search, searchCast.child(0));
+    }
+
+    private static void assertStructFieldComparison(Expression equality, int index, DataType complexType,
+            StringLiteral search) {
+        Assertions.assertTrue(equality instanceof NullSafeEqual, equality.toSql());
+        Expression left = equality.child(0);
+        Expression right = equality.child(1);
+        Assertions.assertEquals("element_at", ((UnboundFunction) left).getName());
+        Assertions.assertEquals("element_at", ((UnboundFunction) right).getName());
+        Assertions.assertTrue(left.child(0) instanceof UnboundSlot, left.toSql());
+        Assertions.assertEquals(new IntegerLiteral(index), left.child(1));
+        Expression searchCast = right.child(0);
+        Assertions.assertTrue(searchCast instanceof Cast, searchCast.toSql());
+        Assertions.assertEquals(complexType, searchCast.getDataType());
+        Assertions.assertTrue(((Cast) searchCast).isStrict(), searchCast.toSql());
+        Assertions.assertEquals(search, searchCast.child(0));
+        Assertions.assertEquals(new IntegerLiteral(index), right.child(1));
     }
 
     private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,
