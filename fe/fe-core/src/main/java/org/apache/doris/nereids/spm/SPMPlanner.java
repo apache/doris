@@ -1017,9 +1017,9 @@ public class SPMPlanner {
         // function names come from the STORED TEXT (frozen.sql), so a re-plan that picks
         // an equivalent builtin with another name (years_add vs date_add) cannot break
         // the symmetric revalidation.
-        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprintForCreate(
-                ctx, bindPlan, optimizeResult.getPhysicalPlan(), frozen.sql,
-                optimizeResult.getTableSnapshot()));
+        baseline.setSchemaFingerprint(
+                SPMPlanTreeSupport.schemaFingerprintForCreateFromLockedEntries(
+                        ctx, bindPlan, frozen.sql, optimizeResult.getTableFingerprints()));
         return baseline;
     }
 

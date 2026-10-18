@@ -3267,14 +3267,16 @@ public final class SPMPlanTreeSupport {
         for (String label : labels) {
             boolean remove = false;
             for (String exceptedName : excepted) {
-                // The analyzer resolves an EXCEPT name against the relation's scope with
-                // its IDENTIFIER-case rules (Scope.findSlotIgnoreCase): `k` addresses the
-                // column aliased `K`, exactly like the REPLACE helper below. A
-                // case-sensitive comparison kept the K the caller actually removed, and the
-                // lenient prefix path then suppressed the mismatch - the frozen Project(v)
-                // was renamed to Project(v AS K).
-                if (label != null && (label.equalsIgnoreCase(exceptedName)
-                        || lastNamePart(label).equalsIgnoreCase(exceptedName))) {
+                // The analyzer resolves an EXCEPT name against the relation's scope with its
+                // IDENTIFIER-case rules (Scope.findSlotIgnoreCase): `k` addresses the column
+                // aliased `K`, exactly like the REPLACE helper below. The comparison is on the
+                // WHOLE output name: a dotted label like `x.y` is ONE column name (its alias
+                // was quoted), so it must never be matched by its last component - EXCEPT(y)
+                // over a relation exposing BOTH `x.y` and `y` removed both, and the frozen
+                // `x.y` header was renamed to `z`. The excepted name IS the scope-resolved
+                // column name (see outputLabelOf), so whole-name equality is the analyzer's
+                // own rule.
+                if (label != null && label.equalsIgnoreCase(exceptedName)) {
                     remove = true;
                     break;
                 }
@@ -3331,8 +3333,9 @@ public final class SPMPlanTreeSupport {
             int matches = 0;
             for (int i = 0; i < adjusted.size(); i++) {
                 String label = adjusted.get(i);
-                if (label != null && (label.equalsIgnoreCase(aliasName)
-                        || lastNamePart(label).equalsIgnoreCase(aliasName))) {
+                // WHOLE-name comparison, exactly like the EXCEPT half: a dotted label is one
+                // column name and a REPLACE alias naming `y` must not rename `x.y`.
+                if (label != null && label.equalsIgnoreCase(aliasName)) {
                     adjusted.set(i, aliasName);
                     matches++;
                 }
@@ -6109,7 +6112,7 @@ public final class SPMPlanTreeSupport {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
-        collectBindSideFingerprintEntries(ctx, plan, Map.of(), entries, true);
+        collectBindSideFingerprintEntries(ctx, plan, Map.of(), null, entries, true);
         return joinFingerprintEntries(entries);
     }
 
@@ -6150,8 +6153,8 @@ public final class SPMPlanTreeSupport {
     /**
      * CREATE-time fingerprint without the locked bind-side snapshot: the bind relations
      * that the optimized plan cannot answer are resolved from the catalog. Only the
-     * in-memory / unit-test entry uses this form - the production CREATE path passes the
-     * snapshot and never reads the live catalog (see the main overload).
+     * in-memory / unit-test entry uses this form - the production CREATE path hashes the
+     * tables under the planning lock (see schemaFingerprintForCreateFromLockedEntries).
      */
     public static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
             Plan optimizedPlan, String storedPlanSql) {
@@ -6180,7 +6183,8 @@ public final class SPMPlanTreeSupport {
                 lockedTables.putIfAbsent(entry.getKey(), entry.getValue());
             }
         }
-        collectBindSideFingerprintEntries(ctx, bindPlan, lockedTables, entries, allowLiveResolve);
+        collectBindSideFingerprintEntries(ctx, bindPlan, lockedTables, null, entries,
+                allowLiveResolve);
         collectPhysicalTableEntries(optimizedPlan, entries);
         // Functions used ONLY by the stored plan (bind "SELECT k FROM t", plan
         // "SELECT f(k) AS k FROM t") must be pinned too: the bind side never mentions
@@ -6190,6 +6194,40 @@ public final class SPMPlanTreeSupport {
         // functions): the frozen text is the artifact every replay re-plans, and a
         // re-plan may legally choose an equivalent builtin with another NAME
         // (years_add vs date_add), which made a plan-side walk permanently mismatch.
+        collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
+        return joinFingerprintEntries(entries);
+    }
+
+    /**
+     * CREATE-time fingerprint from table entries that were hashed WHILE the planning locks
+     * were held (see {@link #recordTableFingerprint} and SPMOptimizer's capture statement
+     * context).
+     *
+     * This is the production entry: the TableIf objects are MUTABLE in place, so describing
+     * them here - after planWithLock released the locks - could hash a schema a concurrent
+     * `ALTER TABLE ... ADD COLUMN` already changed while the frozen output slots (and the
+     * decompiled planSql) still describe the older one. The replay guard would then accept
+     * a baseline whose frozen `SELECT *` output omits the new column.
+     *
+     * @param ctx                the creating session
+     * @param bindPlan           the parsed (unbound) bind tree
+     * @param storedPlanSql      the planSql text that gets STORED - its function names are
+     *                           fingerprinted
+     * @param tableFingerprints  lowercase bare / db-qualified / catalog-qualified table name
+     *                           to the entry hashed under the planning lock
+     * @return the fingerprint (possibly empty, never null)
+     */
+    public static String schemaFingerprintForCreateFromLockedEntries(ConnectContext ctx,
+            Plan bindPlan, String storedPlanSql, Map<String, String> tableFingerprints) {
+        if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
+            return "";
+        }
+        TreeSet<String> entries = new TreeSet<>();
+        if (tableFingerprints != null) {
+            entries.addAll(tableFingerprints.values());
+            collectBindSideFingerprintEntries(ctx, bindPlan, Map.of(), tableFingerprints,
+                    entries, false);
+        }
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
     }
@@ -6218,17 +6256,78 @@ public final class SPMPlanTreeSupport {
         TreeSet<String> entries = new TreeSet<>();
         if (bindPlan != null && ctx.getStatementContext() != null) {
             collectBindSideFingerprintEntries(ctx, bindPlan,
-                    lockedTablesByQualifiedName(plannedPlan), entries, true);
+                    lockedTablesByQualifiedName(plannedPlan), null, entries, true);
         }
         collectPhysicalTableEntries(plannedPlan, entries);
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
     }
 
+    /**
+     * Records the fingerprint entry of ONE table under every name shape a bind relation may
+     * resolve to (bare / db-qualified / catalog.db-qualified, lower case).
+     *
+     * The caller MUST run while the planning locks are held (SPMOptimizer's capture
+     * statement context calls this from getAndCacheTable): describing a TableIf later reads
+     * its CURRENT schema - the object is mutable in place, so an `ALTER TABLE ... ADD
+     * COLUMN` committing after the optimizer unlocked it would pair the OLD frozen output
+     * slots with a NEW-schema fingerprint, and the replay guard would accept the stale
+     * baseline.
+     *
+     * @param out   the name-to-entry map to fill
+     * @param table the table that was just resolved under the lock
+     */
+    public static void recordTableFingerprint(Map<String, String> out, TableIf table) {
+        if (out == null || table == null || table.getName() == null) {
+            return;
+        }
+        String entry;
+        try {
+            entry = describeTableForFingerprint(table);
+        } catch (RuntimeException e) {
+            return; // an unreadable table is not part of the fingerprint either way
+        }
+        out.putIfAbsent(table.getName().toLowerCase(Locale.ROOT), entry);
+        if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
+            out.putIfAbsent((table.getDatabase().getFullName() + "." + table.getName())
+                    .toLowerCase(Locale.ROOT), entry);
+        }
+    }
+
+    /**
+     * Resolves one bind relation against the name-keyed fingerprint entries captured under
+     * the planning lock (see recordTableFingerprint). The exact qualifier wins, then the
+     * db-qualified suffix (dropping a catalog component), then the bare name.
+     */
+    private static String lookupLockedEntry(Map<String, String> entries, List<String> qualifier,
+            List<String> nameParts) {
+        if (entries.isEmpty()) {
+            return null;
+        }
+        if (qualifier != null && !qualifier.isEmpty()) {
+            String lower = String.join(".", qualifier).toLowerCase(Locale.ROOT);
+            String exact = entries.get(lower);
+            if (exact != null) {
+                return exact;
+            }
+            int dot = lower.indexOf('.');
+            if (dot >= 0 && dot + 1 < lower.length()) {
+                String dbQualified = entries.get(lower.substring(dot + 1));
+                if (dbQualified != null) {
+                    return dbQualified;
+                }
+            }
+        }
+        if (nameParts == null || nameParts.isEmpty()) {
+            return null;
+        }
+        return entries.get(nameParts.get(nameParts.size() - 1).toLowerCase(Locale.ROOT));
+    }
+
     /** Bind-side table + function entries (see the callers' contracts). */
     private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
-            Map<String, TableIf> lockedTables, TreeSet<String> entries,
-            boolean allowLiveResolve) {
+            Map<String, TableIf> lockedTables, Map<String, String> lockedEntries,
+            TreeSet<String> entries, boolean allowLiveResolve) {
         walkPlansScoped(plan, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
@@ -6241,13 +6340,26 @@ public final class SPMPlanTreeSupport {
                 try {
                     List<String> qualifier =
                             RelationUtil.getQualifierName(ctx, relation.getNameParts());
+                    if (lockedEntries != null) {
+                        // Entries hash-captured WHILE the planning locks were held (see
+                        // recordTableFingerprint): nothing here may touch the TableIf objects
+                        // again - they are mutable in place, so a page read after the
+                        // optimizer unlocked them could describe a NEWER schema than the
+                        // frozen output slots.
+                        String entry = lookupLockedEntry(lockedEntries, qualifier,
+                                relation.getNameParts());
+                        if (entry != null) {
+                            entries.add(entry);
+                        }
+                        return; // an unmatched relation is simply not part of the snapshot
+                    }
                     // Inside the create / replay window the FROZEN output slots were produced
                     // by a plan that already held the table locks: re-resolving the table
                     // here could hash a NEWER schema (an ALTER TABLE ADD COLUMN x committing
                     // after planWithLock released them) than the frozen slots were built
                     // from - same-text queries would pass the guard and silently omit x.
                     // When the plan carries the relation, its TableIf IS the under-lock
-                    // snapshot and is hashed instead.
+                    // snapshot.
                     TableIf locked = lookupLockedTable(lockedTables, qualifier,
                             relation.getNameParts());
                     // Resolve WITHOUT the planner's resolved-table cache: this fingerprint

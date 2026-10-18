@@ -20,8 +20,6 @@ package org.apache.doris.nereids.spm.builder;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
-import org.apache.doris.nereids.spm.placeholder.SpmConstList;
-import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -610,24 +608,23 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      */
     private static boolean preservesLoweredAccumulator(Cast cast) {
         Expression child = cast.child();
-        if (child.containsType(SpmConstVar.class)
-                || child.containsType(SpmConstList.class)) {
-            // A substituted placeholder ANYWHERE inside pins the CAPTURED literal's type on
-            // the caller's value (the analyzer may widen `ph1 + ph2` to INT, and the same
-            // arithmetic over wider user literals must stay wider). Only a cast over a REAL
-            // column / expression qualifies.
-            return false;
-        }
         try {
             DataType childType = child.getDataType();
             DataType targetType = cast.getDataType();
-            // LARGEINT is the SUM / AVG accumulator: the lowering of avg(DISTINCT k) writes
+            // LARGEINT is the SUM / AVG accumulator: the lowering of avg(DISTINCT expr) writes
             // exactly this widening, and re-deriving SUM over the SMALLER type is what
             // overflows. An ordinary arithmetic widening (INT -> BIGINT and friends) is an
             // execution detail the strip exists for, so it is NOT kept - it would only pin
             // coercions the re-analyzed user expression derives by itself.
+            //
+            // The child must read at least one REAL column: `AVG(DISTINCT k + 1)` lowers to
+            // sum(CAST((k + ph) AS LARGEINT)), and skipping the cast just because a placeholder
+            // sits inside the arithmetic froze SUM over BIGINT again. A child built ONLY from
+            // placeholders (`ph1 + ph2` widened to INT) stays stripped - there the cast pins
+            // the CAPTURED literals' width on the caller's values.
             return childType.isIntegralType() && targetType instanceof LargeIntType
-                    && targetType.width() > childType.width();
+                    && targetType.width() > childType.width()
+                    && child.containsType(SlotReference.class);
         } catch (RuntimeException e) {
             // an unbound child has no type here: keeping the strip decision is the
             // historical behavior and cannot break a bound plan

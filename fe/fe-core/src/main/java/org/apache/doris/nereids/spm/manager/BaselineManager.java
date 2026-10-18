@@ -3273,13 +3273,41 @@ public class BaselineManager {
         BaselinePlan intent = plan.copyPersistedScalars();
         intent.setStatus(status);
         intent.setUpdateTime(intentTime);
+        // ONE shared mutation window brackets the INSERT *and* the prune. The prune is a
+        // DELETE that changes the row set a PAGINATED reader walks (`id >= lastId LIMIT n
+        // OFFSET m`, see SELECT_PAGE_SQL): a follower whose page 1 ended on the row the
+        // DELETE removes continues past the row it still holds, its quiet clock and empty
+        // end probe accept the stale page and overwrite a warm cache with pre-intent rows.
+        // Inside the window that overlap is retryable, exactly like the flip's own writes.
+        assertLeaderForWrite();
+        long mutation = beginRowMutation();
+        boolean windowHeld = false;
         try {
-            persistInsert(intent);
+            try {
+                persistence.insert(intent);
+            } catch (RuntimeException e) {
+                // an ERROR that may have been raised AFTER a commit is AMBIGUOUS: the
+                // attempted row is adopted instead of failing the write outright
+                throwAmbiguousStatusInsertUnlessDurable(intent, e);
+            }
+            confirmInsertVisible(intent);
+            try {
+                persistence.pruneSupersededVersions(intent, Math.max(0L, intentTime / 1000L));
+            } catch (RuntimeException e) {
+                // still inside the window: a failed prune only leaves rows behind, and the
+                // next statement prunes again - it must not fail the ALTER
+                LOG.warn("SPM could not reclaim the superseded versions of baseline {}"
+                        + " ({}); the next statement prunes them", plan.getId(), e.getMessage());
+            }
         } catch (UnconfirmedVisibleException e) {
             // The row IS durable (the insert is proven to have written) and only its
-            // publication lags: the ordering evidence this statement needs exists, so the
-            // ALTER may stay successful - but the id must stay fenced until a snapshot shows
-            // it, exactly like a lagging status flip.
+            // publication lags. persistInsert used to CLOSE the window right here, leaving
+            // only this FE's local fence: a successor sees the previous same-status row with
+            // a quiet clock and qualifies its opposite-status INSERT against it, while the
+            // unreadable intent carries a LATER stored second - both rows publish, the intent
+            // wins the durable pick and the successful ALTER is reversed. Keep the SHARED
+            // window open until a read shows the row (or its age bound), like a lagging flip.
+            windowHeld = holdUnresolvedMutationWindow(mutation, intent);
             recordConfirmedMutationFence(plan.getId(), status, intentTime);
         } catch (RuntimeException e) {
             // The intent was NOT written. Reporting success here let an opposite-status
@@ -3290,18 +3318,10 @@ public class BaselineManager {
             throw new IllegalStateException("SPM cannot record the ordering intent of the"
                     + " status statement of baseline " + plan.getId()
                     + "; retry the ALTER", e);
-        }
-        // The intent row is the newest version of this identity: the versions it SUPERSEDES
-        // can go. A successful no-op used to leave its row behind forever (nothing removes
-        // them, and the refresh only picks a per-id winner), so one baseline accumulated
-        // unbounded durable rows and every cold match re-parsed all of them before
-        // collapsing by id. The predicate keeps everything strictly NEWER, so a concurrent
-        // writer's row survives.
-        try {
-            persistence.pruneSupersededVersions(intent, Math.max(0L, intentTime / 1000L));
-        } catch (RuntimeException e) {
-            LOG.warn("SPM could not reclaim the superseded versions of baseline {} ({});"
-                    + " the next statement prunes them", plan.getId(), e.getMessage());
+        } finally {
+            if (!windowHeld) {
+                endRowMutation(mutation);
+            }
         }
         return intentTime;
     }
@@ -3320,9 +3340,14 @@ public class BaselineManager {
         try {
             newestSecond = readNewestStoredUpdateSecond(id);
         } catch (RuntimeException e) {
-            LOG.warn("SPM cannot read the newest stored second of baseline {} ({}); falling"
-                    + " back to the wall clock", id, e.getMessage());
-            return now;
+            // Rapid ALTERs advance the stored second BEYOND wall time, so an unreadable
+            // newest second makes this statement unable to prove its intent is the newest
+            // one: an older delayed opposite-status row (stored second T+1, far in the
+            // future) would stay eligible and could win after the window expired and a
+            // handoff happened. The wall-clock fallback silently accepted that reversal;
+            // fail closed and let the caller retry.
+            throw new IllegalStateException("SPM cannot read the newest stored second of"
+                    + " baseline " + id + "; retry the ALTER", e);
         }
         return now / 1000L <= newestSecond ? (newestSecond + 1) * 1000L : now;
     }
