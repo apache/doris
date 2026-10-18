@@ -17,6 +17,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_recycler_with_internal_copy") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId

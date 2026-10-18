@@ -41,6 +41,8 @@ import com.azure.storage.common.StorageSharedKeyCredential
 import java.time.Duration
 
 suite("test_checker") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId;
@@ -180,6 +182,9 @@ suite("test_checker") {
         // Make sure to complete at least one round of checking
         def checkerLastSuccessTime = -1
         def checkerLastFinishTime = -1
+        def waitTimeoutMs = 30 * 60 * 1000L
+        def checkerWaitStartTime = System.currentTimeMillis()
+        def checkerWaitDeadline = checkerWaitStartTime + waitTimeoutMs
 
         def triggerChecker = {
             def triggerCheckerApi = { checkFunc ->
@@ -232,6 +237,12 @@ suite("test_checker") {
             logger.info("checkerLastFinishTime=${checkerLastFinishTime}, checkerLastSuccessTime=${checkerLastSuccessTime}")
             if (checkerLastFinishTime > caseStartTime) {
                 break
+            }
+            if (System.currentTimeMillis() >= checkerWaitDeadline) {
+                throw new IllegalStateException(
+                        "Timed out waiting for checker job after ${waitTimeoutMs / 1000}s: " +
+                        "caseStartTime=${caseStartTime}, checkerLastFinishTime=${checkerLastFinishTime}, " +
+                        "checkerLastSuccessTime=${checkerLastSuccessTime}")
             }
         } while (true)
         assertTrue(checkerLastSuccessTime < checkerLastFinishTime) // Check MUST fail
