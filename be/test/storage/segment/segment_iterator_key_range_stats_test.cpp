@@ -187,8 +187,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, KeyRangeHitDoesNotInflateStatsFiltered)
     RowCursor key;
     ASSERT_TRUE(key.init(_tablet_schema, key_tuple).ok());
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.key_ranges.emplace_back(&key, true, &key, true);
     auto predicates = make_int_eq_predicate(1, "1", kTargetKey);
@@ -216,8 +215,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, DisjointKeyRangesOnlyCountAliveRows) {
     RowCursor target_key;
     ASSERT_TRUE(target_key.init(_tablet_schema, target_key_tuple).ok());
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.key_ranges.emplace_back(&other_key, true, &other_key, true);
     read_options.key_ranges.emplace_back(&target_key, true, &target_key, true);
@@ -237,8 +235,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, ZoneMapStillFiltersWithoutKeyRange) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.col_id_to_predicates.emplace(1, make_int_eq_predicate(1, "1", kTargetKey));
 
@@ -263,8 +260,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, SamePageKeyRangesAreEvaluatedOnce) {
     RowCursor second;
     ASSERT_TRUE(second.init(_tablet_schema, second_tuple).ok());
     auto predicates = make_int_eq_predicate(1, "1", 2);
-    StorageReadOptions opts;
-    opts.stats = &_stats;
+    StorageReadOptions opts(_stats);
     opts.key_ranges.emplace_back(&first, true, &first, true);
     opts.key_ranges.emplace_back(&second, true, &second, true);
     opts.col_id_to_predicates.emplace(1, predicates);
@@ -282,8 +278,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, ZoneMapRejectsTheOnlyCandidatePage) {
     RowCursor key;
     ASSERT_TRUE(key.init(_tablet_schema, tuple).ok());
     auto predicates = make_int_eq_predicate(1, "1", kTargetKey);
-    StorageReadOptions opts;
-    opts.stats = &_stats;
+    StorageReadOptions opts(_stats);
     opts.key_ranges.emplace_back(&key, true, &key, true);
     opts.col_id_to_predicates.emplace(1, predicates);
     EXPECT_EQ(0, read_all(segment, opts));
@@ -299,8 +294,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, EmptyKeyRangeSkipsPagePredicates) {
     RowCursor key;
     ASSERT_TRUE(key.init(_tablet_schema, tuple).ok());
     auto predicates = make_int_eq_predicate(1, "1", kTargetKey);
-    StorageReadOptions opts;
-    opts.stats = &_stats;
+    StorageReadOptions opts(_stats);
     opts.key_ranges.emplace_back(&key, true, &key, true);
     opts.col_id_to_predicates.emplace(1, predicates);
     EXPECT_EQ(0, read_all(segment, opts));
@@ -317,8 +311,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, BloomFilterVisitsOnlyCandidatePages) {
     RowCursor key;
     ASSERT_TRUE(key.init(_tablet_schema, tuple).ok());
     auto predicates = make_int_eq_predicate(1, "1", kTargetKey);
-    StorageReadOptions opts;
-    opts.stats = &_stats;
+    StorageReadOptions opts(_stats);
     opts.key_ranges.emplace_back(&key, true, &key, true);
     opts.col_id_to_predicates.emplace(1, predicates);
     EXPECT_EQ(1, read_all(segment, opts));
@@ -335,8 +328,7 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, LaterColumnsUseEarlierPruning) {
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
     auto first = make_int_eq_predicate(1, "1", kTargetKey);
     auto second = make_int_eq_predicate(2, "2", kTargetKey);
-    StorageReadOptions opts;
-    opts.stats = &_stats;
+    StorageReadOptions opts(_stats);
     opts.col_id_to_predicates.emplace(1, first);
     opts.col_id_to_predicates.emplace(2, second);
     EXPECT_GT(read_all(segment, opts), 0);
@@ -349,8 +341,12 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, LaterColumnsUseEarlierPruning) {
 TEST_F(SegmentIteratorKeyRangeStatsTest, RejectsMismatchedZoneMapPageCount) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    StorageReadOptions read_options(_stats);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     std::shared_ptr<ColumnReader> reader;
-    ASSERT_TRUE(segment->get_column_reader(1, &reader, &_stats).ok());
+    ASSERT_TRUE(
+            segment->get_column_reader_for_pruning(_tablet_schema->column(1), read_options, &reader)
+                    .ok());
     ColumnIteratorOptions opts;
     opts.file_reader = segment->file_reader().get();
     opts.stats = &_stats;
@@ -370,8 +366,12 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, RejectsMismatchedZoneMapPageCount) {
 TEST_F(SegmentIteratorKeyRangeStatsTest, CandidatePageSelectionMatchesBitmapAndRanges) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    StorageReadOptions read_options(_stats);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     std::shared_ptr<ColumnReader> reader;
-    ASSERT_TRUE(segment->get_column_reader(1, &reader, &_stats).ok());
+    ASSERT_TRUE(
+            segment->get_column_reader_for_pruning(_tablet_schema->column(1), read_options, &reader)
+                    .ok());
     OrdinalIndexReader* ordinal_index = nullptr;
     ASSERT_TRUE(reader->get_ordinal_index_reader(ordinal_index, &_stats).ok());
     ASSERT_GT(ordinal_index->num_data_pages(), 2);

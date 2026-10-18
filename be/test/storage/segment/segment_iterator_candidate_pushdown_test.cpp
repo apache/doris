@@ -213,7 +213,7 @@ public:
     Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override {
+            const roaring::Roaring& row_bitmap, RowRanges* row_ranges) override {
         if (_zone_map_reads != nullptr) {
             ++*_zone_map_reads;
         }
