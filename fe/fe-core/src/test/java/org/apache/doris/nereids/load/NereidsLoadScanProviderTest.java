@@ -421,6 +421,122 @@ public class NereidsLoadScanProviderTest {
                 exception.getMessage());
     }
 
+    @Test
+    public void testArrowNestedStructSearchKeepsStructNullIdentity() throws Exception {
+        org.apache.doris.catalog.StructType nested = new org.apache.doris.catalog.StructType(
+                new org.apache.doris.catalog.StructField("x", ScalarType.INT));
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("n", nested)), true)));
+        DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
+        StringLiteral search = new StringLiteral("{{1}}");
+
+        // element_at merges a NULL parent STRUCT into every field, so a NULL nested STRUCT would
+        // otherwise compare equal to a non-NULL STRUCT whose fields are all NULL. Every nested
+        // STRUCT therefore compares its own NULL flag as well.
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{{1}}", null)));
+        Expression replaced = context.exprMap.get("v");
+        UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
+        And equality = (And) condition.child(2);
+        Assertions.assertEquals(2, equality.children().size(), equality.toSql());
+        // the nested STRUCT "n" compares its own NULL flag, which the top level covers with the
+        // dynamic NULL search guard instead
+        assertStructNullIdentity(equality.child(0), 1);
+        // the nested field "x" keeps the usual null-safe value comparison
+        Expression nestedField = equality.child(1);
+        Assertions.assertTrue(nestedField instanceof NullSafeEqual, nestedField.toSql());
+        Expression left = nestedField.child(0);
+        Assertions.assertEquals("element_at", ((UnboundFunction) left).getName());
+        Assertions.assertEquals("element_at", ((UnboundFunction) left.child(0)).getName());
+        Expression right = nestedField.child(1);
+        Assertions.assertEquals("element_at", ((UnboundFunction) right).getName());
+        Expression searchCast = ((UnboundFunction) right.child(0)).child(0);
+        Assertions.assertTrue(searchCast instanceof Cast, searchCast.toSql());
+        Assertions.assertEquals(complexType, searchCast.getDataType());
+        Assertions.assertEquals(search, searchCast.child(0));
+    }
+
+    @Test
+    public void testArrowStructSearchRejectsFloatJsonLeaf() {
+        // A float keeps the sign of zero in its JSON text while numeric equality does not, so a
+        // STRUCT that has to be compared through JSON cannot contain one.
+        OlapTable arrayTable = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("f", ScalarType.DOUBLE)), true), true)));
+        UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(
+                arrayTable,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("[]", null))));
+        Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
+                exception.getMessage());
+
+        // The MAP value takes the same JSON fallback.
+        OlapTable mapTable = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new MapType(ScalarType.createStringType(),
+                        new org.apache.doris.catalog.StructType(
+                                new org.apache.doris.catalog.StructField("f", ScalarType.FLOAT)), true, true), true)));
+        exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(
+                mapTable,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("{}"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{}", null))));
+        Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testArrowStructSearchChecksJsonbKeyLength() throws Exception {
+        // A nested STRUCT field name is a JSONB object key, limited to 255 UTF-8 bytes. 85 three byte
+        // characters fill the limit exactly and stay supported.
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("中".repeat(85), ScalarType.INT)), true), true)));
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("[]", null)));
+        Expression replaced = context.exprMap.get("v");
+        Expression condition = ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertTrue(condition instanceof EqualTo, condition.toSql());
+        Assertions.assertTrue(condition.child(0) instanceof Cast, condition.toSql());
+
+        // One more byte cannot be written as a JSONB key, so the plan is rejected instead of
+        // failing during the load.
+        assertJsonbKeyTooLong("x".repeat(256));
+        assertJsonbKeyTooLong("中".repeat(86));
+    }
+
+    private void assertJsonbKeyTooLong(String fieldName) {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField(fieldName, ScalarType.INT)), true), true)));
+        UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(
+                table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("[]", null))));
+        Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
+                exception.getMessage());
+    }
+
+    private static void assertStructNullIdentity(Expression equality, int index) {
+        Assertions.assertTrue(equality instanceof EqualTo, equality.toSql());
+        Expression left = ((EqualTo) equality).left();
+        Expression right = ((EqualTo) equality).right();
+        Assertions.assertTrue(left instanceof IsNull, left.toSql());
+        Assertions.assertTrue(right instanceof IsNull, right.toSql());
+        Expression leftField = left.child(0);
+        Expression rightField = right.child(0);
+        Assertions.assertEquals("element_at", ((UnboundFunction) leftField).getName());
+        Assertions.assertEquals("element_at", ((UnboundFunction) rightField).getName());
+        Assertions.assertEquals(new IntegerLiteral(index), leftField.child(1));
+        Assertions.assertEquals(new IntegerLiteral(index), rightField.child(1));
+    }
+
     private static void assertMapArrayComparison(Expression equality, String function, DataType complexType,
             StringLiteral search) {
         Assertions.assertTrue(equality instanceof NullSafeEqual, equality.toSql());

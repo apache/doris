@@ -31,6 +31,10 @@ suite("test_arrow_complex_replace_value", "p0") {
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_invalid_search"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_empty_search"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_null_search"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_nested_struct"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_float_struct"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_long_struct_name"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_too_long_struct_name"
 
     sql """
         CREATE TABLE test_arrow_complex_replace_literal (
@@ -394,4 +398,132 @@ suite("test_arrow_complex_replace_value", "p0") {
     order_qt_null_search """
         SELECT k, m FROM test_arrow_complex_replace_null_search ORDER BY k
     """
+
+    // element_at merges a NULL parent STRUCT into every field, so the field comparisons alone would
+    // treat a NULL nested STRUCT like a non-NULL one whose fields are all NULL. Each row pairs a
+    // source s with a dynamic search w to cover both mismatch directions, both NULL, equal and
+    // different fields, a NULL source and a NULL search.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_nested_struct (
+            `k` INT,
+            `s` STRUCT<n: STRUCT<x: INT>>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_nested_struct"
+        set 'format', 'arrow'
+        set 'columns', "k, s, s = replace_value(w, NULL), w"
+        file 'arrow_complex_replace_nested_struct.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(7, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_nested_struct """
+        SELECT k, s FROM test_arrow_complex_replace_nested_struct ORDER BY k
+    """
+
+    // An ARRAY<STRUCT> is compared through its JSON text. The text keeps the sign of zero while
+    // numeric equality treats -0.0 and 0.0 as equal, so a float leaf has no lossless comparison and
+    // the search is rejected when the load plan is built instead of missing a replacement.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_float_struct (
+            `k` INT,
+            `v` ARRAY<STRUCT<f: DOUBLE>>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_float_struct"
+        set 'format', 'arrow'
+        set 'columns', "k, v, v = replace_value('[]', NULL)"
+        file 'arrow_complex_replace_float_struct.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("no lossless comparison"))
+        }
+    }
+
+    // A STRUCT field name is a JSONB object key, limited to 255 bytes. The non-empty row renders
+    // the 255 byte key and still loads.
+    def longStructName = 'x' * 255
+    sql """
+        CREATE TABLE test_arrow_complex_replace_long_struct_name (
+            `k` INT,
+            `v` ARRAY<STRUCT<`${longStructName}`: INT>>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_long_struct_name"
+        set 'format', 'arrow'
+        set 'columns', "k, v, v = replace_value('[]', NULL)"
+        file 'arrow_complex_replace_long_struct_name.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_long_struct_name """
+        SELECT k FROM test_arrow_complex_replace_long_struct_name ORDER BY k
+    """
+
+    // One more byte cannot be written as a JSONB key, so the plan is rejected before the data is
+    // read instead of failing the import at runtime.
+    def tooLongStructName = 'x' * 256
+    sql """
+        CREATE TABLE test_arrow_complex_replace_too_long_struct_name (
+            `k` INT,
+            `v` ARRAY<STRUCT<`${tooLongStructName}`: INT>>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_too_long_struct_name"
+        set 'format', 'arrow'
+        set 'columns', "k, v, v = replace_value('[]', NULL)"
+        file 'arrow_complex_replace_long_struct_name.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("no lossless comparison"))
+        }
+    }
 }

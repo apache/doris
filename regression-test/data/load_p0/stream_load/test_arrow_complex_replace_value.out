@@ -35,3 +35,16 @@
 1	{"z":9}
 2	{"z":9}
 
+-- !nested_struct --
+1	{"n":null}
+2	{"n":{"x":null}}
+3	\N
+4	\N
+5	{"n":{"x":5}}
+6	\N
+7	\N
+
+-- !long_struct_name --
+1
+2
+

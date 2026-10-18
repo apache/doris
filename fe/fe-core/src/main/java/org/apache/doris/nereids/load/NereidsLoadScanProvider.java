@@ -70,6 +70,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -673,7 +674,7 @@ public class NereidsLoadScanProvider {
      * nested NULLs apart from values and treats two NULLs as equal like the engine does inside a
      * complex value; {@code <=>} expresses that for a nested value. MAP and STRUCT are rejected by
      * {@code ComparisonPredicate}, so their sub-values are compared recursively: a MAP is identified
-     * by its keys and values in order, a STRUCT by its fields.
+     * by its keys and values in order, a STRUCT both by its own NULL flag and by its fields.
      *
      * <p>JSON is used only for a value the engine cannot compare structurally. A MAP is never
      * rendered as a JSON object: JSONB object keys are limited to 255 bytes and lose the key NULL
@@ -728,7 +729,12 @@ public class NereidsLoadScanProvider {
             } else {
                 equality = new And(equalities);
             }
-            return topLevel ? guardNullSearch(right, equality) : equality;
+            if (topLevel) {
+                return guardNullSearch(right, equality);
+            }
+            // element_at merges a NULL parent STRUCT into every field, so the field comparisons
+            // alone cannot tell a NULL nested STRUCT from a non-NULL one whose fields are all NULL.
+            return new And(new EqualTo(new IsNull(left), new IsNull(right)), equality);
         }
         if (type.isArrayType() && supportsJsonEncoding(((ArrayType) type).getItemType())) {
             // An ARRAY of STRUCT is not comparable by the engine. Its JSON rendering is escaped and
@@ -784,10 +790,12 @@ public class NereidsLoadScanProvider {
     }
 
     /**
-     * Whether a MAP value can be compared by {@code to_json} of {@code map_values}. A MAP anywhere
-     * inside the value is rejected because JSONB object keys are limited to 255 bytes and lose the
-     * key NULL flag. The version one DATE/DATETIME, DECIMALV2 and the sketch types have no JSONB
-     * serde. A value the engine compares structurally never reaches this method.
+     * Whether a value can be compared by its JSON text. A MAP anywhere inside the value is rejected
+     * because JSONB object keys are limited to 255 bytes and lose the key NULL flag; a STRUCT field
+     * name is such a key and is checked at every level. Floats are rejected because the text keeps
+     * the sign of zero while numeric equality does not. The version one DATE/DATETIME, DECIMALV2 and
+     * the sketch types have no JSONB serde. A value the engine compares structurally never reaches
+     * this method.
      */
     private static boolean supportsJsonEncoding(DataType type) {
         if (type.isArrayType()) {
@@ -798,15 +806,20 @@ public class NereidsLoadScanProvider {
         }
         if (type.isStructType()) {
             for (StructField field : ((StructType) type).getFields()) {
-                if (!supportsJsonEncoding(field.getDataType())) {
+                // A nested STRUCT field name becomes a JSONB object key, which the BE serde limits
+                // to 255 UTF-8 bytes.
+                if (field.getName().getBytes(StandardCharsets.UTF_8).length > 255
+                        || !supportsJsonEncoding(field.getDataType())) {
                     return false;
                 }
             }
             return true;
         }
-        return type.isPrimitive() && !type.isDateType() && !type.isDateTimeType()
-                && !type.isDecimalV2Type() && !type.isHllType() && !type.isBitmapType()
-                && !type.isQuantileStateType() && !type.isAggStateType();
+        // A float keeps its sign bit in the JSON text (-0.0 renders as "-0"), while numeric equality
+        // treats -0.0 and 0.0 as equal, so their JSON text is not a lossless equality key.
+        return type.isPrimitive() && !type.isFloatLikeType() && !type.isDateType()
+                && !type.isDateTimeType() && !type.isDecimalV2Type() && !type.isHllType()
+                && !type.isBitmapType() && !type.isQuantileStateType() && !type.isAggStateType();
     }
 
     private static boolean supportsMapValueComparison(DataType type) {
