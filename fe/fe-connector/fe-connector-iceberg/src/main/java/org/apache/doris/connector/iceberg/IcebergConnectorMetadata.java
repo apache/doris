@@ -939,16 +939,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== DDL writes (B1): create/drop database + table ==========
 
     /**
-     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
-     * properties are only honored by an HMS catalog; for every other flavor a non-empty property map fails
-     * loud (legacy parity) — the gate is a pure local check run BEFORE the auth context, like paimon.
-     * Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
+     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. HMS, JDBC
+     * and Glue catalogs store namespace properties; only HMS and Glue place new tables under a namespace
+     * {@code location}. Hadoop, REST, DLF and S3 Tables catalogs reject a non-empty property map (a REST
+     * server may ignore namespace properties). The gate is a pure local check run BEFORE the auth context,
+     * like paimon. Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
-        if (!properties.isEmpty() && !isHmsCatalog()) {
+        String catalogType = catalogType();
+        if (!properties.isEmpty() && !supportsDatabaseProperties(catalogType)) {
             throw new DorisConnectorException(
-                    "Not supported: create database with properties for iceberg catalog type: " + catalogType());
+                    "Not supported: create database with properties for iceberg catalog type: " + catalogType);
+        }
+        if (properties.containsKey("location") && !supportsDatabaseLocation(catalogType)) {
+            throw new DorisConnectorException("Not supported: database property 'location' for iceberg catalog type: "
+                    + catalogType + " because it does not determine the default table location");
         }
         try {
             executeAuthenticated(() -> {
@@ -959,6 +965,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException(
                     "Failed to create Iceberg database " + dbName + ": " + e.getMessage(), e);
         }
+    }
+
+    private static boolean supportsDatabaseProperties(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_JDBC.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
+    }
+
+    private static boolean supportsDatabaseLocation(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
     }
 
     /**

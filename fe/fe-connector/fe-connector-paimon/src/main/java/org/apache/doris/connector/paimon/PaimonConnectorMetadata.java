@@ -49,6 +49,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -1198,13 +1199,25 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * {@link SchemaChange#setOption} in ONE {@code alterTable} call: paimon validates the whole list against
      * the new schema before committing it, so a rejected entry keeps the valid ones from being written too,
      * and the table gets one new schema version rather than one per option.
+     *
+     * <p>{@code path} is rejected before the remote alter: paimon would commit it as an ordinary option, but
+     * changing it does not relocate the table. Paimon leaves that check to the engine
+     * ({@link SchemaManager#checkAlterTablePath}).
      */
     @Override
     public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
             Map<String, String> properties) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        try {
+            properties.keySet().forEach(SchemaManager::checkAlterTablePath);
+        } catch (UnsupportedOperationException e) {
+            throw new DorisConnectorException("Failed to set properties for Paimon table "
+                    + Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName())
+                    + ": " + e.getMessage(), e);
+        }
         List<SchemaChange> changes = new ArrayList<>(properties.size());
         properties.forEach((key, value) -> changes.add(SchemaChange.setOption(key, value)));
-        alterTable((PaimonTableHandle) handle, changes, "set properties");
+        alterTable(paimonHandle, changes, "set properties");
     }
 
     // ==================== DDL: Column evolution ====================

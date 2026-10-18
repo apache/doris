@@ -28,3 +28,9 @@ snapshot.num-retained.max	8
 -- !rejected_options --
 snapshot.num-retained.max	8
 
+-- !path_schema --
+2
+
+-- !path_options --
+snapshot.num-retained.max	8
+
