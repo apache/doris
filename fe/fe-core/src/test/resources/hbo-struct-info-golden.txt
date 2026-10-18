@@ -154,24 +154,24 @@ scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r
 desc = generate of explode_split(cast(a as varchar), ',') over a scan: the delimiter is identity
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 8d69de1712afe9c56e06824fd6acf1118265b27b032f165a940a709109dcef00
-NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))]}S{null.null.t1}
-NO_LITERAL.fingerprint = 8d69de1712afe9c56e06824fd6acf1118265b27b032f165a940a709109dcef00
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1}
+WITH_LITERAL.fingerprint = 2a82b59209a759d9e1d7fcf95fd1c0a3f9615904683330dfd766e9e8fab36160
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1}
+NO_LITERAL.fingerprint = 2a82b59209a759d9e1d7fcf95fd1c0a3f9615904683330dfd766e9e8fab36160
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_unnest]
 desc = generate of unnest(1) over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 42ee9304dad52937ec23ec4b0da9f64b0bfa1fe3e29afccdf3230c4353097d1e
-NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))]}S{null.null.t1}
-NO_LITERAL.fingerprint = 42ee9304dad52937ec23ec4b0da9f64b0bfa1fe3e29afccdf3230c4353097d1e
+WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1}
+WITH_LITERAL.fingerprint = 935f8c5227a79d924d1b4b2807dbabc635d700aed43e5e8aec8b078919d82df8
+NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1}
+NO_LITERAL.fingerprint = 935f8c5227a79d924d1b4b2807dbabc635d700aed43e5e8aec8b078919d82df8
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN intersect_two_scans]

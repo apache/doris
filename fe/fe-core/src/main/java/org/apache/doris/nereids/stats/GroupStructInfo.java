@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -61,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.util.MutableState;
@@ -888,6 +891,8 @@ public class GroupStructInfo {
         private List<NamedExpression> windowExpressions;
         /** GENERATE: the table functions, whose arguments decide how many rows come out. */
         private List<Expression> generators;
+        /** GENERATE: the aliases of the columns those functions produce, in order. */
+        private List<Slot> generatorOutputs;
         /** REPEAT: the grouping sets, in the order they were written. */
         private List<List<Expression>> groupingSets;
         /** SET_OPERATION: the plan node and the operation, which know the kind, the qualifier and more. */
@@ -1060,6 +1065,7 @@ public class GroupStructInfo {
             // and the arguments are rendered with their literals (see identityText)
             Node node = new Node(Kind.GENERATE);
             node.generators = new ArrayList<>(((Generate) plan).getGenerators());
+            node.generatorOutputs = generatorOutputsOf(plan);
             node.children = children(ge, ctx, 0);
             return node.children == null ? null : node;
         }
@@ -1516,7 +1522,28 @@ public class GroupStructInfo {
             }
             out.append(identityText(node.generators.get(i)));
         }
+        // the outputs are part of the identity: the same functions bound to a different column reach a
+        // predicate above the generate differently (a single output function keeps the alias it was
+        // given), so each position is named next to the function which fills it
+        out.append("];out:[");
+        for (int i = 0; i < node.generatorOutputs.size(); i++) {
+            if (i > 0) {
+                out.append(',');
+            }
+            out.append(encodeLiteralValue(node.generatorOutputs.get(i).getName()));
+        }
         out.append("]}");
+    }
+
+    /** The ordered output slots of a generate node, empty when the plan does not expose them. */
+    private static List<Slot> generatorOutputsOf(Plan plan) {
+        if (plan instanceof LogicalGenerate) {
+            return new ArrayList<>(((LogicalGenerate<?>) plan).getGeneratorOutput());
+        }
+        if (plan instanceof PhysicalGenerate) {
+            return new ArrayList<>(((PhysicalGenerate<?>) plan).getGeneratorOutput());
+        }
+        return Collections.emptyList();
     }
 
     private static void appendRepeatHeader(StringBuilder out, Node node, LiteralMode mode) {
