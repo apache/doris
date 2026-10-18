@@ -47,6 +47,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
@@ -71,6 +72,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.IncrementalSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.ReadOptimizedTable;
@@ -1076,7 +1078,130 @@ public class PaimonScanPlanProviderTest {
             long expected = 0;
             for (DataFileMeta file : split.dataFiles()) {
                 Assertions.assertEquals(0L, file.schemaId());
-                expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DICTIONARY_BYTES_PER_COLUMN;
+                expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DEFAULT_DICTIONARY_PAGE_BYTES;
+            }
+            Assertions.assertEquals(String.valueOf(expected),
+                    ranges.get(0).getProperties().get("paimon.jni_heap_bytes"));
+        }
+    }
+
+    /**
+     * Each branch numbers its schema versions on its own, so with enable_jni_heap_admission each JNI split of a
+     * scan.fallback-branch table declares its files by the versions of the branch that planned it. Here the
+     * fallback branch wrote its file under version 2, which the primary branch never had, with 1-byte row
+     * groups; the primary branch's version 0 has the default 128 MB ones.
+     */
+    @Test
+    public void fallbackBranchJniSplitsDeclareByTheirOwnBranchSchemas(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            List<FileStoreTable> branches = new ArrayList<>();
+            for (int branch = 0; branch < 2; branch++) {
+                Identifier id = Identifier.create("db", "branch_" + branch);
+                catalog.createTable(id, Schema.newBuilder()
+                        .column("id", DataTypes.INT())
+                        .column("val", DataTypes.BIGINT())
+                        .partitionKeys("id")
+                        .build(), false);
+                if (branch == 1) {
+                    catalog.alterTable(id, Collections.singletonList(SchemaChange.addColumn("unused", DataTypes.INT())),
+                            false);
+                    catalog.alterTable(id, Arrays.asList(SchemaChange.dropColumn("unused"),
+                            SchemaChange.setOption(CoreOptions.FILE_BLOCK_SIZE.key(), "1 b")), false);
+                }
+                FileStoreTable branchTable = (FileStoreTable) catalog.getTable(id);
+                commitRows(branchTable, GenericRow.of(branch, 10L));
+                branches.add(branchTable);
+            }
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(branches.get(0), branches.get(1), true);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = pair;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            Map<String, String> props = new HashMap<>();
+            props.put("enable_jni_heap_admission", "true");
+            props.put("force_jni_scanner", "true");
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(props),
+                    ConnectorScanRequest.builder(new PaimonTableHandle("db", "branch_0", Collections.emptyList(),
+                            Collections.emptyList()), Collections.emptyList()).build());
+
+            Assertions.assertEquals(2, ranges.size());
+            List<Split> splits = deserializeJniSplits(ranges);
+            for (int i = 0; i < ranges.size(); i++) {
+                FallbackReadFileStoreTable.FallbackDataSplit split =
+                        (FallbackReadFileStoreTable.FallbackDataSplit) splits.get(i);
+                DataFileMeta file = split.dataFiles().get(0);
+                Assertions.assertEquals(split.isFallback() ? 2L : 0L, file.schemaId());
+                // (id, val): 2 columns, 2 MB of dictionaries a file.
+                long rowGroups = split.isFallback() ? 2 : file.fileSize();
+                long expected = rowGroups + 2 * PaimonJniHeapEstimate.DEFAULT_DICTIONARY_PAGE_BYTES;
+                Assertions.assertEquals(String.valueOf(expected),
+                        ranges.get(i).getProperties().get("paimon.jni_heap_bytes"));
+            }
+            // A split the pair's snapshot reader plans itself (file-creation OPTIONS) is its wrapped branch's.
+            Split planned = pair.newSnapshotReader().read().splits().get(0);
+            Assertions.assertSame(branches.get(0), PaimonScanPlanProvider.splitBranch(pair, planned));
+        }
+    }
+
+    /**
+     * A diff read between two snapshots plans IncrementalSplits, not DataSplits. Of a primary-key table it merges
+     * the files only the earlier snapshot has and those only the later one has, both merges open together, so
+     * with enable_jni_heap_admission it declares both sets as one merge.
+     */
+    @Test
+    public void incrementalDiffSplitDeclaresBothFileSets(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "diffed");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1, 100L));
+            long start = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            commitRows(table, GenericRow.of(1, 200L));
+            // A full compaction replaces the start snapshot's file, and a write after it adds one.
+            BatchWriteBuilder compaction = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = compaction.newWrite()) {
+                write.compact(BinaryRow.EMPTY_ROW, 0, true);
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = compaction.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            commitRows(table, GenericRow.of(2, 300L));
+            long end = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            ops.latestSnapshotId = OptionalLong.of(end);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            Map<String, String> diff = new LinkedHashMap<>();
+            diff.put("incremental-between", start + "," + end);
+            diff.put("incremental-between-scan-mode", "diff");
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "diffed", Collections.emptyList(), Collections.emptyList()).withScanOptions(diff);
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("enable_jni_heap_admission", "true")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+
+            Assertions.assertEquals(1, ranges.size());
+            IncrementalSplit split = (IncrementalSplit) deserializeJniSplits(ranges).get(0);
+            Assertions.assertFalse(split.beforeFiles().isEmpty(), "the compaction replaced the start snapshot's file");
+            Assertions.assertFalse(split.afterFiles().isEmpty());
+            List<DataFileMeta> files = new ArrayList<>(split.beforeFiles());
+            files.addAll(split.afterFiles());
+            // (id, val) keyed by id: 2 + 1 + 2 = 5 columns, 5 MB of dictionaries a file.
+            long expected = 0;
+            for (DataFileMeta file : files) {
+                expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DEFAULT_DICTIONARY_PAGE_BYTES;
             }
             Assertions.assertEquals(String.valueOf(expected),
                     ranges.get(0).getProperties().get("paimon.jni_heap_bytes"));

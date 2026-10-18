@@ -27,9 +27,12 @@ import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.IncrementalSplit;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,14 +45,64 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 public class PaimonJniHeapEstimateTest {
 
     private static final long MB = 1024L * 1024;
 
-    // 128 MB row groups, 64 MB stripes, four columns a file (4 MB of dictionaries).
-    private final PaimonJniHeapEstimate estimate =
-            new PaimonJniHeapEstimate(schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, 4));
+    // A primary-key table's: 128 MB row groups, 64 MB stripes, four columns a file (4 MB of dictionaries).
+    private final PaimonJniHeapEstimate estimate = new PaimonJniHeapEstimate(true,
+            schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+
+    /**
+     * paimon's parquet writer keeps a column's dictionary page up to the table's parquet.dictionary.page.size,
+     * so a parquet file written under a schema version that sets it is allowed that much for every column. ORC
+     * does not take the option.
+     */
+    @Test
+    public void parquetDictionaryPagesAreAsLargeAsTheSchemaVersionAllows() {
+        PaimonJniHeapEstimate.FileLayout large = PaimonJniHeapEstimate.FileLayout.of(
+                Collections.singletonMap("parquet.dictionary.page.size", String.valueOf(16 * MB)), 3, 0);
+        Assertions.assertEquals((5 + 3 * 16) * MB, large.bytesHeld(file("data-0.parquet", 5 * MB)));
+        Assertions.assertEquals((5 + 3) * MB, large.bytesHeld(file("data-1.orc", 5 * MB)));
+        Assertions.assertEquals((5 + 3) * MB, PaimonJniHeapEstimate.FileLayout.of(Collections.emptyMap(), 3, 0)
+                .bytesHeld(file("data-2.parquet", 5 * MB)));
+    }
+
+    /**
+     * A diff read between two snapshots of a primary-key table merges the files only the earlier one has and
+     * those only the later one has, both merges open together; of an append table it reads the later files
+     * one after another. A fallback-branch table hands it over wrapped, and the splits of other kinds - those
+     * of the metadata system tables - declare nothing.
+     */
+    @Test
+    public void diffSplitHoldsBothFileSetsOfAPrimaryKeyTableAndOneLaterFileOfAnAppendTable() {
+        IncrementalSplit diff = new IncrementalSplit(2L, BinaryRow.EMPTY_ROW, 0, 1,
+                Arrays.asList(file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB)), null,
+                Arrays.asList(file("data-2.parquet", 40 * MB), file("data-3.parquet", 300 * MB)), null, false);
+        long merged = (130 + 4) * MB + (12 + 4) * MB + (40 + 4) * MB + (256 + 4) * MB;
+        Assertions.assertEquals(merged, estimate.bytesOf(diff));
+        Assertions.assertEquals(merged, estimate.bytesOf(FallbackReadFileStoreTable.toFallbackSplit(diff, true)));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((256 + 4) * MB, appendTable.bytesOf(diff));
+
+        Split metadata = new Split() {
+            @Override
+            public long rowCount() {
+                return 1;
+            }
+
+            @Override
+            public OptionalLong mergedRowCount() {
+                return OptionalLong.empty();
+            }
+        };
+        Assertions.assertEquals(0, estimate.bytesOf(metadata));
+        Assertions.assertEquals(0, estimate.bytesOf(FallbackReadFileStoreTable.toFallbackSplit(metadata, true)));
+    }
 
     /**
      * The split that ran a 2 GB heap out sixteen at a time: an uncompacted primary-key bucket whose 130 MB
