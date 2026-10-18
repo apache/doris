@@ -41,7 +41,7 @@ constexpr int64_t MB = 1024 * 1024;
 // - not measured, so nothing here calls into the JVM.
 int64_t jvm_heap_budget() {
     const double budget = static_cast<double>(Jni::Util::get_max_jni_heap_memory_size()) *
-                          config::jni_scanner_heap_budget_ratio;
+                          config::get_jni_scanner_heap_budget_ratio();
     // A BE_TEST build reports an unlimited heap (SIZE_MAX), which stays unlimited here.
     constexpr auto UNLIMITED = std::numeric_limits<int64_t>::max();
     return budget >= static_cast<double>(UNLIMITED) ? UNLIMITED : static_cast<int64_t>(budget);
@@ -207,7 +207,7 @@ void JniScanHeapGate::_poll(std::unique_lock<std::mutex>& lock) {
     lock.lock();
 
     const int64_t now = MonotonicNanos();
-    const int64_t wait_limit_ns = config::jni_scanner_heap_max_wait_ms * 1000 * 1000;
+    const int64_t wait_limit_ns = config::get_jni_scanner_heap_max_wait_ms() * 1000 * 1000;
     std::deque<Admission*> still_waiting;
     for (auto* admission : _waiting) {
         if (std::ranges::find(stopped, admission->_ticket) != stopped.end()) {
