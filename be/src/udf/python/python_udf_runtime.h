@@ -19,10 +19,13 @@
 
 #include <boost/process.hpp>
 #include <chrono>
+#include <memory>
 
 #include "udf/python/python_env.h"
 
 namespace doris {
+
+struct UserFunctionCacheEntry;
 
 static const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
 // Use /tmp directory for Unix socket to avoid path length limit (max 107 chars)
@@ -89,6 +92,10 @@ public:
 
     pid_t get_child_pid() const { return _child_pid; }
 
+    void set_package_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry) {
+        _package_cache_entry = std::move(entry);
+    }
+
     bool operator==(const PythonUDFProcess& other) const { return _child_pid == other._child_pid; }
 
     bool operator!=(const PythonUDFProcess& other) const { return !(*this == other); }
@@ -104,6 +111,8 @@ public:
 private:
     constexpr static size_t MAX_ACCUMULATED_LOG_SIZE = 65536;
 
+    // Keep package files available for lazy imports until this process is destroyed.
+    std::shared_ptr<UserFunctionCacheEntry> _package_cache_entry;
     bool _is_shutdown {false};
     pid_t _child_pid;
     std::string _uri;
