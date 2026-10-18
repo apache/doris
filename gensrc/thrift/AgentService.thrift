@@ -387,6 +387,7 @@ struct TCloneReq {
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
     13: optional i64 table_id = -1
+    // 14: deprecated copy_type
 }
 
 struct TCompactionReq {
@@ -466,6 +467,7 @@ struct TSnapshotRequest {
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
     14: optional Types.TTabletId ref_tablet_id
+    // 15: deprecated copy_type
 }
 
 struct TReleaseSnapshotRequest {
