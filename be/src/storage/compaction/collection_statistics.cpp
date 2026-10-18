@@ -208,11 +208,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
-        // segments that have norms, so refuse to score the collection. An index that is not
-        // analyzed never writes norms; use an average length of one when its legacy
-        // metadata does not include the total term frequency.
+        // segments that have norms, so refuse to score the collection. Keyword indexes and
+        // built-in lowercase normalizers can use unit frequency and length instead.
         const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
-        if (!token_count.has_value() &&
+        const bool single_term_normalizer = segment_v2::IndexReaderHelper::is_normalizer_only(
+                collect_info.index_meta->properties());
+        if (!token_count.has_value() && !single_term_normalizer &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -221,6 +222,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, StringHelper::to_string(ws_field_name));
         }
+        // Missing term totals imply one token per row for keyword and lowercase indexes.
         _total_num_tokens[ws_field_name] += token_count.value_or(index_reader->maxDoc());
 
         for (const auto& term_info : collect_info.term_infos) {

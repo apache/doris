@@ -848,10 +848,11 @@ public class InvertedIndexPropertiesTest {
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(
                 92, "norm_lower", IndexPolicyTypeEnum.NORMALIZER, ImmutableMap.of("token_filter", "lowercase")));
         Map<String, String> mixedNormalizer = new HashMap<>(ImmutableMap.of("normalizer", "LowerCase"));
+        Map<String, String> customNormalizer = new HashMap<>(ImmutableMap.of("normalizer", "lowercase"));
         Map<String, String> mixedAnalyzer = new HashMap<>(ImmutableMap.of("analyzer", "Standard"));
 
         withIndexPolicyManager(policyMgr, () -> {
-            for (Map<String, String> properties : ImmutableList.of(mixedNormalizer, mixedAnalyzer)) {
+            for (Map<String, String> properties : ImmutableList.of(mixedNormalizer, customNormalizer, mixedAnalyzer)) {
                 Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
                         PrimitiveType.VARCHAR, properties, TInvertedIndexFileStorageFormat.V3));
             }
@@ -859,6 +860,8 @@ public class InvertedIndexPropertiesTest {
                     // The exact policy shadows the canonical name, so only the mixed spelling still
                     // reaches the built-in normalizer on BE.
                     () -> Assertions.assertEquals("LowerCase", mixedNormalizer.get("normalizer")),
+                    () -> Assertions.assertFalse(mixedNormalizer.containsKey("support_phrase")),
+                    () -> Assertions.assertEquals("true", customNormalizer.get("support_phrase")),
                     () -> Assertions.assertEquals("LowerCase",
                             InvertedIndexUtil.resolveAnalyzerName("LowerCase")),
                     () -> Assertions.assertEquals("lowercase",
