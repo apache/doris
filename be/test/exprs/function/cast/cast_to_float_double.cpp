@@ -1763,4 +1763,60 @@ TEST_F(FunctionCastToFloatTest, wide_decimal_to_double_is_correctly_rounded) {
     }
 }
 
+// Pinned expectations (hex-float / exact float literals, independent of any conversion helper): both witnesses with
+// their signs flipped, numerators on either side of 2^53, scales 22 and 23 (the last scale whose power of ten is exact
+// in binary64 and the first beyond it), small numerators where only the division rounds, and DECIMAL256 overflow.
+TEST_F(FunctionCastToFloatTest, decimal_to_float_pinned_witnesses_and_boundaries) {
+    CastParameters params;
+    auto cast128_to_double = [&](int64_t unscaled, UInt32 scale) {
+        double out = 0;
+        CastToFloat::_from_decimalv3(Decimal128V3 {Int128(unscaled)}, scale, out,
+                                     decimal_scale_multiplier<Int128>(scale), params);
+        return out;
+    };
+    auto cast64_to_float = [&](int64_t unscaled, UInt32 scale) {
+        float out = 0;
+        CastToFloat::_from_decimalv3(Decimal64 {Int64(unscaled)}, scale, out,
+                                     decimal_scale_multiplier<Int64>(scale), params);
+        return out;
+    };
+    // DECIMAL(38,12) 29201.024999999998: the two-rounding conversion returned the neighbour 0x1.c84419999999ap+14.
+    EXPECT_EQ(cast128_to_double(29201024999999998LL, 12), 0x1.c844199999999p+14);
+    EXPECT_EQ(cast128_to_double(-29201024999999998LL, 12), -0x1.c844199999999p+14);
+    // DECIMAL(19,9) -9000000000.000000009 as FLOAT is not a tie (0.000000009 below the midpoint of the two binary32
+    // candidates); a parse into double narrowed to float landed on the even candidate -8999999488.
+    EXPECT_EQ(cast64_to_float(-9000000000000000009LL, 9), -9000000512.0f);
+    EXPECT_EQ(cast64_to_float(9000000000000000009LL, 9), 9000000512.0f);
+    // numerators around 2^53 (2^53 - 1 and 2^53 are exact in binary64, 2^53 + 1 is not), scale 3
+    for (int64_t unscaled : {9007199254740991LL, 9007199254740992LL, 9007199254740993LL,
+                             -9007199254740993LL}) {
+        EXPECT_EQ(cast128_to_double(unscaled, 3), exact_decimal_to_float<double>(Int128(unscaled), 3))
+                << unscaled;
+    }
+    // scale 22 takes the one-division path, scale 23 the digit path; both must be correctly rounded
+    EXPECT_EQ(cast128_to_double(1, 22), 1e-22);
+    EXPECT_EQ(cast128_to_double(1, 23), 1e-23);
+    for (UInt32 scale : {22u, 23u}) {
+        EXPECT_EQ(cast128_to_double(123456789012345678LL, scale),
+                  exact_decimal_to_float<double>(Int128(123456789012345678LL), scale))
+                << scale;
+    }
+    // small numerators: only the division rounds
+    EXPECT_EQ(cast128_to_double(1, 1), 0x1.999999999999ap-4);
+    EXPECT_EQ(cast128_to_double(7, 1), 0x1.6666666666666p-1);
+    EXPECT_EQ(cast128_to_double(-7, 1), -0x1.6666666666666p-1);
+    // DECIMAL256 10^40 (scale 0): FLOAT overflows to +inf, DOUBLE is 1e40
+    {
+        const auto unscaled = DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(40);
+        float out_f = 0;
+        double out_d = 0;
+        CastToFloat::_from_decimalv3(Decimal256 {unscaled}, 0, out_f,
+                                     DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(0), params);
+        CastToFloat::_from_decimalv3(Decimal256 {unscaled}, 0, out_d,
+                                     DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(0), params);
+        EXPECT_EQ(out_f, std::numeric_limits<float>::infinity());
+        EXPECT_EQ(out_d, 1e40);
+    }
+}
+
 } // namespace doris
