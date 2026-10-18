@@ -148,8 +148,10 @@ public class SPMRound66PlannerTest {
     /**
      * A RIGHT SEMI / RIGHT ANTI join exposes ONLY the preserved right side, so the LEFT
      * side contributed no visible non-key column and was never expanded - the merged key's
-     * name fell back to the raw `k`. The binder names that column from the LEFT slot (`K`)
-     * whatever side supplies the value, so the frozen `K` header must survive.
+     * name fell back to the raw `k`. The binder names that column from the LEFT slot
+     * whatever side supplies the value (bound with the key as WRITTEN, see
+     * ExpressionAnalyzer#bindSingleSlotByName), so the frozen `K` header of `USING(K)` must
+     * survive.
      */
     @Test
     public void testRightSemiUsingKeyNameComesFromTheLeftInput() {
@@ -159,9 +161,9 @@ public class SPMRound66PlannerTest {
 
     private static void assertRightUsingKey(String joinType) {
         LogicalPlan userPlan = parse("SELECT * FROM (SELECT k AS K, x FROM t) l "
-                + joinType + " JOIN (SELECT k AS k, y FROM u) r USING(k)");
+                + joinType + " JOIN (SELECT k AS k, y FROM u) r USING(K)");
         LogicalPlan frozenReplay = parse("SELECT K, y FROM (SELECT k AS K, x FROM t) l "
-                + joinType + " JOIN (SELECT k AS k, y FROM u) r USING(k)");
+                + joinType + " JOIN (SELECT k AS k, y FROM u) r USING(K)");
 
         Assertions.assertEquals(List.of("K", "y"), rootOutputLabels(frozenReplay),
                 "precondition: the frozen tree exposes the binder's left-derived key name");

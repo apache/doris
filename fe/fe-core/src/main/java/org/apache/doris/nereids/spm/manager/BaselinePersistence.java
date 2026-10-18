@@ -275,6 +275,21 @@ public interface BaselinePersistence {
     default void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
     }
 
+    /**
+     * How many versions of one baseline identity are still READABLE below a stored second -
+     * the visibility probe of a prune (see BaselineManager#confirmPruneVisible). SQL OK only
+     * proves the DELETE was dispatched, and a paginated snapshot reader could still step
+     * over a row it removes.
+     *
+     * @param identity       the identity scoping the read
+     * @param keepFromSecond the stored second the prune keeps from
+     * @return the count of older readable versions (0 = none / a store that models no
+     *         versions, -1 = the store cannot answer)
+     */
+    default long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
+        return 0;
+    }
+
     // ==================== id allocation / identity records ====================
 
     /** The baselines table's own MAX(id) (see the manager's "Id source"). */

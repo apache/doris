@@ -718,6 +718,31 @@ public class BaselineManager {
             + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'";
 
     /**
+     * Visibility probe of a version PRUNE (see BaselineManager#confirmPruneVisible): how many
+     * of the identity's versions are still readable below the retained stored second. The
+     * prune's DELETE removing them is `update_time` < the same bound.
+     */
+    private static final String COUNT_VERSIONS_BEFORE_SQL = "SELECT COUNT(*) FROM "
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /** See DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT: the NULL-fingerprint variant. */
+    private static final String COUNT_VERSIONS_BEFORE_SQL_NULL_FINGERPRINT =
+            "SELECT COUNT(*) FROM " + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND `schema_fingerprint` IS NULL"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /** See DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT: the empty-STRING variant. */
+    private static final String COUNT_VERSIONS_BEFORE_SQL_EMPTY_FINGERPRINT =
+            "SELECT COUNT(*) FROM " + SPM_BASELINES_TABLE + " WHERE `id` = ${id}"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND `schema_fingerprint` = ''"
+            + " AND `update_time` < '${keepFrom}'";
+
+    /**
      * The newest stored update_time of THIS id's rows: the status-flip bump advances the
      * new row past this value (see updateStatus), which keeps the flipped row the durable
      * winner among the id's lingering rows (pickDurableWinner prefers the later stored
@@ -896,13 +921,29 @@ public class BaselineManager {
         final BaselineStatus expectedStatus; // null = the row must become absent
         final long attemptedUpdateTimeMillis;
         final long sinceMillis;
+        /**
+         * When non-null, the window ALSO fences the version PRUNE the statement ran
+         * (persistNoOpStatusIntent): a pruned row a paginated reader still holds lets its
+         * stale page be accepted, so the window may only close once the reclaimed versions
+         * are provably gone as well.
+         */
+        final BaselinePlan pruneIdentity;
+        final long pruneKeepFromSecond;
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
                 long attemptedUpdateTimeMillis, long sinceMillis) {
+            this(id, expectedStatus, attemptedUpdateTimeMillis, sinceMillis, null, 0L);
+        }
+
+        UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
+                long attemptedUpdateTimeMillis, long sinceMillis, BaselinePlan pruneIdentity,
+                long pruneKeepFromSecond) {
             this.id = id;
             this.expectedStatus = expectedStatus;
             this.attemptedUpdateTimeMillis = attemptedUpdateTimeMillis;
             this.sinceMillis = sinceMillis;
+            this.pruneIdentity = pruneIdentity;
+            this.pruneKeepFromSecond = pruneKeepFromSecond;
         }
 
         /** Whether the snapshot shows the committed outcome (mirrors PendingMutationFence). */
@@ -913,11 +954,41 @@ public class BaselineManager {
             if (row == null) {
                 return false;
             }
-            if (row.getStatus() == expectedStatus) {
+            if (attemptedUpdateTimeMillis > 0) {
+                // The STATUS alone is not the outcome: a successful NO-OP intent carries the
+                // SAME status as the row it supersedes, and a snapshot still showing the OLDER
+                // same-status row closed the window while the newer intent was unreadable - the
+                // successor it was fencing could then qualify an opposite-status write.
+                return row.getStatus() == expectedStatus
+                        && row.getUpdateTime() >= attemptedUpdateTimeMillis;
+            }
+            return row.getStatus() == expectedStatus;
+        }
+
+        /**
+         * Whether the window's PRUNE half is settled: no version it reclaimed is readable
+         * any more (a store that models no versions answers 0 - nothing to prune).
+         *
+         * @param store the persistence the probe reads
+         * @return whether the reclaimed versions are provably gone
+         */
+        boolean isPruneProbeSatisfied(BaselinePersistence store) {
+            if (pruneIdentity == null) {
                 return true;
             }
-            return attemptedUpdateTimeMillis > 0
-                    && row.getUpdateTime() >= attemptedUpdateTimeMillis;
+            try {
+                return store.countVersionsBefore(pruneIdentity, pruneKeepFromSecond) == 0;
+            } catch (RuntimeException e) {
+                return false; // the outcome cannot be read: the window stays held
+            }
+        }
+
+        /**
+         * Both halves of the window: the committed row readable AND (when the statement
+         * pruned) the reclaimed versions provably gone.
+         */
+        boolean isSettled(BaselinePlan row, BaselinePersistence store) {
+            return isSatisfiedBy(row) && isPruneProbeSatisfied(store);
         }
     }
 
@@ -3291,8 +3362,21 @@ public class BaselineManager {
                 throwAmbiguousStatusInsertUnlessDurable(intent, e);
             }
             confirmInsertVisible(intent);
+            long keepFromSecond = Math.max(0L, intentTime / 1000L);
             try {
-                persistence.pruneSupersededVersions(intent, Math.max(0L, intentTime / 1000L));
+                persistence.pruneSupersededVersions(intent, keepFromSecond);
+                // SQL OK is not PUBLICATION: the DELETE may have committed while readers still
+                // see the pruned rows, and a paginated reader positioned on one of them steps
+                // past the intent row behind it (id >= X OFFSET 1). Prove the versions gone; a
+                // prune no read can prove leaves the shared window OPEN (the age bound heals
+                // it) instead of closing it and letting the stale page be accepted.
+                if (!confirmPruneVisible(intent, keepFromSecond)) {
+                    windowHeld = holdUnresolvedPruneWindow(mutation, intent, keepFromSecond);
+                    if (!windowHeld) {
+                        LOG.warn("SPM cannot fence the reclaimed versions of baseline {}: no"
+                                + " shared window exists", plan.getId());
+                    }
+                }
             } catch (RuntimeException e) {
                 // still inside the window: a failed prune only leaves rows behind, and the
                 // next statement prunes again - it must not fail the ALTER
@@ -3309,6 +3393,15 @@ public class BaselineManager {
             // window open until a read shows the row (or its age bound), like a lagging flip.
             windowHeld = holdUnresolvedMutationWindow(mutation, intent);
             recordConfirmedMutationFence(plan.getId(), status, intentTime);
+        } catch (AmbiguousInsertException e) {
+            // The INSERT reported an ERROR that may have been raised AFTER a commit, and no
+            // read can prove it. The shared window MUST stay unresolved (like the unreadable
+            // success above): a successor that reads the previous row with a quiet clock
+            // could otherwise qualify an opposite-status write that this possibly-committed
+            // row then reverses.
+            windowHeld = holdUnresolvedMutationWindow(mutation, intent);
+            recordPendingMutationFence(plan.getId(), status, intentTime);
+            throw e;
         } catch (RuntimeException e) {
             // The intent was NOT written. Reporting success here let an opposite-status
             // statement - dispatched before this one, its shared mutation window long expired
@@ -3324,6 +3417,33 @@ public class BaselineManager {
             }
         }
         return intentTime;
+    }
+
+    /**
+     * Whether the reclaim of the superseded versions is VISIBLE yet: SQL OK only proves the
+     * DELETE was dispatched, so a paginated snapshot reader could still be positioned on a
+     * row it removes. Polls the durable count of older versions; a store that cannot answer
+     * reports 0 (nothing to prune) and the caller's window stays as it is.
+     *
+     * @param identity      the identity whose older versions were pruned
+     * @param keepFromSecond the stored second the prune keeps from
+     * @return whether no version older than keepFromSecond remains readable
+     */
+    private boolean confirmPruneVisible(BaselinePlan identity, long keepFromSecond) {
+        if (keepFromSecond <= 0) {
+            return true;
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            long older = persistence.countVersionsBefore(identity, keepFromSecond);
+            if (older == 0) {
+                return true;
+            }
+            if (older < 0) {
+                return false; // the store cannot answer: fail closed
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        return false;
     }
 
     /**
@@ -5817,6 +5937,32 @@ public class BaselineManager {
     }
 
     /**
+     * Keeps the SHARED mutation window of a DISPATCHED no-op ALTER open because the PRUNE it
+     * ran is not provably visible yet (see confirmPruneVisible): the DELETE changes the row
+     * set a PAGINATED reader walks, so a follower whose page 1 ended on a removed row
+     * continues past the intent row behind it and accepts the stale page. The window closes
+     * once a read shows the committed row AND no reclaimed version (see
+     * UnresolvedMutationWindow#isSettled), or after MUTATION_WINDOW_MAX_AGE_SECONDS.
+     *
+     * @param tick            the window tick the statement was dispatched under
+     * @param row             the intent row the statement wrote
+     * @param keepFromSecond  the stored second the prune keeps from
+     * @return whether the window was taken over: the caller must NOT close it
+     */
+    private boolean holdUnresolvedPruneWindow(long tick, BaselinePlan row, long keepFromSecond) {
+        if (tick == 0) {
+            return false; // no shared window exists (in-memory / scripted store)
+        }
+        unresolvedMutationWindows.put(tick, new UnresolvedMutationWindow(row.getId(),
+                row.getStatus(), row.getUpdateTime(), mutationWindowNow(), row, keepFromSecond));
+        LOG.warn("SPM keeps mutation window {} OPEN: the versions of baseline {} reclaimed by"
+                + " the no-op ALTER are not provably gone yet, so a paginated reader may still"
+                + " hold one of them; the window closes once a read proves the reclaim (or"
+                + " after its age bound)", tick, row.getId());
+        return true;
+    }
+
+    /**
      * Keeps the SHARED mutation window of a dispatched DELETE open because its outcome is
      * AMBIGUOUS (see persistDeleteByIdentity): the statement reported an error that may have
      * been raised after a commit, and no read can prove the row gone yet. The window is the
@@ -5873,7 +6019,7 @@ public class BaselineManager {
                 for (BaselinePlan row : rows) {
                     winner = winner == null ? row : pickDurableWinner(winner, row);
                 }
-                readable = held.isSatisfiedBy(winner);
+                readable = held.isSettled(winner, persistence);
             } catch (RuntimeException e) {
                 continue; // the outcome cannot be read: the window stays held
             }
@@ -5906,7 +6052,7 @@ public class BaselineManager {
         for (Map.Entry<Long, UnresolvedMutationWindow> entry
                 : new ArrayList<>(unresolvedMutationWindows.entrySet())) {
             UnresolvedMutationWindow held = entry.getValue();
-            boolean readable = held.isSatisfiedBy(persisted.get(held.id));
+            boolean readable = held.isSettled(persisted.get(held.id), persistence);
             boolean agedOut = now - held.sinceMillis
                     > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L;
             if (!readable && !agedOut) {
@@ -8886,6 +9032,48 @@ public class BaselineManager {
     }
 
     /**
+     * The live implementation half of {@link BaselinePersistence#countVersionsBefore}: the
+     * visibility probe of a prune (see confirmPruneVisible).
+     *
+     * @param identity       the identity scoping the read
+     * @param keepFromSecond the stored second the prune keeps from
+     * @return the readable count of older versions
+     */
+    private static long countVersionsBeforeFromTable(BaselinePlan identity,
+            long keepFromSecond) {
+        if (!persistenceEnabled()) {
+            return 0;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(identity.getId()));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(identity.getBindSqlDigest()));
+        params.put("planSql", StatisticsUtil.escapeSQL(identity.getPlanSql()));
+        String fingerprint = identity.getSchemaFingerprint() == null
+                ? "" : identity.getSchemaFingerprint();
+        params.put("schemaFingerprint", StatisticsUtil.escapeSQL(fingerprint));
+        params.put("keepFrom", toTs(keepFromSecond * 1000L));
+        String sql;
+        if (fingerprint.isEmpty()) {
+            // A TVF-only baseline stores an EMPTY fingerprint and the IFNULL form is rejected
+            // by the planner; the widest of the two simple predicates answers the probe.
+            sql = COUNT_VERSIONS_BEFORE_SQL_EMPTY_FINGERPRINT;
+        } else {
+            sql = COUNT_VERSIONS_BEFORE_SQL;
+        }
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    sql, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+            if (rows == null || rows.isEmpty()) {
+                return 0;
+            }
+            String count = rows.get(0).getWithDefault(0, "0");
+            return count == null || count.isEmpty() ? 0L : Long.parseLong(count.trim());
+        } catch (Exception e) {
+            throw new RuntimeException("SPM reclaimed-version count failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * The status-cleanup DELETE with the old row's stored VERSION bound (the reviewer's
      * round-58 finding): matching (id, old status, identity) alone also deleted the row a
      * LATER flip BACK to that status had written, because the stored second is not part of
@@ -9090,6 +9278,11 @@ public class BaselineManager {
         @Override
         public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
             pruneSupersededVersionsFromTable(identity, keepFromSecond);
+        }
+
+        @Override
+        public long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
+            return countVersionsBeforeFromTable(identity, keepFromSecond);
         }
 
         @Override

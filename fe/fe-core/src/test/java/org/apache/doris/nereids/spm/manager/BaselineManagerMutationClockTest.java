@@ -657,6 +657,10 @@ public class BaselineManagerMutationClockTest {
             BaselinePlan disabled = baseline("d-held-window", "p-held-window");
             disabled.setId(id);
             disabled.setStatus(BaselineStatus.DISABLED);
+            // the committed row carries the stored second the flip was written under: a
+            // same-status OLDER row would NOT prove the outcome (round-71 #10a)
+            disabled.setUpdateTime(
+                    BaselineManagerTestAccess.heldMutationWindowAttemptedUpdateTime());
             Map<Long, BaselinePlan> persisted = new java.util.LinkedHashMap<>();
             persisted.put(id, disabled);
             manager.applyRefreshedBaselines(persisted);
@@ -849,6 +853,9 @@ public class BaselineManagerMutationClockTest {
             BaselinePlan disabled = baseline("d-amb-insert", "p-amb-insert");
             disabled.setId(id);
             disabled.setStatus(BaselineStatus.DISABLED);
+            // the possibly-committed row carries the stored second it was written under
+            disabled.setUpdateTime(
+                    BaselineManagerTestAccess.heldMutationWindowAttemptedUpdateTime());
             Map<Long, BaselinePlan> persisted = new java.util.LinkedHashMap<>();
             persisted.put(id, disabled);
             manager.applyRefreshedBaselines(persisted);

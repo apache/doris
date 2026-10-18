@@ -213,15 +213,19 @@ public class SPMRound65PlannerTest {
     /**
      * BindExpression#bindUsingJoin always names the merged column after the LEFT slot
      * (`colName = leftSlot.getName()`), including RIGHT joins that take the VALUE from
-     * the right input. The star expansion used to derive `k` from the right source and
-     * renamed the correctly frozen `K` header even for the identical query.
+     * the right input - and that slot was bound with the key as WRITTEN
+     * ({@code ExpressionAnalyzer#bindSingleSlotByName} does
+     * {@code boundSlot.withName(name)}), so {@code USING(K)} exposes {@code K} whatever
+     * side supplies the value. The star expansion used to derive the name from the right
+     * source and renamed the correctly frozen {@code K} header even for the identical
+     * query.
      */
     @Test
     public void testRightUsingJoinKeyNameComesFromTheLeftInput() {
         LogicalPlan userPlan = parse("SELECT * FROM (SELECT k AS K, x FROM t) l"
-                + " RIGHT JOIN (SELECT k AS k, y FROM u) r USING(k)");
+                + " RIGHT JOIN (SELECT k AS k, y FROM u) r USING(K)");
         LogicalPlan frozenReplay = parse("SELECT K, x, y FROM (SELECT k AS K, x FROM t) l"
-                + " RIGHT JOIN (SELECT k AS k, y FROM u) r USING(k)");
+                + " RIGHT JOIN (SELECT k AS k, y FROM u) r USING(K)");
 
         Assertions.assertEquals(List.of("K", "x", "y"), rootOutputLabels(frozenReplay),
                 "precondition: the frozen tree exposes the binder's left-derived key name");

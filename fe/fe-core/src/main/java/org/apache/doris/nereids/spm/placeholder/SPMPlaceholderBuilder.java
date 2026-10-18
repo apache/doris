@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm.placeholder;
 
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -130,6 +131,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private long nextRootOrdinal = 0;
     private long currentRootOrdinal = -1;
+
+    /**
+     * Depth of CASE expressions currently visited as a BOOLEAN operand (see
+     * markerPayload): an all-NULL CASE has NullType and the analyzer replaces the whole
+     * operand with a typed constant, so its branch NULLs are parameterized BOOLEAN.
+     */
+    private int booleanCaseDepth;
 
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock(). */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
@@ -365,7 +373,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id,
-                markerPayload(literal, parent, currentProjectItem() >= 0));
+                markerPayload(literal, parent, currentProjectItem() >= 0, booleanCaseDepth > 0));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
@@ -392,10 +400,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return the payload the placeholder keeps
      */
     private static Literal markerPayload(Literal literal, Expression parent,
-            boolean projectionItem) {
+            boolean projectionItem, boolean booleanCaseContext) {
         boolean booleanOperand = parent instanceof And || parent instanceof Or
                 || parent instanceof Not;
-        if (literal.isNullLiteral() && booleanOperand) {
+        if (literal.isNullLiteral() && (booleanOperand || booleanCaseContext)) {
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         // A projected NULL (`SELECT NULL AS n` / a bare `SELECT NULL`) exposes a NullType
@@ -536,20 +544,36 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         boolean changed = false;
         List<Expression> newChildren = new ArrayList<>(children.size());
-        for (int i = 0; i < children.size(); i++) {
-            Expression child = children.get(i);
-            // each child's parent is this expression; remember its position so sibling
-            // literals ("1 + 1") never merge into one placeholder id
-            childIndexStack.push(i);
-            Expression newChild;
-            try {
-                newChild = child.accept(this, expr);
-            } finally {
-                childIndexStack.pop();
+        // A CASE that IS a Boolean operand (OR / AND / NOT) contributes BOOLEAN-typed
+        // markers: an all-NULL CASE has NullType, and the analyzer then replaces the WHOLE
+        // operand with a typed constant NULL - deleting every placeholder inside it
+        // (`k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END` lost both ids and a TRUE
+        // variant had nothing to substitute).
+        boolean booleanCaseOperand = expr instanceof CaseWhen
+                && (parent instanceof And || parent instanceof Or || parent instanceof Not);
+        if (booleanCaseOperand) {
+            booleanCaseDepth++;
+        }
+        try {
+            for (int i = 0; i < children.size(); i++) {
+                Expression child = children.get(i);
+                // each child's parent is this expression; remember its position so sibling
+                // literals ("1 + 1") never merge into one placeholder id
+                childIndexStack.push(i);
+                Expression newChild;
+                try {
+                    newChild = child.accept(this, expr);
+                } finally {
+                    childIndexStack.pop();
+                }
+                newChildren.add(newChild);
+                if (newChild != child) {
+                    changed = true;
+                }
             }
-            newChildren.add(newChild);
-            if (newChild != child) {
-                changed = true;
+        } finally {
+            if (booleanCaseOperand) {
+                booleanCaseDepth--;
             }
         }
         if (!changed) {
