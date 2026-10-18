@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 36, text cases: 50 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 36, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -692,6 +692,9 @@ out = U{all,cols:[col(t.a)],const:[Alias(lit(2:INT))]}(S{internal.hbo_test.t1,v3
 [TEXT toNoLiteral/a_protected_window_header_is_copied_verbatim]
 in = W{RowNumber;part:[col(internal.hbo_test.t1.a)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{internal.hbo_test.t1,v3,r1010})
 out = W{RowNumber;part:[col(internal.hbo_test.t1.a)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{internal.hbo_test.t1,v3,r1010})
+[TEXT toNoLiteral/a_table_named_like_a_literal_is_not_folded]
+in = F{IsNull(col(t.a))}(S{internal.db.lit(%31),v2,r1000})
+out = F{IsNull(col(t.a))}(S{internal.db.lit(%31),v2,r1000})
 [TEXT toNoLiteral/a_text_without_any_literal]
 in = J{inner,c:[]}(S{internal.hbo_test.t1,v3,r1010};S{internal.hbo_test.t2,v2,r1000})
 out = J{inner,c:[]}(S{internal.hbo_test.t1,v3,r1010};S{internal.hbo_test.t2,v2,r1000})

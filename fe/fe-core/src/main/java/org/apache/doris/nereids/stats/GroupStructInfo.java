@@ -1883,6 +1883,17 @@ public class GroupStructInfo {
         while (index < canonicalString.length()) {
             int start = canonicalString.indexOf("lit(", index);
             int protectedStart = nextProtectedHeaderStart(canonicalString, index);
+            // a scan token is copied verbatim as well: it carries no foldable literal (its name is encoded),
+            // and a table whose name contains `lit(` would otherwise be folded into a token which names a
+            // different table
+            int scanStart = HboScanDescriptor.nextScanTokenStart(canonicalString, index);
+            if (scanStart >= 0 && (start < 0 || scanStart < start)
+                    && (protectedStart < 0 || scanStart < protectedStart)) {
+                int scanEnd = closingBraceOf(canonicalString, scanStart + 1);
+                sb.append(canonicalString, index, scanEnd + 1);
+                index = scanEnd + 1;
+                continue;
+            }
             if (protectedStart >= 0 && (start < 0 || protectedStart < start)) {
                 // the arguments of these headers are written in *both* literal modes (a generator's
                 // delimiter decides how many rows a row expands into, a top-n's ordering and a window's

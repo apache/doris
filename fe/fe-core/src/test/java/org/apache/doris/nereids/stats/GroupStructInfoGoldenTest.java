@@ -1222,6 +1222,10 @@ public class GroupStructInfoGoldenTest {
                 "F{EqualTo(concat(lit(%27b%27:VARCHAR(1)),col(t.r)),lit(%27y%27:VARCHAR(1)));"
                         + "EqualTo(concat(lit(%27a%27:VARCHAR(1)),col(t.s)),lit(%27x%27:VARCHAR(1)))}"
                         + "(S{internal.hbo_test.t1,v3,r1010})"));
+        // a scan token is copied verbatim: a table whose name contains `lit(` must not be folded into a
+        // token which names another table
+        cases.add(new TextCase("toNoLiteral", "a_table_named_like_a_literal_is_not_folded",
+                "F{IsNull(col(t.a))}(S{internal.db.lit(%31),v2,r1000})"));
         cases.add(new TextCase("toNoLiteral", "a_foldable_literal",
                 "F{EqualTo(col(t.b),lit(1:INT))}(S{internal.hbo_test.t1,v3,r1010})"));
         cases.add(new TextCase("toNoLiteral", "a_foldable_literal_next_to_a_protected_header",
