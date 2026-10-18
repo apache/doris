@@ -1437,6 +1437,19 @@ start_iceberg() {
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
     compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # data/ is extracted from the fixture archive once and then reused. A data/ from an older archive lacks
+        # jars that iceberg.yaml now mounts, and Compose would create empty directories in their place, so
+        # start over from the current archive.
+        if [[ -d "${ICEBERG_DIR}/data" ]]; then
+            local jar
+            for jar in $(grep -o '\./data/input/jars/[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
+                if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
+                    echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
+                    host_admin_cmd rm -rf "${ICEBERG_DIR:?}/data"
+                    break
+                fi
+            done
+        fi
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             (
