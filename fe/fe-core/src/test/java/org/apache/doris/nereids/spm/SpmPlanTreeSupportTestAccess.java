@@ -89,4 +89,39 @@ public final class SpmPlanTreeSupportTestAccess {
     public static String describeTableSample(TableSample sample) {
         return (String) call("describeTableSample", new Class<?>[] {TableSample.class}, sample);
     }
+
+    /**
+     * Whether one star-expansion side label is CONSUMED by a merged USING key (round-71: the
+     * comparison is on the WHOLE label, like the analyzer's bound-slot matching).
+     */
+    public static boolean isConsumedUsingKey(java.util.Set<String> consumedKeys, String label) {
+        return (Boolean) call("isConsumedUsingKey",
+                new Class<?>[] {java.util.Set.class, String.class}, consumedKeys, label);
+    }
+
+    /**
+     * The caller-visible label of one merged USING key: the source side's OWN label for the
+     * key, or the raw spelling (round-71: the analyzer renames the bound slot to the WRITTEN
+     * key, so the frozen header must be the written spelling as well).
+     */
+    public static String usingKeyLabel(String rawKeyName, List<String> sideLabels,
+            boolean openTail) {
+        try {
+            Class<?> starLabels = Class.forName(SPMPlanTreeSupport.class.getName() + "$StarLabels");
+            java.lang.reflect.Constructor<?> ctor =
+                    starLabels.getDeclaredConstructor(List.class, boolean.class);
+            ctor.setAccessible(true);
+            return (String) call("resolvedUsingKeyLabel",
+                    new Class<?>[] {String.class, starLabels}, rawKeyName,
+                    ctor.newInstance(sideLabels, openTail));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The caller-visible output label of one unbound output item. */
+    public static String outputLabel(org.apache.doris.nereids.trees.expressions.Expression expr) {
+        return (String) call("outputLabelOf",
+                new Class<?>[] {org.apache.doris.nereids.trees.expressions.Expression.class}, expr);
+    }
 }

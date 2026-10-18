@@ -2918,7 +2918,8 @@ public final class SPMPlanTreeSupport {
             String userLabel = i < derivableCount ? userLabels.get(i) : null;
             String rewrittenLabel = outputLabelOf(rewrittenItem);
             if (userLabel == null || rewrittenLabel == null
-                    || userLabel.equals(rewrittenLabel)) {
+                    || (userLabel.equals(rewrittenLabel)
+                            && headerAlreadyExposes(rewrittenItem, rewrittenLabel))) {
                 // no label on one of the two sides (or both equal): the position carries no
                 // captured header text to realign. A STAR projection is the important case
                 // when its expansion is not derivable (a star over a join / base table,
@@ -3053,7 +3054,9 @@ public final class SPMPlanTreeSupport {
             NamedExpression userItem = userItems.get(i);
             String userLabel = outputLabelOf(userItem);
             String rewrittenLabel = outputLabelOf(rewrittenItem);
-            if (userLabel == null || rewrittenLabel == null || userLabel.equals(rewrittenLabel)) {
+            if (userLabel == null || rewrittenLabel == null
+                    || (userLabel.equals(rewrittenLabel)
+                            && headerAlreadyExposes(rewrittenItem, rewrittenLabel))) {
                 aligned.add(rewrittenItem);
                 continue;
             }
@@ -3506,7 +3509,8 @@ public final class SPMPlanTreeSupport {
             }
             String rewrittenLabel = outputLabelOf(rewrittenItem);
             if (userLabel == null || rewrittenLabel == null
-                    || userLabel.equals(rewrittenLabel)) {
+                    || (userLabel.equals(rewrittenLabel)
+                            && headerAlreadyExposes(rewrittenItem, rewrittenLabel))) {
                 // the middle positions (the star's unknown-width tail) keep the frozen
                 // names: those are real column names, not captured expression text
                 aligned.add(rewrittenItem);
@@ -4116,26 +4120,30 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * One USING key's caller-visible label: the merge-source side's OWN label for the
-     * key (identifier-case match, qualified labels compared by their last component),
-     * falling back to the raw spelling when that side's expansion is underivable.
+     * One USING key's caller-visible label: the analyzer RENAMES the bound key slot to the
+     * USING spelling (ExpressionAnalyzer#bindSingleSlotByName does
+     * `boundSlot.withName(name)`), so the merged key's name is the written key - NOT the
+     * source side's alias. Deriving it from the source expansion renamed the correctly
+     * frozen `k` header to the left source alias `K` even for identical SQL.
+     *
+     * @param rawKeyName the USING key as written
+     * @param sourceSide the merge-source side's expansion (kept for the signature / future
+     *                   analyzers that preserve the source spelling)
+     * @return the caller-visible merged key label
      */
     private static String resolvedUsingKeyLabel(String rawKeyName, StarLabels sourceSide) {
-        if (sourceSide != null && !sourceSide.openTail) {
-            for (String label : sourceSide.labels) {
-                if (label != null && (label.equalsIgnoreCase(rawKeyName)
-                        || lastNamePart(label).equalsIgnoreCase(rawKeyName))) {
-                    return label;
-                }
-            }
-        }
         return rawKeyName;
     }
 
-    /** Whether one side label IS one of the merged USING keys. */
+    /**
+     * Whether one side label IS one of the merged USING keys.
+     *
+     * WHOLE-name comparison: a dotted label like `x.k` is ONE column name, so USING(k)
+     * must not consume it - the last-component match dropped an unrelated derived column
+     * and shifted every header behind it.
+     */
     private static boolean isConsumedUsingKey(Set<String> consumedKeys, String label) {
-        return consumedKeys.contains(label)
-                || consumedKeys.contains(lastNamePart(label));
+        return label != null && consumedKeys.contains(label);
     }
 
     /**
@@ -4263,6 +4271,21 @@ public final class SPMPlanTreeSupport {
         return ((LogicalSink<?>) node).getOutputExprs();
     }
 
+    /**
+     * Whether a frozen output item already EXPOSES the label it derived - i.e. whether the
+     * alignment has nothing to rename. Aliases and expression items carry their label as
+     * their name, but a bare QUALIFIED slot does not: its caller-visible LABEL is the column
+     * name (`k`, see outputLabelOf) while the frozen item still renders `d.k`, so a caller
+     * header of `k` matched the derived label and the item kept the qualified text (the
+     * frozen sink then reported `d.k` for an identical query).
+     */
+    private static boolean headerAlreadyExposes(NamedExpression item, String label) {
+        if (item instanceof UnboundSlot) {
+            return label.equals(((UnboundSlot) item).getName());
+        }
+        return true;
+    }
+
     /** One output item renamed to label, keeping the parse-time class. */
     private static NamedExpression renameOutputItem(NamedExpression item, String label,
             boolean nameFromChild) {
@@ -4306,6 +4329,14 @@ public final class SPMPlanTreeSupport {
             return null;
         }
         if (item instanceof UnboundSlot) {
+            // The analyzer-visible header is the COLUMN NAME: a qualified reference `s.k`
+            // exposes `k` (UnboundSlot#getName renders every name part, which added an
+            // explicit `AS s.k` to the frozen projection and changed an identical query's
+            // header). A quoted dotted alias is ONE component and must stay verbatim.
+            java.util.List<String> parts = ((UnboundSlot) item).getNameParts();
+            if (parts != null && !parts.isEmpty()) {
+                return parts.get(parts.size() - 1);
+            }
             return ((UnboundSlot) item).getName();
         }
         if (item instanceof Slot) {
@@ -6278,6 +6309,28 @@ public final class SPMPlanTreeSupport {
      * @param table the table that was just resolved under the lock
      */
     public static void recordTableFingerprint(Map<String, String> out, TableIf table) {
+        recordTableFingerprint(out, table, null);
+    }
+
+    /**
+     * As {@link #recordTableFingerprint(Map, TableIf)}, also keyed by the QUALIFIER the
+     * relation was resolved with.
+     *
+     * The catalog cannot always be recovered from the TableIf: an external
+     * `ExternalDatabase#getFullName` returns only the DATABASE, so `c1.db.t` and `c2.db.t`
+     * both produced the same bare / `db.t` keys - putIfAbsent then DISCARDED the second
+     * table's fingerprint, the stored set was missing one dependency, and the live pre-match
+     * fingerprint (which resolves both tables by their own ids) never matched it: the
+     * identical query failed the containment check forever. The resolution qualifier
+     * carries the catalog part the caller wrote.
+     *
+     * @param out       the name-to-entry map to fill
+     * @param table     the table that was just resolved under the lock
+     * @param qualifier the qualifier the relation was resolved with (catalog / db parts;
+     *                  null when unknown)
+     */
+    public static void recordTableFingerprint(Map<String, String> out, TableIf table,
+            List<String> qualifier) {
         if (out == null || table == null || table.getName() == null) {
             return;
         }
@@ -6287,9 +6340,17 @@ public final class SPMPlanTreeSupport {
         } catch (RuntimeException e) {
             return; // an unreadable table is not part of the fingerprint either way
         }
+        if (qualifier != null && !qualifier.isEmpty()) {
+            out.putIfAbsent(String.join(".", qualifier).toLowerCase(Locale.ROOT), entry);
+        }
         out.putIfAbsent(table.getName().toLowerCase(Locale.ROOT), entry);
         if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
             out.putIfAbsent((table.getDatabase().getFullName() + "." + table.getName())
+                    .toLowerCase(Locale.ROOT), entry);
+        }
+        if (table.getDatabase() != null && table.getDatabase().getCatalog() != null) {
+            out.putIfAbsent((table.getDatabase().getCatalog().getName() + "."
+                    + table.getDatabase().getFullName() + "." + table.getName())
                     .toLowerCase(Locale.ROOT), entry);
         }
     }

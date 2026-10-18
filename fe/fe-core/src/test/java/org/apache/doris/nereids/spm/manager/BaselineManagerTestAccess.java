@@ -266,6 +266,26 @@ public final class BaselineManagerTestAccess {
         return !((Map<?, ?>) staticValue("unresolvedMutationWindows")).isEmpty();
     }
 
+    /**
+     * The stored second (epoch millis) the single HELD mutation window expects: a snapshot
+     * row only proves the outcome when it carries this second or a LATER one (a same-status
+     * row the intent supersedes is NOT the outcome, see round-71 #10a).
+     */
+    public static long heldMutationWindowAttemptedUpdateTime() {
+        Map<?, ?> windows = (Map<?, ?>) staticValue("unresolvedMutationWindows");
+        if (windows.isEmpty()) {
+            throw new IllegalStateException("no held mutation window");
+        }
+        Object window = windows.values().iterator().next();
+        try {
+            Field attempted = window.getClass().getDeclaredField("attemptedUpdateTimeMillis");
+            attempted.setAccessible(true);
+            return (Long) attempted.get(window);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** Records one mutation fence (round-63: the by-hash miss reconciliation). */
     public static void recordPendingMutationFence(BaselineManager manager, long id,
             org.apache.doris.nereids.spm.BaselineStatus status, long updateTimeMs) {

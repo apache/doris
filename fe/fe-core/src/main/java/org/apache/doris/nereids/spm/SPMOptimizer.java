@@ -94,6 +94,15 @@ public class SPMOptimizer {
             // grouping sets decomposition (topology change, cardinality dependent)
             "DECOMPOSE_REPEAT",
 
+            // ===== category 1b: TYPE-changing lowerings =====
+            // avg(DISTINCT x) -> sum(DISTINCT CAST(x AS LARGEINT)) / count(...): the
+            // LARGEINT accumulator cast is part of the lowered expression's SEMANTICS, but
+            // the frozen text is re-planned for a caller whose literal may have ANOTHER type
+            // (avg(DISTINCT k + 1) captured, avg(DISTINCT k + 0.25) matching): the replay
+            // then casts the substituted DECIMAL to an integer first and returns a different
+            // value. Keeping AVG itself leaves the coercion to the replay's own analysis.
+            "AVG_DISTINCT_TO_SUM_DIV_COUNT",
+
             // ===== category 2: MV rewrite (all) =====
             // Excluded via the whole RuleTypeClass.MATERIALIZE_VIEW family (see
             // getMaterializedViewRuleNames()), not listed here.
@@ -230,6 +239,16 @@ public class SPMOptimizer {
      * consults it.
      */
     private static final ThreadLocal<Integer> CAPTURE_DEPTH = ThreadLocal.withInitial(() -> 0);
+
+    /**
+     * The nested-context factory (see createNestedStatementContext). A seam, not a
+     * configuration: the production value always builds a {@link CaptureStatementContext},
+     * and a unit test substitutes a recording subclass to observe that the close() in
+     * optimize()'s finally releases the context the plan actually used. A construction mock
+     * of StatementContext cannot see it - the allocation names the SUBCLASS.
+     */
+    private static volatile java.util.function.BiFunction<ConnectContext, String,
+            StatementContext> nestedContextFactory = CaptureStatementContext::new;
 
     private SPMOptimizer() {
     }
@@ -531,7 +550,17 @@ public class SPMOptimizer {
      */
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
-        return new CaptureStatementContext(ctx, originSql);
+        return nestedContextFactory.apply(ctx, originSql);
+    }
+
+    /**
+     * Installs a nested-context factory for one test (see nestedContextFactory).
+     *
+     * @param factory the factory, or null to restore the production one
+     */
+    static void setNestedContextFactoryForTest(java.util.function.BiFunction<ConnectContext,
+            String, StatementContext> factory) {
+        nestedContextFactory = factory == null ? CaptureStatementContext::new : factory;
     }
 
     /**
@@ -764,7 +793,7 @@ public class SPMOptimizer {
                 java.util.Optional<org.apache.doris.nereids.analyzer.UnboundRelation> unboundRelation) {
             org.apache.doris.catalog.TableIf table =
                     super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
-            SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table);
+            SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table, tableQualifier);
             return table;
         }
 

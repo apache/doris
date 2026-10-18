@@ -93,6 +93,13 @@ public class BaselineManagerConcurrencyTest {
         private CountDownLatch deleteEntered;
         private CountDownLatch deleteRelease;
         /**
+         * Invoked at the END of a successful identity delete, i.e. still INSIDE the writer
+         * lock of the DROP. A test that wants to prove an invalidation observed the DROP
+         * must flag here: a flag set after dropBaseline() RETURNS races with the waiting
+         * invalidation, which only has to outlive the LOCK release, not the return.
+         */
+        private Runnable onDeleteCompleted;
+        /**
          * The "other master" row to inject into the FIRST by-id probe, under the id the
          * probe actually asks for (the id generator state depends on the test order).
          */
@@ -330,6 +337,9 @@ public class BaselineManagerConcurrencyTest {
                         && normalizedFingerprint(row).equals(normalizedFingerprint(plan)));
                 return updated.isEmpty() ? null : updated;
             });
+            if (onDeleteCompleted != null) {
+                onDeleteCompleted.run();
+            }
             if (failDeleteAfterCommit) {
                 throw new RuntimeException("identity delete reported after commit"
                         + " (statement timed out)");
@@ -553,11 +563,12 @@ public class BaselineManagerConcurrencyTest {
             store.deleteRelease = new CountDownLatch(1);
             AtomicBoolean dropReturned = new AtomicBoolean(false);
             AtomicBoolean invalidateSawDropReturned = new AtomicBoolean(false);
+            // The flag is raised INSIDE the DROP's writer lock (see onDeleteCompleted): raising
+            // it after dropBaseline() returns would race the invalidation, which only waits for
+            // the LOCK release and could sample false although it correctly waited.
+            store.onDeleteCompleted = () -> dropReturned.set(true);
 
-            Thread drop = new Thread(() -> {
-                manager.dropBaseline(id);
-                dropReturned.set(true);
-            });
+            Thread drop = new Thread(() -> manager.dropBaseline(id));
             drop.start();
             Assertions.assertTrue(store.deleteEntered.await(5, TimeUnit.SECONDS),
                     "the DROP must be inside its durable delete (holding writerLock)");
@@ -582,6 +593,7 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertTrue(manager.getAllBaselines().isEmpty(),
                     "the dropped baseline must not be resurrected by the invalidation");
         } finally {
+            store.onDeleteCompleted = null;
             doubles.idAllocatorStore = null;
             BaselineManagerTestAccess.clear(manager);
         }

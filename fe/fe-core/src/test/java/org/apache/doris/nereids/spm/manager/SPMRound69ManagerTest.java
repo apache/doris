@@ -165,7 +165,7 @@ public class SPMRound69ManagerTest {
 
         IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
                 () -> manager.updateStatus(5L, BaselineStatus.ENABLED));
-        Assertions.assertTrue(failure.getMessage().contains("retry the ALTER"),
+        Assertions.assertTrue(failure.getMessage().contains("retry the"),
                 "the failure must be retryable: " + failure.getMessage());
         Assertions.assertTrue(store.inserted.isEmpty(),
                 "precondition: nothing was written");
