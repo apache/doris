@@ -17,6 +17,14 @@
 
 #pragma once
 
+// CLucene is third-party code and is not clean under -Wconversion (which
+// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
+// someone else's suppressed region depends on include order, so suppress it
+// deliberately here (same pattern as index_common_impl.h).
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/util/bkd/bkd_writer.h>
@@ -30,8 +38,8 @@
 #include "core/pod_array.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {

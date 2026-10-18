@@ -51,7 +51,7 @@
 #include "storage/compaction_task_tracker.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/merger.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"

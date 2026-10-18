@@ -48,7 +48,7 @@
 #include "storage/compaction/full_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"

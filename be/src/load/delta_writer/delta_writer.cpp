@@ -40,7 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"

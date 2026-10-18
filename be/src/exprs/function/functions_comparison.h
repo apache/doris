@@ -48,6 +48,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/functions_logical.h"
 #include "exprs/vexpr.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {

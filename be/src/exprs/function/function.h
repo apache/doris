@@ -44,8 +44,8 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_iterator.h" // IWYU pragma: keep
-#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {

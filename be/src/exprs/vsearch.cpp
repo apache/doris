@@ -25,13 +25,14 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
-#include "exprs/function/function_search.h"
+#include "exprs/function/search/function_search.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "glog/logging.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/schema.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -41,7 +42,7 @@ namespace {
 struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
     std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
-    std::unordered_map<std::string, int> field_name_to_column_id;
+    const TabletColumn* nested_column = nullptr;
     std::vector<int> column_indexes;
     ColumnsWithTypeAndName literal_args;
 };
@@ -58,6 +59,44 @@ void add_search_binding_diagnostic(const IndexExecContext* index_context,
     }
 }
 
+Status bind_nested_column(const VSearchExpr& expr, const VSlotRef& slot_ref,
+                          const TSearchFieldBinding* binding, const IndexExecContext& index_context,
+                          SearchInputBundle* bundle) {
+    const auto& clause = expr.get_search_param().root;
+    if (clause.clause_type != "NESTED") {
+        return Status::OK();
+    }
+    const auto root_name = clause.nested_path.substr(0, clause.nested_path.find('.'));
+    const auto& parent_name = binding != nullptr && binding->__isset.parent_field_name
+                                      ? binding->parent_field_name
+                                      : slot_ref.column_name();
+    if (parent_name != root_name) {
+        return Status::OK();
+    }
+
+    const auto& schema = index_context.read_schema();
+    if (schema == nullptr) {
+        return Status::InvalidArgument("NESTED query requires a read schema");
+    }
+    const int ordinal = slot_ref.column_id();
+    if (ordinal < 0 || static_cast<size_t>(ordinal) >= schema->num_column_ids()) {
+        return Status::InvalidArgument("NESTED query column index {} is outside the read schema",
+                                       ordinal);
+    }
+    const auto* column = schema->column(schema->column_id(ordinal));
+    if (bundle->nested_column != nullptr) {
+        const auto root_uid = [](const TabletColumn& col) {
+            return col.parent_unique_id() >= 0 ? col.parent_unique_id() : col.unique_id();
+        };
+        if (root_uid(*bundle->nested_column) != root_uid(*column)) {
+            return Status::InvalidArgument(
+                    "NESTED query binds columns from different VARIANT roots");
+        }
+    }
+    bundle->nested_column = column;
+    return Status::OK();
+}
+
 Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_ref,
                                  const TSearchFieldBinding* binding,
                                  IndexExecContext* index_context, SearchInputBundle* bundle) {
@@ -71,7 +110,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
     const bool is_variant_subcolumn = binding != nullptr && binding->__isset.is_variant_subcolumn &&
                                       binding->is_variant_subcolumn;
 
-    bundle->field_name_to_column_id[field_name] = column_index;
+    RETURN_IF_ERROR(bind_nested_column(expr, slot_ref, binding, *index_context, bundle));
 
     auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_index);
     if (iterator == nullptr) {
@@ -110,6 +149,26 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
     return Status::OK();
 }
 
+Status bind_nested_element_at(const VSearchExpr& expr, const VExpr& child,
+                              const TSearchFieldBinding& binding,
+                              const IndexExecContext& index_context, SearchInputBundle* bundle) {
+    if (expr.get_search_param().root.clause_type != "NESTED") {
+        return Status::OK();
+    }
+    const VExpr* root_expr = &child;
+    while (root_expr->expr_name() == "element_at") {
+        if (root_expr->children().empty()) {
+            return Status::InvalidArgument("NESTED query has an incomplete VARIANT path");
+        }
+        root_expr = root_expr->children().front().get();
+    }
+    if (!root_expr->is_slot_ref()) {
+        return Status::InvalidArgument("NESTED query requires a slot reference root");
+    }
+    return bind_nested_column(expr, *assert_cast<const VSlotRef*>(root_expr), &binding,
+                              index_context, bundle);
+}
+
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                              SearchInputBundle* bundle) {
     DCHECK(bundle != nullptr);
@@ -141,6 +200,8 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
             if (child->expr_name() == "element_at" && child_index < field_bindings.size() &&
                 field_bindings[child_index].__isset.is_variant_subcolumn &&
                 field_bindings[child_index].is_variant_subcolumn) {
+                RETURN_IF_ERROR(bind_nested_element_at(expr, *child, field_bindings[child_index],
+                                                       *index_context, bundle));
                 // Variant subcolumn not materialized - skip, will create empty BitSetQuery in function_search
                 add_search_binding_diagnostic(
                         index_context.get(),
@@ -256,8 +317,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
             _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap,
-            _enable_cache, index_context.get(), bundle.field_name_to_column_id,
-            index_query_context);
+            _enable_cache, index_context.get(), bundle.nested_column, index_query_context);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();

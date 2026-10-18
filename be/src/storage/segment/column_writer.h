@@ -36,7 +36,7 @@
 #include "core/column/column_variant.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/segment/common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -513,7 +513,8 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows,
+                             bool is_null); // U+5199 U+5165 num_rowsU+4E2A nullU+6807 U+8BB0
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
