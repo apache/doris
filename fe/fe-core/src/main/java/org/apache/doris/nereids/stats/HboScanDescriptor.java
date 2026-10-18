@@ -133,12 +133,14 @@ public class HboScanDescriptor {
         // '#' introduces the partition / tablet / index selector markers of a scan token, so a table name
         // which carries one would be truncated to the part before it while the planner summary keeps the
         // whole name - the relation key of the entry would then never match the query
-        return name.replace("%", "%25").replace(".", "%2E").replace("#", "%23");
+        return name.replace("%", "%25").replace(".", "%2E").replace("#", "%23")
+                .replace("{", "%7B").replace("}", "%7D");
     }
 
     /** The inverse of {@link #escapeNamePart}, for a name read back from a scan token. */
     public static String unescapeNamePart(String name) {
-        return name.replace("%23", "#").replace("%2E", ".").replace("%25", "%");
+        return name.replace("%23", "#").replace("%2E", ".").replace("%7B", "{").replace("%7D", "}")
+                .replace("%25", "%");
     }
 
     /** The id of the index a scan reads, empty when it reads the base index of its table. */

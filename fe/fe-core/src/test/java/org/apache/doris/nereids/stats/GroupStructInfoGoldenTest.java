@@ -822,6 +822,9 @@ public class GroupStructInfoGoldenTest {
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
         // a dot inside a column name and a dot inside an alias must not render one identity
+        cases.add(new PlanCase("a_table_whose_name_carries_a_brace",
+                "a scan of a table whose name carries an opening brace",
+                GroupStructInfoGoldenTest::scanOfTableWithABrace));
         cases.add(new PlanCase("a_column_whose_name_carries_a_dot",
                 "a filter on the column `a.b` of the table t",
                 GroupStructInfoGoldenTest::filterOnColumnWithADot));
@@ -912,6 +915,12 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<Expression>of(new LessThan(new IntegerLiteral(1), t2.getOutput().get(0)),
                         new LessThan(new IntegerLiteral(2), t1.getOutput().get(0))),
                 t1, t2, null));
+    }
+
+    private static GroupStructInfo scanOfTableWithABrace() {
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new IsNull(new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t")))),
+                scan(0, "a{b")));
     }
 
     private static GroupStructInfo filterOnColumnWithADot() {
