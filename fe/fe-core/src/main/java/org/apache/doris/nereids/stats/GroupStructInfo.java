@@ -76,6 +76,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1924,7 +1925,56 @@ public class GroupStructInfo {
             }
             index = cursor;
         }
-        return sb.toString();
+        return recanonicalizeFoldedConditions(sb.toString());
+    }
+
+    /**
+     * Re-sort the condition collections of a folded text. The structured rendering renders the conditions
+     * of a filter and of an aggregation in the requested mode and then sorts them, while the substitution
+     * above only rewrites the literals of the text it was given: folding the literal carrying form of a
+     * node whose conditions order differently in the two modes would therefore not reproduce its constant
+     * agnostic text, and the statement would reject a pair the user copied correctly. Only these two
+     * headers are rewritten here; a join also de-duplicates its conditions and a repeat sorts one list per
+     * grouping set, which are handled separately.
+     */
+    private static String recanonicalizeFoldedConditions(String folded) {
+        StringBuilder out = new StringBuilder(folded.length());
+        int index = 0;
+        while (index < folded.length()) {
+            int filter = folded.indexOf("F{", index);
+            int aggregate = folded.indexOf("A{gb:", index);
+            int next = filter < 0 ? aggregate : (aggregate < 0 ? filter : Math.min(filter, aggregate));
+            if (next < 0) {
+                out.append(folded, index, folded.length());
+                return out.toString();
+            }
+            out.append(folded, index, next);
+            boolean isFilter = next == filter;
+            int prefix = isFilter ? 2 : 5;
+            int close;
+            try {
+                close = closingBraceOf(folded, next + 1);
+            } catch (IllegalArgumentException e) {
+                // the text is not a well formed canonical string: leave it as the substitution produced it,
+                // this pass does not add a rejection of its own
+                out.append(folded, next, folded.length());
+                return out.toString();
+            }
+            out.append(folded, next, next + prefix)
+                    .append(sortedConditionText(folded.substring(next + prefix, close))).append('}');
+            index = close + 1;
+        }
+        return out.toString();
+    }
+
+    /** A {@code ;} separated condition list in sorted order (the order the structured rendering writes). */
+    private static String sortedConditionText(String conditions) {
+        if (conditions.isEmpty()) {
+            return conditions;
+        }
+        List<String> parts = new ArrayList<>(Arrays.asList(conditions.split(";", -1)));
+        parts.sort(String::compareTo);
+        return String.join(SEP, parts);
     }
 
     /**

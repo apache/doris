@@ -1216,6 +1216,12 @@ public class GroupStructInfoGoldenTest {
     private static List<TextCase> textCases() {
         List<TextCase> cases = new ArrayList<>();
         // toNoLiteral: the fold of the literal carrying canonical form
+        // a filter whose two conditions fold to texts which order differently from the literal carrying
+        // ones: the fold has to re-sort them, or the pair EXPLAIN prints is rejected in the other mode
+        cases.add(new TextCase("toNoLiteral", "a_fold_reorders_the_conditions_of_a_filter",
+                "F{EqualTo(concat(lit(%27b%27:VARCHAR(1)),col(t.r)),lit(%27y%27:VARCHAR(1)));"
+                        + "EqualTo(concat(lit(%27a%27:VARCHAR(1)),col(t.s)),lit(%27x%27:VARCHAR(1)))}"
+                        + "(S{internal.hbo_test.t1,v3,r1010})"));
         cases.add(new TextCase("toNoLiteral", "a_foldable_literal",
                 "F{EqualTo(col(t.b),lit(1:INT))}(S{internal.hbo_test.t1,v3,r1010})"));
         cases.add(new TextCase("toNoLiteral", "a_foldable_literal_next_to_a_protected_header",

@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 36, text cases: 49 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 36, text cases: 50 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
@@ -653,6 +653,9 @@ out = F{EqualTo(col(t.s),lit(%3BS%7Bx%2Cv2%7D:VARCHAR))}(S{internal.hbo_test.t})
 [TEXT stripScanBaseline/every_token_of_a_chain]
 in = J{inner,c:[]}(S{internal.hbo_test.t1,v3,r1010};S{internal.hbo_test.t2,v2,r1000})
 out = J{inner,c:[]}(S{internal.hbo_test.t1};S{internal.hbo_test.t2})
+[TEXT toNoLiteral/a_fold_reorders_the_conditions_of_a_filter]
+in = F{EqualTo(concat(lit(%27b%27:VARCHAR(1)),col(t.r)),lit(%27y%27:VARCHAR(1)));EqualTo(concat(lit(%27a%27:VARCHAR(1)),col(t.s)),lit(%27x%27:VARCHAR(1)))}(S{internal.hbo_test.t1,v3,r1010})
+out = F{EqualTo(concat(lit(*),col(t.r)),lit(*));EqualTo(concat(lit(*),col(t.s)),lit(*))}(S{internal.hbo_test.t1,v3,r1010})
 [TEXT toNoLiteral/a_foldable_literal]
 in = F{EqualTo(col(t.b),lit(1:INT))}(S{internal.hbo_test.t1,v3,r1010})
 out = F{EqualTo(col(t.b),lit(*))}(S{internal.hbo_test.t1,v3,r1010})
