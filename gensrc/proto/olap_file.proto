@@ -581,14 +581,10 @@ message TabletSchemaPB {
     // cid of the base-table row lsn column (__DORIS_ROW_LSN_COL__).
     optional int32 row_lsn_col_idx = 40 [default = -1];
 
-    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
-    optional int32 binlog_tso_col_idx = 41 [default = -1];
-
-    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 42 [default = -1];
-
-    // cid of the binlog op column (__DORIS_BINLOG_OP__).
-    optional int32 binlog_op_col_idx = 43 [default = -1];
+    // The cids of the binlog columns are derived from the column names.
+    reserved 41; // deprecated binlog_tso_col_idx
+    reserved 42; // deprecated binlog_lsn_col_idx
+    reserved 43; // deprecated binlog_op_col_idx
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -646,14 +642,10 @@ message TabletSchemaCloudPB {
     // cid of the base-table row lsn column (__DORIS_ROW_LSN_COL__).
     optional int32 row_lsn_col_idx = 41 [default = -1];
 
-    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
-    optional int32 binlog_tso_col_idx = 42 [default = -1];
-
-    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 43 [default = -1];
-
-    // cid of the binlog op column (__DORIS_BINLOG_OP__).
-    optional int32 binlog_op_col_idx = 44 [default = -1];
+    // The cids of the binlog columns are derived from the column names.
+    reserved 42; // deprecated binlog_tso_col_idx
+    reserved 43; // deprecated binlog_lsn_col_idx
+    reserved 44; // deprecated binlog_op_col_idx
 
     optional bool is_dynamic_schema = 100 [default=false];
 
