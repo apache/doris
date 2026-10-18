@@ -27,6 +27,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
@@ -436,6 +437,24 @@ public class AlterTableCommandTest {
             op.setTableName(new TableNameInfo("iceberg", "db", "t"));
             op.validate(null);
         }
+    }
+
+    @Test
+    void testAddColumnComplexDefaultSqlRoundTrip() {
+        // The serialized ALTER is also stored as the binlog rawSql, and its re-execution keeps the text
+        // between the default quotes verbatim, so nested double quotes must not be escaped.
+        AlterTableCommand command = parseAlter(
+                "ALTER TABLE t ADD COLUMN m MAP<STRING, INT> DEFAULT '{\"a\":1}'");
+        AddColumnOp addColumnOp = (AddColumnOp) command.getOps().get(0);
+        addColumnOp.getColumnDef().validateComplexTypeDefaultValue();
+        Assertions.assertEquals("{\"a\":1}", addColumnOp.getColumnDef().getDefaultValueString());
+
+        String serialized = command.toSql();
+        Assertions.assertTrue(serialized.contains("DEFAULT '{\"a\":1}'"), serialized);
+
+        AddColumnOp replayedOp = (AddColumnOp) parseAlter(serialized).getOps().get(0);
+        replayedOp.getColumnDef().validateComplexTypeDefaultValue();
+        Assertions.assertEquals("{\"a\":1}", replayedOp.getColumnDef().getDefaultValueString());
     }
 
     private AlterTableCommand parseAlter(String sql) {

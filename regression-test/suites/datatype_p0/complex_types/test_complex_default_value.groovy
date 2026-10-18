@@ -25,6 +25,7 @@ suite("test_complex_default_value") {
     sql "DROP TABLE IF EXISTS test_complex_default_value_replace_value"
     sql "DROP TABLE IF EXISTS test_complex_default_value_mapping"
     sql "DROP TABLE IF EXISTS test_complex_default_value_partial_update"
+    sql "DROP TABLE IF EXISTS test_complex_default_value_utf8"
 
     def createTableRejects = { String columnDef, String message ->
         test {
@@ -70,6 +71,13 @@ suite("test_complex_default_value") {
     createTableRejects.call("""ARRAY<VARCHAR(2)> DEFAULT '["abc"]'""", "Default value is too long: abc")
     createTableRejects.call("""ARRAY<CHAR(2)> DEFAULT '["abc"]'""", "Default value is too long: abc")
     createTableRejects.call("""STRUCT<f1:VARCHAR(2)> DEFAULT '{123}'""", "Default value is too long: 123")
+    // the declared length is a byte limit, so a multi-byte character may exceed it even if it is a
+    // single character, and a 4-byte character is two UTF-16 code units but four UTF-8 bytes
+    createTableRejects.call("""ARRAY<VARCHAR(2)> DEFAULT '["中"]'""", "Default value is too long: 中")
+    createTableRejects.call("""ARRAY<CHAR(2)> DEFAULT '["中"]'""", "Default value is too long: 中")
+    createTableRejects.call("""MAP<STRING, VARCHAR(2)> DEFAULT '{"k": "中"}'""", "Default value is too long: 中")
+    createTableRejects.call("""STRUCT<f1:VARCHAR(2)> DEFAULT '{"中"}'""", "Default value is too long: 中")
+    createTableRejects.call("""ARRAY<VARCHAR(3)> DEFAULT '["😀"]'""", "Default value is too long: 😀")
 
     // nested string values are stored as plain double quoted text, so quotes and backslashes are rejected
     createTableRejects.call("""ARRAY<STRING> DEFAULT '["a""b"]'""", "must not contain quote or backslash")
@@ -114,6 +122,28 @@ suite("test_complex_default_value") {
         sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<VARCHAR(2)> DEFAULT '["abc"]'"""
         exception "Default value is too long: abc"
     }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<VARCHAR(2)> DEFAULT '["中"]'"""
+        exception "Default value is too long: 中"
+    }
+
+    // a multi-byte value whose UTF-8 byte length exactly fits the declared length is accepted and
+    // materialized for omitted columns on later inserts
+    sql """
+        CREATE TABLE test_complex_default_value_utf8 (
+            k INT,
+            arr_varchar ARRAY<VARCHAR(3)> DEFAULT '["中"]',
+            arr_char ARRAY<CHAR(3)> DEFAULT '["中"]',
+            arr_emoji ARRAY<VARCHAR(4)> DEFAULT '["😀"]'
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
+    sql "INSERT INTO test_complex_default_value_utf8(k) VALUES (1)"
+    order_qt_utf8_default """
+        SELECT * FROM test_complex_default_value_utf8 ORDER BY k
+    """
 
     sql """
         CREATE TABLE test_complex_default_value_literal (

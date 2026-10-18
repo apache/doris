@@ -300,8 +300,10 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
-                                .append(" ");
+                        // Same replay-safe quoting as Column.toSql(): the DDL parser keeps the text between
+                        // the quotes verbatim, so a complex default containing nested double quotes must be
+                        // wrapped in single quotes instead of escaping them.
+                        sb.append("DEFAULT ").append(Column.quoteDefaultValue(value)).append(" ");
                     }
                 } else if (type.isBitmapType()) {
                     sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");

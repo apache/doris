@@ -893,9 +893,10 @@ public class Column implements GsonPostProcessable {
     /**
      * The DDL parser keeps the text between the quotes of a default value verbatim, so a value that
      * contains double quotes (complex type defaults store nested strings as "...") is wrapped in single
-     * quotes to let SHOW CREATE TABLE output be replayed by CREATE TABLE LIKE.
+     * quotes to let SHOW CREATE TABLE output, and any other replay of the rendered SQL, be parsed back
+     * into the same default value.
      */
-    private static String quoteDefaultValue(String value) {
+    public static String quoteDefaultValue(String value) {
         if (value.indexOf('"') >= 0 && value.indexOf('\'') < 0) {
             return "'" + value + "'";
         }

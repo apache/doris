@@ -239,6 +239,16 @@ public class ColumnDefinitionTest {
         assertCanonicalDefaultValue(ArrayType.of(CharType.createCharType(2)), "[\"ab\"]", "[\"ab\"]");
         assertRejectsDefaultValue(ArrayType.of(CharType.createCharType(2)), "[\"abc\"]",
                 "Default value is too long: abc");
+        // the declared CHAR/VARCHAR length is a byte limit: a multi-byte character fits in fewer UTF-16
+        // code units than UTF-8 bytes, and a 4-byte character is only two UTF-16 code units
+        assertRejectsDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[\"中\"]",
+                "Default value is too long: 中");
+        assertRejectsDefaultValue(ArrayType.of(CharType.createCharType(2)), "[\"中\"]",
+                "Default value is too long: 中");
+        assertCanonicalDefaultValue(ArrayType.of(VarcharType.createVarcharType(3)), "[\"中\"]", "[\"中\"]");
+        assertRejectsDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[\"😀\"]",
+                "Default value is too long: 😀");
+        assertCanonicalDefaultValue(ArrayType.of(VarcharType.createVarcharType(4)), "[\"😀\"]", "[\"😀\"]");
 
         MapType stringIntMap = MapType.of(StringType.INSTANCE, IntegerType.INSTANCE);
         assertCanonicalDefaultValue(stringIntMap, "{}", "{}");
@@ -257,6 +267,11 @@ public class ColumnDefinitionTest {
                 "map key 1 is repeated after casting to INT");
         assertCanonicalDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"01\": 1, 2: 2}",
                 "{1:1, 2:2}");
+        // MAP keys and values share the same byte-length check
+        assertRejectsDefaultValue(MapType.of(VarcharType.createVarcharType(2), IntegerType.INSTANCE),
+                "{\"中\": 1}", "Default value is too long: 中");
+        assertRejectsDefaultValue(MapType.of(StringType.INSTANCE, VarcharType.createVarcharType(2)),
+                "{\"k\": \"中\"}", "Default value is too long: 中");
 
         StructType structType = new StructType(Arrays.asList(
                 new StructField("f1", IntegerType.INSTANCE, true, ""),
@@ -271,6 +286,10 @@ public class ColumnDefinitionTest {
         assertRejectsDefaultValue(new StructType(Arrays.asList(
                 new StructField("f1", ArrayType.of(DateV2Type.INSTANCE), true, ""))),
                 "{[DATEV2 \"2024-01-01\", 1]}", "Invalid default value");
+        // STRUCT fields share the same byte-length check
+        assertRejectsDefaultValue(new StructType(Arrays.asList(
+                new StructField("f1", VarcharType.createVarcharType(2), true, ""))),
+                "{\"中\"}", "Default value is too long: 中");
         assertRejectsDefaultValue(structType, "[]", "only supports struct literals or DEFAULT NULL");
 
         assertRejectsDefaultValue(JsonType.INSTANCE, "{}", "only supports DEFAULT NULL");

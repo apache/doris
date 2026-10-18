@@ -46,6 +46,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.antlr.v4.runtime.ParserRuleContext;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -181,7 +182,9 @@ public class ComplexTypeDefaultValue {
             // rejects such a default, so cast to STRING and check the length against the declared type.
             String value = ((Literal) literal.checkedCastTo(StringType.INSTANCE)).getStringValue();
             int maxLength = ((CharacterType) type).getLen();
-            if (maxLength >= 0 && value.length() > maxLength) {
+            // The declared CHAR/VARCHAR length is a byte limit, so a multi-byte character may exceed it
+            // even though String.length() (UTF-16 code units) fits.
+            if (maxLength >= 0 && value.getBytes(StandardCharsets.UTF_8).length > maxLength) {
                 throw new AnalysisException("Default value is too long: " + value);
             }
             return renderQuoted(literal, value);
