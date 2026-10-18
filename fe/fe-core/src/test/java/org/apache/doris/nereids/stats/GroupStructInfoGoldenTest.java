@@ -807,6 +807,12 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::windowUnderAFilter));
         cases.add(new PlanCase("generate_unnest", "generate of unnest(1) over a scan",
                 GroupStructInfoGoldenTest::generateUnnest));
+        cases.add(new PlanCase("generate_with_an_on_condition",
+                "a lateral ON condition over the generated slot",
+                GroupStructInfoGoldenTest::generateWithAnOnCondition));
+        cases.add(new PlanCase("generate_with_another_on_condition",
+                "the same generate with another ON bound: a different key",
+                GroupStructInfoGoldenTest::generateWithAnotherOnCondition));
         cases.add(new PlanCase("generate_explode_split",
                 "generate of explode_split(cast(a as varchar), ',') over a scan: the delimiter is identity",
                 GroupStructInfoGoldenTest::generateExplodeSplit));
@@ -1201,6 +1207,26 @@ public class GroupStructInfoGoldenTest {
         SlotReference generatorOutput = new SlotReference("g", IntegerType.INSTANCE);
         return describe(new LogicalGenerate<>(ImmutableList.of(new Unnest(new IntegerLiteral(1))),
                 ImmutableList.of(generatorOutput), t1));
+    }
+
+    private static GroupStructInfo generateWithAnOnCondition() {
+        return generateWithAnOnBound(0);
+    }
+
+    private static GroupStructInfo generateWithAnotherOnCondition() {
+        return generateWithAnOnBound(1000);
+    }
+
+    /** A generate whose lateral ON condition filters the produced rows. */
+    private static GroupStructInfo generateWithAnOnBound(int bound) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference generatorOutput = new SlotReference("x", VarcharType.SYSTEM_DEFAULT);
+        Expression argument = new Cast(t1.getOutput().get(0), VarcharType.SYSTEM_DEFAULT);
+        return describe(new LogicalGenerate<>(
+                ImmutableList.of(new ExplodeSplit(argument, new VarcharLiteral(","))),
+                ImmutableList.of(generatorOutput), ImmutableList.of(),
+                ImmutableList.of(new GreaterThan(generatorOutput, new VarcharLiteral(String.valueOf(bound)))),
+                t1));
     }
 
     private static GroupStructInfo generateExplodeSplit() {

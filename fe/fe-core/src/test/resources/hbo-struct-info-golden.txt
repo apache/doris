@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 38, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 40, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -178,24 +178,48 @@ scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r
 desc = generate of explode_split(cast(a as varchar), ',') over a scan: the delimiter is identity
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 2a82b59209a759d9e1d7fcf95fd1c0a3f9615904683330dfd766e9e8fab36160
-NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x]}S{null.null.t1}
-NO_LITERAL.fingerprint = 2a82b59209a759d9e1d7fcf95fd1c0a3f9615904683330dfd766e9e8fab36160
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1}
+WITH_LITERAL.fingerprint = bcc7e8a9ec3b08239c71f405ac192b1c4516944925efe6db0f0bfe743b949b21
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1}
+NO_LITERAL.fingerprint = bcc7e8a9ec3b08239c71f405ac192b1c4516944925efe6db0f0bfe743b949b21
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_unnest]
 desc = generate of unnest(1) over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 935f8c5227a79d924d1b4b2807dbabc635d700aed43e5e8aec8b078919d82df8
-NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g]}S{null.null.t1}
-NO_LITERAL.fingerprint = 935f8c5227a79d924d1b4b2807dbabc635d700aed43e5e8aec8b078919d82df8
+WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1}
+WITH_LITERAL.fingerprint = f28816a93c729a57613653e00ba897e22b68b1cc869f304f378f276d5bbc61ab
+NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1}
+NO_LITERAL.fingerprint = f28816a93c729a57613653e00ba897e22b68b1cc869f304f378f276d5bbc61ab
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN generate_with_an_on_condition]
+desc = a lateral ON condition over the generated slot
+valid = true
+skipReason =
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1}
+WITH_LITERAL.fingerprint = a04f56e0136bba4fc7d21fb5fe4a0aeab686d851c0ac40253e0a6a94f4d9d1f8
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1}
+NO_LITERAL.fingerprint = a04f56e0136bba4fc7d21fb5fe4a0aeab686d851c0ac40253e0a6a94f4d9d1f8
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN generate_with_another_on_condition]
+desc = the same generate with another ON bound: a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1}
+WITH_LITERAL.fingerprint = f69506c17712065a3e7eaeee4b5febe5abd7791cf569d0257117b34fefe8bd9d
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1}
+NO_LITERAL.fingerprint = f69506c17712065a3e7eaeee4b5febe5abd7791cf569d0257117b34fefe8bd9d
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN intersect_two_scans]

@@ -894,6 +894,8 @@ public class GroupStructInfo {
         private List<Expression> generators;
         /** GENERATE: the aliases of the columns those functions produce, in order. */
         private List<Slot> generatorOutputs;
+        /** GENERATE: the lateral ON conditions, which decide which produced rows survive. */
+        private List<Expression> generatorConjuncts;
         /** REPEAT: the grouping sets, in the order they were written. */
         private List<List<Expression>> groupingSets;
         /** SET_OPERATION: the plan node and the operation, which know the kind, the qualifier and more. */
@@ -1067,6 +1069,7 @@ public class GroupStructInfo {
             Node node = new Node(Kind.GENERATE);
             node.generators = new ArrayList<>(((Generate) plan).getGenerators());
             node.generatorOutputs = generatorOutputsOf(plan);
+            node.generatorConjuncts = generatorConjunctsOf(plan);
             node.children = children(ge, ctx, 0);
             return node.children == null ? null : node;
         }
@@ -1533,7 +1536,27 @@ public class GroupStructInfo {
             }
             out.append(encodeLiteralValue(node.generatorOutputs.get(i).getName()));
         }
+        // the lateral ON conditions decide which produced rows survive: `ON x > 0` and `ON x > 1000`
+        // keep a different number of rows from the same array
+        out.append("];on:[");
+        List<String> onConditions = new ArrayList<>(node.generatorConjuncts.size());
+        for (Expression conjunct : node.generatorConjuncts) {
+            onConditions.add(identityText(conjunct));
+        }
+        onConditions.sort(String::compareTo);
+        out.append(String.join(SEP, onConditions));
         out.append("]}");
+    }
+
+    /** The lateral ON conditions of a generate node, empty when the plan does not expose them. */
+    private static List<Expression> generatorConjunctsOf(Plan plan) {
+        if (plan instanceof LogicalGenerate) {
+            return new ArrayList<>(((LogicalGenerate<?>) plan).getConjuncts());
+        }
+        if (plan instanceof PhysicalGenerate) {
+            return new ArrayList<>(((PhysicalGenerate<?>) plan).getConjuncts());
+        }
+        return Collections.emptyList();
     }
 
     /** The ordered output slots of a generate node, empty when the plan does not expose them. */
