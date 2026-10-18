@@ -5160,42 +5160,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
-     * Parse the VALUE of an hbo set statistics statement. An integer token is a row count (or a fan-out
-     * factor, which is validated on its own) and has to be exact: {@code Double.parseDouble} rounds
-     * {@code 9007199254740993} to {@code 9007199254740992}, which the validation of the statement would
-     * then accept and store as a row count the user did not write. A token which is not exactly
-     * representable as a double is rejected instead, while a fractional token keeps the floating point
-     * parsing a fan-out factor needs.
+     * Parse the VALUE token of an hbo set statistics statement. Only the syntax is checked here: whether
+     * the number is acceptable depends on TYPE, and the type is resolved by the command. A row count has
+     * to be an exact integer and a fan-out factor only has to be finite and positive, so the command
+     * receives the token as well as the parsed value and applies the check its type requires.
      */
     private static double parseHboSetValue(String text) {
-        double parsed;
         try {
-            parsed = Double.parseDouble(text);
+            return Double.parseDouble(text);
         } catch (NumberFormatException e) {
             throw new ParseException("hbo statistics VALUE out of range: " + text);
         }
-        boolean integerToken = text.indexOf('.') < 0 && text.indexOf('e') < 0 && text.indexOf('E') < 0;
-        if (integerToken) {
-            long exact;
-            try {
-                exact = Long.parseLong(text);
-            } catch (NumberFormatException e) {
-                throw new ParseException("hbo statistics VALUE is too large to be represented: " + text);
-            }
-            if (!Double.isFinite(parsed)) {
-                throw new ParseException("hbo statistics VALUE is too large to be represented: " + text);
-            }
-            if ((long) parsed != exact) {
-                throw new ParseException(notAnExactRowCount(text));
-            }
-        }
-        return parsed;
-    }
-
-    /** The message of a VALUE which an integer token can not carry exactly. */
-    private static String notAnExactRowCount(String text) {
-        return "hbo statistics VALUE is not an exact row count: " + text
-                + " (the largest exact value is " + (1L << 53) + ")";
     }
 
     /**
@@ -7228,6 +7203,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
         checkHboStatementWords(ctx.statistics);
         Double value = null;
+        String valueText = null;
         String typeName = null;
         String fingerprint = null;
         String structCanonical = null;
@@ -7237,7 +7213,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (value != null) {
                     throw new ParseException("VALUE is given twice in hbo set statistics statement");
                 }
-                value = parseHboSetValue(((DorisParser.HboSetValueContext) param).value.getText());
+                valueText = ((DorisParser.HboSetValueContext) param).value.getText();
+                value = parseHboSetValue(valueText);
             } else if (param instanceof DorisParser.HboSetTypeContext) {
                 if (typeName != null) {
                     throw new ParseException("TYPE is given twice in hbo set statistics statement");
@@ -7290,6 +7267,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.scope == null ? null : ctx.scope.getText(),
                 fingerprint,
                 value,
+                valueText,
                 typeName,
                 structCanonical == null ? "" : structCanonical,
                 literalModeName);

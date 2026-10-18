@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -460,6 +461,13 @@ public class HboUtils {
             List<TPlanNodeRuntimeStatsItem> statsItem) {
         ImmutableList.Builder<PlanStatistics> inputTableStatisticsBuilder = ImmutableList.builder();
         List<PhysicalOlapScan> scans = root.collectToList(PhysicalOlapScan.class::isInstance);
+        if (!root.collectToList(PhysicalFileScan.class::isInstance).isEmpty()) {
+            // neither the rows nor the predicate of an external scan are part of what this entry records,
+            // so an entry published for a plan which reads one could be applied to a query which filters
+            // that table differently: a plan with an input we cannot describe is not published at all
+            return new InputTableStatisticsInfo(Optional.empty());
+        }
+        int recorded = 0;
         for (PhysicalOlapScan scan : scans) {
             Integer nodeId = planToIdMap.get(scan);
             if (nodeId != null) {
@@ -467,8 +475,14 @@ public class HboUtils {
                         nodeId, statsItem, scan, scanToFilterMap);
                 if (!planStatistics.equals(PlanStatistics.EMPTY)) {
                     inputTableStatisticsBuilder.add(planStatistics);
+                    recorded++;
                 }
             }
+        }
+        if (recorded != scans.size()) {
+            // the same argument for an internal scan which produced no statistics: an input the entry does
+            // not describe also makes the matching of the entry unsound
+            return new InputTableStatisticsInfo(Optional.empty());
         }
         return new InputTableStatisticsInfo(Optional.of(inputTableStatisticsBuilder.build()));
     }

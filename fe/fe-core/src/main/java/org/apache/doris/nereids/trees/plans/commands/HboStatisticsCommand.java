@@ -108,6 +108,9 @@ public class HboStatisticsCommand extends Command {
     private final String fingerprint;
     // a row count, or the fan-out factor of a PinnedType.JOIN_EXPANSION entry
     private final double value;
+    // the VALUE token as written, null when the value did not come from a statement: a row count has to be
+    // an exact integer, which can only be checked on the token, and only once the type is known
+    private final String valueText;
     private final PinnedType type;
     private final String structCanonical;
     // which struct info the entry is keyed by (WITH_LITERAL / NO_LITERAL), null means "derive"
@@ -126,6 +129,23 @@ public class HboStatisticsCommand extends Command {
      */
     public HboStatisticsCommand(Op op, String scopeName, String fingerprint, double value,
             String typeName, String structCanonical, String literalModeName) {
+        this(op, scopeName, fingerprint, value, null, typeName, structCanonical, literalModeName);
+    }
+
+    /**
+     * HboStatisticsCommand
+     * @param op SET or DELETE
+     * @param scopeName optional PINNED / LEARNED, null or empty means PINNED
+     * @param fingerprint hbo fingerprint (sha256 of the simplified group struct info)
+     * @param value injected output row count, or the fan-out factor for JOIN_EXPANSION
+     * @param valueText the VALUE token as written, null for a programmatically constructed value
+     * @param typeName optional EXACT / FILTER_SMALL, null means EXACT
+     * @param structCanonical optional human-readable simplified struct info canonical string
+     * @param literalModeName optional WITH_LITERAL / NO_LITERAL, null means the constant agnostic
+     *                        (NO_LITERAL) form, which is also what the struct is folded to
+     */
+    public HboStatisticsCommand(Op op, String scopeName, String fingerprint, double value, String valueText,
+            String typeName, String structCanonical, String literalModeName) {
         super(PlanType.HBO_STATISTICS_COMMAND);
         this.op = op;
         this.scope = parseScope(scopeName);
@@ -133,6 +153,7 @@ public class HboStatisticsCommand extends Command {
         // normalize user input so an uppercase fingerprint cannot silently miss its entry
         this.fingerprint = fingerprint == null ? null : fingerprint.toLowerCase(Locale.ROOT);
         this.value = value;
+        this.valueText = valueText;
         this.type = typeName == null ? PinnedType.EXACT : PinnedType.fromName(typeName);
         this.structCanonical = structCanonical == null ? "" : structCanonical;
         this.literalModeName = literalModeName;
@@ -185,12 +206,30 @@ public class HboStatisticsCommand extends Command {
                     throw new AnalysisException(
                             "hbo join expansion must be a finite number greater than 0: " + value);
                 }
-            } else if (value < 0 || value != Math.floor(value) || value >= (double) Long.MAX_VALUE) {
-                // the VALUE of every other type is a row count; a double above Long.MAX_VALUE would
-                // not be rejected by the integer check but would silently saturate when it is cast
-                // (and persisted) as a long
-                throw new AnalysisException("hbo statistics VALUE must be a non-negative integer"
-                        + " no greater than " + Long.MAX_VALUE + " for type " + type + ": " + value);
+            } else {
+                // the VALUE of every other type is a row count: an integer token has to be exact, because a
+                // double rounds a value above 2^53 before it can be stored. The check needs the token and
+                // the type - a fan-out factor above that bound is legitimate, which is why the parser can
+                // not decide it - so it happens here
+                if (valueText != null && isIntegerToken(valueText)) {
+                    long exact;
+                    try {
+                        exact = Long.parseLong(valueText);
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException(
+                                "hbo statistics VALUE is too large to be represented: " + valueText);
+                    }
+                    if (!Double.isFinite(value) || (long) value != exact) {
+                        throw new AnalysisException("hbo statistics VALUE is not an exact row count: " + valueText
+                                + " (the largest exact value is " + (1L << 53) + ")");
+                    }
+                }
+                // a double above Long.MAX_VALUE would not be rejected by the integer check but would
+                // silently saturate when it is cast (and persisted) as a long
+                if (value < 0 || value != Math.floor(value) || value >= (double) Long.MAX_VALUE) {
+                    throw new AnalysisException("hbo statistics VALUE must be a non-negative integer"
+                            + " no greater than " + Long.MAX_VALUE + " for type " + type + ": " + value);
+                }
             }
             if (scope == Scope.LEARNED) {
                 hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
@@ -370,6 +409,11 @@ public class HboStatisticsCommand extends Command {
                 + ", copy the struct= value of the target node from EXPLAIN");
     }
 
+    /** Whether a VALUE token is written without a fraction or an exponent, i.e. as an integer. */
+    private static boolean isIntegerToken(String text) {
+        return text.indexOf('.') < 0 && text.indexOf('e') < 0 && text.indexOf('E') < 0;
+    }
+
     /**
      * Whether {@code structCanonical} is the struct info the fingerprint was taken from. The scan
      * baselines (the data state printed inside every scan token) are ignored, exactly like the
@@ -377,6 +421,7 @@ public class HboStatisticsCommand extends Command {
      * matches its fingerprint - and it then records that older state as the baseline of the entry
      * (see {@link GroupStructInfo#stripScanBaseline}).
      */
+
     private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {
         return targetFingerprint.equals(Hashing.sha256()
                 .hashString(GroupStructInfo.stripScanBaseline(structCanonical), StandardCharsets.UTF_8).toString());

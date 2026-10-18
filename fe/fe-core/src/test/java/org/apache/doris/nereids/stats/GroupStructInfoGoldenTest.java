@@ -235,6 +235,8 @@ public class GroupStructInfoGoldenTest {
                 {"window_with_a_literal_in_the_ordering_key", "window_with_another_literal_in_the_ordering_key"},
                 // the function of a window is the one identity site a real plan reaches today
                 {"window_function_with_a_literal", "window_function_with_another_literal"},
+                // two definitions whose aliases are swapped: the same definitions, different outputs
+                {"two_window_outputs_x_is_row_number", "two_window_outputs_x_is_ntile"},
         };
         for (String[] pair : pairs) {
             GroupStructInfo left = built(pair[0]);
@@ -304,7 +306,7 @@ public class GroupStructInfoGoldenTest {
 
         // a window keeps its definition: the partition keys and the frame are part of the canonical
         String windowCanonical = built("window_under_a_filter").getCanonical(NO_LITERAL);
-        Assertions.assertTrue(windowCanonical.contains("W{RowNumber;part:[col("), windowCanonical);
+        Assertions.assertTrue(windowCanonical.contains("W{rn=RowNumber;part:[col("), windowCanonical);
         Assertions.assertTrue(windowCanonical.contains("ord:[]"), windowCanonical);
         Assertions.assertTrue(windowCanonical.contains("frame:["), windowCanonical);
 
@@ -800,6 +802,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("topn_with_another_literal_in_the_ordering_key",
                 "the same top-n ordered by slot * -1: a different constant agnostic key",
                 GroupStructInfoGoldenTest::topnWithMinusOneInTheOrderingKey));
+        cases.add(new PlanCase("two_window_outputs_x_is_row_number",
+                "two window definitions, x is the row_number: the output association is part of the key",
+                GroupStructInfoGoldenTest::twoWindowOutputsXIsRowNumber));
+        cases.add(new PlanCase("two_window_outputs_x_is_ntile",
+                "the same two definitions with the aliases swapped: a different key",
+                GroupStructInfoGoldenTest::twoWindowOutputsXIsNtile));
         cases.add(new PlanCase("window_function_with_a_literal",
                 "window whose function carries a literal: it decides the values a node above it reads",
                 GroupStructInfoGoldenTest::windowFunctionWithFourBuckets));
@@ -898,6 +906,38 @@ public class GroupStructInfoGoldenTest {
         SlotReference slot = (SlotReference) t1.getOutput().get(0);
         return describe(new LogicalTopN<>(ImmutableList.of(
                 new OrderKey(new Multiply(slot, new IntegerLiteral(factor)), true, true)), 3, 0, t1));
+    }
+
+    private static GroupStructInfo twoWindowOutputsXIsRowNumber() {
+        return twoWindowOutputs(true);
+    }
+
+    private static GroupStructInfo twoWindowOutputsXIsNtile() {
+        return twoWindowOutputs(false);
+    }
+
+    /**
+     * Two window definitions over one table whose aliases are swapped between the two variants: `x` is
+     * the row_number in one plan and the ntile in the other, so a predicate on x keeps a different number
+     * of rows although both plans carry the same two definitions. The second definition also carries a
+     * literal, which the fold has to protect even though it is not the first expression of the header.
+     */
+    private static GroupStructInfo twoWindowOutputs(boolean xIsRowNumber) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        WindowFrame frame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        ImmutableList<OrderExpression> orderKeys = ImmutableList.of(
+                new OrderExpression(new OrderKey(key, true, true)));
+        WindowExpression rowNumber = new WindowExpression(new RowNumber(), ImmutableList.of(), orderKeys, frame);
+        WindowExpression ntile = new WindowExpression(new Ntile(new IntegerLiteral(4)),
+                ImmutableList.of(), orderKeys, frame);
+        Alias x = new Alias(xIsRowNumber ? rowNumber : ntile, "x");
+        Alias y = new Alias(xIsRowNumber ? ntile : rowNumber, "y");
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(ImmutableList.of(x, y), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(x.toSlot(), new IntegerLiteral(1))), window));
     }
 
     private static GroupStructInfo windowFunctionWithFourBuckets() {

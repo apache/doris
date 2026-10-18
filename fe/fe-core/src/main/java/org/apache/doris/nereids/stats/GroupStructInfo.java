@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -76,6 +77,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -948,6 +951,19 @@ public class GroupStructInfo {
         }
     }
 
+    /**
+     * The description of a CTE producer and whether a consumer already inherited its scan tokens (the
+     * tables of the producer are read once, so only the first reference counts them).
+     */
+    private static final class Producer {
+        private final Node node;
+        private boolean tokensInherited;
+
+        private Producer(Node node) {
+            this.node = node;
+        }
+    }
+
     // ---------------------------------------------------------------- build (memo level)
 
     /**
@@ -963,24 +979,38 @@ public class GroupStructInfo {
         // the order of the checks matters: a top-n is a sort and a window is neither a project nor a
         // sort, so the boundaries of a join chain are recognised before the transparent operators
         if (plan instanceof OlapScan) {
-            return scanNode((OlapScan) plan, null, ctx);
+            return olapScanNode((OlapScan) plan, ctx);
         }
         if (plan instanceof Filter) {
             return conditionsNode(Kind.FILTER, ((Filter) plan).getConjuncts(), ge, ctx);
         }
-        if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
-                || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
-            if (ge.arity() == 0 && plan instanceof PhysicalCTEConsumer) {
-                // the consumer references its producer by id, not by a memo edge: there is no sub tree
-                // to describe here until the producer group is resolved through that id
+        if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer) {
+            // a consumer reads the result of its producer, so it is described as the producer's sub tree:
+            // a plan which consumes a CTE then has the same key as the same plan with that CTE inlined.
+            // The two consumer classes are handled identically - both are leaves which reference the
+            // producer by id and neither has a sub tree of its own.
+            Producer producer = ctx.cteProducers.get(cteIdOf(plan));
+            if (producer == null) {
+                // the producer is not on the path the traversal took (its anchor is not an ancestor of
+                // this consumer, or the producer could not be described), so the consumer cannot be
+                // followed - and neither can any plan which contains it
                 return invalidNode("unsupported=cte consumer without a memo edge", ctx);
             }
+            // the tables of the producer are read once: the first reference inherits the scan tokens and
+            // every later one is a repeated reference (see Child#repeated)
+            boolean repeated = producer.tokensInherited;
+            producer.tokensInherited = true;
+            Node node = new Node(Kind.PASSTHROUGH);
+            node.children = new ArrayList<>(1);
+            node.children.add(new Child(producer.node, repeated));
+            return node;
+        }
+        if (plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
+            // a producer materializes the sub tree it was given: transparent
             if (ge.arity() != 1) {
                 return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
                         + plan.getClass().getSimpleName(), ctx);
             }
-            // a consumer describes the sub tree it consumes and a producer the sub tree it materializes:
-            // both are transparent
             return passthroughNode(ge, 0, ctx);
         }
         if (plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor) {
@@ -990,10 +1020,18 @@ public class GroupStructInfo {
                 return invalidNode(ARITY_REASON_PREFIX + ge.arity() + ARITY_REASON_MIDDLE
                         + plan.getClass().getSimpleName(), ctx);
             }
+            describeCteProducer(cteIdOf(plan), ge, ctx);
             return passthroughNode(ge, 1, ctx);
         }
-        if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
-            return scanNode(null, plan, ctx);
+        if (plan instanceof LogicalFileScan) {
+            LogicalFileScan fileScan = (LogicalFileScan) plan;
+            return fileScanNode(fileScan.getTable(),
+                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+        }
+        if (plan instanceof PhysicalFileScan) {
+            PhysicalFileScan fileScan = (PhysicalFileScan) plan;
+            return fileScanNode(fileScan.getTable(),
+                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
@@ -1215,27 +1253,37 @@ public class GroupStructInfo {
         return node.children == null ? null : node;
     }
 
-    private static Node scanNode(OlapScan olapScan, Plan fileScan, Ctx ctx) {
-        if (olapScan != null) {
-            HboScanDescriptor descriptor = scanDescriptor(olapScan, ctx);
-            if (descriptor == null) {
-                return null;
-            }
-            Node node = new Node(Kind.SCAN);
-            node.scan = descriptor;
-            return node;
-        }
-        TableIf table = fileScan instanceof LogicalFileScan
-                ? ((LogicalFileScan) fileScan).getTable()
-                : ((PhysicalFileScan) fileScan).getTable();
+    /**
+     * A scan of an internal table: its descriptor carries what the read side needs to compare the data
+     * state, so a scan whose state cannot be read leaves the whole group undescribed.
+     */
+    private static Node olapScanNode(OlapScan scan, Ctx ctx) {
+        HboScanDescriptor descriptor = scanDescriptor(scan, ctx);
+        return descriptor == null ? null : scanRecord(Kind.SCAN, descriptor);
+    }
+
+    /**
+     * A scan of an external table. Its identity is the table name only, which is why two explicit
+     * snapshots of one table would share it although they hold different rows: such a scan is not
+     * described until the selector is part of the identity.
+     */
+    private static Node fileScanNode(TableIf table, boolean explicitlyVersioned, Ctx ctx) {
         String name = HboScanDescriptor.qualifiedNameOf(table);
         if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
             // the token delimiters cannot appear in a table name: the printed struct info could not be
             // read back, and a pasted one could resolve to another table
             return invalidNode("delimiter in table name " + name, ctx);
         }
-        Node node = new Node(Kind.FILE_SCAN);
-        node.scan = HboScanDescriptor.ofUnreadableState(table);
+        if (explicitlyVersioned) {
+            return invalidNode("versioned file scan " + name, ctx);
+        }
+        return scanRecord(Kind.FILE_SCAN, HboScanDescriptor.ofUnreadableState(table));
+    }
+
+    /** Both scan kinds carry exactly one descriptor and nothing else. */
+    private static Node scanRecord(Kind kind, HboScanDescriptor descriptor) {
+        Node node = new Node(kind);
+        node.scan = descriptor;
         return node;
     }
 
@@ -1277,6 +1325,43 @@ public class GroupStructInfo {
             children.add(new Child(child.root(), false));
         }
         return children;
+    }
+
+    /**
+     * Describe the producer of a CTE so that its consumers can be described as its sub tree. The anchor
+     * renders only its consumer side, so the producer's text is written once per consumer and never by
+     * the anchor; the description is still built here, because this is the only point of the traversal
+     * which can reach the producer's group.
+     */
+    private static void describeCteProducer(CTEId cteId, GroupExpression ge, Ctx ctx) {
+        if (cteId == null || ctx.cteProducers.containsKey(cteId) || !ctx.describingCte.add(cteId)) {
+            return;
+        }
+        try {
+            GroupStructInfo producer = describeChild(ge, 0, ctx);
+            if (producer != null) {
+                ctx.cteProducers.put(cteId, new Producer(producer.root()));
+            }
+        } finally {
+            ctx.describingCte.remove(cteId);
+        }
+    }
+
+    /** The CTE id of a consumer or of an anchor, or null for another plan. */
+    private static CTEId cteIdOf(Plan plan) {
+        if (plan instanceof LogicalCTEConsumer) {
+            return ((LogicalCTEConsumer) plan).getCteId();
+        }
+        if (plan instanceof PhysicalCTEConsumer) {
+            return ((PhysicalCTEConsumer) plan).getCteId();
+        }
+        if (plan instanceof LogicalCTEAnchor) {
+            return ((LogicalCTEAnchor<?, ?>) plan).getCteId();
+        }
+        if (plan instanceof PhysicalCTEAnchor) {
+            return ((PhysicalCTEAnchor<?, ?>) plan).getCteId();
+        }
+        return null;
     }
 
     private static Node invalidNode(String reason, Ctx ctx) {
@@ -1343,7 +1428,7 @@ public class GroupStructInfo {
                 appendChildren(out, node, mode, shape);
                 return;
             case WINDOW:
-                appendWindowHeader(out, node, mode);
+                appendWindowHeader(out, node);
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
@@ -1438,7 +1523,10 @@ public class GroupStructInfo {
         out.append("]}");
     }
 
-    private static void appendWindowHeader(StringBuilder out, Node node, LiteralMode mode) {
+    private static void appendWindowHeader(StringBuilder out, Node node) {
+        // one `{...}` group for the whole header, not one per expression: the fold protects such a group
+        // by finding its closing brace, so a group per expression would leave the later expressions
+        // unprotected and fold the identity literals of their definitions
         out.append("W{");
         boolean firstExpression = true;
         for (NamedExpression namedExpression : node.windowExpressions) {
@@ -1449,6 +1537,11 @@ public class GroupStructInfo {
                 out.append(';');
             }
             firstExpression = false;
+            // the output a definition computes is part of the identity: `row_number() AS x` with the
+            // first definition and `rank() AS x` with it are the same definition set, but a predicate
+            // above the window keeps a different number of rows from x in the two plans. The name is
+            // encoded like every other value, so a name carrying a delimiter can not split the entry
+            out.append(encodeLiteralValue(namedExpression.toSlot().getName())).append('=');
             // the definition of a window decides the values a node above it reads, so its literals are
             // part of the identity and are written in both modes (see Kind.literalsAreIdentity)
             out.append(identityText(windowExpression.getFunction()));
@@ -1469,7 +1562,7 @@ public class GroupStructInfo {
             // a frame boundary is a number of rows, so its text does not depend on the mode: folding it
             // would let a bounded frame share a key with an unbounded one
             out.append("];frame:[").append(windowExpression.getWindowFrame().map(Object::toString).orElse(""))
-                    .append("]}");
+                    .append(']');
         }
         out.append("}(");
     }
@@ -1763,11 +1856,30 @@ public class GroupStructInfo {
         return sb.toString();
     }
 
+    /** The closing brace which matches the opening brace at {@code openingBrace}. */
+    private static int closingBraceOf(String text, int openingBrace) {
+        int depth = 0;
+        for (int i = openingBrace; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        throw new IllegalArgumentException("an unbalanced '" + text.charAt(openingBrace) + "{' at position "
+                + openingBrace);
+    }
+
     /**
      * The start of the next protected header at or after {@code from}, or -1. The rule is the one every
      * reader of the canonical string uses ({@link HboScanDescriptor#nextTokenStart}), so a text which
      * merely looks like a header - an escaped name, a literal value - is not taken for one.
      */
+
     private static int nextProtectedHeaderStart(String text, int from) {
         int best = -1;
         for (int i = 0; i < PROTECTED_HEADERS.length(); i++) {
@@ -1808,11 +1920,9 @@ public class GroupStructInfo {
                 // definition decide which rows reach the node above, a set-operation constant and a limit
                 // bound decide the rows of the operation), so folding them here would make the sha256 of
                 // the pasted struct info differ from the fingerprint EXPLAIN printed
-                int end = canonicalString.indexOf('}', protectedStart);
-                if (end < 0) {
-                    throw new IllegalArgumentException("an unbalanced '" + canonicalString.charAt(protectedStart)
-                            + "{' at position " + protectedStart);
-                }
+                // the header is one balanced `{...}` group: count the braces instead of taking the first
+                // closing one, so a future header with a nested group is still protected as a whole
+                int end = closingBraceOf(canonicalString, protectedStart);
                 sb.append(canonicalString, index, end + 1);
                 index = end + 1;
                 continue;
@@ -2151,6 +2261,11 @@ public class GroupStructInfo {
 
     /** The state of one build: it describes the sub tree of the group it was started at. */
     private static class Ctx {
+        /** The producer of every CTE the traversal passed, keyed by the id its consumers reference. */
+        private final Map<CTEId, Producer> cteProducers = new LinkedHashMap<>();
+        /** The producers being described right now: a recursive reference can not be described. */
+        private final Set<CTEId> describingCte = new LinkedHashSet<>();
+
         private boolean valid = true;
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
         private String reason = "";
