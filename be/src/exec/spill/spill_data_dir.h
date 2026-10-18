@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -33,6 +34,9 @@ template <typename T>
 class AtomicGauge;
 using IntGauge = AtomicGauge<int64_t>;
 class MetricEntity;
+template <typename T>
+class AtomicCounter;
+using IntAtomicCounter = AtomicCounter<int64_t>;
 
 /// A spill store: one local disk (LocalSpillDataDir) or the object storage of a cloud storage
 /// vault (RemoteSpillDataDir). The IO of a spill file goes through the file system pinned in its
@@ -88,6 +92,11 @@ public:
 
     int64_t get_spill_data_bytes();
 
+    /// Logical SpillFile lifecycle counters (not physical parts or external-writer files).
+    /// Deletion is counted once cleanup succeeds, including an unwritten file's no-op cleanup.
+    void record_spill_file_created();
+    void record_spill_file_deleted(size_t count = 1);
+
     // Bytes of remote objects that exist or may exist: successfully closed parts, plus the upper
     // bound of a part whose close failed until it is reconciled. Capacity reservations remain
     // tracked separately in get_spill_data_bytes() and must not be published as persisted usage.
@@ -125,6 +134,8 @@ protected:
     TStorageMedium::type _storage_medium;
 
     std::shared_ptr<MetricEntity> spill_data_dir_metric_entity;
+    IntAtomicCounter* spill_file_created_total = nullptr;
+    IntAtomicCounter* spill_file_deleted_total = nullptr;
     IntGauge* spill_disk_capacity = nullptr;
     IntGauge* spill_disk_limit = nullptr;
     IntGauge* spill_disk_avail_capacity = nullptr;

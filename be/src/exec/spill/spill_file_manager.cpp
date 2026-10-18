@@ -23,12 +23,14 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -71,7 +73,6 @@ Status reconcile_remote_spill_bytes(SpillDataDir* data_dir, const io::FileSystem
 bvar::Adder<int64_t> g_spill_remote_read_bytes("spill_remote_read_bytes");
 bvar::Adder<int64_t> g_spill_remote_write_bytes("spill_remote_write_bytes");
 bvar::Adder<int64_t> g_spill_remote_get_requests("spill_remote_get_requests");
-bvar::Adder<int64_t> g_spill_remote_put_requests("spill_remote_put_requests");
 
 namespace {
 std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> create_spill_store_map(
@@ -298,9 +299,6 @@ void SpillFileManager::_init_metrics() {
             _spill_remote_write_bytes_metric, doris::MetricUnit::BYTES, "spill_remote_write_bytes");
     _spill_remote_read_bytes_counter = register_counter(
             _spill_remote_read_bytes_metric, doris::MetricUnit::BYTES, "spill_remote_read_bytes");
-    _spill_remote_put_requests_counter =
-            register_counter(_spill_remote_put_requests_metric, doris::MetricUnit::REQUESTS,
-                             "spill_remote_put_requests");
     _spill_remote_get_requests_counter =
             register_counter(_spill_remote_get_requests_metric, doris::MetricUnit::REQUESTS,
                              "spill_remote_get_requests");
@@ -309,12 +307,10 @@ void SpillFileManager::_init_metrics() {
                            "spill_pending_delete_dir_count");
 }
 
-void SpillFileManager::update_spill_remote_write(int64_t bytes, int64_t put_requests) {
+void SpillFileManager::update_spill_remote_write(int64_t bytes) {
     g_spill_remote_write_bytes << bytes;
-    g_spill_remote_put_requests << put_requests;
     if (_spill_remote_write_bytes_counter != nullptr) {
         _spill_remote_write_bytes_counter->increment(bytes);
-        _spill_remote_put_requests_counter->increment(put_requests);
     }
 }
 
@@ -392,15 +388,28 @@ Status SpillFileManager::create_spill_file(const std::string& relative_path,
                                            SpillFileSPtr& spill_file) {
     io::FileSystemSPtr remote_fs;
     if (_remote_store != nullptr) {
-        RETURN_IF_ERROR(_remote_store->ensure_ready(&remote_fs));
+        auto status = _remote_store->ensure_ready(&remote_fs);
+        if (!status.ok()) {
+            LOG(WARNING) << "[spill][create] query_id="
+                         << relative_path.substr(0, relative_path.find('/'))
+                         << ", storage=remote, store=" << _remote_store->path()
+                         << ", path=" << relative_path << ", bytes=0, parts=0, status=" << status;
+            return status;
+        }
     }
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
     }
     if (data_dirs.empty()) {
-        return Status::Error<ErrorCode::NO_AVAILABLE_ROOT_PATH>(
+        auto status = Status::Error<ErrorCode::NO_AVAILABLE_ROOT_PATH>(
                 "no available disk can be used for spill.");
+        LOG(WARNING) << "[spill][create] query_id="
+                     << relative_path.substr(0, relative_path.find('/'))
+                     << ", storage=" << (_remote_store != nullptr ? "remote" : "local")
+                     << ", fs_id=" << (remote_fs != nullptr ? remote_fs->id() : "unselected")
+                     << ", path=" << relative_path << ", bytes=0, parts=0, status=" << status;
+        return status;
     }
 
     // Select the first available data dir (sorted by usage ascending)
@@ -497,14 +506,19 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
     PendingSpillDirectory pending_directory {
             .failed_count = 0,
             .dir = data_dir->get_spill_data_path(query_id),
+            .query_id = query_id,
             .data_dir = data_dir,
             .fs = nullptr,
             .charged_bytes = 0,
             .persisted_bytes = 0,
+            .file_log_contexts = {},
     };
 
     auto status = _try_delete_spill_directory(pending_directory);
     if (!status.ok()) {
+        LOG(WARNING) << "[spill][delete_query] query_id=" << query_id
+                     << ", storage=local, path=" << pending_directory.dir
+                     << ", retry_queued=true, status=" << status;
         ++pending_directory.failed_count;
         _add_pending_directory(std::move(pending_directory));
     }
@@ -512,13 +526,16 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
 
 void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                                       std::string dir, int64_t charged_bytes,
-                                                      int64_t persisted_bytes) {
+                                                      int64_t persisted_bytes, std::string query_id,
+                                                      std::vector<std::string> file_log_contexts) {
     _add_pending_directory({.failed_count = 1,
                             .dir = std::move(dir),
+                            .query_id = std::move(query_id),
                             .data_dir = data_dir,
                             .fs = std::move(fs),
                             .charged_bytes = charged_bytes,
-                            .persisted_bytes = persisted_bytes});
+                            .persisted_bytes = persisted_bytes,
+                            .file_log_contexts = std::move(file_log_contexts)});
 }
 
 void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
@@ -534,6 +551,10 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
             // Deleting the pending ancestor deletes these objects too.
             pending.charged_bytes += pending_directory.charged_bytes;
             pending.persisted_bytes += pending_directory.persisted_bytes;
+            pending.file_log_contexts.insert(
+                    pending.file_log_contexts.end(),
+                    std::make_move_iterator(pending_directory.file_log_contexts.begin()),
+                    std::make_move_iterator(pending_directory.file_log_contexts.end()));
             return;
         }
     }
@@ -542,6 +563,9 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
             is_under(pending.dir, pending_directory.dir)) {
             pending_directory.charged_bytes += pending.charged_bytes;
             pending_directory.persisted_bytes += pending.persisted_bytes;
+            pending_directory.file_log_contexts.insert(pending_directory.file_log_contexts.end(),
+                                                       pending.file_log_contexts.begin(),
+                                                       pending.file_log_contexts.end());
             return true;
         }
         return false;
@@ -567,7 +591,24 @@ Status SpillFileManager::_try_delete_spill_directory(
                                               : pending_directory.data_dir->fs();
     DORIS_CHECK(fs != nullptr) << "spill store " << pending_directory.data_dir->path()
                                << " is not ready";
-    return fs->delete_directory(pending_directory.dir);
+    auto status = fs->delete_directory(pending_directory.dir);
+    if (status.ok()) {
+        pending_directory.data_dir->record_spill_file_deleted(
+                pending_directory.file_log_contexts.size());
+        for (const auto& file_context : pending_directory.file_log_contexts) {
+            LOG(INFO) << "[spill][delete] " << file_context << ", cleanup="
+                      << (pending_directory.data_dir->is_remote() ? "object_prefix" : "directory")
+                      << ", retry_count=" << pending_directory.failed_count << ", status=OK";
+        }
+        if (pending_directory.file_log_contexts.empty()) {
+            LOG(INFO) << "[spill][delete_directory] query_id=" << pending_directory.query_id
+                      << ", storage="
+                      << (pending_directory.data_dir->is_remote() ? "remote" : "local")
+                      << ", fs_id=" << fs->id() << ", path=" << pending_directory.dir
+                      << ", retry_count=" << pending_directory.failed_count << ", status=OK";
+        }
+    }
+    return status;
 }
 
 void SpillFileManager::_retry_pending_local_spill_directories() {
@@ -590,7 +631,6 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
 
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
-    constexpr int log_interval = 5;
     std::vector<PendingSpillDirectory> untried_directories;
     std::vector<PendingSpillDirectory> failed_directories;
     size_t tried = 0;
@@ -617,17 +657,26 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
                     &pending_directory.persisted_bytes);
             if (!reconcile_status.ok()) {
                 LOG_EVERY_T(WARNING, 60)
-                        << "failed to reconcile remote spill bytes after deletion: "
-                        << reconcile_status;
+                        << "failed to reconcile remote spill bytes after deletion, query_id="
+                        << pending_directory.query_id << ", fs_id=" << pending_directory.fs->id()
+                        << ", path=" << pending_directory.dir << ", status=" << reconcile_status;
             }
         }
 
         ++pending_directory.failed_count;
-        if (pending_directory.failed_count % log_interval == 0) {
-            LOG(WARNING) << fmt::format(
-                    "failed to retry deleting spill directory, dir {}, error: {}",
-                    pending_directory.dir, status.to_string());
-        }
+        LOG_EVERY_T(WARNING, 60) << "[spill][delete_retry] query_id=" << pending_directory.query_id
+                                 << ", storage="
+                                 << (pending_directory.data_dir->is_remote() ? "remote" : "local")
+                                 << ", fs_id="
+                                 << (pending_directory.fs != nullptr
+                                             ? pending_directory.fs->id()
+                                             : pending_directory.data_dir->fs()->id())
+                                 << ", path=" << pending_directory.dir
+                                 << ", charged_bytes=" << pending_directory.charged_bytes
+                                 << ", persisted_bytes=" << pending_directory.persisted_bytes
+                                 << ", files=" << pending_directory.file_log_contexts.size()
+                                 << ", failed_attempts=" << pending_directory.failed_count
+                                 << ", status=" << status;
         failed_directories.emplace_back(std::move(pending_directory));
     }
 

@@ -40,6 +40,7 @@
 
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
@@ -72,6 +73,7 @@
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uid_util.h"
+#include "vec/spill/spill_log_sink.h"
 
 namespace doris::vectorized {
 
@@ -550,6 +552,66 @@ protected:
         _data_dir = nullptr;
     }
 
+    void _expect_file_counts(int64_t created, int64_t deleted) {
+        EXPECT_EQ(_data_dir->spill_data_dir_metric_entity->get_metric("spill_file_created_total"),
+                  _data_dir->spill_file_created_total);
+        EXPECT_EQ(_data_dir->spill_data_dir_metric_entity->get_metric("spill_file_deleted_total"),
+                  _data_dir->spill_file_deleted_total);
+        EXPECT_EQ(_data_dir->spill_file_created_total->value(), created);
+        EXPECT_EQ(_data_dir->spill_file_deleted_total->value(), deleted);
+    }
+
+    void _check_merged_lifecycle_retry(bool ancestor_first) {
+        _create_manager();
+        _manager->stop();
+        SpillLogSink logs;
+        const int64_t created = _data_dir->spill_file_created_total->value();
+        const int64_t deleted = _data_dir->spill_file_deleted_total->value();
+        const auto query_id = fmt::format("query_lifecycle_retry_{}", ancestor_first);
+        const auto query_path = _data_dir->get_spill_data_path(query_id);
+        std::mt19937 rng(137);
+        Status status;
+        auto first =
+                _write_blocks(query_id + "/sort-1", {_random_string_block(rng, 16, 100)}, &status);
+        ASSERT_TRUE(status.ok()) << status;
+        auto second =
+                _write_blocks(query_id + "/sort-2", {_random_string_block(rng, 16, 100)}, &status);
+        ASSERT_TRUE(status.ok()) << status;
+        mock_store().fail_deletes = true;
+        auto queue_ancestor = [&]() {
+            // A directory entry has no logical-file count of its own, but must retain the
+            // individual file contexts when it absorbs children (or children join it).
+            _manager->retry_spill_directory_deletion(_data_dir, _s3_fs, query_path, 0, 0, query_id);
+        };
+        if (ancestor_first) {
+            queue_ancestor();
+        }
+        first.reset();
+        second.reset();
+        if (!ancestor_first) {
+            queue_ancestor();
+        }
+        EXPECT_EQ(_manager->pending_delete_dir_count(), 1);
+        for (int i = 0; i < 10; ++i) {
+            _manager->gc(1000);
+        }
+        _expect_file_counts(created + 2, deleted);
+        EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=" + query_id + ','), 2);
+        EXPECT_LE(logs.count(google::WARNING, "[spill][delete_retry] query_id=" + query_id + ','),
+                  1);
+        mock_store().fail_deletes = false;
+        _manager->gc(1000);
+        _expect_file_counts(created + 2, deleted + 2);
+        EXPECT_EQ(_manager->pending_delete_dir_count(), 0);
+        const auto prefix = fmt::format(
+                "[spill][delete] query_id={}, storage=remote, fs_id={}, path=s3://{}/{}/{}/",
+                query_id, _s3_fs->id(), kBucket, kVaultPrefix, query_path);
+        EXPECT_EQ(logs.count(google::INFO, prefix + "sort-1,"), 1);
+        EXPECT_EQ(logs.count(google::INFO, prefix + "sort-2,"), 1);
+        _manager->gc(1000);
+        _expect_file_counts(created + 2, deleted + 2);
+    }
+
     // Vault-prefixed keys of the mock store: {vault}/spill/{ip}_{port}/{query_id}/...
     static std::string spill_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kEndpoint); }
 
@@ -998,9 +1060,11 @@ TEST_F(SpillFileS3Test, PendingRemoteDeleteBacklogIsRequeuedInBulk) {
     after_drain_debug_point->callback = std::function<void()>([&]() {
         const std::string spill_path = _data_dir->get_spill_data_path();
         _manager->retry_spill_directory_deletion(_data_dir, _data_dir->fs(),
-                                                 spill_path + "/query_bulk_requeue_5/sort-1", 0, 0);
-        _manager->retry_spill_directory_deletion(
-                _data_dir, _data_dir->fs(), spill_path + "/query_bulk_requeue_new/sort-1", 0, 0);
+                                                 spill_path + "/query_bulk_requeue_5/sort-1", 0, 0,
+                                                 "query_bulk_requeue_5");
+        _manager->retry_spill_directory_deletion(_data_dir, _data_dir->fs(),
+                                                 spill_path + "/query_bulk_requeue_new/sort-1", 0,
+                                                 0, "query_bulk_requeue_new");
     });
     DebugPoints::instance()->add(after_drain_debug_point_name, after_drain_debug_point);
 
@@ -1165,16 +1229,10 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_EQ(object_bytes, _counter(profile::SPILL_WRITE_FILE_BYTES));
     ASSERT_EQ(object_bytes, _data_dir->get_spill_data_bytes());
     ASSERT_EQ(object_bytes, _counter(profile::SPILL_REMOTE_UPLOAD_BYTES));
-    ASSERT_GT(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS), 0);
-    ASSERT_GE(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
-              _counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS));
-    ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS), mock_store().put_requests);
-    // Request statistics are derived from the closed parts: every part is a multipart upload
-    // here (create + parts + complete) followed by a HEAD when the check is enabled.
+    EXPECT_EQ(_custom_profile->get_counter("SpillRemoteWriteRequests"), nullptr);
+    EXPECT_EQ(_custom_profile->get_counter("SpillRemoteUploadPartRequests"), nullptr);
+    // Every completed spill part uses a multipart upload here.
     ASSERT_EQ(mock_store().create_multipart_requests, static_cast<int64_t>(keys.size()));
-    ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
-              mock_store().put_requests + mock_store().create_multipart_requests +
-                      mock_store().complete_multipart_requests + mock_store().head_requests);
     // After writing: exactly the parts of the file, no multipart upload left open.
     ASSERT_EQ(_query_objects("query_1"), _part_keys("sort-1-0-1", keys.size()));
     ASSERT_TRUE(_no_open_multipart_uploads());
@@ -1182,8 +1240,6 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
     ASSERT_EQ(io_ctx->spill_write_bytes_to_remote_storage(), object_bytes);
     ASSERT_EQ(io_ctx->spill_write_bytes_to_local_storage(), 0);
-    ASSERT_EQ(io_ctx->spill_remote_write_requests(),
-              _counter(profile::SPILL_REMOTE_WRITE_REQUESTS));
 
     // HEADs so far come from check_after_upload on the write path; reading must add none.
     int64_t heads_after_write = mock_store().head_requests;
@@ -1244,8 +1300,6 @@ TEST_F(SpillFileS3Test, SmallPartIsOnePutObject) {
         config::enable_s3_object_check_after_upload = check_after_upload;
         _create_manager();
         mock_store().reset();
-        const int64_t requests_before = _counter(profile::SPILL_REMOTE_WRITE_REQUESTS);
-        const int64_t parts_before = _counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS);
         const int64_t bytes_before = _counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
         std::mt19937 rng(7);
         Status st;
@@ -1259,9 +1313,6 @@ TEST_F(SpillFileS3Test, SmallPartIsOnePutObject) {
         ASSERT_EQ(mock_store().put_requests, 1);
         ASSERT_EQ(mock_store().create_multipart_requests, 0);
         ASSERT_EQ(mock_store().head_requests, check_after_upload ? 1 : 0);
-        ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS) - parts_before, 1);
-        ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS) - requests_before,
-                  check_after_upload ? 2 : 1);
         ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES) - bytes_before, object_bytes);
         spill_file.reset();
         ASSERT_TRUE(_query_objects("query_small").empty());
@@ -1974,9 +2025,6 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
     auto spill_file = _write_blocks("query_8/sort-1-0-1", blocks, &st);
     ASSERT_FALSE(st.ok());
     ASSERT_FALSE(spill_file->ready_for_reading());
-    // A failed part only accounts its CreateMultipartUpload.
-    ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
-              mock_store().create_multipart_requests);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     // Failed uploads remain incomplete for the bucket lifecycle rule to reclaim.
@@ -2092,6 +2140,90 @@ TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
+TEST_F(SpillFileS3Test, LifecycleLogsCountLogicalFilesNotParts) {
+    _create_manager();
+    _manager->stop();
+    SpillLogSink logs;
+    const int64_t created = _data_dir->spill_file_created_total->value();
+    const int64_t deleted = _data_dir->spill_file_deleted_total->value();
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("query_lifecycle/sort-1", file).ok());
+    _expect_file_counts(created + 1, deleted);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][create] query_id=query_lifecycle,"), 1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_lifecycle,"), 0);
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(139);
+    ASSERT_TRUE(
+            writer->write_block(_runtime_state.get(), _random_string_block(rng, 400, 200)).ok());
+    ASSERT_TRUE(
+            writer->write_block(_runtime_state.get(), _random_string_block(rng, 400, 200)).ok());
+    // Part rotation is not the end of the logical file and emits no logical close event.
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_lifecycle,"), 0);
+    ASSERT_TRUE(writer->close().ok());
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_lifecycle,"), 1);
+    const auto close_prefix = fmt::format(
+            "[spill][close] query_id=query_lifecycle, storage=remote, fs_id={}, "
+            "path=s3://{}/{}/{}/query_lifecycle/sort-1, bytes={}, parts=2, status=",
+            _s3_fs->id(), kBucket, kVaultPrefix, _data_dir->get_spill_data_path(),
+            _counter(profile::SPILL_REMOTE_UPLOAD_BYTES));
+    EXPECT_EQ(logs.count(google::INFO, close_prefix), 1);
+    ASSERT_TRUE(writer->close().ok());
+    file->gc();
+    file->gc();
+    file.reset();
+    writer.reset();
+    _expect_file_counts(created + 1, deleted + 1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_lifecycle,"), 1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_lifecycle,"), 1);
+}
+
+TEST_F(SpillFileS3Test, FailedCloseHasWarningLifecycleLog) {
+    _create_manager();
+    _manager->stop();
+    SpillLogSink logs;
+    const int64_t created = _data_dir->spill_file_created_total->value();
+    const int64_t deleted = _data_dir->spill_file_deleted_total->value();
+    mock_store().fail_uploads = true;
+    std::mt19937 rng(149);
+    Status status;
+    auto file = _write_blocks("query_lifecycle_failed/sort-1", {_random_string_block(rng, 64, 200)},
+                              &status);
+    ASSERT_FALSE(status.ok());
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_lifecycle_failed,"), 0);
+    EXPECT_EQ(logs.count(google::WARNING, "[spill][close] query_id=query_lifecycle_failed,"), 1);
+    EXPECT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
+    _expect_file_counts(created + 1, deleted);
+    file.reset();
+    _expect_file_counts(created + 1, deleted + 1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_lifecycle_failed,"), 1);
+}
+
+TEST_F(SpillFileS3Test, FailedCreateHasWarningWithoutLifecycleCount) {
+    _create_manager(false);
+    _manager->stop();
+    SpillLogSink logs;
+    const int64_t created = _data_dir->spill_file_created_total->value();
+    const int64_t deleted = _data_dir->spill_file_deleted_total->value();
+    SpillFileSPtr file;
+    EXPECT_FALSE(_manager->create_spill_file("query_lifecycle_create_failed/sort-1", file).ok());
+    EXPECT_EQ(file, nullptr);
+    _expect_file_counts(created, deleted);
+    EXPECT_EQ(
+            logs.count(google::WARNING, "[spill][create] query_id=query_lifecycle_create_failed,"),
+            1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][create] query_id=query_lifecycle_create_failed,"),
+              0);
+}
+
+TEST_F(SpillFileS3Test, DeleteRetryRetainsContextsWhenParentAlreadyQueued) {
+    _check_merged_lifecycle_retry(true);
+}
+
+TEST_F(SpillFileS3Test, DeleteRetryRetainsContextsWhenParentAbsorbsChildren) {
+    _check_merged_lifecycle_retry(false);
+}
+
 TEST_F(SpillFileS3Test, ManagerMetrics) {
     _create_manager();
     std::mt19937 rng(19);
@@ -2109,7 +2241,9 @@ TEST_F(SpillFileS3Test, ManagerMetrics) {
     ASSERT_TRUE(reader->close().ok());
     ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), mock_store().get_requests);
-    ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS), mock_store().put_requests);
+    ASSERT_EQ(_manager->_spill_remote_write_bytes_counter->value(),
+              _counter(profile::SPILL_REMOTE_UPLOAD_BYTES));
+    ASSERT_EQ(_manager->_entity->get_metric("spill_remote_put_requests"), nullptr);
 }
 
 } // namespace doris::vectorized

@@ -125,7 +125,8 @@ public:
     // deletion outage would free capacity that is still in use.
     void retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                         std::string dir, int64_t charged_bytes,
-                                        int64_t persisted_bytes);
+                                        int64_t persisted_bytes, std::string query_id,
+                                        std::vector<std::string> file_log_contexts = {});
 
     void gc(int32_t max_work_time_ms);
 
@@ -133,8 +134,8 @@ public:
 
     void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
-    /// Bytes and PutObject/UploadPart requests issued by spill against object storage.
-    void update_spill_remote_write(int64_t bytes, int64_t put_requests);
+    /// Bytes successfully uploaded by spill to object storage.
+    void update_spill_remote_write(int64_t bytes);
 
     /// Bytes and GET requests issued by spill against object storage.
     void update_spill_remote_read(int64_t bytes, int64_t get_requests);
@@ -154,12 +155,15 @@ private:
         int failed_count {0};
         // A query directory or the directory of one spill file.
         std::string dir;
+        std::string query_id;
         SpillDataDir* data_dir {nullptr};
         // Pinned for remote spill: a later change of the spill vault must not redirect GC.
         io::FileSystemSPtr fs;
         // Bytes of the objects under `dir` still charged to `data_dir`; released once deleted.
         int64_t charged_bytes {0};
         int64_t persisted_bytes {0};
+        // Per-file identities/sizes survive directory merging, until successful deletion.
+        std::vector<std::string> file_log_contexts;
     };
 
     struct SpillGcStats {
@@ -220,13 +224,11 @@ private:
 
     std::unique_ptr<doris::MetricPrototype> _spill_remote_write_bytes_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_remote_read_bytes_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _spill_remote_put_requests_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_remote_get_requests_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_pending_delete_dir_count_metric {nullptr};
 
     IntAtomicCounter* _spill_remote_write_bytes_counter {nullptr};
     IntAtomicCounter* _spill_remote_read_bytes_counter {nullptr};
-    IntAtomicCounter* _spill_remote_put_requests_counter {nullptr};
     IntAtomicCounter* _spill_remote_get_requests_counter {nullptr};
     IntGauge* _spill_pending_delete_dir_count_gauge {nullptr};
 };

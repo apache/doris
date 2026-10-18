@@ -52,6 +52,7 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
+#include "vec/spill/spill_log_sink.h"
 
 namespace doris::vectorized {
 
@@ -238,6 +239,71 @@ TEST_F(SpillFileTest, CreateWriterAndReader) {
 // ═══════════════════════════════════════════════════════════════════════
 // SpillFileWriter tests
 // ═══════════════════════════════════════════════════════════════════════
+
+TEST_F(SpillFileTest, LocalLifecycleCountsWrittenAndUnwrittenFilesOnce) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+    SpillLogSink logs;
+    const int64_t created = _data_dir_ptr->spill_file_created_total->value();
+    const int64_t deleted = _data_dir_ptr->spill_file_deleted_total->value();
+    auto file = std::make_shared<SpillFile>(_data_dir_ptr, "query_local_lifecycle/sort-1");
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _create_int_block({1, 2, 3})).ok());
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_local_lifecycle,"), 0);
+    ASSERT_TRUE(writer->close().ok());
+    EXPECT_EQ(logs.count(google::INFO, "[spill][close] query_id=query_local_lifecycle,"), 1);
+    file->gc();
+    file->gc();
+    file.reset();
+    writer.reset();
+    auto unwritten = std::make_shared<SpillFile>(_data_dir_ptr, "query_local_lifecycle/sort-2");
+    unwritten->gc();
+    unwritten.reset();
+    EXPECT_EQ(_data_dir_ptr->spill_file_created_total->value(), created + 2);
+    EXPECT_EQ(_data_dir_ptr->spill_file_deleted_total->value(), deleted + 2);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][create] query_id=query_local_lifecycle,"), 2);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_local_lifecycle,"), 2);
+    EXPECT_NE(logs.text().find("storage=local,"), std::string::npos);
+    EXPECT_NE(logs.text().find("path=" + _data_dir_ptr->get_spill_data_path() +
+                               "/query_local_lifecycle/sort-1"),
+              std::string::npos);
+    EXPECT_NE(logs.text().find("cleanup=unwritten, status=OK"), std::string::npos);
+}
+
+TEST_F(SpillFileTest, LocalFailedDeletionCountsOnlySuccessfulRetry) {
+    auto* manager = ExecEnv::GetInstance()->spill_file_mgr();
+    manager->stop();
+    SpillLogSink logs;
+    const int64_t deleted = _data_dir_ptr->spill_file_deleted_total->value();
+    auto file = std::make_shared<SpillFile>(_data_dir_ptr, "query_local_retry/sort-1");
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _create_int_block({1, 2, 3})).ok());
+    ASSERT_TRUE(writer->close().ok());
+    const bool saved_debug_points = config::enable_debug_points;
+    constexpr auto gc_error = "fault_inject::spill_file::gc";
+    Defer restore {[&]() {
+        DebugPoints::instance()->remove(gc_error);
+        config::enable_debug_points = saved_debug_points;
+    }};
+    config::enable_debug_points = true;
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    DebugPoints::instance()->add(gc_error, debug_point);
+    file->gc();
+    file->gc();
+    EXPECT_EQ(_data_dir_ptr->spill_file_deleted_total->value(), deleted);
+    EXPECT_EQ(manager->pending_delete_dir_count(), 1);
+    EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=query_local_retry,"), 1);
+    DebugPoints::instance()->remove(gc_error);
+    manager->gc(1000);
+    file.reset();
+    writer.reset();
+    EXPECT_EQ(_data_dir_ptr->spill_file_deleted_total->value(), deleted + 1);
+    EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_local_retry,"), 1);
+    EXPECT_EQ(manager->pending_delete_dir_count(), 0);
+    EXPECT_NE(logs.text().find("cleanup=directory, retry_count=1, status=OK"), std::string::npos);
+}
 
 TEST_F(SpillFileTest, WriteSingleBlock) {
     SpillFileSPtr spill_file;

@@ -29,7 +29,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
-#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile_counter_names.h"
@@ -68,9 +67,6 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
     _write_file_current_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
     _write_rows_counter = custom_profile->get_counter("SpillWriteRows");
     _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
-    _remote_write_requests = custom_profile->get_counter(profile::SPILL_REMOTE_WRITE_REQUESTS);
-    _remote_upload_part_requests =
-            custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS);
     _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
     _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
     _remote_upload_wait_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_WAIT_TIME);
@@ -93,6 +89,8 @@ SpillFileWriter::~SpillFileWriter() {
 
 void SpillFileWriter::_discard(SpillFile* spill_file) {
     DCHECK_EQ(spill_file->_active_writer, this);
+    LOG(INFO) << "[spill][discard] " << spill_file->_log_context()
+              << ", reason=file_gc_before_close, status=OK";
     spill_file->_active_writer = nullptr;
     _closed = true;
     if (!_file_writer) {
@@ -103,7 +101,7 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
     // multipart uploads are left to the bucket lifecycle rule.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     if (_data_dir->is_remote()) {
-        _account_remote_part(writer.get(), /*closed=*/false);
+        _account_remote_part(/*closed=*/false);
     }
     writer.reset();
     _advance_part();
@@ -191,7 +189,7 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         }
     }
     if (_data_dir->is_remote()) {
-        _account_remote_part(writer.get(), status.ok());
+        _account_remote_part(status.ok());
     }
     if (!status.ok()) {
         // A part that failed before close() (an append failed or the query was cancelled) must
@@ -218,41 +216,15 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     return status;
 }
 
-void SpillFileWriter::_account_remote_part(io::FileWriter* writer, bool closed) {
-    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer);
-    DORIS_CHECK(s3_writer != nullptr)
-            << "remote spill part is not an S3 file: " << _current_part_path;
-    // Derived from how S3FileWriter uploads: a part smaller than one upload buffer is one
-    // PutObject at close(); a larger one is CreateMultipartUpload, one UploadPart per buffer and
-    // CompleteMultipartUpload at close(), and a published object is checked with a HEAD when
-    // enable_s3_object_check_after_upload is set. Retries inside the client are not seen.
-    const bool multipart = !s3_writer->upload_id().empty();
-    int64_t data_requests = 0;
-    int64_t uploaded_bytes = 0;
-    // Only a successful close() guarantees that no upload is still running, so the parts of
-    // a failed part are not counted.
-    if (closed) {
-        data_requests = multipart ? static_cast<int64_t>(s3_writer->completed_parts().size()) : 1;
-        uploaded_bytes = static_cast<int64_t>(s3_writer->bytes_appended());
-    }
-    int64_t requests = data_requests;
-    if (multipart) {
-        requests += closed ? 2 : 1; // CreateMultipartUpload, CompleteMultipartUpload
-    }
-    if (closed && config::enable_s3_object_check_after_upload) {
-        requests += 1; // HEAD
-    }
-    if (_remote_write_requests != nullptr) {
-        COUNTER_UPDATE(_remote_write_requests, requests);
-        COUNTER_UPDATE(_remote_upload_part_requests, data_requests);
+void SpillFileWriter::_account_remote_part(bool closed) {
+    // A successful close() publishes the whole part, including its footer. Failed uploads
+    // can still be in flight, so their bytes are not counted as successfully uploaded.
+    const int64_t uploaded_bytes = closed ? _part_written_bytes : 0;
+    if (_remote_upload_bytes != nullptr) {
         COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
         COUNTER_UPDATE(_remote_upload_timer, _part_upload_ns);
     }
-    if (_resource_ctx) {
-        _resource_ctx->io_context()->update_spill_remote_write_requests(requests);
-    }
-    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes,
-                                                                        data_requests);
+    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes);
 }
 
 Status SpillFileWriter::_wait_for_upload_queue() {
@@ -367,6 +339,19 @@ Status SpillFileWriter::close() {
     _closed = true;
 
     auto spill_file = _spill_file_wptr.lock();
+    auto status = _close_impl(spill_file);
+    if (spill_file) {
+        if (status.ok()) {
+            LOG(INFO) << "[spill][close] " << spill_file->_log_context() << ", status=OK";
+        } else {
+            LOG(WARNING) << "[spill][close] " << spill_file->_log_context()
+                         << ", status=" << status;
+        }
+    }
+    return status;
+}
+
+Status SpillFileWriter::_close_impl(const std::shared_ptr<SpillFile>& spill_file) {
     if (!_write_status.ok()) {
         // A write failed (possibly in a part that was already rotated out): the current part
         // is dropped without publishing it and the file is not finished.

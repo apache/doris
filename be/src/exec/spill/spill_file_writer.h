@@ -71,6 +71,8 @@ public:
     Status close();
 
 private:
+    Status _close_impl(const std::shared_ptr<SpillFile>& spill_file);
+
     friend class SpillFile;
 
     Status _write_block(RuntimeState* state, const Block& block);
@@ -95,10 +97,9 @@ private:
     /// filled are not queued, so idle writers cannot block each other.
     Status _wait_for_upload_queue();
 
-    /// Object storage only: request statistics of the current part, derived from its writer.
-    /// `closed` tells that close() returned OK (the object was published, every upload done).
-    /// A part that failed only accounts its CreateMultipartUpload: its uploads may still run.
-    void _account_remote_part(doris::io::FileWriter* writer, bool closed);
+    /// Object storage only: account the upload time and, after a successful close(), the bytes
+    /// of the whole part including its footer. Does not inspect S3 upload state.
+    void _account_remote_part(bool closed);
 
     /// Reset the per-part state and move on to the next part index.
     void _advance_part();
@@ -152,8 +153,6 @@ private:
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _total_file_count = nullptr;
     // Remote only, may be null when the profile does not register them.
-    RuntimeProfile::Counter* _remote_write_requests = nullptr;
-    RuntimeProfile::Counter* _remote_upload_part_requests = nullptr;
     RuntimeProfile::Counter* _remote_upload_bytes = nullptr;
     RuntimeProfile::Counter* _remote_upload_timer = nullptr;
     RuntimeProfile::Counter* _remote_upload_wait_timer = nullptr;

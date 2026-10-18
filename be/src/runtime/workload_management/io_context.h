@@ -52,7 +52,6 @@ public:
         RuntimeProfile::Counter* spill_read_bytes_from_local_storage_counter_;
         RuntimeProfile::Counter* spill_write_bytes_to_remote_storage_counter_;
         RuntimeProfile::Counter* spill_read_bytes_from_remote_storage_counter_;
-        RuntimeProfile::Counter* spill_remote_write_requests_counter_;
         RuntimeProfile::Counter* spill_remote_read_requests_counter_;
 
         RuntimeProfile* profile() { return profile_.get(); }
@@ -79,8 +78,6 @@ public:
                     ADD_COUNTER(profile_, "SpillWriteBytesToRemoteStorage", TUnit::BYTES);
             spill_read_bytes_from_remote_storage_counter_ =
                     ADD_COUNTER(profile_, "SpillReadBytesFromRemoteStorage", TUnit::BYTES);
-            spill_remote_write_requests_counter_ =
-                    ADD_COUNTER(profile_, "SpillRemoteWriteRequests", TUnit::UNIT);
             spill_remote_read_requests_counter_ =
                     ADD_COUNTER(profile_, "SpillRemoteReadRequests", TUnit::UNIT);
         }
@@ -127,10 +124,6 @@ public:
         return stats_.spill_read_bytes_from_remote_storage_counter_->value();
     }
 
-    int64_t spill_remote_write_requests() const {
-        return stats_.spill_remote_write_requests_counter_->value();
-    }
-
     int64_t spill_remote_read_requests() const {
         return stats_.spill_remote_read_requests_counter_->value();
     }
@@ -169,10 +162,6 @@ public:
 
     void update_spill_read_bytes_from_remote_storage(int64_t delta) const {
         stats_.spill_read_bytes_from_remote_storage_counter_->update(delta);
-    }
-
-    void update_spill_remote_write_requests(int64_t delta) const {
-        stats_.spill_remote_write_requests_counter_->update(delta);
     }
 
     void update_spill_remote_read_requests(int64_t delta) const {

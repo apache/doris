@@ -35,6 +35,8 @@
 
 namespace doris {
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(spill_file_created_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(spill_file_deleted_total, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
@@ -52,6 +54,8 @@ SpillDataDir::SpillDataDir(std::string path, std::string spill_root, const std::
           _storage_medium(storage_medium) {
     spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("spill_data_dir.") + _path, {{"path", metric_path}});
+    INT_COUNTER_METRIC_REGISTER(spill_data_dir_metric_entity, spill_file_created_total);
+    INT_COUNTER_METRIC_REGISTER(spill_data_dir_metric_entity, spill_file_deleted_total);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
@@ -63,6 +67,14 @@ SpillDataDir::SpillDataDir(std::string path, std::string spill_root, const std::
 }
 
 SpillDataDir::~SpillDataDir() = default;
+
+void SpillDataDir::record_spill_file_created() {
+    spill_file_created_total->increment(1);
+}
+
+void SpillDataDir::record_spill_file_deleted(size_t count) {
+    spill_file_deleted_total->increment(static_cast<int64_t>(count));
+}
 
 std::string SpillDataDir::get_spill_data_path(const std::string& query_id) const {
     DCHECK(ready()) << "spill store is not ready: " << _path;

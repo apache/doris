@@ -108,12 +108,18 @@ private:
     /// but remains billable until cleanup; list the prefix to remove publication ambiguity.
     void account_potential_part(int64_t part_bytes);
 
+    /// Stable query/storage identity and current size of this logical file for lifecycle logs.
+    std::string _log_context() const;
+
     SpillDataDir* _data_dir = nullptr;
     // Vault binding at file creation; never follow a later change of the spill vault.
     io::FileSystemSPtr _fs;
+    std::string _query_id;
     // Path of this spill file: data_dir->get_spill_data_path() + "/" + relative_path.
     // Absolute for local stores, relative to the vault prefix for remote stores.
     std::string _spill_dir;
+    // Full S3 URI or local path, pinned with _fs even if the selected vault changes later.
+    std::string _log_path;
     int64_t _total_written_bytes = 0;
     int64_t _persisted_bytes = 0;
     // Size of every completed part, in part order. Passed to readers so that they never
@@ -123,6 +129,8 @@ private:
     // itself is created. Files that were never written have nothing to delete.
     bool _dir_created = false;
     bool _ready_for_reading = false;
+    // gc() can be called explicitly before destruction. Emit/count logical cleanup only once.
+    bool _gc_started = false;
     // Pointer to the currently-active writer. Mutable to allow checks from const
     // methods like create_reader(). Only one writer may be active at a time. Cleared when
     // the writer finished, was discarded by gc(), or was destroyed.
