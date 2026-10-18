@@ -130,6 +130,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
+    public static final String PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT =
+            "partition.inverted_index_storage_format";
+
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
@@ -1314,6 +1317,38 @@ public class PropertyAnalyzer {
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
         }
+    }
+
+    public static TInvertedIndexFileStorageFormat analyzePartitionInvertedIndexFileStorageFormat(
+            Map<String, String> properties) throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            return null;
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("partition.inverted_index_storage_format is only supported in cloud mode");
+        }
+        if (!Config.enable_partition_inverted_index_storage_format_rollout) {
+            properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            LOG.info("Ignore {} because partition inverted index storage format rollout is disabled",
+                    PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            return null;
+        }
+
+        String formatValue = properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        // "default" resolves to the FE config inverted_index_storage_format, which is neither the format the
+        // table was created with nor stable across versions, so a rollout target has to be spelled out.
+        if ("default".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format does not support 'default', "
+                    + "please specify V2, V3 or SNII explicitly");
+        }
+        // V1 has to be caught before the table-level analyzer, which rejects it with a create-index wording.
+        if ("V1".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format only supports V2, V3 and SNII");
+        }
+
+        Map<String, String> formatProperties = new HashMap<>();
+        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, formatValue);
+        return analyzeInvertedIndexFileStorageFormat(formatProperties);
     }
 
     // analyze common boolean properties, such as "in_memory" = "false"

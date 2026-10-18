@@ -17,10 +17,21 @@
 
 package org.apache.doris.cloud.datasource;
 
+import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TSortType;
+import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TTabletType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -29,6 +40,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class CloudInternalCatalogTest {
@@ -67,6 +79,51 @@ public class CloudInternalCatalogTest {
             Assertions.assertEquals(21L, request.getValue().getTableId());
             Assertions.assertEquals(indexIds, request.getValue().getIndexIdsList());
         }
+    }
+
+    @Test
+    public void testCreateTabletMetaUsesCurrentSchemaVersionAndFormat() throws Exception {
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Replica replica = Mockito.mock(Replica.class);
+        Mockito.when(tablet.getId()).thenReturn(100L);
+        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(replica));
+        Mockito.when(replica.getId()).thenReturn(200L);
+
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            OlapFile.TabletMetaCloudPB disabledTabletMeta = createTabletMeta(tablet);
+            Assertions.assertEquals(17, disabledTabletMeta.getSchemaVersion());
+            Assertions.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+                    disabledTabletMeta.getSchema().getInvertedIndexStorageFormat());
+            Assertions.assertFalse(disabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(1, disabledTabletMeta.getRsMetasCount());
+            Assertions.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            OlapFile.TabletMetaCloudPB enabledTabletMeta = createTabletMeta(tablet);
+            Assertions.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+                    enabledTabletMeta.getInvertedIndexStorageFormat());
+            Assertions.assertTrue(enabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+                    enabledTabletMeta.getRsMetas(0).getInvertedIndexStorageFormat());
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
+    }
+
+    private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet) throws Exception {
+        return new CloudInternalCatalog().createTabletMetaBuilder(
+                1L, 2L, 3L, tablet, TTabletType.TABLET_TYPE_DISK, 23, KeysType.DUP_KEYS, (short) 1,
+                Collections.emptySet(), 0.05, Collections.emptyList(), Collections.emptyList(),
+                new DataSortInfo(TSortType.LEXICAL, 0), TCompressionType.LZ4F, TStorageFormat.DEFAULT,
+                "", false, false,
+                "table", 0L, false, false, 17, "size_based",
+                0L, 0L, 0L, 0L, 0L, false, Collections.emptyList(),
+                TInvertedIndexFileStorageFormat.SNII, 0L, false, Collections.emptyList(), 0L,
+                OlapFile.EncryptionAlgorithmPB.PLAINTEXT, 0L, true, 0).build();
     }
 
 }
