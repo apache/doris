@@ -457,6 +457,21 @@ public class AlterTableCommandTest {
         Assertions.assertEquals("{\"a\":1}", replayedOp.getColumnDef().getDefaultValueString());
     }
 
+    @Test
+    void testAddColumnScalarDefaultKeepsEscapedQuotes() {
+        // Unlike the canonical complex default text, a scalar default may contain both quote
+        // characters, and the single-quote form cannot represent that, so the scalar keeps escaped
+        // double quotes; the backslash escaping is what keeps the serialized ALTER parseable.
+        AlterTableCommand command = parseAlter(
+                "ALTER TABLE t ADD COLUMN s STRING DEFAULT 'a\"b''c'");
+        AddColumnOp addColumnOp = (AddColumnOp) command.getOps().get(0);
+        Assertions.assertEquals("a\"b''c", addColumnOp.getColumnDef().getDefaultValueString());
+
+        String serialized = command.toSql();
+        Assertions.assertTrue(serialized.contains("DEFAULT \"a\\\"b''c\""), serialized);
+        Assertions.assertDoesNotThrow(() -> parseAlter(serialized));
+    }
+
     private AlterTableCommand parseAlter(String sql) {
         Plan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(AlterTableCommand.class, plan);

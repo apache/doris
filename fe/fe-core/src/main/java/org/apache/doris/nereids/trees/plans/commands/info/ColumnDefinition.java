@@ -302,8 +302,13 @@ public class ColumnDefinition {
                     } else {
                         // Same replay-safe quoting as Column.toSql(): the DDL parser keeps the text between
                         // the quotes verbatim, so a complex default containing nested double quotes must be
-                        // wrapped in single quotes instead of escaping them.
-                        sb.append("DEFAULT ").append(Column.quoteDefaultValue(value)).append(" ");
+                        // wrapped in single quotes instead of escaping them. A scalar default may itself
+                        // contain both quote characters, and the canonical complex text never contains a
+                        // single quote, so keep the escaped double quotes for scalars.
+                        String quotedValue = type.isArrayType() || type.isMapType() || type.isStructType()
+                                ? Column.quoteDefaultValue(value)
+                                : "\"" + SqlUtils.escapeQuota(value) + "\"";
+                        sb.append("DEFAULT ").append(quotedValue).append(" ");
                     }
                 } else if (type.isBitmapType()) {
                     sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");
