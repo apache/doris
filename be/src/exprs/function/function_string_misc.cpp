@@ -969,20 +969,23 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        bool is_ascii = col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
-        bool from_to_ascii = col_from->is_ascii() && col_to->is_ascii();
         auto impl_vectors = impl_vectors_utf8<false>;
-        if (col_const[1] && col_const[2] && is_ascii) {
-            impl_vectors = impl_vectors_ascii<true>;
-        } else if (col_const[1] && col_const[2] && from_to_ascii) {
-            // from/to are ASCII constants; decide per source row so mostly-ASCII
-            // source columns (e.g. URL with a few multi-byte chars) never fall into
-            // the unordered_map-per-character path for ASCII rows.
-            impl_vectors = impl_vectors_mixed<true>;
-        } else if (col_const[1] && col_const[2]) {
-            impl_vectors = impl_vectors_utf8<true>;
-        } else if (is_ascii) {
-            impl_vectors = impl_vectors_ascii<false>;
+        if (col_const[1] && col_const[2]) {
+            // Non-ASCII mappings require UTF-8 processing regardless of the source.
+            const bool mapping_ascii = col_from->is_ascii() && col_to->is_ascii();
+            if (mapping_ascii) {
+                const bool source_ascii = col_source->is_ascii();
+                impl_vectors = source_ascii ? impl_vectors_ascii<true> : impl_vectors_mixed<true>;
+            } else {
+                impl_vectors = impl_vectors_utf8<true>;
+            }
+        } else {
+            // A non-ASCII source needs no mapping scans when the mappings vary by row.
+            const bool all_ascii =
+                    col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
+            if (all_ascii) {
+                impl_vectors = impl_vectors_ascii<false>;
+            }
         }
         impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
