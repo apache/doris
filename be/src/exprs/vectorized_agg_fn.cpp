@@ -215,9 +215,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                 return Status::InternalError("Agg state Function must input 1 argument but get {}",
                                              argument_types.size());
             }
-            if (argument_types[0]->is_nullable()) {
-                return Status::InternalError("Agg state function input type must be not nullable");
-            }
+            // UNION/MERGE skip an outer SQL NULL before decoding its state payload.
+            // The logical nullable wrapper is retained for that runtime dispatch.
             if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Agg state function input type must be agg_state but get {}",

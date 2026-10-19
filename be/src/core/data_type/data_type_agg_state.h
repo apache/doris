@@ -63,7 +63,8 @@ public:
         if (_agg_function == nullptr ||
             !BeExecVersionManager::check_be_exec_version(be_exec_version)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "DataTypeAggState function get failed, type={}", do_get_name());
+                            "DataTypeAggState function get failed, type={}",
+                            DataTypeAggState::do_get_name());
         }
         // Keep the published AGG_STATE column/storage contract independent of query options.
         // Only nullable byte encoding is adapted; the nested aggregate always executes V2.
