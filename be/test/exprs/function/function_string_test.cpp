@@ -747,6 +747,53 @@ TEST(function_string_test, function_string_upper_test) {
     }
 }
 
+TEST(function_string_test, function_string_case_mixed_ascii_runs_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet lower_data = {{{std::string("")}, std::string("")}};
+    DataSet upper_data = lower_data;
+    // Each row is shorter than a SIMD register, but the consecutive run spans multiple registers.
+    for (int i = 0; i < 32; ++i) {
+        lower_data.push_back({{std::string("aB")}, std::string("ab")});
+        upper_data.push_back({{std::string("aB")}, std::string("AB")});
+    }
+    lower_data.insert(
+            lower_data.end(),
+            {
+                    {{std::string("\u0130")},
+                     std::string("i\u0307")}, // UTF-8 grows from 2 to 3 bytes.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("AFTER")}, std::string("after")},
+                    {{Null()}, Null()},
+                    {{std::string("EXPANSION")}, std::string("expansion")},
+                    {{std::string("\u212A")}, std::string("k")}, // UTF-8 shrinks from 3 to 1 byte.
+                    {{std::string("")}, std::string("")}, // An empty-only run between Unicode rows.
+                    {{std::string("ΟΣ")},
+                     std::string("ος")}, // Keep contextual final sigma mapping.
+                    {{std::string("你好A")}, std::string("你好a")}, // Consecutive Unicode rows.
+                    {{std::string("A\0Z", 3)}, std::string("a\0z", 3)},
+                    {{std::string("TAIL")}, std::string("tail")},
+                    {{std::string("")}, std::string("")},
+            });
+    upper_data.insert(
+            upper_data.end(),
+            {
+                    {{std::string("\u0390")}, std::string("\u0399\u0308\u0301")}, // 2 to 6 bytes.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("after")}, std::string("AFTER")},
+                    {{Null()}, Null()},
+                    {{std::string("expansion")}, std::string("EXPANSION")},
+                    {{std::string("\u0131")}, std::string("I")}, // UTF-8 shrinks from 2 to 1 byte.
+                    {{std::string("")}, std::string("")},
+                    {{std::string("straße")}, std::string("STRASSE")},
+                    {{std::string("你好a")}, std::string("你好A")},
+                    {{std::string("a\0z", 3)}, std::string("A\0Z", 3)},
+                    {{std::string("tail")}, std::string("TAIL")},
+                    {{std::string("")}, std::string("")},
+            });
+    check_function_all_arg_comb<DataTypeString, true>("lower", input_types, lower_data);
+    check_function_all_arg_comb<DataTypeString, true>("upper", input_types, upper_data);
+}
+
 // LOWER/UPPER/INITCAP case-map through the ICU root locale, independent of the
 // process default locale. Under a Turkish (tr_TR) default locale ICU maps ASCII
 // 'I' -> 'ı' (U+0131) and 'i' -> 'İ' (U+0130); the root locale keeps the plain
