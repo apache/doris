@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -298,56 +300,11 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        List<Column> visibleColumns = sink.getCols().stream()
-                .filter(Column::isVisible)
-                .collect(ImmutableList.toImmutableList());
-        // The connector-reserved passthrough columns (iceberg v3 row-lineage) are the hidden target columns
-        // marked reservedPassthrough. Derive their names from the sink's target schema so the meta-column
-        // check below stays name-based here (this site sees output-expression names, not Column objects) while
-        // fe-core no longer string-matches the iceberg column names.
-        List<String> reservedPassthroughNames = sink.getCols().stream()
-                .filter(Column::isReservedPassthrough)
-                .map(Column::getName)
-                .collect(ImmutableList.toImmutableList());
-        int dataExprCount = 0;
-        for (NamedExpression expr : outputExprs) {
-            if (!isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
-                dataExprCount++;
-            }
+        if (sink.isWritesDataFiles()) {
+            validateMergeNoLossyCoercion(sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
         }
-        if (dataExprCount != visibleColumns.size()) {
-            if (sink.getOutputExprs().equals(outputExprs)) {
-                return sink;
-            }
-            return sink.withOutputExprs(outputExprs);
-        }
-
-        boolean changed = false;
-        int columnIndex = 0;
-        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
-        for (NamedExpression expr : outputExprs) {
-            if (isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
-                castExprs.add(expr);
-                continue;
-            }
-            Column column = visibleColumns.get(columnIndex++);
-            DataType targetType = DataType.fromCatalogType(column.getType());
-            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
-            NamedExpression namedExpr;
-            if (castExpr instanceof NamedExpression) {
-                namedExpr = (NamedExpression) castExpr;
-                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
-                    namedExpr = new Alias(namedExpr, column.getName());
-                }
-            } else {
-                namedExpr = new Alias(castExpr, column.getName());
-            }
-            if (!namedExpr.equals(expr)) {
-                changed = true;
-            }
-            castExprs.add(namedExpr);
-        }
-        if (!changed) {
+        List<NamedExpression> castExprs = coerceMergeOutput(sink.getCols(), outputExprs);
+        if (castExprs.equals(outputExprs)) {
             if (sink.getOutputExprs().equals(outputExprs)) {
                 return sink;
             }
@@ -357,17 +314,66 @@ public class BindExpression implements AnalysisRuleFactory {
         return (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
     }
 
-    private boolean isIcebergMergeMetaColumn(String name, List<String> reservedPassthroughNames) {
-        if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
-            return true;
+    /**
+     * Rejects a lossy implicit cast in the lineage of a Variant target column of a merge sink that
+     * writes data files. See {@link #coerceMergeOutput} for the layout of the sink output.
+     */
+    static void validateMergeNoLossyCoercion(
+            List<Column> sinkColumns, Plan sourcePlan, CTEContext cteContext) {
+        List<Column> targetColumns = Lists.newArrayList();
+        List<Integer> sourceOrdinals = Lists.newArrayList();
+        int sourceOrdinal = 2;
+        for (Column column : sinkColumns) {
+            if (!column.isVisible() && !column.isReservedPassthrough()) {
+                continue;
+            }
+            if (column.isVisible()) {
+                targetColumns.add(column);
+                sourceOrdinals.add(sourceOrdinal);
+            }
+            sourceOrdinal++;
         }
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
-            return true;
+        VariantWritePlanValidator.validateNoLossyCoercion(targetColumns, sourcePlan, sourceOrdinals, cteContext);
+    }
+
+    /**
+     * Casts the visible data columns of a merge sink output to their target types. The output is the
+     * operation and row-id routing columns followed by one column per visible or connector-reserved
+     * passthrough target column, in target order. Columns are matched by position rather than by name,
+     * since a data column may be named like a routing column, such as `operation`.
+     */
+    static List<NamedExpression> coerceMergeOutput(List<Column> sinkColumns, List<NamedExpression> outputExprs) {
+        List<Column> outputColumns = sinkColumns.stream()
+                .filter(column -> column.isVisible() || column.isReservedPassthrough())
+                .collect(ImmutableList.toImmutableList());
+        if (outputExprs.size() != 2 + outputColumns.size()
+                || !MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(outputExprs.get(0).getName())
+                || !Column.ICEBERG_ROWID_COL.equalsIgnoreCase(outputExprs.get(1).getName())) {
+            throw new AnalysisException("Row-level merge sink output is not aligned with its routing columns "
+                    + "and target columns");
         }
-        // Connector-reserved passthrough columns (iceberg v3 row-lineage), matched case-insensitively by name
-        // — the names come from the sink's target Columns marked reservedPassthrough, so fe-core no longer
-        // knows the iceberg column names. The reserved set is tiny (0-2), so a linear scan is fine.
-        return reservedPassthroughNames.stream().anyMatch(n -> n.equalsIgnoreCase(name));
+        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
+        castExprs.add(outputExprs.get(0));
+        castExprs.add(outputExprs.get(1));
+        for (int i = 0; i < outputColumns.size(); ++i) {
+            Column column = outputColumns.get(i);
+            NamedExpression expr = outputExprs.get(i + 2);
+            castExprs.add(column.isVisible() ? coerceToColumn(expr, column) : expr);
+        }
+        return castExprs;
+    }
+
+    private static NamedExpression coerceToColumn(NamedExpression expr, Column column) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+        if (castExpr instanceof NamedExpression) {
+            NamedExpression namedExpr = (NamedExpression) castExpr;
+            if (column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                return namedExpr;
+            }
+            return new Alias(namedExpr, column.getName());
+        }
+        return new Alias(castExpr, column.getName());
     }
 
     private static boolean hasUnboundPlan(Plan plan) {

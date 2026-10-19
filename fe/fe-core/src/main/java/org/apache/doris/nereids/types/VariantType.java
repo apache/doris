@@ -315,4 +315,20 @@ public class VariantType extends PrimitiveType {
                 || dataType.isUuidType();
     }
 
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
+    }
+
 }

@@ -66,6 +66,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.util.PropertyUtil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -117,6 +118,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // Older backends cannot hash a BINARY or FIXED value (ColumnVarbinary) in the exchange.
     private static final int SUPPORT_BINARY_ROUTING_EXEC_VERSION = 19;
     private static final String TRANSFORM_PARTITION_FUNCTION = "iceberg_transform";
+    // Shredded VARIANT values are written as typed Parquet columns, which Doris does not produce.
+    private static final String PARQUET_SHRED_VARIANTS = "write.parquet.shred-variants";
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
@@ -194,7 +197,6 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     @Override
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
-        validateWriteSchema(handle);
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         IcebergConnectorTransaction transaction = currentTransaction(session);
 
@@ -204,6 +206,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+        if (schemaContext != null) {
+            // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
+            validateVariantWrite(handle, schemaContext);
+        }
         validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
@@ -392,22 +398,28 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 || "TIMESTAMPTZ".equals(typeName);
     }
 
-    static void validateWriteSchema(List<ConnectorColumn> columns, boolean writesDataFiles) {
-        if (!writesDataFiles) {
+    /**
+     * Checks a write of data files whose target holds a VARIANT, at any depth, against the table it writes:
+     * VARIANT needs format-version 3, and Doris writes it only unshredded to Parquet data files.
+     */
+    static void validateVariantWrite(List<ConnectorColumn> columns, boolean writesDataFiles, int formatVersion,
+            FileFormat fileFormat, Map<String, String> writerProperties) {
+        if (!writesDataFiles || columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
             return;
         }
-        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
-            // Reject the whole data-file write: validating only selected columns would let an
-            // unchanged Variant target flow through a writer that cannot preserve its physical identity.
-            throw new DorisConnectorException(
-                    "Iceberg VARIANT columns are read-only and cannot be written");
+        IcebergWriterHelper.validateVariantWriteFormat(formatVersion, fileFormat);
+        if (PropertyUtil.propertyAsBoolean(writerProperties, PARQUET_SHRED_VARIANTS, false)) {
+            throw new DorisConnectorException("Doris currently supports only unshredded Iceberg VARIANT writes; set "
+                    + PARQUET_SHRED_VARIANTS + "=false before writing");
         }
     }
 
-    static void validateWriteSchema(ConnectorWriteHandle handle) {
+    private static void validateVariantWrite(ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
         // The explicit INSERT column list can omit an unchanged Variant column, but the data writer
         // still binds the complete target schema and therefore must validate that complete shape.
-        validateWriteSchema(handle.getBoundTargetColumns(), handle.isWritesDataFiles());
+        validateVariantWrite(handle.getBoundTargetColumns(), handle.isWritesDataFiles(),
+                schemaContext.getFormatVersion(), schemaContext.getFileFormat(),
+                schemaContext.getWriterProperties());
     }
 
     private static void validateNestedPartitionWriteCompatibility(
@@ -895,8 +907,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
                 table, tableHandle.getTableName(), Optional.empty(),
                 mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
-        // REWRITE resolves its schema after beginWrite, so its rolling-upgrade fence must run here
-        // against the same partition spec that the compaction sink will actually use.
+        // REWRITE resolves its schema after beginWrite, so its Variant check and rolling-upgrade fence must run
+        // here against the same schema and partition spec that the compaction sink will actually use.
+        validateVariantWrite(handle, rewriteSchemaContext);
         validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
         TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);

@@ -60,11 +60,16 @@ public class OracleTypeHandler extends DefaultTypeHandler {
 
     private final String[] sensitiveValues;
 
+    // Whether the catalog connects through Oracle's driver. An Oracle-mode OceanBase catalog shares this handler but
+    // connects through OceanBase's driver, which has no oracle.jdbc classes.
+    private final boolean oracleDriver;
+
     public OracleTypeHandler() {
-        this(new String[0]);
+        this("ORACLE");
     }
 
-    public OracleTypeHandler(String... sensitiveValues) {
+    public OracleTypeHandler(String tableType, String... sensitiveValues) {
+        this.oracleDriver = "ORACLE".equalsIgnoreCase(tableType);
         this.sensitiveValues = sensitiveValues.clone();
     }
 
@@ -123,14 +128,17 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                                                  int fetchSize) throws SQLException {
         // Detect driver version when creating the statement (first time we have access to connection)
         detectDriverVersion(conn);
-        // ALTER SESSION alone leaves the driver's TSLTZ zone unset. Initialize every borrowed connection.
-        try {
-            Connection physical = conn.unwrap(Connection.class);
-            Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
-                    physical.getClass().getClassLoader());
-            oracleConnection.getMethod("setSessionTimeZone", String.class).invoke(conn.unwrap(oracleConnection), "UTC");
-        } catch (ReflectiveOperationException e) {
-            throw new SQLException("Failed to initialize Oracle session time zone", e);
+        // ALTER SESSION alone leaves the Oracle driver's TSLTZ zone unset. Initialize every borrowed connection.
+        if (oracleDriver) {
+            try {
+                Connection physical = conn.unwrap(Connection.class);
+                Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
+                        physical.getClass().getClassLoader());
+                oracleConnection.getMethod("setSessionTimeZone", String.class)
+                        .invoke(conn.unwrap(oracleConnection), "UTC");
+            } catch (ReflectiveOperationException e) {
+                throw new SQLException("Failed to initialize Oracle session time zone", e);
+            }
         }
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);

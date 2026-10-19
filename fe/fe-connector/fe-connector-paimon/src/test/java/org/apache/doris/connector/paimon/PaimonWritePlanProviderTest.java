@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -46,6 +47,18 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
+
+    @Test
+    public void charPaddingFollowsTheSessionVariableAndDefaultsToOn() {
+        // ConnectorSessionBuilder passes every session variable on, so a planned write always has this one; a
+        // session without it pads, as the variable does by default. MUTATION: ignoring the variable -> red.
+        Assertions.assertTrue(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.singletonMap("enable_paimon_write_char_padding", "true"))));
+        Assertions.assertFalse(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.singletonMap("enable_paimon_write_char_padding", "false"))));
+        Assertions.assertTrue(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.emptyMap())));
+    }
 
     @Test
     public void changelogModeMatchesJniWriterEncoding() {
@@ -249,19 +262,81 @@ public class PaimonWritePlanProviderTest {
                 Collections.singletonList("part"), Collections.emptyMap()).getMode());
     }
 
+    @Test
+    public void charRouteFieldsFallBackToSingleWriterWhenCharPaddingIsOn() {
+        // The writer pads a CHAR value before Paimon computes the partition and the bucket of the row, while the
+        // BE exchange would hash the unpadded value. Several writers would then write and compact one bucket, and
+        // Paimon gives up committing the compaction (LSM conflicts) after the rows are committed, so a
+        // full-compaction changelog goes missing. MUTATION: routing CHAR natively with padding on -> red.
+        List<DataField> charKey = Arrays.asList(
+                new DataField(0, "c", DataTypes.CHAR(3).notNull()),
+                new DataField(1, "v", DataTypes.INT()));
+        Map<String, String> options = Collections.singletonMap(CoreOptions.BUCKET.key(), "4");
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(charKey,
+                Collections.emptyList(), Collections.singletonList("c"), options, BucketMode.HASH_FIXED, true)
+                .getMode());
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey,
+                Collections.emptyList(), Collections.singletonList("c"), options, BucketMode.HASH_FIXED, false)
+                .getPartitionFunction());
+        // The partition fields are routing fields as well.
+        List<DataField> charPartition = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(charPartition,
+                Collections.singletonList("part"), Collections.emptyMap(), true).getMode());
+        Assertions.assertEquals("paimon_fixed_bucket", fixedBucketDistribution(charPartition,
+                Collections.singletonList("part"), Collections.emptyMap(), false).getPartitionFunction());
+    }
+
+    @Test
+    public void charRouteFieldsThatTheWriterLeavesUnpaddedAreRoutedNatively() {
+        // ORC pads every CHAR value it writes, so the writer pads only the partition values of a table that writes
+        // ORC files, and it never pads the table's rowkind.field. BE hashes the bytes the writer writes for such a
+        // field, so the table keeps its parallel bucket writers while padding is on. MUTATION: falling back for
+        // every CHAR routing field while padding is on, or ignoring file.format.per.level, or the rowkind.field
+        // -> red; routing the CHAR partition field of an ORC table natively -> red.
+        List<DataField> charKey = Arrays.asList(
+                new DataField(0, "c", DataTypes.CHAR(3).notNull()),
+                new DataField(1, "v", DataTypes.INT()));
+        Map<String, String> orc = new HashMap<>();
+        orc.put(CoreOptions.BUCKET.key(), "4");
+        orc.put(CoreOptions.FILE_FORMAT.key(), "orc");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey, Collections.emptyList(),
+                Collections.singletonList("c"), orc, BucketMode.HASH_FIXED, true).getPartitionFunction());
+        Map<String, String> orcAtALevel = new HashMap<>();
+        orcAtALevel.put(CoreOptions.BUCKET.key(), "4");
+        orcAtALevel.put(CoreOptions.FILE_FORMAT_PER_LEVEL.key(), "5:orc");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey, Collections.emptyList(),
+                Collections.singletonList("c"), orcAtALevel, BucketMode.HASH_FIXED, true).getPartitionFunction());
+
+        // A table partitioned by a CHAR field and bucketed by id.
+        List<DataField> charPartition = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT().notNull()),
+                new DataField(1, "p", DataTypes.CHAR(3).notNull()));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(charPartition,
+                Collections.singletonList("p"), Arrays.asList("id", "p"), orc, BucketMode.HASH_FIXED, true)
+                .getMode());
+        Map<String, String> rowKindPartition = new HashMap<>();
+        rowKindPartition.put(CoreOptions.BUCKET.key(), "4");
+        rowKindPartition.put(CoreOptions.ROWKIND_FIELD.key(), "p");
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charPartition,
+                Collections.singletonList("p"), Arrays.asList("id", "p"), rowKindPartition, BucketMode.HASH_FIXED,
+                true).getPartitionFunction());
+    }
+
     private static ConnectorWriteDistribution.Mode writeDistribution(List<String> partitionKeys,
             List<String> primaryKeys, Map<String, String> options, BucketMode expectedBucketMode) {
         List<DataField> fields = Arrays.asList(
                 new DataField(0, "id", DataTypes.INT().notNull()),
                 new DataField(1, "dt", DataTypes.DATE().notNull()),
                 new DataField(2, "region", DataTypes.STRING().notNull()));
-        return writeDistribution(fields, partitionKeys, primaryKeys, options, expectedBucketMode)
+        return writeDistribution(fields, partitionKeys, primaryKeys, options, expectedBucketMode, true)
                 .getMode();
     }
 
     private static ConnectorWriteDistribution writeDistribution(List<DataField> fields,
             List<String> partitionKeys, List<String> primaryKeys, Map<String, String> options,
-            BucketMode expectedBucketMode) {
+            BucketMode expectedBucketMode, boolean charPadding) {
         int highestFieldId = fields.stream().mapToInt(DataField::id).max().getAsInt();
         FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
                 new Path("file:///tmp/paimon-write-distribution/tbl"),
@@ -269,17 +344,24 @@ public class PaimonWritePlanProviderTest {
         Assertions.assertEquals(expectedBucketMode, table.bucketMode(), "fixture bucket mode");
         PaimonTableHandle handle = new PaimonTableHandle("db", "tbl", partitionKeys, primaryKeys);
         handle.setPaimonTable(table);
-        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(null, handle);
+        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(new PropertySession(
+                Collections.singletonMap(PaimonWritePlanProvider.ENABLE_CHAR_PADDING, Boolean.toString(charPadding))),
+                handle);
     }
 
     /** A compacting append table with 4 fixed buckets keyed by {@code id}. */
     private static ConnectorWriteDistribution fixedBucketDistribution(List<DataField> fields,
             List<String> partitionKeys, Map<String, String> extraOptions) {
+        return fixedBucketDistribution(fields, partitionKeys, extraOptions, true);
+    }
+
+    private static ConnectorWriteDistribution fixedBucketDistribution(List<DataField> fields,
+            List<String> partitionKeys, Map<String, String> extraOptions, boolean charPadding) {
         Map<String, String> options = new HashMap<>(extraOptions);
         options.put(CoreOptions.BUCKET.key(), "4");
         options.put(CoreOptions.BUCKET_KEY.key(), "id");
         return writeDistribution(fields, partitionKeys, Collections.emptyList(), options,
-                BucketMode.HASH_FIXED);
+                BucketMode.HASH_FIXED, charPadding);
     }
 
     private static Map<String, String> fixedBucketOptions(boolean writeOnly) {
@@ -334,5 +416,55 @@ public class PaimonWritePlanProviderTest {
                 return operation;
             }
         };
+    }
+
+    /** A session holding boolean session variables, read as ConnectorSessionImpl reads them. */
+    private static final class PropertySession implements ConnectorSession {
+        private final Map<String, String> properties;
+
+        PropertySession(Map<String, String> properties) {
+            this.properties = properties;
+        }
+
+        @Override
+        public String getQueryId() {
+            return "q";
+        }
+
+        @Override
+        public String getUser() {
+            return "u";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en_US";
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 0;
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "c";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            String value = properties.get(name);
+            return value == null ? null : type.cast(Boolean.valueOf(value));
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
+        }
     }
 }

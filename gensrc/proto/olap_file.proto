@@ -572,6 +572,9 @@ message TabletSchemaPB {
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
 
+    reserved 37; // deprecated binlog_timestamp_col_idx
+    reserved 38; // deprecated binlog_lsn_col_idx
+
     // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
     optional int32 commit_tso_col_idx = 39 [default = -1];
 
@@ -633,6 +636,9 @@ message TabletSchemaCloudPB {
 
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
+
+    reserved 38; // deprecated binlog_timestamp_col_idx
+    reserved 39; // deprecated binlog_lsn_col_idx
 
     // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
     optional int32 commit_tso_col_idx = 40 [default = -1];
@@ -763,6 +769,9 @@ message TabletMetaPB {
     optional TabletRolePB tablet_role = 36 [default = TABLET_ROLE_DATA];
     // Used by a base tablet to find its paired row-binlog tablet.
     optional int64 binlog_tablet_id = 37;
+    reserved 42; // deprecated row_binlog_schema
+    reserved 43; // deprecated row_binlog_rs_metas
+    reserved 44; // deprecated row_binlog_schema_hash
 
     // For cloud
     optional int64 index_id = 1000;
@@ -827,6 +836,8 @@ message TabletMetaCloudPB {
     optional TabletRolePB tablet_role = 41 [default = TABLET_ROLE_DATA];
     // Used by a base tablet to find its paired row-binlog tablet.
     optional int64 binlog_tablet_id = 42;
+    reserved 43; // deprecated row_binlog_rs_metas
+    reserved 44; // deprecated row_binlog_schema_hash
 
     // Use for selectdb-cloud
     optional string table_name = 101;
@@ -846,6 +857,7 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
+    reserved 5; // deprecated is_binlog_delvec
 }
 
 // Local-mode only binlog metadata.

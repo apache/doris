@@ -168,13 +168,17 @@ public class ExecutionProfile {
     }
 
     private boolean updateMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
-            List<RuntimeProfile> taskProfile, boolean isDone) {
+            List<RuntimeProfile> taskProfile, List<RuntimeProfile> profileNodes, boolean isDone) {
         multiBeProfileLock.writeLock().lock();
         try {
             if (!isDone && fragmentIdDoneBackends.get(fragmentId).contains(backendHBAddress)) {
                 return false;
             }
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
+            // Publish both rendered forms before completion becomes visible to profile readers.
+            for (RuntimeProfile profileNode : profileNodes) {
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
+            }
             if (isDone) {
                 fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
             }
@@ -303,11 +307,8 @@ public class ExecutionProfile {
                 profileNode.setIsDone(isDone);
                 profileNodes.add(profileNode);
             }
-            if (!updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, isDone)) {
+            if (!updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, profileNodes, isDone)) {
                 continue;
-            }
-            for (RuntimeProfile profileNode : profileNodes) {
-                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
         }
 

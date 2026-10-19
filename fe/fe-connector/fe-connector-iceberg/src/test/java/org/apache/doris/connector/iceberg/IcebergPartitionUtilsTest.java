@@ -506,6 +506,68 @@ public class IcebergPartitionUtilsTest {
                 IcebergPartitionUtils.getPartitionDataJson(pd, spec, ZoneOffset.UTC));
     }
 
+    @Test
+    public void partitionDataJsonRejectsFieldWhoseSourceColumnWasDropped() {
+        // From branch-4.x #68481: once the source column of a historical identity field is dropped, the field has no
+        // type and its value cannot be serialized. The JSON is the partition of the delete files BE writes for DML,
+        // so it must fail rather than carry a null entry. MUTATION: restoring the null fallback -> "[null]" -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void partitionDataJsonKeepsNullOfFieldWhoseSourceColumnWasDropped() {
+        // A null needs no type: the void field a v1 table keeps for a removed partition field is always null, and a
+        // historical NULL partition is one, so both still serialize after the source column is dropped.
+        // MUTATION: serializing a null by its type -> UnsupportedOperationException -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, null);
+
+        Assertions.assertEquals("[null]", IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void rawPartitionKeyIdentifiesTupleThatCannotBeSerialized() {
+        // The scanned-partition count keys such a tuple by its raw values: binary as hex (a ByteBuffer has no
+        // content-based toString), and a null apart from the string "null".
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "s", Types.StringType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").identity("b").identity("s")
+                .build());
+        table.updateSpec().removeField("p").removeField("b").commit();
+        table.updateSchema().deleteColumn("p").deleteColumn("b").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+        pd.set(1, ByteBuffer.wrap(new byte[] {0x61, 0x62}));
+        pd.set(2, null);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+        Assertions.assertEquals("[\"7\",\"0x6162\",null]", IcebergPartitionUtils.getRawPartitionKey(pd));
+        pd.set(2, "null");
+        Assertions.assertEquals("[\"7\",\"0x6162\",\"null\"]", IcebergPartitionUtils.getRawPartitionKey(pd));
+    }
+
     // ---- parsePartitionValueFromString: legacy IcebergUtils.parsePartitionValueFromString matrix (T04) ----
     // The write-direction inverse of serializePartitionValue: BE sends human-readable partition strings, the
     // connector converts them to iceberg internal partition objects for PartitionData. Mirrors legacy cell-by-cell.
@@ -594,6 +656,17 @@ public class IcebergPartitionUtilsTest {
         // BE may send sub-second precision; the micros fraction must survive (not be truncated to seconds).
         Assertions.assertEquals(1609459200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 00:00:00.123456", Types.TimestampType.withoutZone(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseTimeIsInverseOfSerialize() {
+        // From branch-4.x #68481: a DELETE on a file of a historical TIME partition commits its delete file under
+        // the partition parsed back from partition_data_json, so the parse must accept what serialize renders.
+        long micros = 3661_123_456L;
+        String serialized = IcebergPartitionUtils.serializePartitionValue(Types.TimeType.get(), micros, ZoneOffset.UTC);
+        Assertions.assertEquals("01:01:01.123456", serialized);
+        Assertions.assertEquals(Long.valueOf(micros), IcebergPartitionUtils.parsePartitionValueFromString(
+                serialized, Types.TimeType.get(), ZoneOffset.UTC));
     }
 
     @Test

@@ -23,6 +23,7 @@ suite("test_variant_json_functions", "p0") {
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
+    // parse_to_variant only accepts JSON documents, so the Variant string row is a JSON string.
     sql """
         INSERT INTO test_variant_json_functions
         SELECT k, parse_to_variant(doc) FROM (
@@ -30,7 +31,7 @@ suite("test_variant_json_functions", "p0") {
             UNION ALL SELECT 2, '{"a":2,"s":"yz","b":{"c":[3]},"n":{"m":true}}'
             UNION ALL SELECT 3, '[1,"two",{"three":3}]'
             UNION ALL SELECT 4, '42'
-            UNION ALL SELECT 5, 'abc'
+            UNION ALL SELECT 5, '"abc"'
             UNION ALL SELECT 6, NULL) t
     """
 
