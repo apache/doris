@@ -65,7 +65,17 @@ public class HboScanDescriptor {
     private static final String PARTITION_IDENTITY_MARK = "#pt";
     private static final String TABLET_IDENTITY_MARK = "#tb";
     private static final String INDEX_IDENTITY_MARK = "#ix";
+    private static final String TABLE_IDENTITY_MARK = "#ti";
 
+    /**
+     * The qualified name of the table, which is not its identity: {@code DROP TABLE db.t} and the
+     * creation of another {@code db.t} with the same row count leaves the name, the partitions and the
+     * version unchanged while the data is unrelated, and an entry pinned for the first table would still
+     * match. The id of the table is stable for the lifetime of the table (a rename keeps it) and differs
+     * for every other table, so it is part of the identity. It is {@link #UNKNOWN} for a relation whose
+     * id is not stable (an external table) or not known.
+     */
+    private final long tableId;
     private final String table;
     private final long visibleVersion;
     private final long scanRows;
@@ -96,10 +106,11 @@ public class HboScanDescriptor {
      */
     private final String indexIdentity;
 
-    HboScanDescriptor(String table, long visibleVersion, long scanRows, RowsKind rowsKind,
+    HboScanDescriptor(String table, long tableId, long visibleVersion, long scanRows, RowsKind rowsKind,
             long selectedPartitions, long totalPartitions, String partitionIdentity,
             String tabletIdentity, String indexIdentity) {
         this.table = table;
+        this.tableId = tableId;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
         this.rowsKind = rowsKind;
@@ -243,7 +254,7 @@ public class HboScanDescriptor {
                 ? ((LogicalOlapScan) scan).getManuallySpecifiedTabletIds()
                 : Collections.emptyList();
         Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
-        return new HboScanDescriptor(qualifiedNameOf(table), table.getVisibleVersion(),
+        return new HboScanDescriptor(qualifiedNameOf(table), table.getId(), table.getVisibleVersion(),
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size(),
                 partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()),
@@ -256,7 +267,7 @@ public class HboScanDescriptor {
      * reports that it cannot compare this scan instead of judging it stale.
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
-        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, UNKNOWN,
+        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, UNKNOWN, UNKNOWN,
                 RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "", "");
     }
 
@@ -364,6 +375,7 @@ public class HboScanDescriptor {
         String identity = parts[0];
         int firstMark = identity.indexOf('#');
         String table = firstMark < 0 ? identity : identity.substring(0, firstMark);
+        long tableId = UNKNOWN;
         String partitionIdentity = "";
         String tabletIdentity = "";
         String indexIdentity = "";
@@ -375,16 +387,19 @@ public class HboScanDescriptor {
                     tabletIdentity = marked.substring(TABLET_IDENTITY_MARK.length());
                 } else if (marked.startsWith(INDEX_IDENTITY_MARK.substring(1) + ":")) {
                     indexIdentity = marked.substring(INDEX_IDENTITY_MARK.length());
+                } else if (marked.startsWith(TABLE_IDENTITY_MARK.substring(1) + ":")) {
+                    tableId = parseLong(marked.substring(TABLE_IDENTITY_MARK.length()));
                 }
             }
         }
-        return new HboScanDescriptor(table, version, rows, kind, selected, total, partitionIdentity,
-                tabletIdentity, indexIdentity);
+        return new HboScanDescriptor(table, tableId, version, rows, kind, selected, total,
+                partitionIdentity, tabletIdentity, indexIdentity);
     }
 
     /**
-     * The identity of this scan inside a canonical form: the table, and the partitions it selects when
-     * it does not read all of them ({@code db.t#pt:10001:10002}).
+     * The identity of this scan inside a canonical form: the table, the partitions it selects when it
+     * does not read all of them ({@code db.t#pt:10001:10002}) and the id of the table when it is known
+     * ({@code db.t#ti:1234}).
      */
     public String getShapeIdentity() {
         StringBuilder sb = new StringBuilder(table);
@@ -397,7 +412,15 @@ public class HboScanDescriptor {
         if (!indexIdentity.isEmpty()) {
             sb.append(INDEX_IDENTITY_MARK).append(':').append(indexIdentity);
         }
+        if (tableId != UNKNOWN) {
+            sb.append(TABLE_IDENTITY_MARK).append(':').append(tableId);
+        }
         return sb.toString();
+    }
+
+    /** The id of the table this scan reads, or {@link #UNKNOWN} when the relation has not one. */
+    public long getTableId() {
+        return tableId;
     }
 
     /** The tablets the scan selects explicitly, as stable ids, empty when it reads whole partitions. */

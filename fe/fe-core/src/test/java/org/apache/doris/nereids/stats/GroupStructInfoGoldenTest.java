@@ -402,6 +402,22 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAScanNamesTheIdOfItsTable() {
+        // DROP TABLE t1 and CREATE of another t1 with the same row count leaves the name, the partitions
+        // and the visible version unchanged, so only the id of the table tells the two scans apart
+        GroupStructInfo original = built("filter_of_a_table");
+        GroupStructInfo recreated = built("filter_of_a_recreated_table");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(original.getFingerprint(mode), recreated.getFingerprint(mode),
+                    "two tables of one name share a key in mode " + mode);
+        }
+        Assertions.assertTrue(original.getCanonical(WITH_LITERAL).contains("#ti:0"),
+                "the id of the table is not in the key: " + original.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(recreated.getCanonical(WITH_LITERAL).contains("#ti:7"),
+                "the id of the table is not in the key: " + recreated.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testTheJoinChainIsAssociatedTheSameWayBothWays() {
         // (t1 join t2) join t3 and t1 join (t2 cross join t3) carry the same two conditions over the
         // same three scans: a chain is associative, so the two plans must render one descriptor - the
@@ -890,6 +906,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("scan_only", "one olap scan", GroupStructInfoGoldenTest::scanOnly));
         cases.add(new PlanCase("filter_literal", "filter with one literal comparison over a scan",
                 GroupStructInfoGoldenTest::filterLiteral));
+        cases.add(new PlanCase("filter_of_a_table",
+                "a filter over the table t1, which names the id of that table",
+                GroupStructInfoGoldenTest::filterOfATable));
+        cases.add(new PlanCase("filter_of_a_recreated_table",
+                "the same filter over another table of the same name (dropped and recreated): a different key",
+                GroupStructInfoGoldenTest::filterOfARecreatedTable));
         cases.add(new PlanCase("filter_slot_equal_slot",
                 "filter comparing two slots of one scan (both literal modes coincide)",
                 GroupStructInfoGoldenTest::filterSlotEqualSlot));
@@ -1078,6 +1100,25 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(0, "t1");
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(t1.getOutput().get(0), new IntegerLiteral(1))), t1));
+    }
+
+    private static GroupStructInfo filterOfATable() {
+        return filterOfTableWithId(0);
+    }
+
+    private static GroupStructInfo filterOfARecreatedTable() {
+        return filterOfTableWithId(7);
+    }
+
+    /**
+     * A filter over the table named t1, read from the table with the given id. Two tables of one name
+     * have the same name, the same partitions and the same row count: only the id makes the scans
+     * different, and a pinned entry of one must not be applied to the other.
+     */
+    private static GroupStructInfo filterOfTableWithId(long tableId) {
+        LogicalOlapScan t1 = scan(tableId, "t1");
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new IsNull(t1.getOutput().get(0))), t1));
     }
 
     private static GroupStructInfo joinResidualConditionsPerModeOrder() {

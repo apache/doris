@@ -37,15 +37,41 @@ public class HboScanDescriptorIdentityTest {
 
     private static HboScanDescriptor descriptor(String table, List<Long> selectedIds, long totalPartitions,
             List<Long> selectedTabletIds) {
-        return new HboScanDescriptor(table, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
-                selectedIds.size(), totalPartitions,
+        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, 3, 1000,
+                HboScanDescriptor.RowsKind.MEASURED, selectedIds.size(), totalPartitions,
                 HboScanDescriptor.partitionIdentityOf(selectedIds, totalPartitions),
                 HboScanDescriptor.tabletIdentityOf(selectedTabletIds), "");
     }
 
+    /** The same scan of the same table name, read from the table with the given id. */
+    private static HboScanDescriptor descriptorOfTable(long tableId) {
+        return new HboScanDescriptor("db.t", tableId, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
+                0, 0, "", "", "");
+    }
+
     private static HboScanDescriptor rollupDescriptor(String table, long indexId) {
-        return new HboScanDescriptor(table, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
-                2, 2, "", "", String.valueOf(indexId));
+        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, 3, 1000,
+                HboScanDescriptor.RowsKind.MEASURED, 2, 2, "", "", String.valueOf(indexId));
+    }
+
+    @Test
+    public void testATableRecreatedUnderTheSameNameDoesNotShareTheIdentity() {
+        // DROP TABLE db.t and CREATE of another db.t with the same row count: the name, the partitions
+        // and the version are the same, so only the id of the table tells the two apart - a pinned entry
+        // of the first table must not be applied to the second
+        HboScanDescriptor first = descriptorOfTable(1000);
+        HboScanDescriptor second = descriptorOfTable(2000);
+        Assertions.assertEquals("db.t#ti:1000", first.getShapeIdentity());
+        Assertions.assertEquals("db.t#ti:2000", second.getShapeIdentity());
+        Assertions.assertNotEquals(first.getShapeIdentity(), second.getShapeIdentity());
+        Assertions.assertEquals(1000, first.getTableId());
+        // the id is part of the shape the fingerprint hashes, and it survives the round trip a pasted
+        // struct info performs (the parse of the token keeps it)
+        Assertions.assertEquals(first.getShapeIdentity(),
+                HboScanDescriptor.parse(first.render()).getShapeIdentity());
+        Assertions.assertEquals("db.t#ti:1000,v3,r1000", first.render());
+        // a relation whose id is not known (an external table) names no id, as before
+        Assertions.assertEquals("db.t", descriptor("db.t", Collections.emptyList(), 0).getShapeIdentity());
     }
 
     @Test

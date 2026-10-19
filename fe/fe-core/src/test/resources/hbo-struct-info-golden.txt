@@ -38,130 +38,130 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 57, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 59, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = d3800acc7e1432051a565832fa270eb77b19532f60ed3f90b75016ab6db8dc08
-NO_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1})
-NO_LITERAL.fingerprint = d3800acc7e1432051a565832fa270eb77b19532f60ed3f90b75016ab6db8dc08
+WITH_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = ca4fcd2c93471a715703846bb49c6d4ed4612015519ca894108e99932bbd597d
+NO_LITERAL.canonical = F{IsNull(col(t.a%2Eb))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(t.a%2Eb))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = ca4fcd2c93471a715703846bb49c6d4ed4612015519ca894108e99932bbd597d
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN a_table_whose_alias_carries_a_dot]
 desc = a filter on the column b of the table aliased t.a
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 4c87fc27266716f2c59d47486a02a3fad3072352cf72742ee8a3b69cb5fb954c
-NO_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 4c87fc27266716f2c59d47486a02a3fad3072352cf72742ee8a3b69cb5fb954c
+WITH_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 363ce265ac4c477642a3a5079a17c9685ccd8c7d4b65c45e80162e70cabbf6f2
+NO_LITERAL.canonical = F{IsNull(col(t%2Ea.b))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(t%2Ea.b))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 363ce265ac4c477642a3a5079a17c9685ccd8c7d4b65c45e80162e70cabbf6f2
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN a_table_whose_name_carries_a_brace]
 desc = a scan of a table whose name carries an opening brace
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{IsNull(col(t.a))}(S{null.null.a%7Bb,v1,r0})
-WITH_LITERAL.shape = F{IsNull(col(t.a))}(S{null.null.a%7Bb})
-WITH_LITERAL.fingerprint = 581c39d7f0439bc1ace1d8ecf6ae33539537a85e6e3496ed8f68b3edf3841436
-NO_LITERAL.canonical = F{IsNull(col(t.a))}(S{null.null.a%7Bb,v1,r0})
-NO_LITERAL.shape = F{IsNull(col(t.a))}(S{null.null.a%7Bb})
-NO_LITERAL.fingerprint = 581c39d7f0439bc1ace1d8ecf6ae33539537a85e6e3496ed8f68b3edf3841436
+WITH_LITERAL.canonical = F{IsNull(col(t.a))}(S{null.null.a%7Bb#ti:0,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(t.a))}(S{null.null.a%7Bb#ti:0})
+WITH_LITERAL.fingerprint = b40afd1a083e503d991ea5b6a668c07c141960175648788a59693526f911c975
+NO_LITERAL.canonical = F{IsNull(col(t.a))}(S{null.null.a%7Bb#ti:0,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(t.a))}(S{null.null.a%7Bb#ti:0})
+NO_LITERAL.fingerprint = b40afd1a083e503d991ea5b6a668c07c141960175648788a59693526f911c975
 scans = 1
-scan[0] = table=null.null.a%7Bb shapeIdentity=null.null.a%7Bb render=null.null.a%7Bb,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.a%7Bb shapeIdentity=null.null.a%7Bb#ti:0 render=null.null.a%7Bb#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_group_by_keys]
 desc = aggregation with one group by key over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = A{gb:col(db.t1.id)}(S{null.null.t1})
-WITH_LITERAL.fingerprint = fc0013b17aefea053fa4875972c56868939183ccbb49624cbadd1f8eb7e9a402
-NO_LITERAL.canonical = A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = A{gb:col(db.t1.id)}(S{null.null.t1})
-NO_LITERAL.fingerprint = fc0013b17aefea053fa4875972c56868939183ccbb49624cbadd1f8eb7e9a402
+WITH_LITERAL.canonical = A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = A{gb:col(db.t1.id)}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 082c695fbfa525ee6c616574b5205e49b0e10682970c918ff3c198e5f7ac8159
+NO_LITERAL.canonical = A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:col(db.t1.id)}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 082c695fbfa525ee6c616574b5205e49b0e10682970c918ff3c198e5f7ac8159
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_grouping_by_a_computed_project]
 desc = aggregation over a transparent project which groups by a computed alias (a % 2 AS x)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 57407597e58169358e5967cf16cc3445d82f36cb89fd3a3054baf200fca34472
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = a96b164ea8549160ade6498b12f37bfd00309acdfbfc12f3de0c5c2b89487acb
+WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_grouping_by_another_computed_project]
 desc = the same aggregation over the same project with another modulo (a % 3 AS x): a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 0a7e03dbbaa2fdd3e5333906b098cc30bd050989e9af9f393241cfc94bb1df31
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = a96b164ea8549160ade6498b12f37bfd00309acdfbfc12f3de0c5c2b89487acb
+WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 72dd50a2dadcb8210dfee4aaa0bb6f68b85ccef48726c026a748c03074bc9b56
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_grouping_by_the_same_expression_directly]
 desc = the same aggregation written without the project (GROUP BY a % 2): the same key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 57407597e58169358e5967cf16cc3445d82f36cb89fd3a3054baf200fca34472
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = a96b164ea8549160ade6498b12f37bfd00309acdfbfc12f3de0c5c2b89487acb
+WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_no_keys]
 desc = aggregation without group by keys over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = A{gb:}(S{null.null.t1})
-WITH_LITERAL.fingerprint = b1150feb14a0dbf330e245d2b28d8726b8d132bf624831290369070ad80edf5b
-NO_LITERAL.canonical = A{gb:}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = A{gb:}(S{null.null.t1})
-NO_LITERAL.fingerprint = b1150feb14a0dbf330e245d2b28d8726b8d132bf624831290369070ad80edf5b
+WITH_LITERAL.canonical = A{gb:}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = A{gb:}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 6c98df1dbcae133a5ac85c5f2a24e1c792a646bc1b813e0ad9322096b32c5475
+NO_LITERAL.canonical = A{gb:}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 6c98df1dbcae133a5ac85c5f2a24e1c792a646bc1b813e0ad9322096b32c5475
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN cross_join_two_scans]
 desc = cross join of two scans: a chain without conditions renders as inner
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = 4a907b377a6d61bbaf9041b4dde10d51ccccd4438d4d24e731ba51c8b8d49209
-NO_LITERAL.canonical = J{inner,c:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = J{inner,c:[]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = 4a907b377a6d61bbaf9041b4dde10d51ccccd4438d4d24e731ba51c8b8d49209
+WITH_LITERAL.canonical = J{inner,c:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = bebcb29a7a4c95af287e3c94145abbd2a093b22844a658b7aa74d1c738339ef7
+NO_LITERAL.canonical = J{inner,c:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = J{inner,c:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = bebcb29a7a4c95af287e3c94145abbd2a093b22844a658b7aa74d1c738339ef7
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN except_two_scans]
 desc = except of two scans (the first branch is the minuend)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = E{all,cols:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = E{all,cols:[]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = 28c7b7125e9d88d7e0be73cdfe07e1520d6cc95568342a77cba53f1b3ab81c86
-NO_LITERAL.canonical = E{all,cols:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = E{all,cols:[]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = 28c7b7125e9d88d7e0be73cdfe07e1520d6cc95568342a77cba53f1b3ab81c86
+WITH_LITERAL.canonical = E{all,cols:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = E{all,cols:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = 37eeb9ec0827da0f736a4aa171045d2650ad292d3e543f130c686a3bd361f875
+NO_LITERAL.canonical = E{all,cols:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = E{all,cols:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = 37eeb9ec0827da0f736a4aa171045d2650ad292d3e543f130c686a3bd361f875
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_above_a_file_scan]
 desc = empty filter over an external table scan: the token carries the qualified table and no data state
 valid = true
@@ -178,243 +178,267 @@ scan[0] = table=hive.db.t shapeIdentity=hive.db.t render=hive.db.t visibleVersio
 desc = a filter on the alias of a plain rename (a AS x): the definition of x is the column a
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 0845aeb27a74056bf8b7013764ba9e87d6a07b2ecb3f0f41a138ffd680cf5e92
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_above_an_aggregate_max]
 desc = the same filter with MAX(v) AS s: a different key although the aggregate header is the same
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(Max(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{EqualTo(Max(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = e8f4201a4ba937b000cb8d978b4ebf3c41bfed54a33cf46b625c0802985744ec
-NO_LITERAL.canonical = F{EqualTo(Max(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{EqualTo(Max(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 0307ebf7c3b9dcacdeda5225157f9142db66327aa9e4f598a8afce5a29d4a556
+WITH_LITERAL.canonical = F{EqualTo(Max(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{EqualTo(Max(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = 560d3cffa25d6d251e2ef7083d94c7dce388cad969f8d02b07fb581a04717b25
+NO_LITERAL.canonical = F{EqualTo(Max(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{EqualTo(Max(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 122241fb25e05033cb266b746f5cd40b87d59bc9c580d218832fa6ddcf1d6498
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_above_an_aggregate_min]
 desc = a filter on an aggregate function's output (MIN(v) AS s): s is the minimum of v
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(Min(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{EqualTo(Min(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 390c2bdf4fe4c7b93bf46f5b65afdcd64a1710791141a49ee1b99f6248afa757
-NO_LITERAL.canonical = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 2f12998e40397b89cb2560edd20f84f1e57d0776be403c8805b0d6c794206cae
+WITH_LITERAL.canonical = F{EqualTo(Min(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{EqualTo(Min(col(db.t1.name)),lit(1:INT))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = fb67c2d4e043d2608640901b7a7ec6f31660d4310c60009de1c8e61dcc975885
+NO_LITERAL.canonical = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = c1aa2158efd81f1db48e016f021c184063988e6d44743b85d40604b61b2373a3
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_literal]
 desc = filter with one literal comparison over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 0845aeb27a74056bf8b7013764ba9e87d6a07b2ecb3f0f41a138ffd680cf5e92
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_match_using_analyzer_a1]
 desc = a filter with MATCH ... USING ANALYZER a1 over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{MatchAll<a1>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{MatchAll<a1>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 88340db467d91737d317335a66764919c39c8116801027480f5bbdaee7c09483
-NO_LITERAL.canonical = F{MatchAll<a1>(col(db.t1.name),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{MatchAll<a1>(col(db.t1.name),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 67d5ddd8137a73f7b4dc122500ac806959cd91324087d4dff6dad1747108d541
+WITH_LITERAL.canonical = F{MatchAll<a1>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{MatchAll<a1>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = adbe794bea887de088dc154f49a32dfd27e4bcc0bd3e51a47708cf21ac7e2558
+NO_LITERAL.canonical = F{MatchAll<a1>(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{MatchAll<a1>(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 7af468b9ad087086cc289b3f0c22168b5e0909790e0c285b80144d11bbd41380
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_match_using_analyzer_a2]
 desc = the same match predicate with a2: the analyzer tokenizes the argument differently
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{MatchAll<a2>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{MatchAll<a2>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 760cc953d6aaed26daa49466bae1d91e7b522c6f552f6fef3765cf8d30a7d2b7
-NO_LITERAL.canonical = F{MatchAll<a2>(col(db.t1.name),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{MatchAll<a2>(col(db.t1.name),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = f5bff3f64a0459745dce0729153e2b1834cfc8ba4f976b238c150b72c799414d
+WITH_LITERAL.canonical = F{MatchAll<a2>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{MatchAll<a2>(col(db.t1.name),lit(foo-bar:VARCHAR(7)))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 4e5995516ad80cd047a643cfbda14d17bf40932a10ac58752d22b4a9edec7494
+NO_LITERAL.canonical = F{MatchAll<a2>(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{MatchAll<a2>(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = f5088f96bcd12ddc7832a79b42cc6545242826edfc8fa0d305b6364b42dda0f4
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_of_a_recreated_table]
+desc = the same filter over another table of the same name (dropped and recreated): a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:7,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:7})
+WITH_LITERAL.fingerprint = ae7191c72234c6477ed4cfa6b1d522cfe28b63d5aefebb8b5cadeec259885496
+NO_LITERAL.canonical = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:7,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:7})
+NO_LITERAL.fingerprint = ae7191c72234c6477ed4cfa6b1d522cfe28b63d5aefebb8b5cadeec259885496
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:7 render=null.null.t1#ti:7,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_of_a_table]
+desc = a filter over the table t1, which names the id of that table
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 136c12cf2305d3362ab961258c9443a4a9201d4845bca45bcc187655ef968763
+NO_LITERAL.canonical = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{IsNull(col(db.t1.id))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 136c12cf2305d3362ab961258c9443a4a9201d4845bca45bcc187655ef968763
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_one_of_those_conjuncts]
 desc = a filter with one conjunct: the shape a two conjunct filter must not share a key with
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 0845aeb27a74056bf8b7013764ba9e87d6a07b2ecb3f0f41a138ffd680cf5e92
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_search_exact_apple]
 desc = a filter with search('name:EXACT(apple)') over a scan: the dsl is the predicate
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 1207462e5223c040585696c63228added00c4cc5247833f60fe3eb63f8163237
-NO_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 1207462e5223c040585696c63228added00c4cc5247833f60fe3eb63f8163237
+WITH_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = af005871401412068cd7413206697017494da7579855464e171e2a7598ea2e51
+NO_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{SearchExpression<name%3AEXACT%28apple%29>(col(db.t1.name))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = af005871401412068cd7413206697017494da7579855464e171e2a7598ea2e51
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_search_exact_banana]
 desc = the same search predicate for another term: a different key although the children are equal
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 97994f1b335d370641856a7851f3081b4c0b4bae24b463a595af16be60e1f8fe
-NO_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 97994f1b335d370641856a7851f3081b4c0b4bae24b463a595af16be60e1f8fe
+WITH_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 83c75fc3f43caff7d98ee7bd8334090d8bdb81c703e3a3be5d570275eee58b94
+NO_LITERAL.canonical = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{SearchExpression<name%3AEXACT%28banana%29>(col(db.t1.name))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 83c75fc3f43caff7d98ee7bd8334090d8bdb81c703e3a3be5d570275eee58b94
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_slot_equal_slot]
 desc = filter comparing two slots of one scan (both literal modes coincide)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = b2d8ab821d3fc606f420c62128541362a428a4d13e5014582cc1076f04ae7a2b
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1})
-NO_LITERAL.fingerprint = b2d8ab821d3fc606f420c62128541362a428a4d13e5014582cc1076f04ae7a2b
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 2cdf759126755175aa9fc0c8d8f2af746ddbc5b8db30c2465026fc0dd068a7a1
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),col(db.t1.name))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 2cdf759126755175aa9fc0c8d8f2af746ddbc5b8db30c2465026fc0dd068a7a1
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_two_conjuncts_which_fold_alike]
 desc = a filter with two conjuncts on one slot which fold to one text: both stay in the key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = c3eefab74e79ee3fda5ed185f12d09fd8e94254ecf8e5475aa3216e90a4fd5a3
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 446d4d8927b4d5a5adc07cb70c2552c748dd5d961d226697c2f5b8b11b704c6e
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT));EqualTo(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = a30742a01481ce3a0563736945c860e94c9fe2dc78c5cb12bcbe5190c7fd58d8
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 7deb4d6a837ab5e4e567fabde15f74b6cc7fd7692c0569776557ad1481d5e565
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_udf_is_active]
 desc = a filter whose only predicate is the java udf is_active over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = cf9aa4863b8913f1afdf73178e45387c4bef000cc419bfd82e046f69524eed3e
-NO_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1})
-NO_LITERAL.fingerprint = cf9aa4863b8913f1afdf73178e45387c4bef000cc419bfd82e046f69524eed3e
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = cbda7cc24e1c50b57f98d7c508b7496f2a85b8c2ad4d9c3464821c7b0eafbad8
+NO_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = cbda7cc24e1c50b57f98d7c508b7496f2a85b8c2ad4d9c3464821c7b0eafbad8
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_udf_is_active_in_another_database]
 desc = the same udf name and catalog id in another database: a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 68e248481464b85557efd58521fbc0fe25f3710ebcdc7cf1fa2b4c810545d429
-NO_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 68e248481464b85557efd58521fbc0fe25f3710ebcdc7cf1fa2b4c810545d429
+WITH_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 551f47f978d76af5fc8e26395034e12ae1f401417d6264069a6f026c1ea4cb74
+NO_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 551f47f978d76af5fc8e26395034e12ae1f401417d6264069a6f026c1ea4cb74
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_udf_is_active_other_overload]
 desc = the same udf name in the same database, another overload (catalog id): a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 8cfb0962cb1b270718ffb36f1580eb1dd30a911d712ac4ff977b03c6681dabd9
-NO_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 8cfb0962cb1b270718ffb36f1580eb1dd30a911d712ac4ff977b03c6681dabd9
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 08781a21aaff39b5aa42562e8e7408bc7282cf70b4ac281e16ded4d86b81b940
+NO_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 08781a21aaff39b5aa42562e8e7408bc7282cf70b4ac281e16ded4d86b81b940
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_udf_is_deleted]
 desc = the same argument passed to another udf of the same database: a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = 6af67fc96c6a414b346106edaad1dee7698ec895447cbd44e1313169fece4025
-NO_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 6af67fc96c6a414b346106edaad1dee7698ec895447cbd44e1313169fece4025
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 3de82b3cc77864a82e5829da27e598345105ad4557955d39ebe25bb0b0762b62
+NO_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 3de82b3cc77864a82e5829da27e598345105ad4557955d39ebe25bb0b0762b62
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_explode_split]
 desc = generate of explode_split(cast(a as varchar), ',') over a scan: the delimiter is identity
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1}
-WITH_LITERAL.fingerprint = bcc7e8a9ec3b08239c71f405ac192b1c4516944925efe6db0f0bfe743b949b21
-NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1}
-NO_LITERAL.fingerprint = bcc7e8a9ec3b08239c71f405ac192b1c4516944925efe6db0f0bfe743b949b21
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = ac8d7482930deaa78bc965fad6b8ac2485f51c047f0fd4ec6b493c2c66cee49a
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = ac8d7482930deaa78bc965fad6b8ac2485f51c047f0fd4ec6b493c2c66cee49a
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_unnest]
 desc = generate of unnest(1) over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1}
-WITH_LITERAL.fingerprint = f28816a93c729a57613653e00ba897e22b68b1cc869f304f378f276d5bbc61ab
-NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1}
-NO_LITERAL.fingerprint = f28816a93c729a57613653e00ba897e22b68b1cc869f304f378f276d5bbc61ab
+WITH_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = d96fe80bbeacb8e5c4d97332ea2021118fdd4d7784cdea88e208dcff2032b41d
+NO_LITERAL.canonical = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[Unnest(lit(1:INT))];out:[g];on:[]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = d96fe80bbeacb8e5c4d97332ea2021118fdd4d7784cdea88e208dcff2032b41d
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_with_an_on_condition]
 desc = a lateral ON condition over the generated slot
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1}
-WITH_LITERAL.fingerprint = a04f56e0136bba4fc7d21fb5fe4a0aeab686d851c0ac40253e0a6a94f4d9d1f8
-NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1}
-NO_LITERAL.fingerprint = a04f56e0136bba4fc7d21fb5fe4a0aeab686d851c0ac40253e0a6a94f4d9d1f8
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 042b92374b7e9260a0523e89dae6fbf56390745c026535b5311ffc4eeddf453f
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(0:VARCHAR(1)))]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 042b92374b7e9260a0523e89dae6fbf56390745c026535b5311ffc4eeddf453f
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_with_another_on_condition]
 desc = the same generate with another ON bound: a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1}
-WITH_LITERAL.fingerprint = f69506c17712065a3e7eaeee4b5febe5abd7791cf569d0257117b34fefe8bd9d
-NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1}
-NO_LITERAL.fingerprint = f69506c17712065a3e7eaeee4b5febe5abd7791cf569d0257117b34fefe8bd9d
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = c69da8d724c7407351966dccc8a44fd523c0a2af65eb07094cc1f615c6922fc3
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[GreaterThan(col(x),lit(1000:VARCHAR(4)))]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = c69da8d724c7407351966dccc8a44fd523c0a2af65eb07094cc1f615c6922fc3
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN intersect_two_scans]
 desc = intersect of two scans
 valid = true
 skipReason =
-WITH_LITERAL.canonical = I{all,cols:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = I{all,cols:[]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = f70ef0e92b60b5fce5d0d78eeb16702a4407c86ef79710226da4584c6099a6b1
-NO_LITERAL.canonical = I{all,cols:[]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = I{all,cols:[]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = f70ef0e92b60b5fce5d0d78eeb16702a4407c86ef79710226da4584c6099a6b1
+WITH_LITERAL.canonical = I{all,cols:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = I{all,cols:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = 7e6fe414fbda5f02b264b56ac87cec25a7c4aea6eae83f8e72d1b8fcd335c13a
+NO_LITERAL.canonical = I{all,cols:[]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = I{all,cols:[]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = 7e6fe414fbda5f02b264b56ac87cec25a7c4aea6eae83f8e72d1b8fcd335c13a
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN invalid_too_many_scans]
 desc = cross join chain of 21 scans: more than hbo_max_scans_per_group
 valid = false
@@ -430,312 +454,312 @@ scans = 0
 desc = inner join chain of three scans written (t1 join t2) join t3
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0};S{null.null.t3,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1};S{null.null.t2};S{null.null.t3})
-WITH_LITERAL.fingerprint = 8b8413db6745f027d6c9d8b87e26cc636cf5f91c32fa03780be6dff674905066
-NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0};S{null.null.t3,v1,r0})
-NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1};S{null.null.t2};S{null.null.t3})
-NO_LITERAL.fingerprint = 8b8413db6745f027d6c9d8b87e26cc636cf5f91c32fa03780be6dff674905066
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0};S{null.null.t3#ti:2,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1};S{null.null.t3#ti:2})
+WITH_LITERAL.fingerprint = 0bb5c78e91f81916cb8291ec35ee59d115b158ca5553946733272daa916ed32c
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0};S{null.null.t3#ti:2,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1};S{null.null.t3#ti:2})
+NO_LITERAL.fingerprint = 0bb5c78e91f81916cb8291ec35ee59d115b158ca5553946733272daa916ed32c
 scans = 3
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[2] = table=null.null.t3 shapeIdentity=null.null.t3 render=null.null.t3,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[2] = table=null.null.t3 shapeIdentity=null.null.t3#ti:2 render=null.null.t3#ti:2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN join_inner_chain_three_right_deep]
 desc = the same three scans written t1 join (t2 cross join t3), both conditions on the top join
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0};S{null.null.t3,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1};S{null.null.t2};S{null.null.t3})
-WITH_LITERAL.fingerprint = 8b8413db6745f027d6c9d8b87e26cc636cf5f91c32fa03780be6dff674905066
-NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0};S{null.null.t3,v1,r0})
-NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1};S{null.null.t2};S{null.null.t3})
-NO_LITERAL.fingerprint = 8b8413db6745f027d6c9d8b87e26cc636cf5f91c32fa03780be6dff674905066
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0};S{null.null.t3#ti:2,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1};S{null.null.t3#ti:2})
+WITH_LITERAL.fingerprint = 0bb5c78e91f81916cb8291ec35ee59d115b158ca5553946733272daa916ed32c
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0};S{null.null.t3#ti:2,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));EqualTo(col(db.t1.name),col(db.t3.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1};S{null.null.t3#ti:2})
+NO_LITERAL.fingerprint = 0bb5c78e91f81916cb8291ec35ee59d115b158ca5553946733272daa916ed32c
 scans = 3
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[2] = table=null.null.t3 shapeIdentity=null.null.t3 render=null.null.t3,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[2] = table=null.null.t3 shapeIdentity=null.null.t3#ti:2 render=null.null.t3#ti:2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN join_inner_two_scans]
 desc = inner join of two scans with one equality condition
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = 018ff5bd246f934cf9cb6623681a29434cac50b1f0235b6be4f06a35109175e2
-NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = 018ff5bd246f934cf9cb6623681a29434cac50b1f0235b6be4f06a35109175e2
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = 997a3b5876ea03b0c6383c12caa2ee7eb9ee63bb9daf65a0c033c6b239a401c7
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = 997a3b5876ea03b0c6383c12caa2ee7eb9ee63bb9daf65a0c033c6b239a401c7
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN join_left_outer]
 desc = left outer join of two scans (the join type and the memo order are kept)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = a169b9db96047237b49da39db13c19538d9f4e575d35530486137c5a1627eb69
-NO_LITERAL.canonical = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = a169b9db96047237b49da39db13c19538d9f4e575d35530486137c5a1627eb69
+WITH_LITERAL.canonical = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = e1a17d16036519ce3852d921ffca98d549851fc30236032a181520cdd33002ed
+NO_LITERAL.canonical = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t1.id),col(db.t2.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = e1a17d16036519ce3852d921ffca98d549851fc30236032a181520cdd33002ed
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN join_residual_conditions_per_mode_order]
 desc = inner join with two residual conditions whose literal carrying order differs from the constant agnostic order: each mode is rendered, sorted and de-duplicated on its own
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = dd16807bc5b321f6ac58f9dcec9a9bf0b3578676de901c57208242003b0c337d
-NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = b553ab92b74e05b77d3e570e11945b2a0a600b34ef7ddaf4b61ff5e7d3be9e77
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(1:INT),col(db.t2.id));LessThan(lit(2:INT),col(db.t1.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = 04e706e7f27923a623a64735b9691f1d27bfaf1934d83df1a630c5c5b245d818
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t2.id));LessThan(lit(*),col(db.t1.id));LessThan(lit(*),col(db.t2.id))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = ecad43724ae8051e30ba3ee9e3deed49a20bcfc2462eebff52bed8f47e588b27
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN limit]
 desc = limit 5 offset 0 over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = L{5,0}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = L{5,0}S{null.null.t1}
-WITH_LITERAL.fingerprint = cef03f2855673c8a48caed7604ab0c86275d4bc9b15bf7fccb014e39a2e5cb89
-NO_LITERAL.canonical = L{5,0}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = L{5,0}S{null.null.t1}
-NO_LITERAL.fingerprint = cef03f2855673c8a48caed7604ab0c86275d4bc9b15bf7fccb014e39a2e5cb89
+WITH_LITERAL.canonical = L{5,0}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = L{5,0}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 7e6ee50bd8e329ef33d70a6c11dfe5f0437482c690fbf521286e61519b528404
+NO_LITERAL.canonical = L{5,0}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = L{5,0}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 7e6ee50bd8e329ef33d70a6c11dfe5f0437482c690fbf521286e61519b528404
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN project_above_scan]
 desc = project over a scan (transparent)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = S{null.null.t1}
-WITH_LITERAL.fingerprint = 594af35b2b1121e33eaa631258758760338ba24a6dbac2f134d0e769fbb4ba9d
-NO_LITERAL.canonical = S{null.null.t1,v1,r0}
-NO_LITERAL.shape = S{null.null.t1}
-NO_LITERAL.fingerprint = 594af35b2b1121e33eaa631258758760338ba24a6dbac2f134d0e769fbb4ba9d
+WITH_LITERAL.canonical = S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 23eb37f988af0b068789eb2b841782d53346f9c1898f3fceb6701d16f24f9040
+NO_LITERAL.canonical = S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 23eb37f988af0b068789eb2b841782d53346f9c1898f3fceb6701d16f24f9040
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN repeat_grouping_sets]
 desc = repeat of the grouping sets ((a), ()) over a scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 9315c94f9898bacb25890e8e983a36d2993b9c7f674a27dcf61a53c62bb57455
-NO_LITERAL.canonical = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1}
-NO_LITERAL.fingerprint = 9315c94f9898bacb25890e8e983a36d2993b9c7f674a27dcf61a53c62bb57455
+WITH_LITERAL.canonical = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = c1044f3770006ded1a06dd0f8a5256857be8171dc4d29eb193efafa894c4b342
+NO_LITERAL.canonical = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = R{gs:[[col(db.t1.id)];[]]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = c1044f3770006ded1a06dd0f8a5256857be8171dc4d29eb193efafa894c4b342
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN scan_only]
 desc = one olap scan
 valid = true
 skipReason =
-WITH_LITERAL.canonical = S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = S{null.null.t1}
-WITH_LITERAL.fingerprint = 594af35b2b1121e33eaa631258758760338ba24a6dbac2f134d0e769fbb4ba9d
-NO_LITERAL.canonical = S{null.null.t1,v1,r0}
-NO_LITERAL.shape = S{null.null.t1}
-NO_LITERAL.fingerprint = 594af35b2b1121e33eaa631258758760338ba24a6dbac2f134d0e769fbb4ba9d
+WITH_LITERAL.canonical = S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 23eb37f988af0b068789eb2b841782d53346f9c1898f3fceb6701d16f24f9040
+NO_LITERAL.canonical = S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 23eb37f988af0b068789eb2b841782d53346f9c1898f3fceb6701d16f24f9040
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN self_join_one_table]
 desc = self join of one scan: the token is written twice, the table is read once
 valid = true
 skipReason =
-WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1,v1,r0};S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1};S{null.null.t1})
-WITH_LITERAL.fingerprint = a90cde5e9a499b7b576a276fa52a00fcdae2e974212165d0da96b15c0766677f
-NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1,v1,r0};S{null.null.t1,v1,r0})
-NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1};S{null.null.t1})
-NO_LITERAL.fingerprint = a90cde5e9a499b7b576a276fa52a00fcdae2e974212165d0da96b15c0766677f
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1#ti:0};S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 3f9bac76bd1aa2156d4418168245a3f34153872cfb1084abd6ae0f389c18c408
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.t1.id),col(db.t1.name))]}(S{null.null.t1#ti:0};S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 3f9bac76bd1aa2156d4418168245a3f34153872cfb1084abd6ae0f389c18c408
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN sort_above_a_filter]
 desc = sort over a filter (transparent): the sort adds no rows and no identity of its own
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1,v1,r0})
-WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1})
-WITH_LITERAL.fingerprint = a2d06e30c8d31925aa23cff0c15030a4db7059a884845f1a4ddb23b81a81a260
-NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
-NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
-NO_LITERAL.fingerprint = 55c142307122bdab7af6950808f05c62242649fa4e42f5dbaa9687f733d39676
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(1:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 0845aeb27a74056bf8b7013764ba9e87d6a07b2ecb3f0f41a138ffd680cf5e92
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN topn]
 desc = top-n of 3 rows ordered by one key, asc nulls first
 valid = true
 skipReason =
-WITH_LITERAL.canonical = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1}
-WITH_LITERAL.fingerprint = ed35f43d785891e00df0a647140a1c0c2b9a12bda3d9d2fd01418abaf58f9fb3
-NO_LITERAL.canonical = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1}
-NO_LITERAL.fingerprint = ed35f43d785891e00df0a647140a1c0c2b9a12bda3d9d2fd01418abaf58f9fb3
+WITH_LITERAL.canonical = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = b45ef8e6525953bbd2c93058a93288b08b0010c317297edef1bc178e3240384b
+NO_LITERAL.canonical = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = T{3,0;ord:[col(db.t1.id):asc:nulls_first]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = b45ef8e6525953bbd2c93058a93288b08b0010c317297edef1bc178e3240384b
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN topn_with_a_literal_in_the_ordering_key]
 desc = top-n ordered by slot * 1: the factor decides which rows survive
 valid = true
 skipReason =
-WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1}
-WITH_LITERAL.fingerprint = 448557cadec84027018cf45b776c5613a48679d67546c20ce25c5670015094ab
-NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1}
-NO_LITERAL.fingerprint = 448557cadec84027018cf45b776c5613a48679d67546c20ce25c5670015094ab
+WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = ff24da9af7d4a26c3073bbea4856a3d2f659b17f857a08a52c013b820fd418f0
+NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = ff24da9af7d4a26c3073bbea4856a3d2f659b17f857a08a52c013b820fd418f0
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN topn_with_another_literal_in_the_ordering_key]
 desc = the same top-n ordered by slot * -1: a different constant agnostic key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
-WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1}
-WITH_LITERAL.fingerprint = f4a18a9a9efc2985a8c8fa9e892a9bfceebffc62b587cd116ca72e97d07ada6b
-NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1,v1,r0}
-NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1}
-NO_LITERAL.fingerprint = f4a18a9a9efc2985a8c8fa9e892a9bfceebffc62b587cd116ca72e97d07ada6b
+WITH_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = a1945729420232e70fe6d71c1beade017a1c71ce6875c3835bd166fdb904f517
+NO_LITERAL.canonical = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = T{3,0;ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = a1945729420232e70fe6d71c1beade017a1c71ce6875c3835bd166fdb904f517
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN two_window_outputs_x_is_ntile]
 desc = the same two definitions with the aliases swapped: a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(y),lit(1:INT))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{EqualTo(col(y),lit(1:INT))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 921c1221703a59e9e979328f9bc2f9a43d714926c771c7eac1de6b2fda881d55
-NO_LITERAL.canonical = F{EqualTo(col(y),lit(*))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{EqualTo(col(y),lit(*))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 15b038b21dbc542d6ea40ea735bd18cc4fcd0ab5bb4737c8dfee4ac9d23ef9b0
+WITH_LITERAL.canonical = F{EqualTo(col(y),lit(1:INT))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{EqualTo(col(y),lit(1:INT))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = b0b803c2e7aab393192d1ebea42d3349fb0ae50b0695a6e45f1b4354227d9894
+NO_LITERAL.canonical = F{EqualTo(col(y),lit(*))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{EqualTo(col(y),lit(*))}(W{y=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];x=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = d66804aee87e2f7918cf331b1e787f4f2f3f564213819bba359463edbb8e9c96
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN two_window_outputs_x_is_row_number]
 desc = two window definitions, x is the row_number: the output association is part of the key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{EqualTo(col(x),lit(1:INT))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{EqualTo(col(x),lit(1:INT))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 588faa99b22831b5b54332d3829ade12d822489bbd033d007538e18a8f38821c
-NO_LITERAL.canonical = F{EqualTo(col(x),lit(*))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{EqualTo(col(x),lit(*))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 4398c2d3017f2400987c56438a031fc1a90d13ba93ca04a694f7c8a7230746cf
+WITH_LITERAL.canonical = F{EqualTo(col(x),lit(1:INT))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{EqualTo(col(x),lit(1:INT))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = c43dc4ea76b8e8ddf0e2f5839691c4e07bafada854eb9c74c012f6bd50836dbc
+NO_LITERAL.canonical = F{EqualTo(col(x),lit(*))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{EqualTo(col(x),lit(*))}(W{x=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)];y=Ntile(lit(4:INT));part:[];ord:[col(db.t1.id):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 3b8974ca1a5d77610faf69531e6368fb6c1b0c34a8438ca3991756f0d86b449b
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN union_constant_branch]
 desc = union of two scans and one constant branch (the constants are in the header)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-WITH_LITERAL.shape = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1};S{null.null.t2})
-WITH_LITERAL.fingerprint = d5cbfab77aa4a63e0c21dc73c88df7cb77a386aa9ab14164972dccb1242683ed
-NO_LITERAL.canonical = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1,v1,r0};S{null.null.t2,v1,r0})
-NO_LITERAL.shape = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1};S{null.null.t2})
-NO_LITERAL.fingerprint = d5cbfab77aa4a63e0c21dc73c88df7cb77a386aa9ab14164972dccb1242683ed
+WITH_LITERAL.canonical = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+WITH_LITERAL.shape = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+WITH_LITERAL.fingerprint = f43afc9a066684740640e89880c188dbcf0a211320f038283a3519869ba93ec4
+NO_LITERAL.canonical = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1#ti:0,v1,r0};S{null.null.t2#ti:1,v1,r0})
+NO_LITERAL.shape = U{all,cols:[],const:[Alias(lit(2:INT))]}(S{null.null.t1#ti:0};S{null.null.t2#ti:1})
+NO_LITERAL.fingerprint = f43afc9a066684740640e89880c188dbcf0a211320f038283a3519869ba93ec4
 scans = 2
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.t2 shapeIdentity=null.null.t2 render=null.null.t2,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN union_two_scans_selected_a]
 desc = union of two scans which selects a from both: the second branch feeds the column a
 valid = true
 skipReason =
-WITH_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t,v1,r0};[col(db.u.id)]S{null.null.u,v1,r0})
-WITH_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t};[col(db.u.id)]S{null.null.u})
-WITH_LITERAL.fingerprint = 6b5e9e636ba18329649abcb70ed5862a9a4dc8cfd5c3e175284e66d29243889c
-NO_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t,v1,r0};[col(db.u.id)]S{null.null.u,v1,r0})
-NO_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t};[col(db.u.id)]S{null.null.u})
-NO_LITERAL.fingerprint = 6b5e9e636ba18329649abcb70ed5862a9a4dc8cfd5c3e175284e66d29243889c
+WITH_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0,v1,r0};[col(db.u.id)]S{null.null.u#ti:1,v1,r0})
+WITH_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0};[col(db.u.id)]S{null.null.u#ti:1})
+WITH_LITERAL.fingerprint = f75c3990b95b2d36615b9ca063177df73e2c6a0cb0d2d56f01e5148ff64196c5
+NO_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0,v1,r0};[col(db.u.id)]S{null.null.u#ti:1,v1,r0})
+NO_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0};[col(db.u.id)]S{null.null.u#ti:1})
+NO_LITERAL.fingerprint = f75c3990b95b2d36615b9ca063177df73e2c6a0cb0d2d56f01e5148ff64196c5
 scans = 2
-scan[0] = table=null.null.t shapeIdentity=null.null.t render=null.null.t,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.u shapeIdentity=null.null.u render=null.null.u,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0 render=null.null.t#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN union_two_scans_selected_b]
 desc = the same union selecting u.b in the second branch: a different mapping, a different key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t,v1,r0};[col(db.u.name)]S{null.null.u,v1,r0})
-WITH_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t};[col(db.u.name)]S{null.null.u})
-WITH_LITERAL.fingerprint = e17e588628f0b1acfc50fcbd8f8fdae2a9ec5b63af05bd07301599d6cdd4271c
-NO_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t,v1,r0};[col(db.u.name)]S{null.null.u,v1,r0})
-NO_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t};[col(db.u.name)]S{null.null.u})
-NO_LITERAL.fingerprint = e17e588628f0b1acfc50fcbd8f8fdae2a9ec5b63af05bd07301599d6cdd4271c
+WITH_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0,v1,r0};[col(db.u.name)]S{null.null.u#ti:1,v1,r0})
+WITH_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0};[col(db.u.name)]S{null.null.u#ti:1})
+WITH_LITERAL.fingerprint = ca3d1966e7462ca6d650d27db3c6de79ca289d2096400bf184113277474aaff4
+NO_LITERAL.canonical = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0,v1,r0};[col(db.u.name)]S{null.null.u#ti:1,v1,r0})
+NO_LITERAL.shape = U{all,cols:[col(a)]}([col(db.t.id)]S{null.null.t#ti:0};[col(db.u.name)]S{null.null.u#ti:1})
+NO_LITERAL.fingerprint = ca3d1966e7462ca6d650d27db3c6de79ca289d2096400bf184113277474aaff4
 scans = 2
-scan[0] = table=null.null.t shapeIdentity=null.null.t render=null.null.t,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
-scan[1] = table=null.null.u shapeIdentity=null.null.u render=null.null.u,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0 render=null.null.t#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_function_with_a_literal]
 desc = window whose function carries a literal: it decides the values a node above it reads
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 666d9e35ea5a35f5e47b75cfc620be5a0efe33bc016cb15eed39b87a62daad24
-NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 1b214e95ac61d2d6a7a9f0f4ca46907965c8a6bf567de72a60f7f8804c06c6a6
+WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = f9d27faaca21e423690d9bc75198c1c1f312a0f9e7baa0f0c546426289ebeb14
+NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(4:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 5551eb5e9cc13122e05d5457e9d60b40d4af84de257a94077665d6c84af7efb7
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_function_with_another_literal]
 desc = the same window with another bucket count: a different constant agnostic key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 75ffd28b5ad98bbdbf912a9c0bd314173ed1d7ad33bfd3102b4bf39b5108e5ee
-NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 4865a1c11cdd9c132825873fab609a6b0f32616ec05179637e72c322df4cddda
+WITH_LITERAL.canonical = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{LessThanEqual(col(nt),lit(1:INT))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = f6415301c90d5ce2b40cd46de03ac32a877748c0b0cc1660beb65b0465af8887
+NO_LITERAL.canonical = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{LessThanEqual(col(nt),lit(*))}(W{nt=Ntile(lit(10:INT));part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = da3d8c05943205094f0a7bd4d6134c8d7b8c54753414beb320d1b74ec81161bd
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_under_a_filter]
 desc = filter over a window partitioned by one column (no order by)
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 045d886f08caaf8be78110d434d2dc4f210ddd32fcc6f11231afd746f3bd6c7c
-NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 289fae7aa01789c5f4318a1716436b1e8216be501c649bee7b3f04dc6ebf6797
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = 04f5f0a008dbf6bbf46757c8aa5294d0d0b68dbb8145ef0e0f1969453d5a2244
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[col(db.t1.id)];ord:[];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 0e6b24204566f581ec2f5a2c91b97ca3c8cf3d8e160db17a9dbf799d2992d2a8
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_with_a_literal_in_the_ordering_key]
 desc = window ordered by slot * 1 under a filter: the factor decides the values above it
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 87a8e6b36cee9c84000faf820bcb867e0738bb2a6d34708b7abc3cca919a3c23
-NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 1404ef536627968ffee9c4c6f7d718f747f34e4b5354b8f0c91051d28fd5b1c7
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = 45bc40822a9a0a7b419199ed1b19762df9c66d5e9ecb39f7275961a3d372e569
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 178c032ecae0843df02737a7d517465dd4b50190d9f95b0390da6bb25fcdab57
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_with_another_literal_in_the_ordering_key]
 desc = the same window ordered by slot * -1: a different constant agnostic key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = 678c1c08ab0f8b3d8d2482a62b3ed03ccfce63987b61caac43257d8f2d2ee7e6
-NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 53a6af538cd121bd0d5fbc121c15971b5bf290c15e60c0ad006669edf734e423
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = ab2699087416d5286cbea25407cfc1ba981da5b260f24de1a477a4bab1c08f03
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[Multiply(col(db.t1.id),lit(-1:INT)):asc:nulls_first];frame:[WindowFrame(ROWS, UNBOUNDED_PRECEDING, CURRENT_ROW)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = 12838d84b8bf89a978b151c1f588115dba6ab0f1f4cccf5d6e5c61ba4402cafe
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN window_with_two_order_keys_and_a_bounded_frame]
 desc = window over two ordering keys with a bounded frame: the separator and the offsets are part of the key
 valid = true
 skipReason =
-WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1,v1,r0}))
-WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1}))
-WITH_LITERAL.fingerprint = f1a3cb7ded76d01714cbad9964be73bf4cf4ff92888fad792076aa3e34bac787
-NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1,v1,r0}))
-NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1}))
-NO_LITERAL.fingerprint = 1396687c09bc7774967fddbe95c6bcb3f136c049e87ed7f8c37ef63723d1f549
+WITH_LITERAL.canonical = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1#ti:0,v1,r0}))
+WITH_LITERAL.shape = F{GreaterThan(col(rn),lit(1:INT))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1#ti:0}))
+WITH_LITERAL.fingerprint = 61000fc3d761595135454718cda8ab50432e3b7714c4bd50e8caaa7bea80a95c
+NO_LITERAL.canonical = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1#ti:0,v1,r0}))
+NO_LITERAL.shape = F{GreaterThan(col(rn),lit(*))}(W{rn=RowNumber;part:[];ord:[col(db.t1.id):asc:nulls_first,col(db.t1.name):desc:nulls_last];frame:[WindowFrame(ROWS, 2 PRECEDING, 1 FOLLOWING)]}(S{null.null.t1#ti:0}))
+NO_LITERAL.fingerprint = dd269c849c3a46ab21ef89b88b8f02c7f5ccd51448d51c741a1e7807a0476c3a
 scans = 1
-scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 
 [TEXT HboScanDescriptor/with_a_complete_partition_selection]
 in = internal.hbo_test.t1,v3,r10,p5/5

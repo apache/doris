@@ -386,7 +386,7 @@ public class GroupStructInfoCompositionTest {
                 "the leaf is rendered twice: " + shape);
         // the join reads two tables, so it collects two scans; the leaf is one of them
         Assertions.assertEquals(2, info.getScans().size(), shape);
-        Assertions.assertTrue(shape.contains("L{5,0}S{null.null.t1}"), shape);
+        Assertions.assertTrue(shape.contains("L{5,0}S{null.null.t1#ti:0}"), shape);
     }
 
 }
