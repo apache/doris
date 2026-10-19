@@ -466,4 +466,42 @@ suite("test_mtmv_base_partition_read_scope") {
         is_partition_statistics_ready(dbName, ["merged_component_base", "merged_component_mv"]))
     order_qt_merged_component """SELECT d, region, SUM(v) AS s FROM merged_component_base
         WHERE d = 2 GROUP BY d, region"""
+
+    // The base branch of a union compensation reads a stale partition back through that partition's own
+    // key, and that key has to be written at the partition column's type. A DATETIME(3) key rounded to the
+    // second is a value no row of the partition compares equal to, so the branch would read none of it and
+    // the rows the stale MV partition is missing would be lost again.
+    sql """drop materialized view if exists stale_fractional_union_mv"""
+    sql """drop table if exists stale_fractional_union_base"""
+    sql """
+        CREATE TABLE stale_fractional_union_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts) PARTITION BY LIST(ts) (
+            PARTITION p_ms VALUES IN (("2024-02-01 00:00:00.123")),
+            PARTITION p_kept VALUES IN (("2024-02-02 00:00:00.456")))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO stale_fractional_union_base VALUES
+        ("2024-02-01 00:00:00.123", 1), ("2024-02-02 00:00:00.456", 2)"""
+    // The kept partition is filled before the refresh, so that after one partition goes stale the MV is the
+    // cheaper side and the union is chosen rather than dropped by the cost model on an empty table.
+    sql """INSERT INTO stale_fractional_union_base
+        SELECT CAST("2024-02-02 00:00:00.456" AS DATETIME(3)), 0 FROM numbers("number" = "10000")"""
+    sql """
+        CREATE MATERIALIZED VIEW stale_fractional_union_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM stale_fractional_union_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("stale_fractional_union_mv")
+    // The stale partition's row is inserted after the refresh, so the row can only come from the base
+    // branch of the union.
+    sql """INSERT INTO stale_fractional_union_base VALUES ("2024-02-01 00:00:00.123", 3)"""
+    sql """ANALYZE TABLE stale_fractional_union_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select ts, sum(amount) as total from stale_fractional_union_base group by ts")
+        check { result -> result.contains("UNION") && result.contains("stale_fractional_union_mv") }
+    }
+    order_qt_stale_fractional_union """SELECT ts, SUM(amount) AS total FROM stale_fractional_union_base
+        GROUP BY ts"""
 }

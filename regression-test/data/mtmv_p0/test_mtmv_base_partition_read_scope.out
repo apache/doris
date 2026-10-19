@@ -66,3 +66,7 @@ p_20200101_20380101	false
 -- !merged_component --
 2	US	3
 
+-- !stale_fractional_union --
+2024-02-01T00:00:00.123	4
+2024-02-02T00:00:00.456	2
+
