@@ -24,6 +24,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -174,8 +175,10 @@ public class HboStatsCalculator extends StatsCalculator {
         // "it fans out to 1000 times the larger input"
         double baseRows = Math.max(leftRows, rightRows);
         double estimated = expansion * baseRows;
-        // an equi join can never produce more rows than the cartesian product of its inputs
-        estimated = Math.min(estimated, leftRows * rightRows);
+        // an equi join can never produce more rows than the cartesian product of its inputs, except a
+        // full outer join: its unmatched rows are kept as well, so one row on each side which do not
+        // match already produce two rows although the product is one
+        estimated = Math.min(estimated, expansionUpperBound(join.getJoinType(), leftRows, rightRows));
         // outer joins can not produce fewer rows than their preserved side
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
@@ -228,6 +231,19 @@ public class HboStatsCalculator extends StatsCalculator {
             return String.valueOf((long) value);
         }
         return String.valueOf(value);
+    }
+
+    /**
+     * The largest number of rows an equi join of the given type can produce from its two inputs: the
+     * cartesian product, except for a full outer join, which also keeps the rows of both sides which
+     * found no partner - one row on each side which do not match already produce two rows although the
+     * product is one, so an injected fan-out of 2 for such a pair would otherwise be capped to 1.
+     */
+    static double expansionUpperBound(JoinType joinType, double leftRows, double rightRows) {
+        if (joinType == JoinType.FULL_OUTER_JOIN) {
+            return Math.max(leftRows * rightRows, leftRows + rightRows);
+        }
+        return leftRows * rightRows;
     }
 
     @Override
