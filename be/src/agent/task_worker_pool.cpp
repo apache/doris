@@ -2194,7 +2194,8 @@ PublishVersionWorkerPool::PublishVersionWorkerPool(StorageEngine& engine)
 
 PublishVersionWorkerPool::~PublishVersionWorkerPool() = default;
 
-void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest& req) {
+void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest& req,
+                                                        std::set<int64_t> reported_tablets) {
     const auto& publish_version_req = req.publish_version_req;
     DorisMetrics::instance()->publish_task_request_total->increment(1);
     VLOG_NOTICE << "get publish version task. signature=" << req.signature;
@@ -2236,12 +2237,34 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 break;
             }
 
+            // A healthy tablet must not wait for another tablet's missing version to be retried.
+            // Report each success once across retries; the final report still contains all successes.
+            if (config::enable_publish_version_partial_report) {
+                std::map<TTabletId, TVersion> new_succ_tablets;
+                for (const auto& [tablet_id, version] : succ_tablets) {
+                    if (reported_tablets.insert(tablet_id).second) {
+                        new_succ_tablets.emplace(tablet_id, version);
+                    }
+                }
+                if (!new_succ_tablets.empty()) {
+                    TFinishTaskRequest progress_request;
+                    progress_request.__set_backend(BackendOptions::get_local_backend());
+                    progress_request.__set_task_type(req.task_type);
+                    progress_request.__set_signature(req.signature);
+                    // INCOMPLETE reports progress without finishing the FE's task.
+                    progress_request.task_status.__set_status_code(TStatusCode::INCOMPLETE);
+                    progress_request.__set_succ_tablets(new_succ_tablets);
+                    finish_task(progress_request);
+                }
+            }
+
             // Version not continuous, put to queue and wait pre version publish task execute
             PUBLISH_VERSION_count << 1;
-            auto st = _thread_pool->submit_func([this, req] {
-                this->publish_version_callback(req);
-                PUBLISH_VERSION_count << -1;
-            });
+            auto st = _thread_pool->submit_func(
+                    [this, req, reported_tablets = std::move(reported_tablets)]() mutable {
+                        this->publish_version_callback(req, std::move(reported_tablets));
+                        PUBLISH_VERSION_count << -1;
+                    });
             if (!st.ok()) [[unlikely]] {
                 PUBLISH_VERSION_count << -1;
                 status = std::move(st);

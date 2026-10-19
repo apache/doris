@@ -153,7 +153,9 @@ public class MasterImpl {
             }
             return result;
         } else {
-            if (taskStatus.getStatusCode() != TStatusCode.OK) {
+            if (taskStatus.getStatusCode() != TStatusCode.OK
+                    && !(taskType == TTaskType.PUBLISH_VERSION
+                            && taskStatus.getStatusCode() == TStatusCode.INCOMPLETE)) {
                 task.failed();
                 if (taskType == TTaskType.PUBLISH_VERSION) {
                     boolean needLog = (Config.publish_version_task_failed_log_threshold < 0
@@ -546,6 +548,19 @@ public class MasterImpl {
     }
 
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
+        PublishVersionTask publishVersionTask = (PublishVersionTask) task;
+        synchronized (publishVersionTask) {
+            updatePublishVersionTask(publishVersionTask, request);
+        }
+    }
+
+    private void updatePublishVersionTask(PublishVersionTask task, TFinishTaskRequest request) {
+        // INCOMPLETE is a progress report; only final reports finish/remove the task.
+        if (request.getTaskStatus().getStatusCode() == TStatusCode.INCOMPLETE) {
+            // A failed final report leaves isFinished true when the same task is resent.
+            task.setSuccTablets(request.getSuccTablets());
+            return;
+        }
         Map<Long, Long> succTablets = null;
         if (request.isSetSuccTablets()) {
             succTablets = request.getSuccTablets();
@@ -562,21 +577,19 @@ public class MasterImpl {
                     task.getBackendId(), reportVersion, task.getDbId(), task.getTableId(), true);
         }
 
-        PublishVersionTask publishVersionTask = (PublishVersionTask) task;
-        publishVersionTask.setSuccTablets(succTablets);
-        publishVersionTask.addErrorTablets(errorTabletIds);
-        publishVersionTask.setFinished(true);
+        task.setSuccTablets(succTablets);
+        task.addErrorTablets(errorTabletIds);
+        if (request.getTaskStatus().getStatusCode() == TStatusCode.OK
+                && request.isSetTableIdToTabletIdToDeltaNumRows()) {
+            task.setTableIdTabletsDeltaRows(request.getTableIdToTabletIdToDeltaNumRows());
+        }
+        task.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             // not remove the task from queue and be will retry
             return;
         }
-        if (request.isSetTableIdToTabletIdToDeltaNumRows()) {
-            publishVersionTask.setTableIdTabletsDeltaRows(request.getTableIdToTabletIdToDeltaNumRows());
-        }
-        AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
-                                  publishVersionTask.getTaskType(),
-                                  publishVersionTask.getSignature());
+        AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
 
     private void finishDropReplica(AgentTask task) {
