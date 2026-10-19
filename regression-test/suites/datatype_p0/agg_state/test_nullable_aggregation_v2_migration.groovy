@@ -130,7 +130,7 @@ suite("test_nullable_aggregation_v2_migration") {
         ) aggregate key(g) distributed by hash(g) buckets 1
         properties("replication_num"="1","disable_auto_compaction"="true")
     """
-    // Two rowsets force both storage aggregation and compaction to consume the persisted codecs.
+    // Full compaction merges even these two small rowsets, below cumulative policy thresholds.
     for (int batch : [0, 1]) {
         sql """
             insert into nullable_v2_stored_states
@@ -142,7 +142,22 @@ suite("test_nullable_aggregation_v2_migration") {
     }
     for (int read : [0, 1]) {
         if (read==1) {
-            trigger_and_wait_compaction("nullable_v2_stored_states", "cumulative")
+            def tablets = sql_return_maparray "show tablets from nullable_v2_stored_states"
+            def backendIdToIp = [:]
+            def backendIdToHttpPort = [:]
+            getBackendIpHttpPort(backendIdToIp, backendIdToHttpPort)
+            def countRowsets = { tablet ->
+                def (code, stdout, stderr) = be_show_tablet_status(
+                    backendIdToIp["${tablet.BackendId}"],
+                    backendIdToHttpPort["${tablet.BackendId}"], tablet.TabletId)
+                assertEquals(0, code)
+                return parseJson(stdout.trim()).rowsets.size()
+            }
+            def beforeCounts = tablets.collectEntries { [(it.TabletId): countRowsets(it)] }
+            trigger_and_wait_compaction("nullable_v2_stored_states", "full")
+            tablets.each { tablet ->
+                assertTrue(countRowsets(tablet) < beforeCounts[tablet.TabletId])
+            }
         }
         "order_qt_storage_${read}"("""
             select g,sum_merge(s),avg_merge(a),min_merge(m),avg_weighted_merge(w),
