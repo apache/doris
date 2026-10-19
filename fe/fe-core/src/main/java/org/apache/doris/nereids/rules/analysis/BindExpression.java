@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -42,14 +44,19 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.ScoringMatch;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -64,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -77,7 +85,9 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
@@ -86,14 +96,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -147,6 +160,87 @@ import java.util.stream.Collectors;
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class BindExpression implements AnalysisRuleFactory {
     public static final Logger LOG = LogManager.getLogger(BindExpression.class);
+
+    /** Preserve scoring multiplicity before filter binding splits AND predicates into a set. */
+    public static void prepareScoringMatches(CascadesContext context) {
+        context.setRewritePlan(prepareScoringMatches(context.getRewritePlan(), false,
+                context.getCteContext(), new HashMap<>()));
+    }
+
+    private static Plan prepareScoringMatches(Plan plan, boolean scoreRequired,
+            CTEContext scope, Map<CTEContext, Boolean> cteConsumers) {
+        boolean scoring = scoreRequired || plan.getExpressions().stream().anyMatch(expression ->
+                expression.anyMatch(e -> e instanceof Score || (e instanceof UnboundFunction
+                        && ((UnboundFunction) e).getName().equalsIgnoreCase("score") && e.children().isEmpty())));
+        if (plan instanceof LogicalCTE) {
+            LogicalCTE<?> cte = (LogicalCTE<?>) plan;
+            List<CTEContext> definitions = new ArrayList<>();
+            List<CTEContext> definitionScopes = new ArrayList<>();
+            for (LogicalSubQueryAlias<Plan> alias : cte.getAliasQueries()) {
+                definitionScopes.add(scope);
+                // Reuse the binder's visibility, shadowing and case rules. These contexts only resolve names.
+                scope = new CTEContext(CTEId.DEFAULT, alias, scope);
+                definitions.add(scope);
+            }
+            Map<CTEContext, Boolean> consumers = new HashMap<>();
+            Plan child = prepareScoringMatches(cte.child(), scoring, scope, consumers);
+            List<LogicalSubQueryAlias<Plan>> aliases = new ArrayList<>(cte.getAliasQueries());
+            boolean changed = child != cte.child();
+            for (int i = aliases.size() - 1; i >= 0; i--) {
+                LogicalSubQueryAlias<Plan> alias = aliases.get(i);
+                Boolean demand = consumers.remove(definitions.get(i));
+                if (demand != null) {
+                    Plan definition = prepareScoringMatches(alias.child(), demand, definitionScopes.get(i), consumers);
+                    if (definition != alias.child()) {
+                        aliases.set(i, alias.withChildren(ImmutableList.of(definition)));
+                        changed = true;
+                    }
+                }
+            }
+            consumers.forEach((definition, demand) -> cteConsumers.merge(definition, demand, Boolean::logicalOr));
+            return changed ? new LogicalCTE<>(cte.isRecursive(), aliases, child) : plan;
+        }
+        if (plan instanceof UnboundRelation) {
+            List<String> names = ((UnboundRelation) plan).getNameParts();
+            if (names.size() == 1) {
+                scope.findCTEContext(names.get(0)).ifPresent(cte ->
+                        cteConsumers.merge(cte, scoring, Boolean::logicalOr));
+            }
+        }
+        // Score demand follows the single scan path; independent query blocks discover their own score().
+        boolean childScoring = scoring && (plan instanceof LogicalProject || plan instanceof LogicalFilter
+                || plan instanceof LogicalSort || plan instanceof LogicalLimit || plan instanceof LogicalSubQueryAlias
+                || plan instanceof LogicalCheckPolicy || plan instanceof LogicalSelectHint
+                || plan instanceof LogicalPreAggOnHint);
+        CTEContext childScope = scope;
+        Plan rewritten = plan.withChildren(child ->
+                prepareScoringMatches(child, childScoring, childScope, cteConsumers));
+        if (scoring && rewritten instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) rewritten;
+            ImmutableSet.Builder<Expression> predicates = ImmutableSet.builder();
+            boolean changed = false;
+            for (Expression predicate : filter.getConjuncts()) {
+                Expression bound = preservePositiveMatch(predicate);
+                predicates.add(bound);
+                changed |= bound != predicate;
+            }
+            if (changed) {
+                return new LogicalFilter<>(predicates.build(), filter.child());
+            }
+        }
+        return rewritten;
+    }
+
+    private static Expression preservePositiveMatch(Expression expression) {
+        if (expression instanceof Match && !(expression instanceof ScoringMatch)) {
+            return new ScoringMatch((Match) expression);
+        }
+        // NOT and expressions outside positive Boolean clauses do not contribute a MATCH score.
+        if (expression instanceof And || expression instanceof Or) {
+            return expression.withChildren(BindExpression::preservePositiveMatch);
+        }
+        return expression;
+    }
 
     @Override
     public List<Rule> buildRules() {

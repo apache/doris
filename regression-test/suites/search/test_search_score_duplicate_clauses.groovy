@@ -197,4 +197,66 @@ suite("test_search_score_duplicate_clauses", "p0") {
         WHERE (content MATCH_ANY 'spider') AND (content MATCH_ANY 'spider')
         ORDER BY id
     """
+    qt_search_not """
+        SELECT id, score() AS bm25_score
+        FROM test_search_duplicate_clause_score
+        WHERE search('(content:spider OR content:spider) AND NOT content:web')
+        ORDER BY bm25_score DESC LIMIT 100
+    """
+    qt_match_not """
+        SELECT id, score() AS bm25_score
+        FROM test_search_duplicate_clause_score
+        WHERE (content MATCH_ANY 'spider' OR content MATCH_ANY 'spider')
+          AND NOT (content MATCH_ANY 'web')
+        ORDER BY bm25_score DESC LIMIT 100
+    """
+    qt_match_not_duplicate """
+        SELECT id, score() AS bm25_score
+        FROM test_search_duplicate_clause_score
+        WHERE (content MATCH_ANY 'spider' OR content MATCH_ANY 'spider')
+          AND NOT (content MATCH_ANY 'web' OR content MATCH_ANY 'web')
+        ORDER BY bm25_score DESC LIMIT 100
+    """
+    qt_match_unrelated_cte """
+        WITH unrelated AS (
+            SELECT id FROM test_search_duplicate_clause_score
+            WHERE content MATCH_ANY 'web' OR content MATCH_ANY 'web'
+        )
+        SELECT id, score() AS bm25_score FROM test_search_duplicate_clause_score
+        WHERE content MATCH_ANY 'spider' OR content MATCH_ANY 'spider'
+        ORDER BY bm25_score DESC LIMIT 100
+    """
+    qt_unscored_cte_or """
+        WITH plain AS (
+            SELECT id FROM test_search_duplicate_clause_score
+            WHERE content MATCH_ANY 'web' OR content MATCH_ANY 'web'
+        )
+        SELECT id FROM plain ORDER BY id
+    """
+    qt_unscored_cte_and """
+        WITH plain AS (
+            SELECT id FROM test_search_duplicate_clause_score
+            WHERE content MATCH_ANY 'web' AND content MATCH_ANY 'web'
+        )
+        SELECT id FROM plain ORDER BY id
+    """
+    qt_unscored_not """
+        SELECT id FROM test_search_duplicate_clause_score
+        WHERE (content MATCH_ANY 'spider' OR content MATCH_ANY 'spider')
+          AND NOT (content MATCH_ANY 'web' OR content MATCH_ANY 'web')
+        ORDER BY id
+    """
+    qt_match_derived_set_var_hint """
+        SELECT id, score() AS bm25_score FROM (
+            SELECT /*+ SET_VAR(enable_inverted_index_wand_query=false) */ id, content
+            FROM test_search_duplicate_clause_score
+            WHERE content MATCH_ANY 'spider' OR content MATCH_ANY 'spider'
+        ) t ORDER BY bm25_score DESC LIMIT 100
+    """
+    qt_match_derived_preagg_hint """
+        SELECT id, score() AS bm25_score FROM (
+            SELECT /*+ PREAGGOPEN */ id, content FROM test_search_duplicate_clause_score
+            WHERE content MATCH_ANY 'spider' OR content MATCH_ANY 'spider'
+        ) t ORDER BY bm25_score DESC LIMIT 100
+    """
 }

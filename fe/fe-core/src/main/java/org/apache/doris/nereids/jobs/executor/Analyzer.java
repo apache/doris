@@ -47,7 +47,6 @@ import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationToProject;
-import org.apache.doris.nereids.rules.analysis.PreserveScoringMatch;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
@@ -90,6 +89,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
      * nereids analyze sql.
      */
     public void analyze() {
+        BindExpression.prepareScoringMatches(cascadesContext);
         execute();
     }
 
@@ -125,7 +125,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
     private static List<RewriteJob> buildAnalyzerJobs() {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
-            topDown(new PreserveScoringMatch()),
             topDown(new AnalyzeCTE()),
             topDown(new EliminateLogicalSelectHint(),
                     new EliminateLogicalPreAggOnHint()),

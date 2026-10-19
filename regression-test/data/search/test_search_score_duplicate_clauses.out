@@ -115,3 +115,42 @@
 2
 3
 
+-- !search_not --
+1	1.5087616
+3	1.2797759
+
+-- !match_not --
+1	1.5087616
+3	1.2797759
+
+-- !match_not_duplicate --
+1	1.5087616
+3	1.2797759
+
+-- !match_unrelated_cte --
+1	1.5087616
+3	1.2797759
+2	1.273334
+
+-- !unscored_cte_or --
+2
+4
+
+-- !unscored_cte_and --
+2
+4
+
+-- !unscored_not --
+1
+3
+
+-- !match_derived_set_var_hint --
+1	1.5087616
+3	1.2797759
+2	1.273334
+
+-- !match_derived_preagg_hint --
+1	1.5087616
+3	1.2797759
+2	1.273334
+
