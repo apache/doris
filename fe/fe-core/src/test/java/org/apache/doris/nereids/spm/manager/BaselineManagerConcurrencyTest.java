@@ -214,7 +214,7 @@ public class BaselineManagerConcurrencyTest {
         }
 
         @Override
-        public BaselinePersistence.SeqReservation pendingSeqReservation(String bindSqlDigest,
+        public BaselinePersistence.SeqReservation readLatestReservation(String bindSqlDigest,
                 long planSqlHash) {
             long[] entry = keyedReservations.get(seqKey(bindSqlDigest, planSqlHash));
             return entry == null ? null : new BaselinePersistence.SeqReservation(
@@ -4048,7 +4048,7 @@ public class BaselineManagerConcurrencyTest {
                     "the new create proceeds on a reconciled registry: " + fresh);
             Assertions.assertEquals(0, BaselineManagerTestAccess.pendingCreateCount(manager),
                     "every readable record was retired by the reconciliation");
-            BaselinePersistence.SeqReservation reconciled = store.pendingSeqReservation(
+            BaselinePersistence.SeqReservation reconciled = store.readLatestReservation(
                     "d-f5b-0", SPMUtils.hashOf("p-d-f5b-0"));
             Assertions.assertNotNull(reconciled,
                     "the plain reservation row of the reconciled attempt stays (round-44 #5)");
@@ -4078,7 +4078,7 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertThrows(IllegalStateException.class,
                     () -> manager.createBaseline(baseline("d-ret", "p-ret")));
             long reserved = store.reservedHighWater;
-            BaselinePersistence.SeqReservation marker = store.pendingSeqReservation(
+            BaselinePersistence.SeqReservation marker = store.readLatestReservation(
                     "d-ret", SPMUtils.hashOf("p-ret"));
             Assertions.assertNotNull(marker, "the ambiguous create appended the durable marker");
             Assertions.assertTrue(marker.unconfirmed, "the record IS the unconfirmed marker");
@@ -4090,7 +4090,7 @@ public class BaselineManagerConcurrencyTest {
             store.failInsert = false;
             Assertions.assertEquals(reserved,
                     manager.createBaseline(baseline("d-ret", "p-ret")));
-            BaselinePersistence.SeqReservation resolved = store.pendingSeqReservation(
+            BaselinePersistence.SeqReservation resolved = store.readLatestReservation(
                     "d-ret", SPMUtils.hashOf("p-ret"));
             Assertions.assertNotNull(resolved,
                     "the plain pre-INSERT reservation row survives the marker retirement"

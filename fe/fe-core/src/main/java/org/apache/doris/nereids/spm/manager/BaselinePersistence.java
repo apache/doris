@@ -114,13 +114,19 @@ public interface BaselinePersistence {
     }
 
     /**
-     * Whether the store MODELS the id-reservation readback (the sequence watermark and the
-     * identity record). The create's ownership proof (see
-     * BaselineManager#confirmReservationReadable) must not be skipped because a READBACK
-     * happens to return zero: a lagging readback on a fresh cluster answers 0 while the
-     * reservation it must prove is simply not visible yet, and a successor reusing the id
-     * let two rows publish under it. Only a store that models the reads is asked (the
-     * scripted collision / status stores answer false).
+     * Whether the store MODELS the id-reservation readback: the allocation watermark plus
+     * the identity's latest record (see {@link #readReservationView}).
+     *
+     * This is a STATIC CAPABILITY of the store implementation, never a dynamic value. It
+     * used to be inferred from a readback VALUE ({@code sequenceWatermark() <= 0}), which
+     * is wrong in the exact case the proof exists for: a fresh cluster's LAGGING readback
+     * answers 0 while the reservation the CREATE must prove is simply not published yet,
+     * so the proof was skipped and a successor handed the same id out twice - two ENABLED
+     * rows then published under one id. Never turn this back into a value probe.
+     *
+     * The create's ownership proof (see BaselineManager#confirmReservationReadable) is
+     * skipped for a store that answers false: the scripted collision / status stores
+     * stand in for the WHOLE protocol instead of modelling its reads.
      */
     default boolean reservationReadsAvailable() {
         return false;
@@ -335,9 +341,117 @@ public interface BaselinePersistence {
             long atMillis) {
     }
 
-    /** The latest identity record of one baseline, or null (see {@link SeqReservation}). */
-    default SeqReservation pendingSeqReservation(String bindSqlDigest, long planSqlHash) {
+    /**
+     * The identity's LATEST reservation record (plain reservation / unconfirmed marker /
+     * tombstone), or null when the store holds none (see {@link SeqReservation}).
+     *
+     * The answer is deliberately IDENTITY-scoped, not write-scoped: it tells a caller what
+     * a SUCCESSOR would conclude about this identity right now, which is exactly what the
+     * create's ownership proof asks (see {@link #readReservationView}), and what the
+     * defer / adopt / condemn decision of a retried CREATE needs. It used to be named
+     * pendingSeqReservation, which read as "only for a pending create" although the proof
+     * uses it too.
+     *
+     * @param bindSqlDigest the identity's canonical bind digest
+     * @param planSqlHash   the identity's plan SQL hash
+     * @return the latest record, or null
+     */
+    default SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash) {
         return null;
+    }
+
+    /**
+     * The BATCH form of {@link #readLatestReservation}: the COMPACT identity record of every
+     * requested slot in ONE read.
+     *
+     * A snapshot filter needs the state of EVERY identity in the snapshot, and the single form
+     * issues one distributed SELECT per identity - with 2,000 live baselines that is 2,000
+     * sequential queries on every periodic refresh on every FE, all of them while the refresh
+     * holds the writer lock (so a GLOBAL CREATE / ALTER / DROP waits behind the whole loop).
+     * The batch answers the healthy identities; the caller still takes the single read for a
+     * slot this map does NOT answer, because that path replays the append-only HISTORY - a
+     * compact tombstone can PREDATE a newer reservation of the same identity.
+     *
+     * The default performs no read (an empty map = "not answered"): a substituted / scripted
+     * store keeps using the single-identity form, which is also what the history fallback
+     * needs.
+     *
+     * @param compactIds the compact slot ids (see the manager's compactSeqId)
+     * @param timeoutSeconds the statement timeout
+     * @return compact slot id to its compact record (a slot without one is absent)
+     */
+    default Map<Long, SeqReservation> readLatestReservations(Collection<Long> compactIds,
+            int timeoutSeconds) {
+        return Map.of();
+    }
+
+    /**
+     * One reservation VIEW of an identity: the allocation watermark plus the identity's
+     * latest record - the two answers a successor / retry reads, taken as one value.
+     *
+     * The pair is NOT atomic, and does not need to be: the view only ever confirms what was
+     * ALREADY written, and every caller re-reads it in a bounded loop (see
+     * BaselineManager#confirmReservationReadable), so a view that misses either half just
+     * makes the loop retry. Bundling it keeps the caller from composing the two reads by
+     * hand, which made the confirmation look like an accident of the read interface.
+     */
+    final class ReservationView {
+        private final long watermark;
+        private final SeqReservation latest;
+
+        public ReservationView(long watermark, SeqReservation latest) {
+            this.watermark = watermark;
+            this.latest = latest;
+        }
+
+        /** The allocation watermark a successor's CREATE reads (ids up to it are handed out). */
+        public long watermark() {
+            return watermark;
+        }
+
+        /** The identity's latest record, or null (see {@link #readLatestReservation}). */
+        public SeqReservation latest() {
+            return latest;
+        }
+
+        /**
+         * Whether the reservation of exactly this id is VISIBLE: the watermark reaches it
+         * and the identity's latest record IS that plain reservation (not an older id, not
+         * an unconfirmed marker of it, not a tombstone).
+         *
+         * @param id the id this CREATE reserved
+         * @return whether a successor would see the reservation
+         */
+        public boolean showsReservation(long id) {
+            return watermark >= id && latest != null && latest.id == id && !latest.dropped;
+        }
+    }
+
+    /**
+     * The reservation view one identity exposes RIGHT NOW (see {@link ReservationView}),
+     * read through the SAME two reads a successor / a retry on another FE performs: the
+     * allocation watermark ({@code sequenceWatermark}) and the identity lookup
+     * ({@code readLatestReservation}).
+     *
+     * That equivalence is the WHOLE point: the create's ownership proof must assert the
+     * visibility a successor will have, so it may not use a "more reliable" read of its
+     * own - a private, cleaner read would prove something the successor does not see. The
+     * live store therefore OVERRIDES this only to batch / share the two reads, never to
+     * change their answers.
+     *
+     * Note the watermark half is not necessarily a pure read: the live implementation may
+     * best-effort SEED the compact high-water-mark record while answering (see the
+     * manager's readCompactIdWatermark). That is intended - the successor's own read would
+     * do the same - but it means this method must not be called from a pure-read context
+     * that cannot tolerate an internal-table write.
+     *
+     * @param bindSqlDigest the identity's canonical bind digest
+     * @param planSqlHash   the identity's plan SQL hash
+     * @return the view a successor's two reads would assemble
+     */
+    default ReservationView readReservationView(String bindSqlDigest, long planSqlHash) {
+        return new ReservationView(sequenceWatermark(),
+                readLatestReservation(bindSqlDigest, planSqlHash));
     }
 
     /** Retires the unconfirmed marker(s) of one resolved ambiguous write. Best effort. */

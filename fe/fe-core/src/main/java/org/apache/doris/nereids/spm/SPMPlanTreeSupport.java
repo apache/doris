@@ -1696,12 +1696,42 @@ public final class SPMPlanTreeSupport {
 
     /** Mirrors the analyzer's CTE name comparison (CTEContext.findCTEContext). */
     private static String normalizeCteName(String name) {
+        return lowerCaseTableNamesPolicy() != 0 ? name.toLowerCase(Locale.ROOT) : name;
+    }
+
+    /**
+     * The catalog's identifier case policy (see GlobalVariable#lowerCaseTableNames): the
+     * analyzer resolves relation names and subquery aliases through
+     * {@code ExpressionAnalyzer#sameTableName}, which compares case-INSENSITIVELY when the
+     * policy is 1.
+     */
+    private static int lowerCaseTableNamesPolicy() {
         int lowerCaseTableNames = GlobalVariable.lowerCaseTableNames;
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getCurrentCatalog() != null) {
             lowerCaseTableNames = ctx.getCurrentCatalog().getLowerCaseTableNames();
         }
-        return lowerCaseTableNames != 0 ? name.toLowerCase(Locale.ROOT) : name;
+        return lowerCaseTableNames;
+    }
+
+    /**
+     * Whether a qualifier the CALLER wrote names a relation / subquery alias, under the SAME
+     * case policy the analyzer applies (see ExpressionAnalyzer#sameTableName).
+     *
+     * The comparison used to be case-SENSITIVE: with lower_case_table_names = 1 the analyzer
+     * binds `SELECT d.* FROM (SELECT k + 1 AS x FROM t) D` (the parser keeps the alias `D` as
+     * written, and normal binding matches it case-insensitively), while the star expansion
+     * rejected that relation - starExpansionForStar threw and BOTH replay paths skipped the
+     * candidate, so the query could not use even its identical baseline.
+     *
+     * @param written  the name component the caller wrote
+     * @param resolved the relation's / alias's own name
+     * @return whether the two name the same relation
+     */
+    private static boolean sameRelationName(String written, String resolved) {
+        return lowerCaseTableNamesPolicy() != 0
+                ? written.equalsIgnoreCase(resolved)
+                : written.equals(resolved);
     }
 
     /**
@@ -3843,11 +3873,11 @@ public final class SPMPlanTreeSupport {
             // derived the WRONG side's labels (the reviewer's
             // `SELECT db.t.* FROM (SELECT k AS wrong FROM u) t CROSS JOIN db.t`).
             return qualifier.size() == 1
-                    && wanted.equals(((LogicalSubQueryAlias<?>) node).getAlias());
+                    && sameRelationName(wanted, ((LogicalSubQueryAlias<?>) node).getAlias());
         }
         if (node instanceof UnboundRelation) {
             List<String> parts = ((UnboundRelation) node).getNameParts();
-            if (parts.isEmpty() || !wanted.equals(parts.get(parts.size() - 1))) {
+            if (parts.isEmpty() || !sameRelationName(wanted, parts.get(parts.size() - 1))) {
                 return false;
             }
             // Every qualifier component the caller WROTE must be answered by the relation
