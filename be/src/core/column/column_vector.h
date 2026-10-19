@@ -117,6 +117,11 @@ public:
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
+    // Batched constant append: one resize and fill instead of one insert(Field) per row.
+    void insert_duplicate_fields(const Field& x, const size_t n) override {
+        insert_many_vals(x.get<T>(), n);
+    }
+
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(value_type begin, value_type end) {

@@ -492,4 +492,27 @@ TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
     }
 }
 
+TEST(ColumnNullableTest, InsertDuplicateFieldsKeepsBatchedNullMap) {
+    auto column = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+    column->insert_duplicate_fields(Field::create_field<TYPE_BIGINT>(7), 2);
+    ASSERT_EQ(2, column->size());
+    EXPECT_FALSE(column->has_null());
+    const auto& nested = assert_cast<const ColumnInt64&>(column->get_nested_column());
+    EXPECT_EQ(7, nested.get_element(0));
+    EXPECT_EQ(7, nested.get_element(1));
+
+    // A zero-count append must not change the size or the null map.
+    column->insert_duplicate_fields(Field::create_field<TYPE_BIGINT>(8), 0);
+    ASSERT_EQ(2, column->size());
+    EXPECT_FALSE(column->has_null());
+
+    // ColumnNullable keeps its batched null-map handling for a null constant.
+    column->insert_duplicate_fields(Field(), 3);
+    ASSERT_EQ(5, column->size());
+    EXPECT_TRUE(column->has_null());
+    EXPECT_EQ(1, column->get_null_map_data()[2]);
+    EXPECT_EQ(1, column->get_null_map_data()[3]);
+    EXPECT_EQ(1, column->get_null_map_data()[4]);
+}
+
 } // namespace doris

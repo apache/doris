@@ -2600,6 +2600,37 @@ auto assert_column_vector_insert_many_vals_callback = [](auto x,
     test_func(10);
 };
 template <PrimitiveType PType>
+auto assert_column_vector_insert_duplicate_fields_callback =
+        [](auto x, const MutableColumnPtr& source_column) {
+            auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
+            auto src_size = source_column->size();
+            std::vector<size_t> insert_vals_count = {0, 10, 1000};
+            std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
+            for (size_t pos : src_data_indices) {
+                if (pos >= src_size) {
+                    continue;
+                }
+                Field value;
+                source_column->get(pos, value);
+                for (size_t n : insert_vals_count) {
+                    auto target_column = source_column->clone_empty();
+                    auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
+                    col_vec_target->insert_duplicate_fields(value, n);
+                    ASSERT_EQ(col_vec_target->size(), n);
+                    for (size_t i = 0; i < n; ++i) {
+                        ASSERT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(pos));
+                    }
+                    // Appending after existing rows preserves the batch and its order.
+                    col_vec_target->insert_duplicate_fields(value, n + 1);
+                    ASSERT_EQ(col_vec_target->size(), n * 2 + 1);
+                    for (size_t i = 0; i < col_vec_target->size(); ++i) {
+                        ASSERT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(pos));
+                    }
+                }
+            }
+        };
+
+template <PrimitiveType PType>
 auto assert_column_vector_insert_from_callback = [](auto x, const MutableColumnPtr& source_column) {
     auto target_column = source_column->clone_empty();
     for (size_t j = 0; j < source_column->size(); ++j) {

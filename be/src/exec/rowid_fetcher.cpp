@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -175,13 +176,12 @@ static Status read_slot_column_by_rowid(
         OlapReaderStatistics& stats, io::FileCacheMissPolicy file_cache_miss_policy,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
         MutableColumnPtr& column) {
-    if (auto value =
-                get_read_time_hidden_column_value(get_read_time_hidden_column_type(read_column),
-                                                  rowset.version(), rowset.commit_tso());
-        value.has_value()) {
-        for (size_t i = 0; i < row_ids.size(); ++i) {
-            column->insert(*value);
-        }
+    std::optional<Field> constant_value;
+    RETURN_IF_ERROR(get_read_time_hidden_column_value(get_read_time_hidden_column_type(read_column),
+                                                      rowset.version(), rowset.commit_tso(),
+                                                      &constant_value));
+    if (constant_value.has_value()) {
+        column->insert_duplicate_fields(*constant_value, row_ids.size());
         return Status::OK();
     }
     IteratorKey iterator_key {.tablet_id = seg_key.tablet_id,
