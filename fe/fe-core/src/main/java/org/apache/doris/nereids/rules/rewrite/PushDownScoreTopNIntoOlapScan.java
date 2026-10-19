@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -59,32 +60,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Push down score function into olap scan node.
- * It will push down score function as a virtual column, and also push down the
- * topN info.
- *
- * Pattern:
- * logicalTopN(logicalProject(logicalFilter(logicalOlapScan)))
- *
- * Requirements:
- * 1. The TopN node has exactly one ordering expression.
- * 2. The ordering expression in TopN must be a slot reference that refers to a
- * Score function.
- * 3. The Filter node must contain at least one Match function.
- *
- * Additionally, this rule now supports score range predicates in WHERE clause:
- * - score() > X, score() >= X, score() < X, score() <= X
- * These predicates are extracted and pushed down to the scan node.
- *
- * Example:
- * Before:
- * SELECT score() as score FROM table WHERE text_col MATCH 'query' AND score() > 0.5
- * ORDER BY score DESC LIMIT 10
- *
- * After:
- * The Score function is pushed down into the OlapScan node as a virtual column,
- * and the TopN information (order by, limit) is also pushed down to be used by
- * the storage engine. The score range predicate is also extracted.
+ * Materialize score virtual columns for score TopN and minimum score filters.
+ * A standalone range uses a zero score limit to compute all candidate scores
+ * without requiring a SQL TopN operator.
  */
 public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     private static final Logger LOG = LogManager.getLogger(PushDownScoreTopNIntoOlapScan.class);
@@ -98,7 +76,70 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return pushDown(topN, project, filter, scan);
-                        }).toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN));
+                        }).toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN),
+                logicalProject(logicalFilter(logicalOlapScan()))
+                        .then(project -> pushDownScoreRange(project))
+                        .toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN),
+                logicalFilter(logicalOlapScan())
+                        .then(filter -> pushDownScoreRange(filter))
+                        .toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN));
+    }
+
+    private LogicalProject<Plan> pushDownScoreRange(
+            LogicalProject<LogicalFilter<LogicalOlapScan>> project) {
+        LogicalFilter<Plan> filter = pushDownScoreRange(project.child());
+        if (filter == null) {
+            return null;
+        }
+        LogicalOlapScan scan = (LogicalOlapScan) filter.child();
+        Expression scoreSlot = scan.getScoreOrderKeys().get(0).getExpr();
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        for (NamedExpression projection : project.getProjects()) {
+            for (Expression score : projection.<Expression>collect(e -> e instanceof Score)) {
+                replaceMap.put(score, scoreSlot);
+            }
+        }
+        return project.withProjectsAndChild(
+                ExpressionUtils.replaceNamedExpressions(project.getProjects(), replaceMap), filter);
+    }
+
+    private LogicalFilter<Plan> pushDownScoreRange(LogicalFilter<LogicalOlapScan> filter) {
+        Optional<Expression> scorePredicateOpt = findScoreRangePredicate(filter.getConjuncts());
+        if (!scorePredicateOpt.isPresent()) {
+            return null;
+        }
+        boolean hasMatchOrSearch = filter.getConjuncts().stream()
+                .anyMatch(conjunct -> !conjunct.collect(
+                        e -> e instanceof Match || e instanceof SearchExpression).isEmpty());
+        if (!hasMatchOrSearch) {
+            throw new AnalysisException("WHERE clause must contain at least one MATCH or SEARCH function"
+                    + " for score() filtering");
+        }
+        Expression scorePredicate = scorePredicateOpt.get();
+        Optional<ScoreRangeInfo> scoreRangeInfo = Optional.of(extractScoreRangeInfo(scorePredicate));
+        Set<Expression> scoreFunctions = scorePredicate.collect(e -> e instanceof Score);
+        Alias scoreAlias = new Alias(scoreFunctions.iterator().next(), "__score");
+        // A zero score limit enables scoring without discarding candidates before other filters.
+        LogicalOlapScan scan = filter.child().appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
+                ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new OrderKey(scoreAlias.toSlot(), false, false)), Optional.of(0L),
+                scoreRangeInfo);
+        Set<Expression> remainingConjuncts = filter.getConjuncts().stream()
+                .filter(conjunct -> !conjunct.equals(scorePredicate))
+                .collect(ImmutableSet.toImmutableSet());
+        return filter.withConjunctsAndChild(remainingConjuncts, scan);
+    }
+
+    private Optional<Expression> findScoreRangePredicate(Set<Expression> conjuncts) {
+        List<Expression> scorePredicates = conjuncts.stream()
+                .filter(conjunct -> !conjunct.collect(e -> e instanceof Score).isEmpty())
+                .collect(ImmutableList.toImmutableList());
+        if (scorePredicates.size() > 1) {
+            throw new AnalysisException(
+                    "Only one score() range predicate is supported in WHERE clause. "
+                            + "Found " + scorePredicates.size() + " predicates: " + scorePredicates);
+        }
+        return scorePredicates.stream().findFirst();
     }
 
     private Plan pushDown(
@@ -129,31 +170,15 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
 
         // 3. Check for score() predicates in WHERE clause and extract score range info
-        List<Expression> scorePredicates = filter.getConjuncts().stream()
-                .filter(conjunct -> !conjunct.collect(e -> e instanceof Score).isEmpty())
-                .collect(ImmutableList.toImmutableList());
-
-        Optional<ScoreRangeInfo> scoreRangeInfo = Optional.empty();
-        Expression extractedScorePredicate = null;
-        if (!scorePredicates.isEmpty()) {
-            if (scorePredicates.size() > 1) {
-                throw new AnalysisException(
-                        "Only one score() range predicate is supported in WHERE clause. "
-                                + "Found " + scorePredicates.size() + " predicates: " + scorePredicates);
-            }
-            Expression predicate = scorePredicates.get(0);
-            scoreRangeInfo = extractScoreRangeInfo(predicate);
-            if (!scoreRangeInfo.isPresent()) {
-                throw new AnalysisException(
-                        "score() predicate in WHERE clause must be in the form of 'score() > literal' "
-                                + "or 'score() >= literal' (min_score semantics). "
-                                + "Operators <, <=, and = are not supported.");
-            }
-            extractedScorePredicate = predicate;
-        }
+        Optional<Expression> scorePredicate = findScoreRangePredicate(filter.getConjuncts());
+        Optional<ScoreRangeInfo> scoreRangeInfo = scorePredicate.map(this::extractScoreRangeInfo);
+        Expression extractedScorePredicate = scorePredicate.orElse(null);
 
         // 4. Requirement: TopN must have exactly one ordering expression.
         if (topN.getOrderKeys().size() != 1) {
+            if (scoreRangeInfo.isPresent()) {
+                return null;
+            }
             throw new AnalysisException(
                     "TopN must have exactly one ordering expression for score() push down optimization");
         }
@@ -161,6 +186,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         // 5. Requirement: ORDER BY expression must refer to a SELECT score() alias.
         Expression orderKey = topN.getOrderKeys().get(0).getExpr();
         if (!(orderKey instanceof SlotReference)) {
+            if (scoreRangeInfo.isPresent()) {
+                return null;
+            }
             throw new AnalysisException(
                     "ORDER BY expression must be a slot reference (not a function call or complex expression)"
                             + " for score() push down optimization");
@@ -184,6 +212,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
 
         if (scoreAlias == null) {
+            if (scoreRangeInfo.isPresent()) {
+                return null;
+            }
             throw new AnalysisException(
                     "ORDER BY expression must reference a score() function from SELECT clause"
                             + " for push down optimization");
@@ -257,24 +288,12 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         return nonScoreConjuncts.size() > 1 || !(nonScoreConjuncts.get(0) instanceof SearchExpression);
     }
 
-    /**
-     * Extract score range info from a single score predicate.
-     * Only supports min_score semantics (similar to Elasticsearch):
-     * - score() > X or score() >= X
-     * - Reversed patterns: X < score() or X <= score()
-     *
-     * Note: < and <= are NOT supported because max_score filtering is rarely needed.
-     * Note: EqualTo (=) is NOT supported.
-     */
-    private Optional<ScoreRangeInfo> extractScoreRangeInfo(Expression predicate) {
+    private ScoreRangeInfo extractScoreRangeInfo(Expression predicate) {
         if (!(predicate instanceof ComparisonPredicate)) {
-            if (!predicate.collect(e -> e instanceof Score).isEmpty()) {
-                throw new AnalysisException(
-                        "score() predicate must be a top-level AND condition in WHERE clause. "
-                                + "Nesting score() inside OR or other compound expressions is not supported. "
-                                + "Invalid expression: " + predicate.toSql());
-            }
-            return Optional.empty();
+            throw new AnalysisException(
+                    "score() predicate must be a top-level AND condition in WHERE clause. "
+                            + "Nesting score() inside OR or other compound expressions is not supported. "
+                            + "Invalid expression: " + predicate.toSql());
         }
 
         ComparisonPredicate comp = (ComparisonPredicate) predicate;
@@ -284,31 +303,31 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         if (isScoreExpression(left) && isNumericLiteral(right)) {
             TExprOpcode op = getMinScoreOpcode(comp);
             if (op != null) {
-                return Optional.of(new ScoreRangeInfo(op, extractNumericValue(right)));
+                return new ScoreRangeInfo(op, extractNumericValue(right));
             }
         }
 
         if (isScoreExpression(right) && isNumericLiteral(left)) {
             TExprOpcode op = getReversedMinScoreOpcode(comp);
             if (op != null) {
-                return Optional.of(new ScoreRangeInfo(op, extractNumericValue(left)));
+                return new ScoreRangeInfo(op, extractNumericValue(left));
             }
         }
 
-        return Optional.empty();
+        throw new AnalysisException(
+                "score() predicate in WHERE clause must be in the form of 'score() > literal' "
+                        + "or 'score() >= literal' (min_score semantics). "
+                        + "Operators <, <=, and = are not supported. "
+                        + "Only FLOAT and DOUBLE casts of score() are supported.");
     }
 
-    /**
-     * Check if the expression is a Score function, possibly wrapped in Cast expressions.
-     * The optimizer may wrap score() in Cast for type coercion (e.g., score() >= 4.0 may become
-     * CAST(score() AS DECIMAL) >= 4.0).
-     */
+    /** Accept score() and FLOAT/DOUBLE casts that preserve its value. */
     private boolean isScoreExpression(Expression expr) {
         if (expr instanceof Score) {
             return true;
         }
         if (expr instanceof Cast) {
-            return isScoreExpression(((Cast) expr).child());
+            return expr.getDataType().isFloatLikeType() && isScoreExpression(((Cast) expr).child());
         }
         return false;
     }

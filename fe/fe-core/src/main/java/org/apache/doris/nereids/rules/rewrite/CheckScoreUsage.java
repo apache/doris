@@ -35,13 +35,14 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * Check score function usage in project and aggregate without proper optimization context.
- *
- * This rule ensures that score() function is used only in contexts where it can be optimized,
- * requiring WHERE clause with MATCH function, ORDER BY and LIMIT.
+ * Reject score() calls outside a supported scan scoring context.
+ * Aggregates cannot consume raw score() calls.
  */
 public class CheckScoreUsage implements RewriteRuleFactory {
     private static final Logger LOG = LogManager.getLogger(CheckScoreUsage.class);
+    private static final String SCORE_CONTEXT_ERROR =
+            "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization, "
+                    + "or a supported minimum score filter with MATCH or SEARCH";
 
     @Override
     public List<Rule> buildRules() {
@@ -54,18 +55,20 @@ public class CheckScoreUsage implements RewriteRuleFactory {
                     return hasScore && !isOptimized;
                 })
                 .then(project -> {
-                    throw new AnalysisException(
-                            "score() function requires WHERE clause with MATCH function, "
-                            + "ORDER BY and LIMIT for optimization");
+                    throw new AnalysisException(SCORE_CONTEXT_ERROR);
+                }).toRule(RuleType.CHECK_SCORE_USAGE),
+
+            // A filter-only score() call otherwise evaluates the scalar placeholder as zero.
+            logicalFilter(any())
+                .when(filter -> filter.getConjuncts().stream().anyMatch(this::containsScoreFunction))
+                .then(filter -> {
+                    throw new AnalysisException(SCORE_CONTEXT_ERROR);
                 }).toRule(RuleType.CHECK_SCORE_USAGE),
 
             logicalAggregate(any())
                 .when(this::hasScoreInAggregate)
                 .then(agg -> {
-                    throw new AnalysisException(
-                            "score() function cannot be used in aggregate functions. "
-                            + "score() requires WHERE clause with MATCH function, "
-                            + "ORDER BY and LIMIT for optimization");
+                    throw new AnalysisException("score() function cannot be used in aggregate functions.");
                 }).toRule(RuleType.CHECK_SCORE_USAGE)
         );
     }
@@ -87,7 +90,12 @@ public class CheckScoreUsage implements RewriteRuleFactory {
         boolean hasScoreInGroupBy = agg.getGroupByExpressions().stream()
                 .anyMatch(this::containsScoreFunction);
 
-        return hasScoreInOutput || hasScoreInGroupBy;
+        if (hasScoreInOutput || hasScoreInGroupBy) {
+            return true;
+        }
+        // Aggregate normalization can move score() arguments into the child projection.
+        Plan child = agg.child();
+        return child instanceof LogicalProject && hasScoreFunction((LogicalProject<?>) child);
     }
 
     private boolean containsScoreFunction(Expression expr) {

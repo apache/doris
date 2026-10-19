@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -90,6 +91,11 @@ public class SearchExpression extends Expression {
     @Override
     public String toString() {
         return "search('" + dslString + "')";
+    }
+
+    @Override
+    protected String computeToSql() {
+        return "search(" + SqlLiteralUtils.quoteStringLiteral(dslString) + ")";
     }
 
     @Override

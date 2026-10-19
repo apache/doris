@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.SearchDslParser;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
@@ -33,6 +35,16 @@ import java.util.List;
  * Unit tests for SearchExpression
  */
 public class SearchExpressionTest {
+
+    @Test
+    public void testToSqlPreservesDsl() {
+        for (String dsl : Arrays.asList("title:hello", "title:\"O'Reilly\\manual\"")) {
+            SearchExpression searchExpr = new SearchExpression(dsl, createTestPlan(),
+                    Arrays.asList(createTestSlot("title")));
+            Expression parsed = new NereidsParser().parseExpression(searchExpr.toSql());
+            Assertions.assertEquals(dsl, ((StringLikeLiteral) parsed.child(0)).getStringValue());
+        }
+    }
 
     private SearchDslParser.QsPlan createTestPlan() {
         SearchDslParser.QsNode root = new SearchDslParser.QsNode(

@@ -324,6 +324,12 @@ public class OlapScanNode extends ScanNode {
         this.scoreSortInfo = scoreSortInfo;
     }
 
+    public void collectScoreSlotIds(Set<SlotId> slotIds) {
+        if (scoreSortInfo != null) {
+            scoreSortInfo.getOrderingExprs().forEach(expr -> Expr.extractSlots(expr, slotIds));
+        }
+    }
+
     public void setScoreSortLimit(long scoreSortLimit) {
         this.scoreSortLimit = scoreSortLimit;
     }

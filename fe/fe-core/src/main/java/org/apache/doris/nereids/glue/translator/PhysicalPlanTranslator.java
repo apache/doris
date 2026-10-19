@@ -3053,8 +3053,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
         if (scanNode instanceof OlapScanNode) {
-            preserveStorageSemanticSlots((OlapScanNode) scanNode, requiredWithVirtualColumns, false);
-            preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+            OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+            // A pushed score range can need a hidden slot that the projection does not reference.
+            olapScanNode.collectScoreSlotIds(requiredWithVirtualColumns);
+            preserveStorageSemanticSlots(olapScanNode, requiredWithVirtualColumns, false);
+            preserveExtraStorageKeySlots(olapScanNode, requiredWithVirtualColumns);
         } else if (scanNode instanceof PluginDrivenScanNode) {
             preserveConnectorMustReadSlots((PluginDrivenScanNode) scanNode, requiredWithVirtualColumns);
         }
