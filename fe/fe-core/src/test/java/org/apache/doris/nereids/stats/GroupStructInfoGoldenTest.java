@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -303,6 +304,32 @@ public class GroupStructInfoGoldenTest {
                         pair[0] + " and " + pair[1] + " share a key in mode " + mode);
             }
         }
+    }
+
+    @Test
+    void testAComputedProjectOutputIsDefinedInTheKeyOfTheNodeAbove() {
+        // `GROUP BY a % n` is normalized into an aggregation over a transparent project which names the
+        // value: the definition of that alias has to be part of the key, because the two moduli keep a
+        // different number of groups and a pinned count of one would be applied to the other
+        GroupStructInfo byTwo = built("aggregate_grouping_by_a_computed_project");
+        GroupStructInfo byThree = built("aggregate_grouping_by_another_computed_project");
+        Assertions.assertNotEquals(byTwo.getFingerprint(WITH_LITERAL), byThree.getFingerprint(WITH_LITERAL),
+                "two group by constants share a key because the project below them is transparent");
+        Assertions.assertTrue(byTwo.getCanonical(WITH_LITERAL).contains("Mod("),
+                "the definition of the alias is not in the key: " + byTwo.getCanonical(WITH_LITERAL));
+        Assertions.assertFalse(byTwo.getCanonical(WITH_LITERAL).contains("col(x)"),
+                "the aggregation still names the alias: " + byTwo.getCanonical(WITH_LITERAL));
+        // the definition is the expression the alias wraps, not the alias: the plan the normalization
+        // produces and the same grouping written inline must keep one key (they read the same rows)
+        GroupStructInfo inline = built("aggregate_grouping_by_the_same_expression_directly");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertEquals(byTwo.getFingerprint(mode), inline.getFingerprint(mode),
+                    "the normalized form and the inline form differ in mode " + mode);
+        }
+        // a plain rename is a definition as well: the filter above it reads the column it renames
+        GroupStructInfo renamed = built("filter_above_a_renamed_project_output");
+        Assertions.assertFalse(renamed.getCanonical(WITH_LITERAL).contains("col(x)"),
+                "the rename is not resolved: " + renamed.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -822,6 +849,18 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::topn));
         cases.add(new PlanCase("aggregate_group_by_keys", "aggregation with one group by key over a scan",
                 GroupStructInfoGoldenTest::aggregateGroupByKeys));
+        cases.add(new PlanCase("aggregate_grouping_by_a_computed_project",
+                "aggregation over a transparent project which groups by a computed alias (a % 2 AS x)",
+                GroupStructInfoGoldenTest::aggregateGroupingByAComputedProject));
+        cases.add(new PlanCase("aggregate_grouping_by_another_computed_project",
+                "the same aggregation over the same project with another modulo (a % 3 AS x): a different key",
+                GroupStructInfoGoldenTest::aggregateGroupingByAnotherComputedProject));
+        cases.add(new PlanCase("aggregate_grouping_by_the_same_expression_directly",
+                "the same aggregation written without the project (GROUP BY a % 2): the same key",
+                GroupStructInfoGoldenTest::aggregateGroupingByTheSameExpressionDirectly));
+        cases.add(new PlanCase("filter_above_a_renamed_project_output",
+                "a filter on the alias of a plain rename (a AS x): the definition of x is the column a",
+                GroupStructInfoGoldenTest::filterAboveARenamedProjectOutput));
         cases.add(new PlanCase("aggregate_no_keys", "aggregation without group by keys over a scan",
                 GroupStructInfoGoldenTest::aggregateNoKeys));
         cases.add(new PlanCase("self_join_one_table",
@@ -1233,6 +1272,52 @@ public class GroupStructInfoGoldenTest {
         Expression key = t1.getOutput().get(0);
         return describe(new LogicalAggregate<>(ImmutableList.of(key),
                 ImmutableList.of((NamedExpression) key), true, Optional.empty(), t1));
+    }
+
+    private static GroupStructInfo aggregateGroupingByAComputedProject() {
+        return aggregateGroupingByModulo(2);
+    }
+
+    private static GroupStructInfo aggregateGroupingByAnotherComputedProject() {
+        return aggregateGroupingByModulo(3);
+    }
+
+    /**
+     * {@code GROUP BY a % n} is normalized into an aggregation which groups by the alias of a project
+     * below it, and that project is transparent: only the definition of the alias distinguishes the
+     * aggregations, whose group counts differ.
+     */
+    private static GroupStructInfo aggregateGroupingByModulo(int modulo) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        Alias x = new Alias(new Mod(t1.getOutput().get(0), new IntegerLiteral(modulo)), "x");
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(x), t1);
+        return describe(new LogicalAggregate<>(ImmutableList.of(x.toSlot()),
+                ImmutableList.<NamedExpression>of(x.toSlot()), true, Optional.empty(), project));
+    }
+
+    /**
+     * The same grouping written inline, without the project the normalization inserts: the definition
+     * of the alias is resolved to the expression the alias wraps, so both forms share one key.
+     */
+    private static GroupStructInfo aggregateGroupingByTheSameExpressionDirectly() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        Expression key = new Mod(t1.getOutput().get(0), new IntegerLiteral(2));
+        return describe(new LogicalAggregate<>(ImmutableList.of(key),
+                ImmutableList.<NamedExpression>of(new Alias(key, "x")), true, Optional.empty(), t1));
+    }
+
+    /**
+     * A plain rename is an alias too: the definition of x is the column a, so a filter on x and a
+     * filter on a (or on the same name above another column) must not share a key.
+     */
+    private static GroupStructInfo filterAboveARenamedProjectOutput() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        Alias x = new Alias(t1.getOutput().get(0), "x");
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(x), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(x.toSlot(), new IntegerLiteral(1))), project));
     }
 
     private static GroupStructInfo aggregateNoKeys() {

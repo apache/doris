@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -82,6 +83,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -590,6 +592,9 @@ public class GroupStructInfo {
         Node root;
         try {
             root = buildNode(ge.getPlan(), ge, ctx);
+            if (root != null) {
+                applyColumnDefinitions(ge.getPlan(), root);
+            }
         } catch (RuntimeException e) {
             // memo content which the simplified struct info cannot describe (an unexpected plan node, a
             // cast of a named expression which is not the alias of a window expression): treat the group as
@@ -602,6 +607,127 @@ public class GroupStructInfo {
             return invalidStructInfo(ctx.reason);
         }
         return ofNode(root);
+    }
+
+    /**
+     * Bind the columns the children of a node compute to the expression which produces them, and
+     * substitute a reference to such a column in the expressions of this node.
+     *
+     * <p>A project is transparent for structure matching and an aggregation keeps only its grouping
+     * keys in its header, so a column whose value they compute is <em>named</em> by every node above
+     * them and <em>defined</em> by none: {@code Aggregate(group by x) -> Project(a % 2 AS x) ->
+     * Scan(t)} and the same plan with {@code % 3} render one {@code A{gb:col(x)}} although their group
+     * counts differ, and a pinned row count of one is then applied to the other. The definition is
+     * therefore carried up: the expressions of this node are rewritten so that a column defined by a
+     * child renders as the expression which computes it, and the map is handed to the nodes above.
+     */
+    private static void applyColumnDefinitions(Plan plan, Node node) {
+        Map<ExprId, Expression> childDefinitions = childColumnDefinitions(node);
+        resolveNodeExpressions(node, childDefinitions);
+        node.columnDefinitions = plan instanceof Project
+                ? projectColumnDefinitions((Project) plan, childDefinitions)
+                : childDefinitions;
+    }
+
+    /** The definitions the children of a node expose: a join forwards the columns of both sides. */
+    private static Map<ExprId, Expression> childColumnDefinitions(Node node) {
+        if (node.children.size() == 1) {
+            return node.children.get(0).node.columnDefinitions;
+        }
+        if (node.children.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<ExprId, Expression> definitions = new LinkedHashMap<>();
+        for (Child child : node.children) {
+            definitions.putAll(child.node.columnDefinitions);
+        }
+        return Collections.unmodifiableMap(definitions);
+    }
+
+    /**
+     * The columns a project computes: an alias names the expression it wraps, and that expression is
+     * the value a node above the project reads. A plain slot of the projection is a forwarded column,
+     * which keeps the definition it already had below the project (a project of plain slots over a
+     * project of aliases forwards exactly those definitions).
+     */
+    private static Map<ExprId, Expression> projectColumnDefinitions(Project project,
+            Map<ExprId, Expression> childDefinitions) {
+        Map<ExprId, Expression> definitions = new LinkedHashMap<>();
+        for (NamedExpression output : project.getProjects()) {
+            if (output instanceof Alias) {
+                definitions.put(output.getExprId(),
+                        resolveColumnDefinitions(((Alias) output).child(), childDefinitions));
+            } else if (childDefinitions.containsKey(output.getExprId())) {
+                definitions.put(output.getExprId(), childDefinitions.get(output.getExprId()));
+            }
+        }
+        return Collections.unmodifiableMap(definitions);
+    }
+
+    /** Substitute every reference to a defined column with the expression which computes it. */
+    private static Expression resolveColumnDefinitions(Expression expression,
+            Map<ExprId, Expression> definitions) {
+        if (definitions.isEmpty()) {
+            return expression;
+        }
+        return expression.rewriteUp(rewritten -> {
+            if (!(rewritten instanceof Slot)) {
+                return rewritten;
+            }
+            Expression definition = definitions.get(((Slot) rewritten).getExprId());
+            return definition == null ? rewritten : definition;
+        });
+    }
+
+    private static List<Expression> resolveColumnDefinitions(List<Expression> expressions,
+            Map<ExprId, Expression> definitions) {
+        if (definitions.isEmpty()) {
+            return expressions;
+        }
+        List<Expression> resolved = new ArrayList<>(expressions.size());
+        for (Expression expression : expressions) {
+            resolved.add(resolveColumnDefinitions(expression, definitions));
+        }
+        return resolved;
+    }
+
+    /** Rewrite the expressions a node keeps, in place: they are rendered exactly once, later. */
+    private static void resolveNodeExpressions(Node node, Map<ExprId, Expression> definitions) {
+        if (definitions.isEmpty()) {
+            return;
+        }
+        if (node.conditions != null) {
+            node.conditions = resolveColumnDefinitions(node.conditions, definitions);
+        }
+        if (node.orderKeys != null) {
+            List<OrderKey> orderKeys = new ArrayList<>(node.orderKeys.size());
+            for (OrderKey orderKey : node.orderKeys) {
+                orderKeys.add(orderKey.withExpression(
+                        resolveColumnDefinitions(orderKey.getExpr(), definitions)));
+            }
+            node.orderKeys = orderKeys;
+        }
+        if (node.windowExpressions != null) {
+            List<NamedExpression> windowExpressions = new ArrayList<>(node.windowExpressions.size());
+            for (NamedExpression windowExpression : node.windowExpressions) {
+                windowExpressions.add((NamedExpression)
+                        resolveColumnDefinitions(windowExpression, definitions));
+            }
+            node.windowExpressions = windowExpressions;
+        }
+        if (node.generators != null) {
+            node.generators = resolveColumnDefinitions(node.generators, definitions);
+        }
+        if (node.generatorConjuncts != null) {
+            node.generatorConjuncts = resolveColumnDefinitions(node.generatorConjuncts, definitions);
+        }
+        if (node.groupingSets != null) {
+            List<List<Expression>> groupingSets = new ArrayList<>(node.groupingSets.size());
+            for (List<Expression> groupingSet : node.groupingSets) {
+                groupingSets.add(resolveColumnDefinitions(groupingSet, definitions));
+            }
+            node.groupingSets = groupingSets;
+        }
     }
 
     /** The memo group a plan node belongs to: its back reference, or the post processed group id. */
@@ -906,6 +1032,12 @@ public class GroupStructInfo {
         private HboScanDescriptor scan;
         /** STORAGE_AGGREGATE: the pushed down aggregation. */
         private PhysicalStorageLayerAggregate storageAggregate;
+        /**
+         * The columns this node or a node below it computes, keyed by the id of the column which
+         * exposes the value: an alias of a transparent project and an output of an aggregation are
+         * the two definitions a node above them cannot see in the canonical form of its children.
+         */
+        private Map<ExprId, Expression> columnDefinitions = Collections.emptyMap();
         /** The children, in the order the canonical string prints them. */
         private List<Child> children = new ArrayList<>();
         /** The rendered forms of this node, filled on the first request of each of them. */
