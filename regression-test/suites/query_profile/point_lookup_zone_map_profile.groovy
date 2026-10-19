@@ -30,14 +30,41 @@ suite('point_lookup_zone_map_profile', 'nonConcurrent') {
             "disable_auto_compaction" = "true"
         )
     '''
+    // Two transactions put more than one data rowset on the tablet. A full compaction of the
+    // initial empty [0-1] rowset next to a single data rowset is a no-op no matter how many
+    // segments that rowset holds (see FullCompaction::pick_rowsets_to_compact), so one INSERT
+    // would never make the compaction below rewrite the data.
     sql '''
         INSERT INTO point_lookup_zone_map_profile
-        SELECT number, number FROM numbers("number" = "200000")
+        SELECT number, number FROM numbers("number" = "100000")
+    '''
+    sql '''
+        INSERT INTO point_lookup_zone_map_profile
+        SELECT number + 100000, number + 100000 FROM numbers("number" = "100000")
     '''
     // An INSERT ... SELECT can create several segments depending on sink parallelism, and the
     // segment-level zone map then charges whole segments as stats-filtered before the per-segment
     // key range runs. Compact first so the key-range accounting below is checked on one segment.
     trigger_and_wait_compaction('point_lookup_zone_map_profile', 'full', 1800)
+    // The compaction helper also reports completion when the compaction was rejected, for
+    // example for having no suitable version, so assert the layout the checks below rely on
+    // instead of trusting the helper's return value.
+    def segmentCount = { String tableName ->
+        int segments = 0
+        for (def tablet : sql_return_maparray("show tablets from ${tableName}")) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            assertEquals(0, code)
+            for (String rowset : (List<String>) parseJson(out.trim()).rowsets) {
+                def matcher = rowset =~ /^\[\d+-\d+\]\s+(\d+)\s/
+                assertTrue(matcher.find(), "unexpected rowset description: ${rowset}")
+                segments += matcher.group(1) as int
+            }
+        }
+        segments
+    }
+    assertEquals(1, segmentCount('point_lookup_zone_map_profile'),
+            'the fixture must hold a single segment: with several segments the segment-level ' +
+            'zone map charges whole segments as stats-filtered before the key range runs')
 
     sql 'set enable_profile=true'
     sql 'set profile_level=2'
