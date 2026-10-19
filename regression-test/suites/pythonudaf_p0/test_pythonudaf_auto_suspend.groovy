@@ -48,6 +48,13 @@ class SumAgg:
             "qt_result_0_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input")
             Thread.sleep(2500)
             "qt_result_1_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input")
+            // DROP now leaves a STOPPED pool until the monitor reclaims it. The next
+            // iteration recreates the same SQL name with a new function id and must still work.
+            sql "DROP FUNCTION py_auto_suspend(INT)"
+            test {
+                sql "SELECT py_auto_suspend(v) FROM py_auto_suspend_input"
+                exception "Can not found function"
+            }
         }
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
         def zip = "${context.file.parent}/udaf_scripts/python_udaf_drop_a/python_udaf_drop_test.zip"

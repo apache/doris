@@ -540,12 +540,19 @@ void PythonServerManager::_reclaim_idle_pools(std::chrono::steady_clock::time_po
         std::erase_if(_process_pools, [&](const auto& entry) {
             const auto& pool = entry.second;
             std::scoped_lock pool_lock(pool->mutex);
-            if (pool->auto_suspend < 0 || pool->active_clients != 0 ||
-                std::chrono::duration_cast<std::chrono::seconds>(now - pool->idle_since).count() <
-                        pool->auto_suspend) {
+            // 1. Never reclaim a pool while any client still holds it.
+            // 2. A STOPPED pool is reclaimed on the next scan after its last client closes,
+            //    regardless of auto_suspend.
+            // 3. Other pools require auto_suspend >= 0 and no clients for that many seconds.
+            //    The last client closing resets idle_since, so each idle period starts afresh.
+            if (pool->active_clients != 0 ||
+                (pool->state != PoolState::STOPPED &&
+                 (pool->auto_suspend < 0 ||
+                  std::chrono::duration_cast<std::chrono::seconds>(now - pool->idle_since).count() <
+                          pool->auto_suspend))) {
                 return false;
             }
-            // Stop late initialization/repair workers, but allow the next call to create a new pool.
+            // Prevent detached initialization/repair workers from publishing into a retired pool.
             pool->state = PoolState::STOPPED;
             pool->has_available_process = false;
             retired.emplace_back(pool);
@@ -825,26 +832,24 @@ void PythonServerManager::_refresh_memory_stats() {
 
 void PythonServerManager::drop_function(int64_t function_id) {
     std::shared_ptr<FunctionProcessPool> pool;
-    std::vector<ProcessPtr> processes;
     {
         std::scoped_lock map_lock(_pools_mutex);
         auto iter = _process_pools.find(function_id);
         if (iter == _process_pools.end()) {
             return;
         }
-        pool = std::move(iter->second);
-        // Stop publication before removing the pool, so concurrent shutdown cannot miss a late fork.
+        pool = iter->second;
+        // Keep the STOPPED pool in the map until the health check sees no active clients.
+        // For example, a GROUP BY UDAF may process group A, receive DROP, then encounter group B.
+        // B's create() must find this STOPPED pool and fail instead of starting a new pool while
+        // A's client is still alive. Existing clients may finish on their current processes.
         {
             std::scoped_lock pool_lock(pool->mutex);
             pool->state = PoolState::STOPPED;
             pool->has_available_process = false;
-            processes.swap(pool->processes);
         }
-        _process_pools.erase(iter);
     }
     pool->cv.notify_all();
-    // Release pool ownership outside the mutex. Active Flight clients retain their process;
-    // the final client destroys it, shutting down Python before the zip is deleted.
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients

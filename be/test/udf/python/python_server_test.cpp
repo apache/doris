@@ -38,6 +38,7 @@
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
+#include "udf/python/python_udtf_client.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -82,7 +83,8 @@ protected:
         SCOPED_TRACE(repair ? "repaired process" : "initial process");
         PythonServerManager mgr;
         auto meta = test_meta(version);
-        auto pool = mgr._ensure_pool_initialized(meta, version);
+        std::shared_ptr<PythonUDFPoolLease> lease;
+        auto pool = mgr._ensure_pool_initialized(meta, version, nullptr, &lease);
         ASSERT_TRUE(pool.has_value()) << pool.error().to_string();
         ASSERT_TRUE(
                 mgr.wait_for_process_pool_initialized_for_test(meta.id, std::chrono::seconds(5)));
@@ -100,12 +102,15 @@ protected:
 
         std::weak_ptr<PythonUDFProcess> process_lifetime = client_process;
         mgr.drop_function(meta.id);
-        EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
+        EXPECT_EQ(mgr.process_pool_snapshot_for_test(meta.id).size(), 1);
+        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
         ASSERT_TRUE(client_process->is_alive());
         mgr._refresh_memory_stats();
         EXPECT_GT(mgr._mem_tracker.consumption(), 0);
 
         client_process.reset();
+        lease.reset();
+        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
         EXPECT_TRUE(process_lifetime.expired());
         mgr._refresh_memory_stats();
         EXPECT_EQ(mgr._mem_tracker.consumption(), 0);
@@ -1023,7 +1028,86 @@ TEST_F(PythonServerTest, FunctionsWithSameRuntimeHaveIndependentFixedPools) {
     EXPECT_NE(first_client, second_client);
 }
 
-TEST_F(PythonServerTest, DropKeepsActiveProcessAliveAndDoesNotAffectOtherFunction) {
+TEST_F(PythonServerTest, DropRejectsNewClientsUntilHealthCheckReclaimsThePool) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    auto process = create_sleep_process();
+    mgr.set_process_pool_for_test(meta, version, {process});
+    std::shared_ptr<PythonUDFPoolLease> lease;
+    auto pool = mgr._get_or_create_process_pool(meta, version, nullptr, &lease).value();
+
+    mgr.drop_function(meta.id);
+    ASSERT_TRUE(mgr._process_pools.contains(meta.id));
+    EXPECT_EQ(PythonServerManager::PoolState::STOPPED, pool->state);
+    EXPECT_TRUE(process->is_alive());
+
+    // UDAF can encounter a new GROUP BY key after DROP while an earlier group's client is alive.
+    // All three client factories must reject this pool instead of creating a replacement.
+    std::shared_ptr<PythonUDFClient> udf;
+    std::shared_ptr<PythonUDAFClient> udaf;
+    std::shared_ptr<PythonUDTFClient> udtf;
+    EXPECT_FALSE(mgr.get_client(meta, version, &udf).ok());
+    EXPECT_FALSE(mgr.get_client(meta, version, &udaf).ok());
+    EXPECT_FALSE(mgr.get_client(meta, version, &udtf).ok());
+    EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
+    EXPECT_EQ(1, pool->active_clients);
+
+    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
+    EXPECT_TRUE(mgr._process_pools.contains(meta.id));
+    EXPECT_TRUE(process->is_alive());
+    mgr.drop_function(meta.id); // Duplicate cleanup must keep the same STOPPED pool.
+    EXPECT_EQ(pool, mgr._process_pools.at(meta.id));
+
+    lease.reset();
+    EXPECT_TRUE(mgr._process_pools.contains(meta.id));
+    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
+    EXPECT_FALSE(mgr._process_pools.contains(meta.id));
+    EXPECT_FALSE(process->is_alive());
+}
+
+TEST_F(PythonServerTest, HealthCheckReclaimsStoppedPoolsRegardlessOfAutoSuspend) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    for (int64_t timeout : {-1, 0, 3600}) {
+        auto meta = test_meta(version);
+        meta.id = 3000 + timeout;
+        meta.auto_suspend = timeout;
+        auto process = create_sleep_process();
+        mgr.set_process_pool_for_test(meta, version, {process});
+        mgr.drop_function(meta.id);
+        ASSERT_TRUE(mgr._process_pools.contains(meta.id));
+        EXPECT_TRUE(process->is_alive());
+        mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
+        EXPECT_FALSE(mgr._process_pools.contains(meta.id));
+        EXPECT_FALSE(process->is_alive());
+    }
+}
+
+TEST_F(PythonServerTest, MonitorReclaimsDroppedPoolAfterLastClientCloses) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    auto meta = test_meta(version);
+    auto process = create_sleep_process();
+    mgr.set_process_pool_for_test(meta, version, {process});
+    PythonClient client;
+    ASSERT_TRUE(mgr._get_or_create_process_pool(meta, version, nullptr, &client._pool_lease)
+                        .has_value());
+    client._process = process;
+    mgr.drop_function(meta.id);
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    EXPECT_TRUE(process->is_alive());
+    ASSERT_TRUE(client.close().ok());
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
+    while (process->is_alive() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_FALSE(process->is_alive());
+    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(meta.id).empty());
+}
+
+TEST_F(PythonServerTest, DropDefersProcessCleanupAndDoesNotAffectOtherFunction) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
     PythonUDFMeta first;
@@ -1035,6 +1119,9 @@ TEST_F(PythonServerTest, DropKeepsActiveProcessAliveAndDoesNotAffectOtherFunctio
     mgr.set_process_pool_for_test(second, version, {create_sleep_process()});
     mgr.drop_function(101);
     EXPECT_TRUE(active->is_alive());
+    EXPECT_EQ(mgr.process_pool_snapshot_for_test(101).size(), 1);
+    mgr._reclaim_idle_pools(std::chrono::steady_clock::now());
+    EXPECT_FALSE(active->is_alive());
     EXPECT_TRUE(mgr.process_pool_snapshot_for_test(101).empty());
     EXPECT_EQ(mgr.process_pool_snapshot_for_test(102).size(), 1);
     active.reset();
@@ -1079,7 +1166,8 @@ TEST_F(PythonServerTest, DropDuringInitializationKeepsPeriodicMemoryAccounting) 
     sync_point->enable_processing();
     auto meta = test_meta(version);
     meta.pool_size = 2;
-    auto pool = mgr._ensure_pool_initialized(meta, version);
+    std::shared_ptr<PythonUDFPoolLease> lease;
+    auto pool = mgr._ensure_pool_initialized(meta, version, nullptr, &lease);
     ASSERT_TRUE(pool.has_value()) << pool.error().to_string();
     ProcessPtr client_process;
     ASSERT_TRUE(mgr._get_process(version, pool.value(), &client_process).ok());
