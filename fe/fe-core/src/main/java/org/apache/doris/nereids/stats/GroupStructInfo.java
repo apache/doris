@@ -209,6 +209,14 @@ public class GroupStructInfo {
      */
     private static final String PROTECTED_HEADERS = protectedHeaders();
 
+    /**
+     * The markers of the headers whose condition collection is sorted per literal mode, i.e. the ones the
+     * fold of a pasted struct info has to re-sort after it folded their literals (see
+     * {@code recanonicalizeFoldedConditions}): a filter, an aggregation, a join (which also de-duplicates)
+     * and the grouping sets of a repeat.
+     */
+    private static final String[] CONDITION_HEADER_MARKERS = {"F{", "A{gb:", "J{", "R{gs:["};
+
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
 
@@ -2187,28 +2195,24 @@ public class GroupStructInfo {
     }
 
     /**
-     * Re-sort the condition collections of a folded text. The structured rendering renders the conditions
-     * of a filter and of an aggregation in the requested mode and then sorts them, while the substitution
-     * above only rewrites the literals of the text it was given: folding the literal carrying form of a
-     * node whose conditions order differently in the two modes would therefore not reproduce its constant
-     * agnostic text, and the statement would reject a pair the user copied correctly. Only these two
-     * headers are rewritten here; a join also de-duplicates its conditions and a repeat sorts one list per
-     * grouping set, which are handled separately.
+     * Re-sort the condition collections of a folded text. The structured rendering renders a condition in
+     * the requested mode and then sorts it into its collection, while the substitution above only
+     * rewrites the literals of the text it was given: folding the literal carrying form of a node whose
+     * conditions order differently in the two modes would therefore not reproduce its constant agnostic
+     * text, and the statement would reject a pair the user copied correctly. The collections are the
+     * conditions of a filter and of an aggregation (sorted), the conjuncts of a join (sorted and
+     * de-duplicated) and the expressions of every grouping set of a repeat (each set sorted).
      */
     private static String recanonicalizeFoldedConditions(String folded) {
         StringBuilder out = new StringBuilder(folded.length());
         int index = 0;
         while (index < folded.length()) {
-            int filter = folded.indexOf("F{", index);
-            int aggregate = folded.indexOf("A{gb:", index);
-            int next = filter < 0 ? aggregate : (aggregate < 0 ? filter : Math.min(filter, aggregate));
+            int next = nextConditionHeaderStart(folded, index);
             if (next < 0) {
                 out.append(folded, index, folded.length());
                 return out.toString();
             }
             out.append(folded, index, next);
-            boolean isFilter = next == filter;
-            int prefix = isFilter ? 2 : 5;
             int close;
             try {
                 close = closingBraceOf(folded, next + 1);
@@ -2218,11 +2222,128 @@ public class GroupStructInfo {
                 out.append(folded, next, folded.length());
                 return out.toString();
             }
-            out.append(folded, next, next + prefix)
-                    .append(sortedConditionText(folded.substring(next + prefix, close))).append('}');
+            out.append(canonicalConditionHeader(folded.substring(next, close))).append('}');
             index = close + 1;
         }
         return out.toString();
+    }
+
+    /** The start of the next header with a mode dependent condition order at or after {@code from}. */
+    private static int nextConditionHeaderStart(String folded, int from) {
+        int best = -1;
+        for (String marker : CONDITION_HEADER_MARKERS) {
+            int at = HboScanDescriptor.nextTokenStart(folded, marker, from);
+            if (at >= 0 && (best < 0 || at < best)) {
+                best = at;
+            }
+        }
+        return best;
+    }
+
+    /** Rewrite the condition collection of one header (which it is known by its marker to have). */
+    private static String canonicalConditionHeader(String header) {
+        if (header.startsWith("F{")) {
+            return "F{" + sortedConditionText(header.substring(2));
+        }
+        if (header.startsWith("A{gb:")) {
+            return "A{gb:" + sortedConditionText(header.substring(5));
+        }
+        if (header.startsWith("J{")) {
+            return sortedJoinHeader(header);
+        }
+        return sortedRepeatHeader(header);
+    }
+
+    /**
+     * The conjuncts of a join: the renderer collects them into a set, so they are sorted and
+     * de-duplicated - folding can map two different literals onto one text (two inequalities with
+     * different bounds, for example), which this pass therefore also de-duplicates, and the order of the
+     * folded texts is the order of the constant agnostic canonical form.
+     */
+    private static String sortedJoinHeader(String header) {
+        int listStart = header.indexOf(",c:[");
+        if (listStart < 0) {
+            return header;
+        }
+        int listOpen = listStart + 3;
+        int listClose = closingBracketOf(header, listOpen);
+        if (listClose < 0) {
+            return header;
+        }
+        TreeSet<String> conditions = new TreeSet<>(splitConditionRegion(header, listOpen + 1, listClose));
+        return header.substring(0, listOpen + 1) + String.join(SEP, conditions)
+                + header.substring(listClose);
+    }
+
+    /**
+     * The expressions of every grouping set of a repeat: each set is sorted on its own and duplicates
+     * stay, exactly like the renderer writes them ({@code appendNormalizedSorted}).
+     */
+    private static String sortedRepeatHeader(String header) {
+        int marker = header.indexOf("gs:[");
+        if (marker < 0) {
+            return header;
+        }
+        int listOpen = marker + 3;
+        int listClose = closingBracketOf(header, listOpen);
+        if (listClose < 0) {
+            return header;
+        }
+        StringBuilder sets = new StringBuilder();
+        int cursor = listOpen + 1;
+        while (cursor < listClose) {
+            int setClose = closingBracketOf(header, cursor);
+            if (sets.length() > 0) {
+                sets.append(SEP);
+            }
+            sets.append('[').append(sortedConditionText(header.substring(cursor + 1, setClose))).append(']');
+            cursor = setClose + 1;
+            if (cursor < listClose && header.charAt(cursor) == ';') {
+                cursor++;
+            }
+        }
+        return header.substring(0, listOpen + 1) + sets + header.substring(listClose);
+    }
+
+    /** The closing bracket which matches the opening bracket at {@code openingBracket}, or -1. */
+    private static int closingBracketOf(String text, int openingBracket) {
+        int depth = 0;
+        for (int i = openingBracket; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '[') {
+                depth++;
+            } else if (c == ']') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Split a {@code ;} separated condition list. A variant sub path prints its own brackets
+     * ({@code col(v['age'])}), so only a separator outside a bracket pair ends a condition; a literal
+     * value escapes its brackets, so it cannot open one.
+     */
+    private static List<String> splitConditionRegion(String text, int from, int to) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = from;
+        for (int i = from; i < to; i++) {
+            char c = text.charAt(i);
+            if (c == '[') {
+                depth++;
+            } else if (c == ']') {
+                depth--;
+            } else if (c == ';' && depth == 0) {
+                parts.add(text.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(text.substring(start, to));
+        return parts;
     }
 
     /** A {@code ;} separated condition list in sorted order (the order the structured rendering writes). */

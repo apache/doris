@@ -434,6 +434,24 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testEveryCanonicalFoldsToItsConstantAgnosticForm() {
+        // the constant agnostic fingerprint of a pasted struct info is computed by folding its text (see
+        // GroupStructInfo#toNoLiteral), so the fold has to reproduce exactly the text the renderer writes
+        // for NO_LITERAL - for every node kind, including the collections which are sorted per mode: the
+        // conjuncts of a join are sorted and de-duplicated, the grouping sets of a repeat are sorted set by
+        // set, while a literal substitution alone would keep the order of the literal carrying form
+        for (PlanCase planCase : planCases()) {
+            GroupStructInfo info = planCase.builder.build();
+            if (!info.isValid()) {
+                continue;
+            }
+            Assertions.assertEquals(info.getCanonical(NO_LITERAL),
+                    GroupStructInfo.toNoLiteral(info.getCanonical(WITH_LITERAL)),
+                    "the folded canonical of " + planCase.name + " is not its constant agnostic form");
+        }
+    }
+
+    @Test
     void testTheJoinChainIsAssociatedTheSameWayBothWays() {
         // (t1 join t2) join t3 and t1 join (t2 cross join t3) carry the same two conditions over the
         // same three scans: a chain is associative, so the two plans must render one descriptor - the
