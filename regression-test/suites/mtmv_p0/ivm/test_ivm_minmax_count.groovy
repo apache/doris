@@ -65,25 +65,38 @@ suite("test_ivm_minmax_count") {
                 "unexpected IVM fallback: ${reason}")
     }
 
+    // A task that just finished is briefly absent from tasks(): the job removes it from its
+    // running list before the MV history publishes it, so the newest row can temporarily be
+    // the previous refresh. Require a different TaskId before trusting a terminal row.
+    String lastTaskId = null
     def latestTask = {
         def taskResult
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             taskResult = sql_return_maparray("""
-                SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg
+                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg
                 FROM tasks('type'='mv')
                 WHERE MvDatabaseName = '${context.dbName}'
                   AND MvName = 'ivm_mm_count_mv'
                 ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
             """)
             return !taskResult.isEmpty()
+                    && taskResult[0].TaskId.toString() != lastTaskId
                     && taskResult[0].Status.toString() != 'PENDING'
                     && taskResult[0].Status.toString() != 'RUNNING'
         })
+        lastTaskId = taskResult[0].TaskId.toString()
         return taskResult[0]
     }
 
     sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_mm_count_mv")
+    lastTaskId = sql_return_maparray("""
+        SELECT TaskId
+        FROM tasks('type'='mv')
+        WHERE MvDatabaseName = '${context.dbName}'
+          AND MvName = 'ivm_mm_count_mv'
+        ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+    """)[0].TaskId.toString()
     order_qt_initial """
         SELECT category, min_score, max_score, row_count
         FROM ivm_mm_count_mv

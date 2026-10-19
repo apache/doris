@@ -59,6 +59,9 @@ import java.util.Objects;
  *
  * <ul>
  *   <li>An inserted value better than the old extreme becomes the new extreme.</li>
+ *   <li>A group whose old extreme is NULL starts from the insert-side extreme, and its
+ *       count is first reduced by deletes that cancel the same value (a join can emit
+ *       such a delete for a row that the same refresh inserted elsewhere).</li>
  *   <li>Otherwise the old extreme survives while
  *       {@code oldCount + equal inserts - equal deletes > 0}.</li>
  *   <li>If the old extreme is exhausted and no inserted value is better, the new extreme
@@ -149,6 +152,8 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         // as unknown, so the guard below is a plain boolean.
         Expression insertedPresent = new Not(new IsNull(deltaInsert));
         Expression deletedPresent = new Not(new IsNull(deltaDelete));
+        Expression oldExtremeNull = new IsNull(oldExtreme);
+        Expression oldExtremePresent = new Not(oldExtremeNull);
         Expression insertedBetter = new And(insertedPresent, insertedIsBetter(deltaInsert, oldExtreme));
         Expression insertedEqual = new And(insertedPresent, new EqualTo(deltaInsert, oldExtreme));
         Expression deletedEqual = new And(deletedPresent, new EqualTo(deltaDelete, oldExtreme));
@@ -156,19 +161,39 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                 new Add(oldCount, new If(insertedEqual, deltaInsertCount, zero)),
                 new If(deletedEqual, deltaDeleteCount, zero));
 
+        // When the old extreme is NULL the new extreme comes from the insert side. Its count
+        // is the insert-side count minus the deletes that cancel the same value. That
+        // subtraction is only possible when the delete-side extreme is exactly that value,
+        // or is farther from the extreme (so no delete touches it). A delete closer to the
+        // extreme, or deletes that cancel every inserted row, leaves the count unprovable
+        // and keeps the complete-refresh fallback.
+        Expression deleteEqualsInsert = new And(ImmutableList.of(
+                deletedPresent, insertedPresent, new EqualTo(deltaDelete, deltaInsert)));
+        Expression insertExtremeNetCount = new Subtract(deltaInsertCount, deltaDeleteCount);
+        Expression insertExtremeProvable = new And(insertedPresent, new Or(ImmutableList.of(
+                new IsNull(deltaDelete),
+                new And(deletedPresent,
+                        deletedExtremeIsBeyondInsert(deltaDelete, deltaInsert)),
+                new And(deleteEqualsInsert, new GreaterThan(insertExtremeNetCount, zero)))));
+        Expression oldNullGuard = new And(oldExtremeNull, new Or(ImmutableList.of(
+                new EqualTo(newTotalCount, zero),
+                insertExtremeProvable)));
+
         // The old extreme survives when no delete is below it and its remaining count is
         // positive. An inserted value that beats the old extreme also makes the merge
         // derivable without a complete refresh.
+        Expression oldPresentNoDeletes = new And(oldExtremePresent, new IsNull(deltaDelete));
+        Expression oldPresentBoundary = new And(oldExtremePresent,
+                new And(deletedPresent,
+                        new And(deletedExtremeIsAtLeastOld(deltaDelete, oldExtreme),
+                                new Or(ImmutableList.of(
+                                        insertedBetter,
+                                        new GreaterThan(survivingOldCount, zero))))));
         Expression guardCond = new Or(ImmutableList.of(
                 new EqualTo(newTotalCount, zero),
-                new IsNull(oldExtreme),
-                new IsNull(deltaDelete),
-                new And(
-                        new And(deletedPresent,
-                                deletedExtremeIsAtLeastOld(deltaDelete, oldExtreme)),
-                        new Or(ImmutableList.of(
-                                insertedBetter,
-                                new GreaterThan(survivingOldCount, zero))))));
+                oldNullGuard,
+                oldPresentNoDeletes,
+                oldPresentBoundary));
         Expression guard = new AssertTrue(guardCond, new StringLiteral(fallbackMessage()));
 
         Expression newExtremeRaw = new CaseWhen(
@@ -181,10 +206,12 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         Expression newExtremeGuarded = new If(guard, newExtremeRaw,
                 new NullLiteral(newExtremeRaw.getDataType()));
 
+        Expression insertExtremeCount = new If(
+                deleteEqualsInsert, insertExtremeNetCount, deltaInsertCount);
         Expression newCountRaw = new CaseWhen(
                 ImmutableList.of(
                         new WhenClause(new EqualTo(newTotalCount, zero), zero),
-                        new WhenClause(new IsNull(oldExtreme), deltaInsertCount),
+                        new WhenClause(oldExtremeNull, insertExtremeCount),
                         new WhenClause(insertedBetter, deltaInsertCount)),
                 survivingOldCount);
         Expression newCountGuarded = new If(guard, newCountRaw,
@@ -223,6 +250,13 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
 
     /** True when the deleted extreme does not fall below/above the old extreme. */
     protected abstract Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme);
+
+    /**
+     * True when the delete-side extreme is farther from the aggregate extreme than the
+     * insert-side extreme, so no deleted row can cancel the insert-side extreme.
+     */
+    protected abstract Expression deletedExtremeIsBeyondInsert(
+            Expression deltaDelete, Expression deltaInsert);
 
     /** Assertion message used when the delta is not sufficient and complete refresh is required. */
     protected abstract String fallbackMessage();

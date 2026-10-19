@@ -19,6 +19,7 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -55,6 +56,11 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     @Override
     protected Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme) {
         return new GreaterThanEqual(deltaDelete, oldExtreme);
+    }
+
+    @Override
+    protected Expression deletedExtremeIsBeyondInsert(Expression deltaDelete, Expression deltaInsert) {
+        return new GreaterThan(deltaDelete, deltaInsert);
     }
 
     @Override

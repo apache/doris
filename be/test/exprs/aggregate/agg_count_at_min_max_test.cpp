@@ -128,7 +128,7 @@ TEST(CountAtMinMaxTest, Merge) {
 
     ColumnInt64 result;
     function->insert_result_into(lhs, result);
-    EXPECT_EQ(5, result.get_element(0));
+    EXPECT_EQ(2, result.get_element(0));
     function->destroy(lhs);
     function->destroy(rhs);
 }

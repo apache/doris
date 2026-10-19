@@ -69,5 +69,8 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof LessThanEqual));
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
         Assertions.assertTrue(finalByName.containsKey(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT")));
+        Expression hiddenCount = finalByName.get(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT"));
+        Assertions.assertTrue(containsSlotSubtract(hiddenCount, "EXTREME_INS_COUNT", "EXTREME_DEL_COUNT"),
+                "MAX count initialization must subtract matching deletes");
     }
 }

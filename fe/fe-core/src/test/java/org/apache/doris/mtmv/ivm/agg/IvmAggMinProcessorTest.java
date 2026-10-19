@@ -69,5 +69,8 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof GreaterThanEqual));
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
         Assertions.assertTrue(finalByName.containsKey(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT")));
+        Expression hiddenCount = finalByName.get(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT"));
+        Assertions.assertTrue(containsSlotSubtract(hiddenCount, "EXTREME_INS_COUNT", "EXTREME_DEL_COUNT"),
+                "MIN count initialization must subtract matching deletes");
     }
 }
