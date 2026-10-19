@@ -313,8 +313,8 @@ protected:
         // A NULL row has no contribution (not even an empty bitmap intersection).
         // Keep only one aligned state alive: wide/string/set states must not grow with batch size.
         Arena state_arena;
-        auto* place = state_arena.aligned_alloc(nested_function->size_of_data(),
-                                                nested_function->align_of_data());
+        Arena row_arena;
+        AggregateDataPtr place = nullptr;
         for (size_t row = 0; row < num_rows; ++row) {
             if (native_state_is_nullable()) {
                 if (null_map[row]) {
@@ -322,10 +322,16 @@ protected:
                     continue;
                 }
             }
+            if (place == nullptr) {
+                // An entirely NULL native batch does not need even one temporary state.
+                place = state_arena.aligned_alloc(nested_function->size_of_data(),
+                                                  nested_function->align_of_data());
+            }
+            row_arena.clear();
             nested_function->create(place);
             DEFER({ nested_function->destroy(place); });
             if (!null_map[row]) {
-                nested_function->add(place, columns, row, arena);
+                nested_function->add(place, columns, row, row_arena);
             }
             nested_function->serialize_without_key_to_column(place, *nested_dst);
         }

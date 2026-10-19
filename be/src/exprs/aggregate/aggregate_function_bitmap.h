@@ -162,7 +162,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
-        char place[sizeof(Data)];
+        alignas(Data) char place[sizeof(Data)];
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {

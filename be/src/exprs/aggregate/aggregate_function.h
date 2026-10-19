@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -28,6 +29,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
@@ -531,14 +533,27 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
+        if (num_rows == 0) {
+            return;
+        }
         VectorBufferWriter buf(assert_cast<ColumnString&>(*dst));
-        std::vector<char> place(size_of_data());
-        const Derived* derived = assert_cast<const Derived*>(this);
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto state_size = derived->size_of_data();
+        const auto alignment = derived->align_of_data();
+        std::vector<char> storage(state_size + alignment - 1);
+        void* data = storage.data();
+        size_t space = storage.size();
+        auto* place = static_cast<AggregateDataPtr>(std::align(alignment, state_size, data, space));
+        DCHECK(place != nullptr);
+        Arena row_arena;
         for (size_t i = 0; i != num_rows; ++i) {
-            derived->create(place.data());
-            DEFER({ derived->destroy(place.data()); });
-            derived->add(place.data(), columns, i, arena);
-            derived->serialize(place.data(), buf);
+            // String rows own their serialized bytes. Reclaim temporary array/key payloads
+            // after each state's destruction instead of retaining them in the caller's arena.
+            row_arena.clear();
+            derived->create(place);
+            DEFER({ derived->destroy(place); });
+            derived->add(place, columns, i, row_arena);
+            derived->serialize(place, buf);
             buf.commit();
         }
     }

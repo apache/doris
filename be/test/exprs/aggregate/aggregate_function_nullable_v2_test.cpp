@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -34,6 +35,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
 #include "core/value/bitmap_value.h"
+#include "exprs/aggregate/aggregate_function_null_v2.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/iterator/olap_data_convertor.h"
@@ -133,6 +135,125 @@ void check_streaming(const AggregateFunctionPtr& function, const Columns& inputs
         function->insert_result_into(actual.data(), *actual_result);
         EXPECT_EQ(actual_result->compare_at(0, 0, *expected_result, 1), 0) << "row=" << i;
     }
+}
+
+struct alignas(64) StreamingArenaProbeData {
+    StringRef value;
+};
+
+class StreamingArenaProbe final
+        : public IAggregateFunctionDataHelper<StreamingArenaProbeData, StreamingArenaProbe> {
+    using Base = IAggregateFunctionDataHelper<StreamingArenaProbeData, StreamingArenaProbe>;
+
+public:
+    StreamingArenaProbe() : Base({std::make_shared<DataTypeString>()}) {}
+    String get_name() const override { return "streaming_arena_probe"; }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
+    void create(AggregateDataPtr place) const override {
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(place) % alignof(StreamingArenaProbeData), 0);
+        ++creates;
+        Base::create(place);
+    }
+    void destroy(AggregateDataPtr place) const noexcept override {
+        ++destroys;
+        Base::destroy(place);
+    }
+    void reset(AggregateDataPtr place) const override { data(place).value = {}; }
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row,
+             Arena& arena) const override {
+        auto value = assert_cast<const ColumnString&>(*columns[0]).get_data_at(row);
+        auto* copied = arena.alloc(value.size);
+        std::memcpy(copied, value.data, value.size);
+        data(place).value = {copied, value.size};
+        max_arena_used = std::max(max_arena_used, arena.used_size());
+    }
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
+        data(place).value = data(rhs).value;
+    }
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+        buf.write_binary(data(place).value);
+    }
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {
+        buf.read_binary(data(place).value);
+    }
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        const auto value = data(place).value;
+        assert_cast<ColumnString&>(to).insert_data(value.data, value.size);
+    }
+
+    mutable size_t creates = 0;
+    mutable size_t destroys = 0;
+    mutable size_t max_arena_used = 0;
+};
+
+TEST(NullableAggregationV2Test, StreamingStatesAreAlignedAndTemporaryPayloadsAreRowLocal) {
+    constexpr size_t rows = 64;
+    constexpr size_t width = 8192;
+    // Bare generic, nullable/no NULL, and nullable/sparse NULL take different streaming paths.
+    for (int mode : {0, 1, 2}) {
+        auto values = ColumnString::create();
+        for (size_t row = 0; row < rows; ++row) {
+            values->insert_value(std::string(width, static_cast<char>('a' + row % 26)));
+        }
+        auto* probe = new StreamingArenaProbe;
+        AggregateFunctionPtr function;
+        ColumnPtr values_column = std::move(values);
+        ColumnPtr input = values_column;
+        if (mode == 0) {
+            function.reset(probe);
+        } else {
+            auto nulls = ColumnUInt8::create(rows, 0);
+            for (size_t row = 0; row < rows; ++row) {
+                nulls->get_data()[row] = mode == 2 && row % 3 == 0;
+            }
+            input = ColumnNullable::create(values_column, std::move(nulls));
+            function =
+                    std::make_shared<AggregateFunctionNullUnaryInlineV2<StreamingArenaProbe, true>>(
+                            probe, DataTypes {make_nullable(std::make_shared<DataTypeString>())},
+                            false);
+        }
+        Arena caller_arena;
+        const IColumn* columns[] = {input.get()};
+        auto serialized = function->create_serialize_column();
+        function->streaming_agg_serialize_to_column(columns, serialized, rows, caller_arena);
+        EXPECT_EQ(caller_arena.used_size(), 0);
+        EXPECT_LE(probe->max_arena_used, width);
+        EXPECT_EQ(probe->creates, mode == 2 ? 42 : rows);
+        EXPECT_EQ(probe->destroys, probe->creates);
+        const IColumn* payload = serialized.get();
+        if (mode != 0) {
+            payload = &assert_cast<const ColumnNullable&>(*serialized).get_nested_column();
+        }
+        for (size_t row = 0; row < rows; ++row) {
+            if (mode == 2 && row % 3 == 0) {
+                EXPECT_TRUE(serialized->is_null_at(row));
+                continue;
+            }
+            // Read after the temporary arenas were destroyed: serialized rows own the bytes.
+            VectorBufferReader reader(assert_cast<const ColumnString&>(*payload).get_data_at(row));
+            StringRef decoded;
+            reader.read_binary(decoded);
+            EXPECT_EQ(decoded, values_column->get_data_at(row));
+        }
+    }
+}
+
+TEST(NullableAggregationV2Test, AllNullStreamingDoesNotConstructTemporaryStates) {
+    auto* probe = new StreamingArenaProbe;
+    auto function = std::make_shared<AggregateFunctionNullUnaryInlineV2<StreamingArenaProbe, true>>(
+            probe, DataTypes {make_nullable(std::make_shared<DataTypeString>())}, false);
+    auto values = ColumnString::create();
+    values->insert_value("unread");
+    auto input = ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 1));
+    const IColumn* columns[] = {input.get()};
+    Arena arena;
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, 1, arena);
+    EXPECT_TRUE(serialized->is_null_at(0));
+    EXPECT_EQ(probe->creates, 0);
+    EXPECT_EQ(probe->destroys, 0);
+    EXPECT_EQ(probe->max_arena_used, 0);
+    EXPECT_EQ(arena.used_size(), 0);
 }
 
 TEST(NullableAggregationV2Test, NativeUnaryAndStableStateCodecs) {
