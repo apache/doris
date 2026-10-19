@@ -998,6 +998,13 @@ Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map)
     // evaluation of `added_nullable_col IS NULL` must retain every row in an old segment.
     zone_map->has_null = _value.is_null();
     zone_map->has_not_null = !_value.is_null();
+    // Field::operator<=> treats any two ARRAY/MAP/STRUCT/VARIANT values as equal, while the
+    // comparison of a real column of that type is ordered (for example an ARRAY is compared
+    // element by element). A constant range therefore cannot answer a range predicate on a
+    // complex default: `array_col > [0]` would evaluate `[1, 2] <= [0]` as true and prune every
+    // old row. Give up the range so the expression zonemap filter keeps the segment; the NULL
+    // flags above still answer IS NULL.
+    zone_map->pass_all = _value.is_complex_field();
     return Status::OK();
 }
 

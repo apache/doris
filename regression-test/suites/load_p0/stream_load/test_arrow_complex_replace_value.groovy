@@ -37,6 +37,10 @@ suite("test_arrow_complex_replace_value", "p0") {
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_float_struct"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_long_struct_name"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_too_long_struct_name"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_duplicate_map"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_source_preserved"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_double_wide_struct"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_double_nested_struct"
 
     sql """
         CREATE TABLE test_arrow_complex_replace_literal (
@@ -592,4 +596,142 @@ suite("test_arrow_complex_replace_value", "p0") {
             assertTrue(json.Message.contains("no lossless comparison"))
         }
     }
+
+    // A native Arrow MAP keeps repeated keys. The search text cast and the sink both deduplicate
+    // with the last value winning, so the source must be normalized the same way before the key
+    // and value arrays are compared: row 1 is written as {a: 2} and has to be replaced.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_duplicate_map (
+            `k` INT,
+            `m` MAP<STRING, INT>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_duplicate_map"
+        set 'format', 'arrow'
+        set 'columns', "k, m, m = replace_value('{\"a\":1,\"a\":2}', NULL), w"
+        file 'arrow_complex_replace_duplicate_map.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_duplicate_map """
+        SELECT k, m FROM test_arrow_complex_replace_duplicate_map ORDER BY k
+    """
+
+    // The search column w is also imported as the target column w. Its text contains an escaped
+    // quote, which the nested string SerDe removes in place, so the cast has to parse an owned
+    // copy: w must be written with its original bytes.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_source_preserved (
+            `k` INT,
+            `s` STRUCT<f: STRING>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_source_preserved"
+        set 'format', 'arrow'
+        set 'columns', "k, s, s = replace_value(w, NULL), w"
+        file 'arrow_complex_replace_source_preserved.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_source_preserved """
+        SELECT k, s, w FROM test_arrow_complex_replace_source_preserved ORDER BY k
+    """
+
+    // A wide STRUCT with one DOUBLE leaf is compared by one recursive engine call. Row 2 stores
+    // -0.0 while its search text has 0: the values are equal, so the row is replaced.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_double_wide_struct (
+            `k` INT,
+            `s` STRUCT<f0: DOUBLE, f1: INT, f2: INT, f3: INT, f4: INT, f5: INT, f6: INT, f7: INT, f8: INT, f9: INT>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_double_wide_struct"
+        set 'format', 'arrow'
+        set 'columns', "k, s, s = replace_value(w, NULL), w"
+        file 'arrow_complex_replace_double_wide_struct.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_double_wide_struct """
+        SELECT k, s FROM test_arrow_complex_replace_double_wide_struct ORDER BY k
+    """
+
+    // The recursive comparison keeps a NULL nested STRUCT apart from a non-NULL one whose field is
+    // NULL, and the DOUBLE leaf still treats -0.0 and 0 as equal.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_double_nested_struct (
+            `k` INT,
+            `s` STRUCT<n: STRUCT<x: DOUBLE>>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_double_nested_struct"
+        set 'format', 'arrow'
+        set 'columns', "k, s, s = replace_value(w, NULL), w"
+        file 'arrow_complex_replace_double_nested_struct.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(6, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_double_nested_struct """
+        SELECT k, s FROM test_arrow_complex_replace_double_nested_struct ORDER BY k
+    """
 }

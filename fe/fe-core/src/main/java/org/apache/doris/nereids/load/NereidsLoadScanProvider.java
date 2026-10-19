@@ -676,9 +676,11 @@ public class NereidsLoadScanProvider {
      * nested NULLs apart from values and treats two NULLs as equal like the engine does inside a
      * complex value; {@code <=>} expresses that for a nested value. MAP and STRUCT are rejected by
      * {@code ComparisonPredicate}, so their sub-values are compared recursively: a MAP is identified
-     * by its keys and values in order, and a STRUCT that cannot be serialized losslessly enough for
-     * a whole JSON comparison both by its own NULL flag and by its fields. A STRUCT whose JSON text
-     * is a lossless identity is compared as one value, so the search is parsed once.
+     * by its deduplicated keys and values in order, and a STRUCT that cannot be serialized losslessly
+     * enough for a whole JSON comparison both by its own NULL flag and by its fields. A STRUCT whose
+     * JSON text is a lossless identity is compared as one value, and a STRUCT whose leaves have no
+     * lossless JSON identity but are comparable recursively is compared by one engine call, so the
+     * search is parsed a bounded number of times instead of once per field.
      *
      * <p>JSON is used only for a value the engine cannot compare structurally. A MAP is never
      * rendered as a JSON object: JSONB object keys are limited to 255 bytes and lose the key NULL
@@ -702,17 +704,27 @@ public class NereidsLoadScanProvider {
             if (!supportsStructuralComparison(keyType) || !supportsMapValueComparison(valueType)) {
                 throw unsupportedComplexSearch(columnTypeSql, type);
             }
+            // An Arrow MAP keeps every entry, so a repeated key makes its key and value arrays
+            // longer than the ones of the search text, which the string cast deduplicates with the
+            // last value winning. The sink applies the same last-wins rule before it writes the
+            // column, so normalize the native source the same way; otherwise a row that is written
+            // as the search value would not match it and would not be replaced.
+            Expression leftMap = deduplicateMap(left);
+            // Only the top level search is the string cast, which already deduplicated its keys. A
+            // MAP field of a STRUCT is parsed by the struct SerDe, which leaves repeated keys in
+            // place, so it needs the same normalization as the source.
+            Expression rightMap = topLevel ? right : deduplicateMap(right);
             List<Expression> equalities = Lists.newArrayList(
-                    new NullSafeEqual(mapFunction("map_keys", left), mapFunction("map_keys", right)));
+                    new NullSafeEqual(mapFunction("map_keys", leftMap), mapFunction("map_keys", rightMap)));
             if (supportsStructuralComparison(valueType)) {
-                equalities.add(new NullSafeEqual(mapFunction("map_values", left),
-                        mapFunction("map_values", right)));
+                equalities.add(new NullSafeEqual(mapFunction("map_values", leftMap),
+                        mapFunction("map_values", rightMap)));
             } else {
                 // The value contains a STRUCT or an ARRAY of one, which the engine cannot compare as
                 // an array element. Its JSON rendering is escaped, keeps NULL apart from the "null"
                 // text and never uses the value as a JSON object key.
-                equalities.add(new NullSafeEqual(jsonText(mapFunction("map_values", left)),
-                        jsonText(mapFunction("map_values", right))));
+                equalities.add(new NullSafeEqual(jsonText(mapFunction("map_values", leftMap)),
+                        jsonText(mapFunction("map_values", rightMap))));
             }
             Expression equality = new And(equalities);
             return topLevel ? guardNullSearch(right, equality) : equality;
@@ -727,6 +739,16 @@ public class NereidsLoadScanProvider {
                 return topLevel
                         ? new EqualTo(jsonText(left), jsonText(right))
                         : new NullSafeEqual(jsonText(left), jsonText(right));
+            }
+            if (supportsDeepStructuralComparison(type)) {
+                // The JSON text is not a lossless identity for this STRUCT (a float signed zero, a
+                // version one DATE/DATETIME, DECIMALV2, ...), so the fields have to be compared
+                // one by one. Doing that in the expression tree embeds the typed search in every
+                // field comparison, and each occurrence parses the whole search string: an N field
+                // STRUCT converts N fields N+1 times per row. One engine call compares both values
+                // recursively instead, so the search is parsed once.
+                Expression equality = complexEquals(left, right);
+                return topLevel ? guardNullSearch(right, equality) : equality;
             }
             List<StructField> fields = ((StructType) type).getFields();
             List<Expression> equalities = Lists.newArrayListWithCapacity(fields.size());
@@ -772,6 +794,17 @@ public class NereidsLoadScanProvider {
 
     private static Expression mapFunction(String name, Expression map) {
         return new UnboundFunction(name, Lists.newArrayList(map));
+    }
+
+    private static Expression deduplicateMap(Expression map) {
+        // The BE function keeps the last value of a repeated key, like the sink and the string cast.
+        return new UnboundFunction("deduplicate_map", Lists.newArrayList(map));
+    }
+
+    private static Expression complexEquals(Expression left, Expression right) {
+        // The BE function compares two values of the same complex type recursively, with the NULL
+        // semantics of a nested value (two NULLs are equal) and without parsing a search again.
+        return new UnboundFunction("complex_equals", Lists.newArrayList(left, right));
     }
 
     private static Expression structField(Expression struct, int index) {
@@ -835,6 +868,33 @@ public class NereidsLoadScanProvider {
                 && !type.isDateTimeType() && !hasLossyJsonScale(type)
                 && !type.isDecimalV2Type() && !type.isHllType()
                 && !type.isBitmapType() && !type.isQuantileStateType() && !type.isAggStateType();
+    }
+
+    /**
+     * Whether {@code Column::compare_at} can compare every leaf of the type, including nested
+     * ARRAY and STRUCT values. A MAP is excluded because its comparison is order-sensitive and
+     * does not deduplicate repeated keys, which the map branch handles explicitly; the sketch and
+     * aggregate state types are excluded because their column only implements the comparison for
+     * tests.
+     */
+    private static boolean supportsDeepStructuralComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsDeepStructuralComparison(((ArrayType) type).getItemType());
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (!supportsDeepStructuralComparison(field.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (type.isMapType()) {
+            return false;
+        }
+        return type.isPrimitive() && !type.isJsonType() && !type.isObjectOrVariantType()
+                && !type.isHllType() && !type.isBitmapType()
+                && !type.isQuantileStateType() && !type.isAggStateType();
     }
 
     /**

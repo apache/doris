@@ -136,6 +136,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Century;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ComplexEquals;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
@@ -745,6 +746,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
+            scalar(ComplexEquals.class, "complex_equals"),
             scalar(Compress.class, "compress"),
             scalar(Concat.class, "concat"),
             scalar(ConcatWs.class, "concat_ws"),

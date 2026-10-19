@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <utility>
 
 #include "core/column/column_array.h"
@@ -264,12 +265,20 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
     options.escape_char = '\\';
     options.timezone = &context->state()->timezone_obj();
 
+    // The complex SerDes unescape nested strings in place, and get_data_at() returns a view into
+    // the source column. That column can also be another load target, for example
+    // `columns: k, s, s = replace_value(w, NULL), w`, so parsing the borrowed text would rewrite
+    // the bytes the same row imports into w. Parse an owned copy instead; reusing the buffer keeps
+    // the copy at one allocation per batch.
+    std::string owned_text;
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
             nullable_col_to.insert_default();
         } else {
             auto str = col_from->get_data_at(i);
-            Status st = to_serde->from_string(str, nested_column, options);
+            owned_text.assign(str.data, str.size);
+            StringRef parse_text(owned_text);
+            Status st = to_serde->from_string(parse_text, nested_column, options);
             if (st.ok()) {
                 nullable_col_to.get_null_map_data().push_back(0);
             } else {
@@ -303,12 +312,17 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
     options.escape_char = '\\';
     options.timezone = &context->state()->timezone_obj();
 
+    // See cast_from_string_to_complex_type: the nested string SerDe unescapes in place, so the
+    // borrowed source text must be copied before it is parsed.
+    std::string owned_text;
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
             to_column->insert_default();
         } else {
             auto str = col_from->get_data_at(i);
-            RETURN_IF_ERROR(to_serde->from_string_strict_mode(str, nested_column, options));
+            owned_text.assign(str.data, str.size);
+            StringRef parse_text(owned_text);
+            RETURN_IF_ERROR(to_serde->from_string_strict_mode(parse_text, nested_column, options));
             // fill not null if success
             nullable_col_to.get_null_map_data().push_back(0);
         }

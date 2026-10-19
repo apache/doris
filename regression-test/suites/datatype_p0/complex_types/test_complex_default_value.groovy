@@ -290,6 +290,16 @@ suite("test_complex_default_value") {
         FROM test_complex_default_value_alter_base ORDER BY k
     """
 
+    // A complex constant default is not a sortable range. The expression ZoneMap of the old
+    // segment must not prune it with Field ordering, which treats any two ARRAY values as equal:
+    // both the old row and the newly inserted row have arr_added = [3, 4] and must be returned.
+    order_qt_alter_default_zonemap_gt """
+        SELECT k FROM test_complex_default_value_alter_base WHERE arr_added > [0] ORDER BY k
+    """
+    order_qt_alter_default_zonemap_ne """
+        SELECT k FROM test_complex_default_value_alter_base WHERE arr_added != [9] ORDER BY k
+    """
+
     // direct schema change materializes the defaults into the rewritten rows
     sql """
         CREATE TABLE test_complex_default_value_alter_direct (

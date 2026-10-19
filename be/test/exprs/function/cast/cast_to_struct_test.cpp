@@ -25,7 +25,10 @@
 #include <vector>
 
 #include "core/column/column.h"
+#include "core/column/column_array.h"
 #include "core/column/column_map.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -214,5 +217,47 @@ TEST_F(FunctionCastTest, test_cast_struct_unchanged_field_with_null_row) {
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
     EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), R"({"f1":1, "f2":2})");
+}
+
+TEST_F(FunctionCastTest, StringToComplexCastKeepsSourceText) {
+    // Case: a load mapping such as `columns: k, s, s = replace_value(w, NULL), w` casts the source
+    // column w to the STRUCT type while the same row also imports w. The nested string SerDe
+    // unescapes escaped characters in place, so parsing the borrowed StringRef of w would rewrite
+    // the bytes that are written into w afterwards. The cast must parse an owned copy.
+    auto from_type = std::make_shared<DataTypeString>();
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>())));
+    // The escaped quote is removed in place by escape_string: ["a\"b"] would become ["a"bb"],
+    // the length drops by one but the tail bytes of the callers buffer stay overwritten.
+    const std::string text = R"(["a\"b"])";
+
+    for (const bool strict : {false, true}) {
+        SCOPED_TRACE(strict ? "strict" : "non-strict");
+        auto ctx = create_context(strict);
+        auto from_column = ColumnHelper::create_column<DataTypeString>({text});
+        const auto* source = assert_cast<const ColumnString*>(from_column.get());
+        const StringRef before = source->get_data_at(0);
+        const std::string expected(before.data, before.size);
+
+        Block block = {
+                {from_column, from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_TRUE(fn != nullptr);
+        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+        const StringRef after = source->get_data_at(0);
+        EXPECT_EQ(expected, std::string(after.data, after.size));
+        // the cast still produced the parsed array; the display text is not compared because it
+        // does not escape the quote again
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        ASSERT_FALSE(result.is_null_at(0));
+        const auto& array = assert_cast<const ColumnArray&>(result.get_nested_column());
+        const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+        ASSERT_EQ(1, elements.size());
+        ASSERT_FALSE(elements.is_null_at(0));
+        EXPECT_EQ(R"(a"b)", elements.get_nested_column().get_data_at(0).to_string());
+    }
 }
 } // namespace doris

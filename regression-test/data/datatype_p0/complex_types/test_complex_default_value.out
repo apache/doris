@@ -22,6 +22,14 @@
 1	y	\N	["p", "q"]	r	2	false
 2	y	\N	["p", "q"]	r	2	false
 
+-- !alter_default_zonemap_gt --
+1
+2
+
+-- !alter_default_zonemap_ne --
+1
+2
+
 -- !alter_direct_default --
 1	[3, 4]	{"a":2}	{"f1":8, "f2":["2024-01-01"]}	["x,y", ""]
 

@@ -420,6 +420,46 @@ TEST_F(ConstantColumnIteratorTest, DefaultFieldParsesEmptyMapDefault) {
     EXPECT_TRUE(map[1].get<TYPE_ARRAY>().empty());
 }
 
+TEST_F(ConstantColumnIteratorTest, ComplexConstantGivesUpZoneMapRange) {
+    // Case: a non-empty ARRAY/MAP/STRUCT default is materialized as a constant Field for rows of an
+    // old segment. Field::operator<=> treats any two complex values as equal, so the constant range
+    // cannot answer a range predicate: with `arr > [0]` the segment zone map would evaluate
+    // `[1, 2] <= [0]` as true and prune every old row. pass_all keeps the segment while the NULL
+    // flags still answer IS NULL.
+    auto check_pass_all = [](Field value, FieldType type) {
+        ConstantColumnReader reader(std::move(value), type);
+        segment_v2::ZoneMap zone_map;
+        ASSERT_TRUE(reader.get_segment_zone_map(&zone_map).ok());
+        EXPECT_TRUE(zone_map.pass_all);
+        EXPECT_TRUE(zone_map.has_not_null);
+        EXPECT_FALSE(zone_map.has_null);
+    };
+
+    Array array {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)};
+    check_pass_all(Field::create_field<TYPE_ARRAY>(std::move(array)),
+                   FieldType::OLAP_FIELD_TYPE_ARRAY);
+
+    Array keys {Field::create_field<TYPE_STRING>("a")};
+    Array values {Field::create_field<TYPE_INT>(7)};
+    Map map {Field::create_field<TYPE_ARRAY>(std::move(keys)),
+             Field::create_field<TYPE_ARRAY>(std::move(values))};
+    check_pass_all(Field::create_field<TYPE_MAP>(std::move(map)), FieldType::OLAP_FIELD_TYPE_MAP);
+
+    Struct struct_value {Field::create_field<TYPE_INT>(8), Field::create_field<TYPE_STRING>("x")};
+    check_pass_all(Field::create_field<TYPE_STRUCT>(std::move(struct_value)),
+                   FieldType::OLAP_FIELD_TYPE_STRUCT);
+}
+
+TEST_F(ConstantColumnIteratorTest, ScalarConstantKeepsZoneMapRange) {
+    // Case: a scalar default is still a usable range. Only a complex constant gives up its range.
+    ConstantColumnReader reader(Field::create_field<TYPE_INT>(7), FieldType::OLAP_FIELD_TYPE_INT);
+    segment_v2::ZoneMap zone_map;
+    ASSERT_TRUE(reader.get_segment_zone_map(&zone_map).ok());
+    EXPECT_FALSE(zone_map.pass_all);
+    EXPECT_EQ(7, zone_map.min_value.get<TYPE_INT>());
+    EXPECT_EQ(7, zone_map.max_value.get<TYPE_INT>());
+}
+
 TEST_F(ConstantColumnIteratorTest, ScalarDefaultsCoverRangesReaderIteratorAndZoneMap) {
     // Case: an old segment is read after scalar columns with defaults are added. Every boundary
     // value must be parsed once and then exposed consistently by the reader, iterator, and zone map.
