@@ -33,18 +33,23 @@ suite("test_struct_nested_comment_ddl", "p0") {
         PROPERTIES ("replication_num" = "1")
     """
 
+    // Only compare column definitions; table properties depend on the deployment and FE configuration.
+    def columnDefinitions = { row ->
+        def ddl = row[1].toString()
+        [row[0], ddl.substring(ddl.indexOf("(\n") + 2, ddl.indexOf("\n) ENGINE="))]
+    }
+
     // SHOW CREATE TABLE used to drop every nested field comment.
-    qt_show_create "SHOW CREATE TABLE struct_nested_comment"
+    quickRunTest("show_create", "SHOW CREATE TABLE struct_nested_comment", false, columnDefinitions)
     def createStmt = (sql "SHOW CREATE TABLE struct_nested_comment")[0][1].toString()
 
     // The printed DDL still has to parse back.
     def replayStmt = createStmt.replace("`struct_nested_comment`", "`struct_nested_comment_replay`")
     sql replayStmt
-    assertEquals(replayStmt, (sql "SHOW CREATE TABLE struct_nested_comment_replay")[0][1].toString())
+    quickRunTest("show_create_replay", "SHOW CREATE TABLE struct_nested_comment_replay", false, columnDefinitions)
 
     // CREATE TABLE LIKE re-parses the same generated DDL, so a dropped nested comment is
     // gone from the new table for good, not just hidden from the user.
     sql "CREATE TABLE struct_nested_comment_like LIKE struct_nested_comment"
-    def likeStmt = (sql "SHOW CREATE TABLE struct_nested_comment_like")[0][1].toString()
-    assertEquals(createStmt.replace("`struct_nested_comment`", "`struct_nested_comment_like`"), likeStmt)
+    quickRunTest("show_create_like", "SHOW CREATE TABLE struct_nested_comment_like", false, columnDefinitions)
 }
