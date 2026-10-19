@@ -47,6 +47,9 @@ namespace {
 constexpr int64_t kPruneIntervalS = 60;
 // How long a tablet whose policy could not be fetched is left alone.
 constexpr int64_t kFetchRetryIntervalS = 60;
+// The shortest time a policy is kept without being reported or refreshed: several of the
+// intervals at which each cache path reports its tablets, whatever the refresh interval.
+constexpr int64_t kMinRetentionS = 5 * 60;
 // How many reported tablets are looked up per hold of the exclusive lock.
 constexpr size_t kReportBatchSize = 1024;
 // How often the background refresh runs.
@@ -303,7 +306,8 @@ void TabletCachePolicyRegistry::prune(int64_t now) {
     std::erase_if(_retry_at, [now](const auto& retry) { return retry.second <= now; });
     // A tablet no cache path holds and nothing refreshes (unloaded, or dropped) has no blocks
     // to judge; it is learned again if its blocks come back.
-    const int64_t forget_before = now - 2 * config::file_cache_tablet_policy_refresh_interval_s;
+    const int64_t forget_before =
+            now - std::max(2 * config::file_cache_tablet_policy_refresh_interval_s, kMinRetentionS);
     auto is_unused = [forget_before](const Entry& entry) {
         return std::max(entry.refreshed_at_s, entry.reported_at_s) < forget_before;
     };

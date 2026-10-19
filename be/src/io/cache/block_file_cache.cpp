@@ -2429,13 +2429,10 @@ void BlockFileCache::run_background_queue_sweep() {
                 break;
             }
         }
-        // Blocks being loaded are put in the right queue as they are loaded.
-        if (!_async_open_done) {
-            continue;
-        }
         const int64_t now = UnixSeconds();
         // Tells the registry which tablets this path holds blocks of, so that it fetches their
-        // policies when they are unknown or stale. It never waits for a fetch.
+        // policies when they are unknown or stale. It never waits for a fetch. Also while loading,
+        // so that the registry does not forget the policies of the tablets loaded so far.
         if (now - _queue_sweep.last_report_at >= kReportCachedTabletsIntervalS) {
             std::vector<int64_t> tablet_ids;
             {
@@ -2447,6 +2444,10 @@ void BlockFileCache::run_background_queue_sweep() {
             }
             _policy_registry->report_cached_tablets(tablet_ids);
             _queue_sweep.last_report_at = now;
+        }
+        // Blocks being loaded are put in the right queue as they are loaded.
+        if (!_async_open_done) {
+            continue;
         }
         start_queue_sweeps(now);
         // One budget for all queues bounds how long the cache lock is held. The TTL queue goes

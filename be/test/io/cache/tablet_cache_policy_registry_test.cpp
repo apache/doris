@@ -288,14 +288,37 @@ TEST_F(TabletCachePolicyRegistryTest, refresh_fetches_reported_due_policies) {
 }
 
 TEST_F(TabletCachePolicyRegistryTest, refresh_forgets_unused_policies) {
-    const auto original_interval = config::file_cache_tablet_policy_refresh_interval_s;
-    // Twice the interval has passed for anything confirmed or reported before now.
-    config::file_cache_tablet_policy_refresh_interval_s = -1;
     _registry.upsert(1, {100, 1000});
     _registry.restore(2, {100, 1000});
+    // Neither confirmed nor reported for longer than twice the refresh interval.
+    for (auto& [_, entry] : _registry._entries) {
+        entry.refreshed_at_s = 0;
+        entry.reported_at_s = 0;
+    }
     _registry.refresh(100);
-    config::file_cache_tablet_policy_refresh_interval_s = original_interval;
     EXPECT_FALSE(_registry.deadline(1).has_value());
+    EXPECT_FALSE(_registry.deadline(2).has_value());
+}
+
+// Cache paths report their tablets once a minute: however short the refresh interval, a policy
+// is kept for several reports.
+TEST_F(TabletCachePolicyRegistryTest, prune_keeps_policies_between_reports) {
+    const auto original_interval = config::file_cache_tablet_policy_refresh_interval_s;
+    Defer restore_interval {
+            [&] { config::file_cache_tablet_policy_refresh_interval_s = original_interval; }};
+    config::file_cache_tablet_policy_refresh_interval_s = 10;
+    const int64_t now = UnixSeconds();
+    _registry.upsert(1, {100, 1000});
+    _registry.upsert(2, {100, 1000});
+    auto age = [&](int64_t tablet_id, int64_t seconds) {
+        auto& entry = _registry._entries.at(tablet_id);
+        entry.refreshed_at_s = now - seconds;
+        entry.reported_at_s = now - seconds;
+    };
+    age(1, 100);
+    age(2, 1000);
+    _registry.refresh(0);
+    EXPECT_TRUE(_registry.deadline(1).has_value());
     EXPECT_FALSE(_registry.deadline(2).has_value());
 }
 
