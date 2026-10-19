@@ -451,6 +451,60 @@ TEST(NullableAggregationV2Test, NonNullableBitmapResultStillMarksEmptyPartials) 
     check_streaming(make_agg_state_compatible_function(function), {input});
 }
 
+TEST(NullableAggregationV2Test, LegacyUnmarkedBitmapReadersRetainValidityForLaterMerge) {
+    auto type = make_nullable(std::make_shared<DataTypeBitMap>());
+    auto function = AggregateFunctionSimpleFactory::instance().get("bitmap_intersect", {type},
+                                                                   nullptr, false, 19);
+    ASSERT_FALSE(function->get_serialized_type()->is_nullable());
+    auto bitmaps = ColumnBitmap::create();
+    BitmapValue value;
+    value.add(1);
+    value.add(2);
+    bitmaps->insert_value(value);
+    bitmaps->insert_value(value);
+    ColumnPtr input = ColumnNullable::create(std::move(bitmaps), ColumnUInt8::create(2, 0));
+    const IColumn* columns[] = {input.get()};
+    Arena arena;
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, 2, arena);
+    for (int reader : {0, 1, 2, 3}) {
+        AggregateFunctionGuard decoded(function.get());
+        AggregateFunctionGuard merged(function.get());
+        AggregateDataPtr places[] = {decoded.data(), decoded.data()};
+        Arena scratch_arena;
+        AggregateDataPtr scratch = nullptr;
+        if (function->needs_deserialize_and_merge_scratch()) {
+            scratch = scratch_arena.aligned_alloc(2 * function->size_of_data(),
+                                                  function->align_of_data());
+        }
+        switch (reader) {
+        case 0:
+            function->deserialize_and_merge_vec(places, 0, scratch, serialized.get(), arena, 2);
+            break;
+        case 1:
+            places[0] = nullptr;
+            function->deserialize_and_merge_vec_selected(places, 0, scratch, serialized.get(),
+                                                         arena, 2);
+            break;
+        case 2:
+            function->deserialize_and_merge_from_column_range(decoded.data(), *serialized, 0, 1,
+                                                              arena);
+            break;
+        case 3:
+            function->deserialize_from_column_row(decoded.data(), *serialized, 0, arena);
+            break;
+        }
+        // Finalizing decoded directly hides a missing flag for nonnullable SQL results.
+        function->merge(merged.data(), decoded.data(), arena);
+        auto result = function->get_return_type()->create_column();
+        function->insert_result_into(merged.data(), *result);
+        const auto& actual = assert_cast<const ColumnBitmap&>(*result).get_data()[0];
+        EXPECT_EQ(actual.cardinality(), 2) << "reader=" << reader;
+        EXPECT_TRUE(actual.contains(1));
+        EXPECT_TRUE(actual.contains(2));
+    }
+}
+
 TEST(NullableAggregationV2Test, BitmapStateMarkerSurvivesOldSchemaCompactionCodec) {
     auto type = std::make_shared<DataTypeAggState>(
             DataTypes {make_nullable(std::make_shared<DataTypeBitMap>())}, false,

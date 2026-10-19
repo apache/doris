@@ -439,15 +439,16 @@ private:
                 merge_null_serialized<selected>(places, offset, rhs, nullable, arena, num_rows);
                 return;
             }
-            for (size_t i = 0; i < num_rows; ++i) {
-                if constexpr (selected) {
-                    if (!places[i]) {
-                        continue;
-                    }
-                }
-                set_flag(places[i] + offset);
-            }
             column = &nested_column;
+        }
+        // Unmarked legacy columns represent every row as a valid state, too.
+        for (size_t i = 0; i < num_rows; ++i) {
+            if constexpr (selected) {
+                if (!places[i]) {
+                    continue;
+                }
+            }
+            set_flag(places[i] + offset);
         }
         if constexpr (selected) {
             nested_function->deserialize_and_merge_vec_selected(places, offset + prefix_size, rhs,
