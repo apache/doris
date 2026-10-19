@@ -307,7 +307,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             outputsBuilder.add(renamedBaseRowIdAlias);
         }
         outputsBuilder.addAll(scan.getOutput().stream()
-                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName())
+                        && !IvmUtil.isBaseScanStorageColumnToMask(slot.getName()))
                 .collect(ImmutableList.toImmutableList()));
         List<NamedExpression> outputs = outputsBuilder.build();
         LogicalProject<?> result = new LogicalProject<>(outputs, scan);
