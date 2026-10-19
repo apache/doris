@@ -199,6 +199,9 @@ public class MasterImpl {
                 case DROP:
                     finishDropReplica(task);
                     break;
+                case CLEAN_UDF_CACHE:
+                    AgentTaskQueue.removeTask(backendId, taskType, signature);
+                    break;
                 case SCHEMA_CHANGE:
                 case ROLLUP:
                     throw new RuntimeException("Schema change and rollup job is not used any more,"
