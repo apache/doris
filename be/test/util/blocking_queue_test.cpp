@@ -23,8 +23,10 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <mutex>
+#include <new>
 #include <thread>
 #include <vector>
 
@@ -56,6 +58,33 @@ TEST(BlockingQueueTest, TestGetFromShutdownQueue) {
     EXPECT_TRUE(test_queue.blocking_get(&i));
     EXPECT_EQ(123, i);
     EXPECT_FALSE(test_queue.blocking_get(&i));
+}
+
+TEST(BlockingQueueTest, DequeueDoesNotCopyPublishedCallable) {
+    struct CopyCheckedCallable {
+        bool* reject_copy;
+        int* calls;
+
+        CopyCheckedCallable(bool* reject, int* count) : reject_copy(reject), calls(count) {}
+        CopyCheckedCallable(const CopyCheckedCallable& other)
+                : reject_copy(other.reject_copy), calls(other.calls) {
+            if (*reject_copy) {
+                throw std::bad_alloc();
+            }
+        }
+        void operator()() const { ++*calls; }
+    };
+
+    bool reject_copy = false;
+    int calls = 0;
+    BlockingQueue<std::function<void()>> queue(1);
+    ASSERT_TRUE(queue.try_put(CopyCheckedCallable(&reject_copy, &calls)));
+    reject_copy = true;
+    std::function<void()> task;
+    ASSERT_NO_THROW(ASSERT_TRUE(queue.blocking_get(&task)));
+    task();
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(queue.get_size(), 0);
 }
 
 class MultiThreadTest {

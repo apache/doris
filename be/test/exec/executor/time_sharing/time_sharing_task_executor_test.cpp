@@ -30,10 +30,12 @@
 #include <thread>
 
 #include "common/exception.h"
+#include "cpp/sync_point.h"
 #include "exec/scan/task_executor/ticker.h"
 #include "exec/scan/task_executor/time_sharing/multilevel_split_queue.h"
 #include "exec/scan/task_executor/time_sharing/prioritized_split_runner.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -437,6 +439,95 @@ TEST_F(TimeSharingTaskExecutorTest, test_remove_task_clears_queued_task_count) {
         throw;
     }
     executor.stop();
+}
+
+TEST_F(TimeSharingTaskExecutorTest, rejected_split_is_reported_and_retired) {
+    for (bool intermediate : {false, true}) {
+        TimeSharingTaskExecutor::ThreadConfig config;
+        config.thread_name = "rejected-split-test";
+        config.workload_group = "normal";
+        config.max_thread_num = 0;
+        config.min_thread_num = 0;
+        config.max_queue_size = 1;
+        TimeSharingTaskExecutor executor(config, 0, 1, 1, std::make_shared<TestingTicker>(),
+                                         nullptr, false);
+        ASSERT_TRUE(executor.init().ok());
+        ASSERT_TRUE(executor.start().ok());
+        auto accepted_handle = TEST_TRY(executor.create_task(
+                TaskId("accepted"), [] { return 0.0; }, 1, std::chrono::milliseconds(1), 1));
+        auto accepted_split = std::make_shared<QueueOnlySplitRunner>();
+        ASSERT_TRUE(executor.enqueue_splits(accepted_handle, intermediate, {accepted_split})
+                            .has_value());
+        auto rejected_handle = TEST_TRY(executor.create_task(
+                TaskId("rejected"), [] { return 0.0; }, 1, std::chrono::milliseconds(1), 1));
+        auto rejected_split = std::make_shared<QueueOnlySplitRunner>();
+        auto result = executor.enqueue_splits(rejected_handle, intermediate, {rejected_split});
+        EXPECT_FALSE(result.has_value());
+        EXPECT_EQ(executor.get_queue_size(), 1);
+        EXPECT_EQ(executor._all_splits.size(), 1);
+        auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(rejected_handle);
+        EXPECT_TRUE(handle->_running_leaf_splits.empty());
+        EXPECT_TRUE(handle->_running_intermediate_splits.empty());
+        EXPECT_FALSE(rejected_split->is_started());
+        ASSERT_TRUE(executor.remove_task(rejected_handle).ok());
+        // A concurrent task removal is also a rejection, not an accepted callback
+        // that its caller should wait for.
+        EXPECT_FALSE(executor.enqueue_splits(rejected_handle, intermediate, {rejected_split})
+                             .has_value());
+        ASSERT_TRUE(executor.remove_task(accepted_handle).ok());
+        executor.stop();
+    }
+}
+
+TEST_F(TimeSharingTaskExecutorTest, first_thread_failure_withdraws_rejected_split) {
+    TimeSharingTaskExecutor::ThreadConfig config;
+    config.thread_name = "failed-first-thread-test";
+    config.workload_group = "normal";
+    config.max_thread_num = 1;
+    config.min_thread_num = 0;
+    config.max_queue_size = 1;
+    TimeSharingTaskExecutor executor(config, 0, 1, 1, std::make_shared<TestingTicker>(), nullptr,
+                                     false);
+    ASSERT_TRUE(executor.init().ok());
+    ASSERT_TRUE(executor.start().ok());
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("TimeSharingTaskExecutor::_create_thread", [](auto&& args) {
+        auto* result = try_any_cast_ret<Status>(args);
+        result->first = Status::InternalError<false>("injected thread creation failure");
+        result->second = true;
+    });
+    sync_point->enable_processing();
+    Defer clear_sync_point([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    auto rejected_handle = TEST_TRY(executor.create_task(
+            TaskId("thread-failed"), [] { return 0.0; }, 1, std::chrono::milliseconds(1), 1));
+    auto rejected_split = std::make_shared<QueueOnlySplitRunner>();
+    EXPECT_FALSE(executor.enqueue_splits(rejected_handle, false, {rejected_split}).has_value());
+    EXPECT_EQ(executor.get_queue_size(), 0);
+    EXPECT_TRUE(executor._all_splits.empty());
+    EXPECT_EQ(executor._num_threads_pending_start, 0);
+    ASSERT_TRUE(executor.remove_task(rejected_handle).ok());
+
+    sync_point->disable_processing();
+    auto accepted_handle = TEST_TRY(executor.create_task(
+            TaskId("thread-recovered"), [] { return 0.0; }, 1, std::chrono::milliseconds(1), 1));
+    auto accepted_split = std::make_shared<QueueOnlySplitRunner>();
+    auto result = executor.enqueue_splits(accepted_handle, false, {accepted_split});
+    ASSERT_TRUE(result.has_value());
+    std::promise<void> completed;
+    auto ready = completed.get_future();
+    result->front().add_callback([&](const Void&, const Status&) { completed.set_value(); });
+    EXPECT_EQ(ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    executor.stop();
+    EXPECT_TRUE(accepted_split->is_started());
+    EXPECT_FALSE(rejected_split->is_started());
+    EXPECT_FALSE(executor.enqueue_splits(accepted_handle, false,
+                                         {std::make_shared<QueueOnlySplitRunner>()})
+                         .has_value());
+    EXPECT_EQ(executor.get_queue_size(), 0);
+    ASSERT_TRUE(executor.remove_task(accepted_handle).ok());
 }
 
 TEST_F(TimeSharingTaskExecutorTest, test_invalid_task_handle_returns_error) {

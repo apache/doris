@@ -26,6 +26,7 @@
 #include <condition_variable>
 #include <list>
 #include <mutex>
+#include <utility>
 
 #include "common/logging.h"
 #include "util/stopwatch.hpp"
@@ -75,7 +76,9 @@ public:
         _total_get_wait_time += timer.elapsed_time();
 
         if (!_list.empty()) {
-            *out = _list.front();
+            // Ownership has already been published to the queue. Moving a callable
+            // avoids a second allocation (and possible exception) while taking it out.
+            *out = std::move(_list.front());
             _list.pop_front();
             const bool has_put_waiter = _put_waiting > 0;
             unique_lock.unlock();

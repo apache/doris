@@ -25,6 +25,7 @@
 
 #include "common/exception.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/sync_point.h"
 #include "exec/scan/task_executor/time_sharing/multilevel_split_queue.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 #include "util/debug_points.h"
@@ -402,6 +403,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
+        TEST_SYNC_POINT("TimeSharingTaskExecutor::_do_submit::capacity_rejected");
         thread_pool_submit_failed->increment(1);
         return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)",
@@ -440,7 +442,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     DCHECK(state == SplitThreadPoolToken::State::IDLE ||
            state == SplitThreadPoolToken::State::RUNNING);
     split->submit_time_watch().start();
-    _offer_split_unlocked(std::move(split));
+    _offer_split_unlocked(split);
     if (state == SplitThreadPoolToken::State::IDLE) {
         _tokenless->transition(SplitThreadPoolToken::State::RUNNING);
     }
@@ -470,7 +472,9 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
             l.lock();
             _num_threads_pending_start--;
             if (_num_threads + _num_threads_pending_start == 0) {
-                // If we have no threads, we can't do any work.
+                // No worker can run this split. Withdraw it before reporting rejection,
+                // so a later submission cannot start work whose caller has already returned.
+                _remove_queued_splits_unlocked({split});
                 return status;
             }
             // If we failed to create a thread, but there are still some other
@@ -686,6 +690,7 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
 }
 
 Status TimeSharingTaskExecutor::_create_thread() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("TimeSharingTaskExecutor::_create_thread", Status::OK());
     return Thread::create("thread pool", fmt::format("{} [worker]", _thread_name),
                           &TimeSharingTaskExecutor::_dispatch_thread, this, nullptr);
 }
@@ -825,6 +830,7 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
         }
     }};
     std::vector<SharedListenableFuture<Void>> finished_futures;
+    finished_futures.reserve(splits.size());
     auto handle_result = get_time_sharing_task_handle(task_handle, "enqueue_splits");
     if (!handle_result.has_value()) {
         return ResultError(handle_result.error());
@@ -839,21 +845,27 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
             auto prioritized_split =
                     PrioritizedSplitRunner::create_shared(handle, split_id, task_split, _ticker);
             RETURN_IF_ERROR_RESULT(prioritized_split->init());
+            // Allocate bookkeeping before admission. Once a worker is published, the
+            // caller must not see a vector-allocation exception as a rejected submission.
+            finished_futures.push_back(prioritized_split->finished_future());
             if (intermediate) {
                 if (handle->record_intermediate_split(prioritized_split)) {
-                    _start_intermediate_split(prioritized_split, lock);
+                    RETURN_IF_ERROR_RESULT(_start_intermediate_split(prioritized_split, lock));
                 } else {
                     splits_to_destroy.push_back(prioritized_split);
+                    return ResultError(Status::Cancelled("Cannot submit to closed task {}",
+                                                         task_id.to_string()));
                 }
             } else {
                 if (handle->enqueue_split(prioritized_split)) {
-                    _schedule_task_if_necessary(handle, lock);
+                    RETURN_IF_ERROR_RESULT(_schedule_task_if_necessary(handle, lock));
                     _add_new_entrants(lock);
                 } else {
                     splits_to_destroy.push_back(prioritized_split);
+                    return ResultError(Status::Cancelled("Cannot submit to closed task {}",
+                                                         task_id.to_string()));
                 }
             }
-            finished_futures.push_back(prioritized_split->finished_future());
         }
     }
     return finished_futures;
@@ -909,7 +921,8 @@ void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRu
         auto task_handle = split->task_handle();
         task_handle->split_finished(split);
 
-        _schedule_task_if_necessary(task_handle, lock);
+        WARN_IF_ERROR(_schedule_task_if_necessary(task_handle, lock),
+                      "Failed to schedule a pending split");
 
         _add_new_entrants(lock);
     }
@@ -917,7 +930,7 @@ void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRu
     split->close(status);
 }
 
-void TimeSharingTaskExecutor::_schedule_task_if_necessary(
+Status TimeSharingTaskExecutor::_schedule_task_if_necessary(
         std::shared_ptr<TimeSharingTaskHandle> task_handle, std::unique_lock<std::mutex>& lock) {
     int guaranteed_concurrency = std::min(
             _guaranteed_concurrency_per_task,
@@ -930,8 +943,9 @@ void TimeSharingTaskExecutor::_schedule_task_if_necessary(
         if (!split) {
             break;
         }
-        _start_split(split, lock);
+        RETURN_IF_ERROR(_start_split(std::move(split), lock));
     }
+    return Status::OK();
 }
 
 void TimeSharingTaskExecutor::_add_new_entrants(std::unique_lock<std::mutex>& lock) {
@@ -943,26 +957,37 @@ void TimeSharingTaskExecutor::_add_new_entrants(std::unique_lock<std::mutex>& lo
         if (!split) {
             break;
         }
-        _start_split(split, lock);
+        WARN_IF_ERROR(_start_split(std::move(split), lock), "Failed to schedule a pending split");
     }
 }
 
-void TimeSharingTaskExecutor::_start_intermediate_split(
+Status TimeSharingTaskExecutor::_start_intermediate_split(
         std::shared_ptr<PrioritizedSplitRunner> split, std::unique_lock<std::mutex>& lock) {
-    _start_split(split, lock);
     _intermediate_splits.insert(split);
+    return _start_split(std::move(split), lock);
 }
 
-void TimeSharingTaskExecutor::_start_split(std::shared_ptr<PrioritizedSplitRunner> split,
-                                           std::unique_lock<std::mutex>& lock) {
+Status TimeSharingTaskExecutor::_start_split(std::shared_ptr<PrioritizedSplitRunner> split,
+                                             std::unique_lock<std::mutex>& lock) {
     _all_splits.insert(split);
     lock.unlock();
     Status submit_status = _do_submit(split);
     if (!submit_status.ok()) {
-        LOG(WARNING) << "_do_submit failed for split_id: " << split->split_id()
-                     << ", status: " << submit_status.to_string();
+        // A rejected split will never execute its completion callback. Retire its
+        // running state and report the rejection to the submitting caller instead
+        // of leaving rowid fetch waiting for a nonexistent worker.
+        lock.lock();
+        _all_splits.erase(split);
+        _intermediate_splits.erase(split);
+        split->task_handle()->split_finished(split);
+        lock.unlock();
+        split->close(submit_status);
     }
+    // Releasing a captured scanner context may reenter remove_task(). The caller
+    // transfers its local split here so the final release stays outside _mutex.
+    split.reset();
     lock.lock();
+    return submit_status;
 }
 
 std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskExecutor::_poll_next_split_worker(

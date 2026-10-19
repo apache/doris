@@ -46,6 +46,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
@@ -537,7 +538,18 @@ struct RowIdReadDispatch {
     // The submitting thread owns one reference until all submissions finish.
     // Even inline/fast workers cannot finish the RPC during submission.
     std::atomic<size_t> remaining = 1;
-    AtomicStatus status;
+    std::atomic<bool> failed = false;
+    // Allocate the cancellation status before publishing any workers. Shutdown or an
+    // exception while reporting another error must not allocate to finish this request.
+    Status status = Status::Cancelled("Row id read tasks did not complete");
+
+    void update_status(Status&& result) noexcept {
+        if (!result.ok() && !failed.exchange(true)) {
+            // Only the first failing participant writes status. It retains its remaining
+            // count until this noexcept move finishes; complete() runs after all writers exit.
+            status = std::move(result);
+        }
+    }
 
     ~RowIdReadDispatch() {
         // Pool shutdown may destroy queued closures without executing them.
@@ -548,7 +560,7 @@ struct RowIdReadDispatch {
             if (!thread_context()->is_attach_task()) {
                 task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
             }
-            status.update(Status::Cancelled("Row id read tasks discarded by pool shutdown"));
+            failed.store(true);
             complete();
         }
     }
@@ -557,7 +569,7 @@ struct RowIdReadDispatch {
         // Release request buffers while the rowid tracker is attached, even if
         // the pool retains finished task closures for longer.
         auto completion = std::move(on_complete);
-        completion(status.status());
+        completion(failed.load() ? std::move(status) : Status::OK());
         run_task = {};
     }
 
@@ -590,37 +602,60 @@ void RowIdStorageReader::submit_internal_read_tasks(FifoThreadPool* pool, size_t
     // Never block a pool thread waiting for work submitted to its own pool.
     DCHECK_GT(concurrency, 0);
     const size_t workers = std::min(task_count, static_cast<size_t>(concurrency));
-    for (size_t i = 0; i < workers; ++i) {
-        dispatch->remaining.fetch_add(1);
-        auto status = rowid_read_status([&]() {
-            // FifoThreadPool has no fallible bookkeeping after publishing a task.
-            // A rejection or exception therefore means this worker will never run.
-            if (!pool->try_offer([dispatch]() {
+    try {
+        auto status = rowid_read_status([&]() -> Status {
+            for (size_t i = 0; i < workers; ++i) {
+                dispatch->remaining.fetch_add(1);
+                bool accepted = false;
+                Defer retire_rejected([&] {
+                    if (!accepted) {
+                        dispatch->finish_worker();
+                    }
+                });
+                // FifoThreadPool has no fallible bookkeeping after publishing a task.
+                // A rejection or exception therefore means this worker will never run.
+                accepted = pool->try_offer([dispatch]() {
                     std::optional<AttachTask> task_context;
-                    dispatch->status.update(rowid_read_status([&]() {
-                        task_context.emplace(
-                                ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-                        while (dispatch->status.ok()) {
-                            const auto idx = dispatch->next_task.fetch_add(1);
-                            if (idx >= dispatch->task_count) {
-                                break;
+                    try {
+                        dispatch->update_status(rowid_read_status([&]() {
+                            task_context.emplace(
+                                    ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                            while (!dispatch->failed.load()) {
+                                const auto idx = dispatch->next_task.fetch_add(1);
+                                if (idx >= dispatch->task_count) {
+                                    break;
+                                }
+                                RETURN_IF_ERROR(dispatch->run_task(idx));
                             }
-                            RETURN_IF_ERROR(dispatch->run_task(idx));
-                        }
-                        return Status::OK();
-                    }));
+                            return Status::OK();
+                        }));
+                    } catch (...) {
+                        // Even converting an allocation failure to Status can throw. Keep
+                        // the preallocated failure and let the last participant finish.
+                        dispatch->failed.store(true);
+                    }
                     dispatch->finish_worker();
-                })) {
-                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
-                        "Row id fetch queue full or pool stopped: {}", pool->get_info());
+                });
+                if (!accepted) {
+                    return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                            "Row id fetch queue full or pool stopped: {}", pool->get_info());
+                }
             }
             return Status::OK();
         });
-        if (!status.ok()) {
-            dispatch->status.update(status);
-            dispatch->finish_worker();
-            break;
+#ifdef BE_TEST
+        bool fail_publication = false;
+        TEST_SYNC_POINT_CALLBACK("RowIdStorageReader::submit_internal_read_tasks::publish_status",
+                                 &status, &fail_publication);
+        if (fail_publication) {
+            throw std::bad_alloc();
         }
+#endif
+        dispatch->update_status(std::move(status));
+    } catch (...) {
+        // A previously accepted worker may still reference the RPC. Do not unwind to
+        // the RPC's synchronous error path; retire the submitter through the dispatch.
+        dispatch->failed.store(true);
     }
     dispatch->finish_worker();
 }
@@ -634,7 +669,7 @@ void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         return state->prepare();
     });
     if (!status.ok()) {
-        on_complete(status);
+        on_complete(std::move(status));
         return;
     }
     auto finish = [state, on_complete = std::move(on_complete)](Status status) {
@@ -642,7 +677,7 @@ void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         if (status.ok()) {
             status = rowid_read_status([&]() { return state->finish(); });
         }
-        on_complete(status);
+        on_complete(std::move(status));
     };
     if (state->tasks.empty()) {
         finish(Status::OK());

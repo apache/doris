@@ -234,13 +234,13 @@ public:
 
 private:
     Status _add_runner_thread();
-    void _schedule_task_if_necessary(std::shared_ptr<TimeSharingTaskHandle> task_handle,
-                                     std::unique_lock<std::mutex>& lock);
+    Status _schedule_task_if_necessary(std::shared_ptr<TimeSharingTaskHandle> task_handle,
+                                       std::unique_lock<std::mutex>& lock);
     void _add_new_entrants(std::unique_lock<std::mutex>& lock);
-    void _start_intermediate_split(std::shared_ptr<PrioritizedSplitRunner> split,
-                                   std::unique_lock<std::mutex>& lock);
-    void _start_split(std::shared_ptr<PrioritizedSplitRunner> split,
-                      std::unique_lock<std::mutex>& lock);
+    Status _start_intermediate_split(std::shared_ptr<PrioritizedSplitRunner> split,
+                                     std::unique_lock<std::mutex>& lock);
+    Status _start_split(std::shared_ptr<PrioritizedSplitRunner> split,
+                        std::unique_lock<std::mutex>& lock);
     std::shared_ptr<PrioritizedSplitRunner> _poll_next_split_worker(
             std::unique_lock<std::mutex>& lock);
     void _record_leaf_splits_size(std::unique_lock<std::mutex>& lock);

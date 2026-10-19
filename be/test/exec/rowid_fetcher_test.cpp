@@ -30,6 +30,7 @@
 
 #include "bthread/bthread.h"
 #include "common/exception.h"
+#include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_scheduler.h"
@@ -39,6 +40,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/work_thread_pool.hpp"
 
 namespace doris {
@@ -567,6 +570,127 @@ TEST_F(ParallelRowIdFetchTest, DiscardedQueuedWorkersCompleteWithCancellation) {
     EXPECT_EQ(completions, 1);
 }
 
+TEST_F(ParallelRowIdFetchTest, ErrorPublicationExceptionRetainsAcceptedWorkers) {
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("RowIdStorageReader::submit_internal_read_tasks::publish_status",
+                              [](auto&& args) {
+                                  EXPECT_FALSE(try_any_cast<Status*>(args[0])->ok());
+                                  *try_any_cast<bool*>(args[1]) = true;
+                              });
+    sync_point->enable_processing();
+    Defer clear_sync_point([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+
+    QueuedRowIdFetchPool pool;
+    pool.fail_at = 1;
+    auto state = std::make_shared<int>(0);
+    std::weak_ptr<int> weak_state = state;
+    int completions = 0;
+    EXPECT_NO_THROW(submit(
+            &pool, 7, 3,
+            [state](size_t) {
+                ADD_FAILURE() << "Reads must stop after error publication fails";
+                return Status::OK();
+            },
+            [&](Status result) {
+                EXPECT_FALSE(result.ok());
+                EXPECT_FALSE(weak_state.expired());
+                ++completions;
+            }));
+    state.reset();
+    ASSERT_EQ(pool.tasks.size(), 1);
+    EXPECT_EQ(completions, 0);
+    EXPECT_FALSE(weak_state.expired());
+    pool.tasks.front()();
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(weak_state.expired());
+    pool.tasks.clear();
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(SubmitExternalScanTasksTest, RealSchedulerRejectionReleasesGlobalWorker) {
+    TaskExecutorSimplifiedScanScheduler scheduler("rowid-rejection-test", nullptr);
+    ASSERT_TRUE(scheduler.start(1, 1, 1, 1).ok());
+    std::promise<void> blocker_started;
+    auto started = blocker_started.get_future();
+    std::promise<void> release_blocker;
+    auto released = release_blocker.get_future().share();
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(
+                                SimplifiedScanTask(
+                                        [&] {
+                                            blocker_started.set_value();
+                                            EXPECT_EQ(released.wait_for(std::chrono::seconds(10)),
+                                                      std::future_status::ready);
+                                            return true;
+                                        },
+                                        nullptr, nullptr),
+                                "occupied-worker")
+                        .ok());
+    ASSERT_EQ(started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    std::promise<void> rejected;
+    auto rejection = rejected.get_future();
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("TimeSharingTaskExecutor::_do_submit::capacity_rejected",
+                              [&](auto&&) { rejected.set_value(); });
+    sync_point->enable_processing();
+    Defer clear_sync_point([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+
+    FifoThreadPool global_pool(1, 4, "rowid-parent-test");
+    std::promise<Status> completed;
+    auto result = completed.get_future();
+    std::atomic<int> reads = 0;
+    EXPECT_TRUE(global_pool.try_offer([&] {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+        std::counting_semaphore<> semaphore {2};
+        completed.set_value(RowIdStorageReader::submit_external_scan_tasks(
+                &scheduler, semaphore, 2,
+                [](size_t idx) { return "external-read-" + std::to_string(idx); },
+                [&](size_t) {
+                    ++reads;
+                    semaphore.release();
+                    return Status::OK();
+                }));
+    }));
+    EXPECT_EQ(rejection.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    // The first child was accepted. Rejection of the second must not release its
+    // parent's stack while that accepted child still references it.
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
+    std::promise<void> other_group;
+    auto other_ready = other_group.get_future();
+    EXPECT_TRUE(global_pool.try_offer([&] { other_group.set_value(); }));
+    release_blocker.set_value();
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(other_ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    global_pool.shutdown();
+    global_pool.join();
+    scheduler.stop();
+    ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
+    EXPECT_FALSE(result.get().ok());
+    EXPECT_EQ(reads.load(), 1);
+}
+
+TEST_F(SubmitExternalScanTasksTest, StoppedRealSchedulerReturnsFailure) {
+    TaskExecutorSimplifiedScanScheduler scheduler("rowid-stopped-test", nullptr);
+    ASSERT_TRUE(scheduler.start(1, 1, 1, 1).ok());
+    scheduler.stop();
+    std::counting_semaphore<> semaphore {1};
+    const auto result = RowIdStorageReader::submit_external_scan_tasks(
+            &scheduler, semaphore, 1, [](size_t) { return "stopped-read"; },
+            [](size_t) {
+                ADD_FAILURE() << "A stopped scheduler must reject the read";
+                return Status::OK();
+            });
+    EXPECT_FALSE(result.ok());
+    EXPECT_TRUE(semaphore.try_acquire());
+}
+
 TEST_F(ParallelRowIdFetchTest, DiscardedWorkersPreserveEarlierReadError) {
     QueuedRowIdFetchPool pool;
     int completions = 0;
@@ -697,59 +821,76 @@ TEST_F(ParallelRowIdFetchTest, RunsConcurrentlyWithinLimitAndWaitsForActiveReads
 }
 
 TEST_F(ParallelRowIdFetchTest, FullPoolRejectsWorkersWithoutCompletingActiveRead) {
-    std::promise<void> started;
-    auto ready = started.get_future();
-    // Make the first worker start before the next submission fills the real queue.
-    class StartedWorkerPool : public FifoThreadPool {
-    public:
-        explicit StartedWorkerPool(std::future<void>& ready)
-                : FifoThreadPool(1, 1, "rowid-full-test"), _ready(ready) {}
+    for (bool fail_publication : {false, true}) {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->set_call_back(
+                "RowIdStorageReader::submit_internal_read_tasks::publish_status",
+                [&](auto&& args) { *try_any_cast<bool*>(args[1]) = fail_publication; });
+        sync_point->enable_processing();
+        Defer clear_sync_point([&] {
+            sync_point->disable_processing();
+            sync_point->clear_all_call_backs();
+        });
+        std::promise<void> started;
+        auto ready = started.get_future();
+        // Make the first worker start before the next submission fills the real queue.
+        class StartedWorkerPool : public FifoThreadPool {
+        public:
+            explicit StartedWorkerPool(std::future<void>& ready)
+                    : FifoThreadPool(1, 1, "rowid-full-test"), _ready(ready) {}
 
-        bool try_offer(WorkFunction task) override {
-            const bool accepted = FifoThreadPool::try_offer(std::move(task));
-            if (++_submissions == 1) {
-                EXPECT_TRUE(accepted);
-                EXPECT_EQ(_ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+            bool try_offer(WorkFunction task) override {
+                const bool accepted = FifoThreadPool::try_offer(std::move(task));
+                if (++_submissions == 1) {
+                    EXPECT_TRUE(accepted);
+                    EXPECT_EQ(_ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+                }
+                return accepted;
             }
-            return accepted;
-        }
 
-    private:
-        std::future<void>& _ready;
-        int _submissions = 0;
-    };
-    std::promise<void> release;
-    auto released = release.get_future();
-    std::promise<Status> completion;
-    auto result = completion.get_future();
-    std::atomic<bool> reading = false;
-    std::atomic<int> completions = 0;
-    auto pool = std::make_unique<StartedWorkerPool>(ready);
-    submit(
-            pool.get(), 7, 3,
-            [&](size_t) {
-                reading = true;
-                started.set_value();
-                EXPECT_EQ(released.wait_for(std::chrono::seconds(10)), std::future_status::ready);
-                reading = false;
-                return Status::OK();
-            },
-            [&](Status status) {
-                EXPECT_FALSE(reading);
-                ++completions;
-                completion.set_value(status);
-            });
-    EXPECT_EQ(pool->get_queue_size(), 1);
-    EXPECT_EQ(completions, 0);
-    EXPECT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
-    release.set_value();
-    EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
-    pool->shutdown();
-    pool->join();
-    pool.reset();
-    ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
-    EXPECT_TRUE(result.get().is<ErrorCode::SERVICE_UNAVAILABLE>());
-    EXPECT_EQ(completions, 1);
+        private:
+            std::future<void>& _ready;
+            int _submissions = 0;
+        };
+        std::promise<void> release;
+        auto released = release.get_future();
+        std::promise<Status> completion;
+        auto result = completion.get_future();
+        std::atomic<bool> reading = false;
+        std::atomic<int> completions = 0;
+        auto pool = std::make_unique<StartedWorkerPool>(ready);
+        submit(
+                pool.get(), 7, 3,
+                [&](size_t) {
+                    reading = true;
+                    started.set_value();
+                    EXPECT_EQ(released.wait_for(std::chrono::seconds(10)),
+                              std::future_status::ready);
+                    reading = false;
+                    return Status::OK();
+                },
+                [&](Status status) {
+                    EXPECT_FALSE(reading);
+                    ++completions;
+                    completion.set_value(status);
+                });
+        EXPECT_EQ(pool->get_queue_size(), 1);
+        EXPECT_EQ(completions, 0);
+        EXPECT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
+        release.set_value();
+        EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+        pool->shutdown();
+        pool->join();
+        pool.reset();
+        ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
+        const auto status = result.get();
+        if (fail_publication) {
+            EXPECT_TRUE(status.is<ErrorCode::CANCELLED>());
+        } else {
+            EXPECT_TRUE(status.is<ErrorCode::SERVICE_UNAVAILABLE>());
+        }
+        EXPECT_EQ(completions, 1);
+    }
 }
 
 TEST_F(ParallelRowIdFetchTest, StoppedPoolRejectsWorkersImmediately) {

@@ -375,6 +375,10 @@ public:
             auto result = _task_executor->enqueue_splits(task_handle, false, {split_runner});
             if (!result.has_value()) {
                 LOG(WARNING) << "enqueue_splits failed: " << result.error();
+                // This overload creates a task for one callback. Rejected callbacks
+                // cannot run wrapped_scan_func's normal task removal.
+                WARN_IF_ERROR(_task_executor->remove_task(task_handle),
+                              "Failed to remove a rejected scan task");
                 return result.error();
             }
             return Status::OK();

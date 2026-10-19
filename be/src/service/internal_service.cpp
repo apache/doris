@@ -2017,7 +2017,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     // A queued parent task may also be discarded during pool shutdown.
     Status::Cancelled("Row id fetch task discarded before execution")
             .to_protobuf(response->mutable_status());
-    auto task = [this, request, response, closure_guard]() {
+    auto task = [this, request, response, closure_guard]() mutable {
         SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
         signal::set_signal_task_id(request->query_id());
         MonotonicStopWatch watch;
@@ -2040,7 +2040,9 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         }
         if (!status.ok()) {
             status.to_protobuf(response->mutable_status());
-            closure_guard->reset(nullptr);
+            // Accepted asynchronous reads retain this guard. Let its last owner finish
+            // the RPC instead of running done while a worker still uses the request.
+            closure_guard.reset();
         }
     };
     // Use the dedicated pool for both preparation and internal reads. Preparation
