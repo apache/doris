@@ -79,7 +79,7 @@ public class S3UtilTest {
                 "127.0.0.1:9000", "us-east-1", true,
                 StaticCredentialsProvider.create(AwsBasicCredentials.create("ak", "sk")))) {
             Assert.assertEquals(URI.create("https://127.0.0.1:9000"),
-                    client.serviceClientConfiguration().endpointOverride().orElseThrow());
+                    client.serviceClientConfiguration().endpointOverride().get());
         }
     }
 

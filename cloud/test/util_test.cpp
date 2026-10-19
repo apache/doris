@@ -35,6 +35,7 @@
 #include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
+#include "recycler/s3_accessor.h"
 #include "recycler/sync_executor.h"
 
 using namespace doris::cloud;
