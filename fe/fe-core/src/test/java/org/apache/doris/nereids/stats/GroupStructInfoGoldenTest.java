@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -364,6 +366,20 @@ public class GroupStructInfoGoldenTest {
         }
         Assertions.assertTrue(a1.getCanonical(WITH_LITERAL).contains("MatchAll<a1>"),
                 "the analyzer is not in the key: " + a1.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testASearchPredicateKeepsItsDsl() {
+        // the dsl is what execution parses into the search query: two terms match a different number
+        // of rows although the slot children of the two predicates are equal
+        GroupStructInfo apple = built("filter_search_exact_apple");
+        GroupStructInfo banana = built("filter_search_exact_banana");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(apple.getFingerprint(mode), banana.getFingerprint(mode),
+                    "two search terms share a key in mode " + mode);
+        }
+        Assertions.assertTrue(apple.getCanonical(WITH_LITERAL).contains("EXACT"),
+                "the dsl is not in the key: " + apple.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -907,6 +923,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_match_using_analyzer_a2",
                 "the same match predicate with a2: the analyzer tokenizes the argument differently",
                 GroupStructInfoGoldenTest::filterMatchUsingAnalyzerA2));
+        cases.add(new PlanCase("filter_search_exact_apple",
+                "a filter with search('name:EXACT(apple)') over a scan: the dsl is the predicate",
+                GroupStructInfoGoldenTest::filterSearchExactApple));
+        cases.add(new PlanCase("filter_search_exact_banana",
+                "the same search predicate for another term: a different key although the children are equal",
+                GroupStructInfoGoldenTest::filterSearchExactBanana));
         cases.add(new PlanCase("aggregate_no_keys", "aggregation without group by keys over a scan",
                 GroupStructInfoGoldenTest::aggregateNoKeys));
         cases.add(new PlanCase("self_join_one_table",
@@ -1407,6 +1429,29 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(0, "t1");
         MatchAll match = new MatchAll(t1.getOutput().get(1), new VarcharLiteral("foo-bar"), analyzer);
         return describe(new LogicalFilter<>(ImmutableSet.of(match), t1));
+    }
+
+    private static GroupStructInfo filterSearchExactApple() {
+        return filterSearch("name:EXACT(apple)", "apple");
+    }
+
+    private static GroupStructInfo filterSearchExactBanana() {
+        return filterSearch("name:EXACT(banana)", "banana");
+    }
+
+    /**
+     * A search predicate keeps the dsl string and the parsed query in fields, and both are sent to
+     * execution: its slot children only say which column is searched, so the terms and operators of
+     * the dsl are the identity of the predicate.
+     */
+    private static GroupStructInfo filterSearch(String dsl, String term) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SearchDslParser.QsNode root = new SearchDslParser.QsNode(
+                SearchDslParser.QsClauseType.TERM, "name", term);
+        SearchDslParser.QsPlan qsPlan = new SearchDslParser.QsPlan(root,
+                ImmutableList.of(new SearchDslParser.QsFieldBinding("name", 0)));
+        SearchExpression search = new SearchExpression(dsl, qsPlan, ImmutableList.of(t1.getOutput().get(1)));
+        return describe(new LogicalFilter<>(ImmutableSet.of(search), t1));
     }
 
     private static GroupStructInfo aggregateNoKeys() {

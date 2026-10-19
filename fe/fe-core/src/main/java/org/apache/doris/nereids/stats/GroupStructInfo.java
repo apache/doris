@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -2289,6 +2290,12 @@ public class GroupStructInfo {
             return ((Match) expression).getAnalyzer()
                     .map(analyzer -> className + '<' + encodeSlotComponent(analyzer) + '>')
                     .orElse(className);
+        }
+        if (expression instanceof SearchExpression) {
+            // the slot children tell which column is searched, while the terms, operators and options
+            // of the search live in the dsl string the expression keeps for execution
+            return className + '<'
+                    + encodeSlotComponent(((SearchExpression) expression).getDslString()) + '>';
         }
         if (!(expression instanceof Udf)) {
             return className;
