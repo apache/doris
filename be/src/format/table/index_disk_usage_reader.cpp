@@ -281,8 +281,8 @@ Status IndexDiskUsageReader::_fill_block(Block* block, const TIndexDiskUsageTabl
         }
         _append_rows(columns, target, schema, rows);
         for (size_t i = 0; i < _slots.size(); ++i) {
-            block->insert(ColumnWithTypeAndName(
-                    std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
+            block->insert(ColumnWithTypeAndName(std::move(columns[i]), _slots[i]->type(),
+                                                _slots[i]->col_name()));
         }
     } else {
         auto columns_guard = block->mutate_columns_scoped();
