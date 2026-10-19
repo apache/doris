@@ -1139,16 +1139,17 @@ public class GroupStructInfo {
     private static final class Child {
         private final Node node;
         private final boolean repeated;
-        private final String prefix;
+        /** SET_OPERATION: the expressions the branch feeds its outputs with, empty for every other child. */
+        private final List<Expression> mapping;
 
         private Child(Node node, boolean repeated) {
-            this(node, repeated, "");
+            this(node, repeated, Collections.emptyList());
         }
 
-        private Child(Node node, boolean repeated, String prefix) {
+        private Child(Node node, boolean repeated, List<Expression> mapping) {
             this.node = node;
             this.repeated = repeated;
-            this.prefix = prefix;
+            this.mapping = mapping;
         }
     }
 
@@ -1437,12 +1438,13 @@ public class GroupStructInfo {
     }
 
     private static Child branchChild(GroupStructInfo branch, List<List<SlotReference>> mappings, int index) {
-        return new Child(branch.root(), false, branchMapping(mappings, index));
+        return new Child(branch.root(), false, branchMapping(mappings, index, branch.root()));
     }
 
     /** The mapping of one branch followed by its shape: the key the branches of a node are sorted by. */
     private static String branchSortKey(GroupStructInfo branch, List<List<SlotReference>> mappings, int index) {
-        return branchMapping(mappings, index) + branch.getShape(LiteralMode.WITH_LITERAL);
+        return branchMappingText(branchMapping(mappings, index, branch.root()), LiteralMode.WITH_LITERAL)
+                + branch.getShape(LiteralMode.WITH_LITERAL);
     }
 
     /**
@@ -1452,17 +1454,32 @@ public class GroupStructInfo {
      * column of the branch: {@code SELECT a FROM t UNION SELECT a FROM u} and the same query selecting
      * {@code u.b} read the same two tables and produce a different number of distinct rows.
      */
-    private static String branchMapping(List<List<SlotReference>> mappings, int index) {
+    private static List<Expression> branchMapping(List<List<SlotReference>> mappings, int index, Node branchNode) {
         if (index >= mappings.size() || mappings.get(index).isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<ExprId, Expression> definitions = branchNode == null
+                ? Collections.emptyMap() : branchNode.columnDefinitions;
+        List<Expression> mapping = new ArrayList<>(mappings.get(index).size());
+        for (SlotReference mapped : mappings.get(index)) {
+            // the mapped slot may be the output of a computed project inside the branch: the value the
+            // branch feeds the output with is that definition, not the name of the slot
+            mapping.add(resolveColumnDefinitions(mapped, definitions));
+        }
+        return mapping;
+    }
+
+    /** The mapping of one branch, rendered in the literal mode of the node above it. */
+    private static String branchMappingText(List<Expression> mapping, LiteralMode mode) {
+        if (mapping.isEmpty()) {
             return "";
         }
-        List<SlotReference> mapping = mappings.get(index);
         StringBuilder text = new StringBuilder("[");
         for (int i = 0; i < mapping.size(); i++) {
             if (i > 0) {
                 text.append(',');
             }
-            text.append(identityText(mapping.get(i)));
+            text.append(renderExpression(mapping.get(i), mode));
         }
         return text.append(']').toString();
     }
@@ -1887,7 +1904,7 @@ public class GroupStructInfo {
                 out.append(SEP);
             }
             Child child = node.children.get(i);
-            out.append(child.prefix);
+            out.append(branchMappingText(child.mapping, mode));
             out.append(render(child.node, mode, shape));
         }
     }

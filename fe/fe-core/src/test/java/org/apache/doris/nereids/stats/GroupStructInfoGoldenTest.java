@@ -446,6 +446,18 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAComputedBranchOfASetOperationIsResolvedInItsMapping() {
+        // the mapping of the second branch names its output slot, and the project which computes it is
+        // inside the branch: the definition has to be resolved before the mapping is rendered
+        GroupStructInfo byTwo = built("union_of_two_computed_branches");
+        GroupStructInfo byThree = built("union_of_two_computed_branches_another_modulo");
+        Assertions.assertNotEquals(byTwo.getFingerprint(WITH_LITERAL), byThree.getFingerprint(WITH_LITERAL),
+                "two moduli of a computed branch share an exact key");
+        Assertions.assertTrue(byTwo.getCanonical(WITH_LITERAL).contains("Mod("),
+                "the definition of the branch output is not in the key: " + byTwo.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testAComputedProjectBelowAJoinIsNotSkippedByTheChain() {
         // the join chain flattens the projects it passes; a computed one is a leaf, so the definition of
         // its alias reaches the condition of the join above it and the two moduli differ
@@ -1138,6 +1150,12 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::intersectTwoScans));
         cases.add(new PlanCase("except_two_scans", "except of two scans (the first branch is the minuend)",
                 GroupStructInfoGoldenTest::exceptTwoScans));
+        cases.add(new PlanCase("union_of_two_computed_branches",
+                "a union whose second branch computes the output (u.a % 2 AS x): the mapping names the value",
+                GroupStructInfoGoldenTest::unionOfTwoComputedBranches));
+        cases.add(new PlanCase("union_of_two_computed_branches_another_modulo",
+                "the same union with another modulo (u.a % 3 AS x): a different key",
+                GroupStructInfoGoldenTest::unionOfTwoComputedBranchesAnotherModulo));
         cases.add(new PlanCase("union_two_scans_selected_a",
                 "union of two scans which selects a from both: the second branch feeds the column a",
                 GroupStructInfoGoldenTest::unionTwoScansSelectedA));
@@ -1856,6 +1874,37 @@ public class GroupStructInfoGoldenTest {
     private static GroupStructInfo exceptTwoScans() {
         return describe(new LogicalExcept(SetOperation.Qualifier.ALL,
                 ImmutableList.of(scan(0, "t1"), scan(1, "t2"))));
+    }
+
+    private static GroupStructInfo unionOfTwoComputedBranches() {
+        return unionOfTwoComputedBranches(2);
+    }
+
+    /**
+     * A union whose second branch feeds its output from a computed project: the mapping of the branch
+     * names the output slot, so the value the branch produces has to be resolved through the definitions
+     * of that project - two moduli produce a different number of distinct rows.
+     */
+    private static GroupStructInfo unionOfTwoComputedBranches(int modulo) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        Alias rename = new Alias(t.getOutput().get(0), "x");
+        Alias computed = new Alias(new Mod(u.getOutput().get(0), new IntegerLiteral(modulo)), "x");
+        LogicalProject<LogicalOlapScan> first = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(rename), t);
+        LogicalProject<LogicalOlapScan> second = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(computed), u);
+        SlotReference output = new SlotReference("a", IntegerType.INSTANCE);
+        return describe(new LogicalUnion(SetOperation.Qualifier.ALL,
+                ImmutableList.<NamedExpression>of(output),
+                ImmutableList.<List<SlotReference>>of(
+                        ImmutableList.of((SlotReference) rename.toSlot()),
+                        ImmutableList.of((SlotReference) computed.toSlot())),
+                ImmutableList.of(), false, ImmutableList.of(first, second)));
+    }
+
+    private static GroupStructInfo unionOfTwoComputedBranchesAnotherModulo() {
+        return unionOfTwoComputedBranches(3);
     }
 
     private static GroupStructInfo unionTwoScansSelectedA() {
