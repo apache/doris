@@ -550,7 +550,8 @@ suite("test_stream_load_new", "p0") {
             type_id int,
             type_name varchar(10),
             pv_hash hll hll_union not null,
-            pv_base64 hll hll_union not null
+            pv_base64 hll hll_union not null,
+            pv_binary hll hll_union not null
         )
         AGGREGATE KEY(type_id,type_name)
         DISTRIBUTED BY HASH(type_id) BUCKETS 1
@@ -561,7 +562,7 @@ suite("test_stream_load_new", "p0") {
 
         streamLoad {
             set 'column_separator', ','
-            set 'columns', 'type_id,type_name,type_id_base64,pv_hash=hll_hash(type_id),pv_base64=hll_from_base64(type_id_base64)'
+            set 'columns', 'type_id,type_name,type_id_base64,pv_hash=hll_hash(type_id),pv_base64=hll_from_base64(type_id_base64),pv_binary=hll_from_binary(from_base64(type_id_base64))'
             table "${tableName13}"
             time 10000
             file 'test_stream_load_hll_type.csv'
@@ -578,6 +579,9 @@ suite("test_stream_load_new", "p0") {
         }
         sql """ sync; """
         qt_sql13 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName13} group by type_name order by type_name"
+        check_sqls_result_equal(
+                "select type_name, hll_union_agg(pv_base64) from ${tableName13} group by type_name order by type_name",
+                "select type_name, hll_union_agg(pv_binary) from ${tableName13} group by type_name order by type_name")
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName13}"
     }

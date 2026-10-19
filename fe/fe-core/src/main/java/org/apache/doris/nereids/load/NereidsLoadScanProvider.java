@@ -71,6 +71,7 @@ public class NereidsLoadScanProvider {
     private static final Logger LOG = LogManager.getLogger(NereidsLoadScanProvider.class);
     private static final String HLL_HASH = "hll_hash";
     private static final String HLL_FROM_BASE64 = "hll_from_base64";
+    private static final String HLL_FROM_BINARY = "hll_from_binary";
     private NereidsFileGroupInfo fileGroupInfo;
     private Set<String> partialUpdateInputColumns;
 
@@ -327,10 +328,12 @@ public class NereidsLoadScanProvider {
                     String functionName = function.getName();
                     if (!functionName.equalsIgnoreCase(HLL_HASH)
                             && !functionName.equalsIgnoreCase("hll_empty")
-                            && !functionName.equalsIgnoreCase(HLL_FROM_BASE64)) {
+                            && !functionName.equalsIgnoreCase(HLL_FROM_BASE64)
+                            && !functionName.equalsIgnoreCase(HLL_FROM_BINARY)) {
                         throw new AnalysisException("HLL column must use " + HLL_HASH + " function, like "
                                 + columnName + "=" + HLL_HASH + "(xxx) or "
                                 + columnName + "=" + HLL_FROM_BASE64 + "(xxx) or "
+                                + columnName + "=" + HLL_FROM_BINARY + "(xxx) or "
                                 + columnName + "=hll_empty()");
                     }
                 }
