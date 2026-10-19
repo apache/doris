@@ -34,6 +34,7 @@
 
 #include "common/status.h"
 #include "core/string_ref.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/aws_common.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
@@ -84,6 +85,7 @@ struct S3ClientConf {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    CredentialConfig credential {};
     // True when this client is bound to a Doris internal object storage bucket
     // (a storage vault in cloud mode). S3ClientFactory wraps such clients with the
     // shared rate limiter; external buckets (S3 load, TVF, external catalogs) are
@@ -112,6 +114,7 @@ struct S3ClientConf {
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);
         hash_code ^= crc32_hash(external_id);
+        hash_combine_credential(&hash_code, credential);
         hash_code ^= is_internal_bucket;
         return hash_code;
     }
@@ -120,10 +123,11 @@ struct S3ClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
+                "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
+                "is_internal_bucket={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
                 request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id, is_internal_bucket);
+                role_arn, external_id, credential_type_name(credential), is_internal_bucket);
     }
 };
 

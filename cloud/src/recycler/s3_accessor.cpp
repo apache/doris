@@ -45,6 +45,8 @@
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-client/auth/obj_s3_client_factory.h"
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj_retry_strategy.h"
@@ -241,6 +243,8 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
             }
         }
     }
+
+    convert_obj_credential(obj_info, &s3_conf.credential);
 
     s3_conf.endpoint = obj_info.endpoint();
     s3_conf.region = obj_info.region();
@@ -445,10 +449,16 @@ int S3Accessor::init() {
         // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
         aws_config.requestTimeoutMs = 30000;
         aws_config.connectTimeoutMs = 5000;
-        auto s3_client = std::make_shared<Aws::S3::S3Client>(
-                get_aws_credentials_provider(conf_), std::move(aws_config),
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                conf_.use_virtual_addressing /* useVirtualAddressing */);
+        auto s3_client = doris::make_s3_client(
+                conf_.credential,
+                doris::S3ClientBuildContext {
+                        .fallback_provider = get_aws_credentials_provider(conf_),
+                        .config = std::move(aws_config),
+                        .payload_signing_policy =
+                                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                        .use_virtual_addressing = conf_.use_virtual_addressing,
+                        .ca_cert_path = _ca_cert_file_path,
+                });
         obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
         return 0;
     }

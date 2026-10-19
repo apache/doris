@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
@@ -73,6 +74,8 @@ public class S3StorageVault extends StorageVault {
         public static final String ROLE_ARN = S3Properties.ROLE_ARN;
         public static final String EXTERNAL_ID = S3Properties.EXTERNAL_ID;
         public static final String CREDENTIALS_PROVIDER_TYPE = S3Properties.CREDENTIALS_PROVIDER_TYPE;
+        public static final String GCP_CREDENTIAL_PROVIDER_TYPE = GCSProperties.CREDENTIAL_PROVIDER_TYPE;
+        public static final String GCP_IMPERSONATION_SERVICE_ACCOUNT = GCSProperties.IMPERSONATION_SERVICE_ACCOUNT;
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
@@ -83,7 +86,9 @@ public class S3StorageVault extends StorageVault {
             PropertyKey.USE_PATH_STYLE,
             PropertyKey.ROLE_ARN,
             PropertyKey.EXTERNAL_ID,
-            PropertyKey.CREDENTIALS_PROVIDER_TYPE
+            PropertyKey.CREDENTIALS_PROVIDER_TYPE,
+            PropertyKey.GCP_CREDENTIAL_PROVIDER_TYPE,
+            PropertyKey.GCP_IMPERSONATION_SERVICE_ACCOUNT
     ));
 
     @SerializedName(value = "properties")

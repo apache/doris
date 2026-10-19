@@ -121,8 +121,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 endpointStr = "http://" + endpointStr;
             }
             URI endpoint = URI.create(endpointStr);
-            client = S3Util.buildS3Client(endpoint, s3Properties.getRegion(),
-                    isUsePathStyle, s3Properties.getAwsCredentialsProvider());
+            client = s3Properties.createS3Client(endpoint, isUsePathStyle);
         }
         return client;
     }

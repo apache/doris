@@ -22,12 +22,14 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
@@ -61,6 +63,53 @@ public class ExternalFileTableValuedFunctionTest {
             Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
             Assert.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
             Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
+        }
+    }
+
+    @Test
+    public void testGcpNativeCredentialForS3Tvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            properties.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "COMPUTE_ENGINE");
+            properties.put(GCSProperties.IMPERSONATION_SERVICE_ACCOUNT,
+                    "target@my-project.iam.gserviceaccount.com");
+
+            S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
+            Assert.assertEquals("s3://tvf-bucket/path/file.parquet", tvf.getFilePath());
+            Assert.assertEquals("us-east1", tvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assert.assertEquals("GCP", tvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("COMPUTE_ENGINE", tvf.getBackendConnectProperties()
+                    .get(GCSProperties.CREDENTIAL_PROVIDER_TYPE));
+            Assert.assertEquals("target@my-project.iam.gserviceaccount.com",
+                    tvf.getBackendConnectProperties().get(GCSProperties.IMPERSONATION_SERVICE_ACCOUNT));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testGcpNativeCredentialValidationHappensBeforeTvfAccess() {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+            properties.put("s3.session_token", "session-token");
+
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new S3TableValuedFunction(properties));
+            Assert.assertTrue(exception.getMessage().contains("session token"));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
         }
     }
 

@@ -132,10 +132,12 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
         return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
                                                msg, err.GetExceptionName(), err.GetMessage(),
                                                err.GetErrorType(), request_id);
+    case HttpResponseCode::UNAUTHORIZED:
     case HttpResponseCode::FORBIDDEN:
         return Status::Error<PERMISSION_DENIED, false>(
-                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetErrorType(), request_id);
+                "{}: {} {} code=PERMISSION_DENIED, http_code={}, type={}, request_id={}", msg,
+                err.GetExceptionName(), err.GetMessage(), err.GetResponseCode(), err.GetErrorType(),
+                request_id);
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),

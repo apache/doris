@@ -21,13 +21,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -43,11 +46,16 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class S3ResourceTest {
     private static final Logger LOG = LogManager.getLogger(S3ResourceTest.class);
@@ -211,6 +219,69 @@ public class S3ResourceTest {
     }
 
     @Test
+    public void testConcurrentAltersPreserveBothUpdates() throws Exception {
+        CountDownLatch firstReady = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        AtomicBoolean first = new AtomicBoolean(true);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        S3Resource resource = new S3Resource("concurrent_alter") {
+            @Override
+            public void writeLock() {
+                if (first.compareAndSet(true, false)) {
+                    firstReady.countDown();
+                    try {
+                        Assert.assertTrue(releaseFirst.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                }
+                super.writeLock();
+            }
+        };
+        resource.setProperties(ImmutableMap.copyOf(s3Properties));
+        Thread updateConnections = new Thread(() -> {
+            try {
+                resource.modifyProperties(ImmutableMap.of(S3Properties.MAX_CONNECTIONS, "77"));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+        Thread updateTimeout = new Thread(() -> {
+            secondStarted.countDown();
+            try {
+                resource.modifyProperties(ImmutableMap.of(S3Properties.REQUEST_TIMEOUT_MS, "8888"));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+        try {
+            updateConnections.start();
+            Assert.assertTrue(firstReady.await(10, TimeUnit.SECONDS));
+            updateTimeout.start();
+            Assert.assertTrue(secondStarted.await(10, TimeUnit.SECONDS));
+            // The second ALTER either waits for the first one's monitor, or (before the fix)
+            // finishes and is subsequently overwritten by the first one's stale snapshot.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (updateTimeout.isAlive() && updateTimeout.getState() != Thread.State.BLOCKED
+                    && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            Assert.assertTrue(!updateTimeout.isAlive() || updateTimeout.getState() == Thread.State.BLOCKED);
+        } finally {
+            releaseFirst.countDown();
+            updateConnections.join(10000);
+            updateTimeout.join(10000);
+        }
+        Assert.assertFalse(updateConnections.isAlive());
+        Assert.assertFalse(updateTimeout.isAlive());
+        Assert.assertNull(failure.get());
+        Assert.assertEquals("77", resource.getProperty(S3Properties.MAX_CONNECTIONS));
+        Assert.assertEquals("8888", resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+    }
+
+    @Test
     public void testModifyProperties() throws Exception {
         ImmutableMap<String, String> properties = ImmutableMap.of(
                 "AWS_ENDPOINT", "aaa",
@@ -306,5 +377,373 @@ public class S3ResourceTest {
             LOG.info("testPingS3WithRoleArn exception:", e);
             Assert.assertTrue(e.getMessage(), false);
         }
+    }
+
+    @Test
+    public void testGsEndpointAndAlterAliases() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("provider", "gcp");
+        properties.put("s3.endpoint", "https://old.example.com");
+        properties.put("gs.endpoint", "https://storage.googleapis.com");
+        properties.put("s3.region", "us-central1");
+        properties.put("s3.bucket", "bucket");
+        properties.put("s3.root.path", "prefix");
+        properties.put("s3.access_key", "access");
+        properties.put("s3.secret_key", "secret");
+        properties.put("s3_validity_check", "false");
+        properties.put("type", "s3");
+        S3Resource resource = new S3Resource("gcp_resource");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        Assert.assertEquals("us-central1", resource.getProperty(S3Properties.REGION));
+        Assert.assertEquals("bucket", resource.getProperty(S3Properties.BUCKET));
+        Assert.assertEquals("prefix", resource.getProperty(S3Properties.ROOT_PATH));
+        Assert.assertEquals("https://storage.googleapis.com", resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("https://storage.googleapis.com",
+                S3Properties.getS3TStorageParam(resource.getCopiedProperties()).getEndpoint());
+        Assert.assertFalse(resource.getCopiedProperties().containsKey("gs.endpoint"));
+        resource.modifyProperties(ImmutableMap.of("gs.endpoint", "https://custom.example.com",
+                "s3_validity_check", "false"));
+        Assert.assertEquals("https://custom.example.com", resource.getProperty(S3Properties.ENDPOINT));
+        resource.modifyProperties(ImmutableMap.of("s3.endpoint", "https://storage.googleapis.com",
+                "s3_validity_check", "false"));
+        Assert.assertEquals("https://storage.googleapis.com", resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("https://storage.googleapis.com", properties.get("gs.endpoint"));
+        Assert.assertEquals("https://old.example.com", properties.get("s3.endpoint"));
+    }
+
+    @Test
+    public void testGsEndpointForStorageVault(@Mocked Env env) throws Exception {
+        for (String provider : new String[] {"GCP", "gcp", "S3", "OSS"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", provider);
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            properties.put("gs.access_key", "gcp-access");
+            properties.put("gs.secret_key", "gcp-secret");
+            properties.put("gs.use_path_style", "true");
+            properties.put("s3.root.path", "prefix");
+            CreateResourceCommand command = new CreateResourceCommand(
+                    new CreateResourceInfo(false, false, "gcp_vault", ImmutableMap.copyOf(properties)));
+            command.getInfo().analyzeResourceType();
+            S3StorageVault vault = new S3StorageVault("gcp_vault", false, false, command);
+            vault.checkCreationProperties(ImmutableMap.copyOf(properties));
+            Assert.assertEquals("prefix", vault.getCopiedProperties().get(S3Properties.ROOT_PATH));
+            String expectedEndpoint = "GCP".equalsIgnoreCase(provider)
+                    ? "https://storage.googleapis.com" : s3Endpoint;
+            Assert.assertEquals(expectedEndpoint,
+                    S3Properties.getObjStoreInfoPB(vault.getCopiedProperties()).getEndpoint());
+            Assert.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-access" : s3AccessKey,
+                    S3Properties.getObjStoreInfoPB(vault.getCopiedProperties()).getAk());
+            Assert.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-secret" : s3SecretKey,
+                    S3Properties.getObjStoreInfoPB(vault.getCopiedProperties()).getSk());
+            Assert.assertEquals("GCP".equalsIgnoreCase(provider),
+                    S3Properties.getObjStoreInfoPB(vault.getCopiedProperties()).getUsePathStyle());
+        }
+    }
+
+    @Test
+    public void testStorageVaultRejectsNonAllowlistedAliases() throws Exception {
+        StorageVaultMgr manager = new StorageVaultMgr(null);
+        for (String key : new String[] {"gs.endpoint", S3Properties.ENDPOINT, S3Properties.Env.ENDPOINT,
+                "gs.access_key", "gs.secret_key", "gs.session_token", "gs.connection.maximum",
+                "gs.connection.request.timeout", "gs.connection.timeout", "gs.use_path_style",
+                "gs.force_parsing_by_standard_uri"}) {
+            try {
+                manager.alterStorageVault(StorageVault.StorageVaultType.S3,
+                        ImmutableMap.of(key, "https://custom.example.com"), "gcp_vault");
+                Assert.fail("Storage Vault must reject properties outside its ALTER whitelist: " + key);
+            } catch (IllegalArgumentException exception) {
+                Assert.assertEquals("Alter property " + key + " is not allowed.", exception.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void testBlankGsEndpointPreservesResourceAliases() throws Exception {
+        for (String blank : new String[] {"", " \t"}) {
+            for (String endpointKey : new String[] {S3Properties.ENDPOINT, S3Properties.Env.ENDPOINT}) {
+                Map<String, String> properties = new HashMap<>(s3Properties);
+                properties.put("provider", "GCP");
+                properties.remove(S3Properties.Env.ENDPOINT);
+                properties.put(endpointKey, s3Endpoint);
+                properties.put("gs.endpoint", blank);
+                properties.put("gs.connection.timeout", blank);
+                S3Resource resource = new S3Resource("gcp_resource");
+                resource.setProperties(ImmutableMap.copyOf(properties));
+                Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+                Assert.assertFalse(resource.getCopiedProperties().containsKey("gs.endpoint"));
+                Assert.assertEquals(Integer.parseInt(s3ConnTimeoutMs),
+                        S3Properties.getS3TStorageParam(resource.getCopiedProperties()).getConnTimeoutMs());
+                Map<String, String> updated = new HashMap<>();
+                updated.put("gs.endpoint", blank);
+                updated.put("s3_validity_check", "false");
+                resource.modifyProperties(updated);
+                Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+                Assert.assertEquals(blank, updated.get("gs.endpoint"));
+                Assert.assertFalse(resource.getCopiedProperties().containsKey("gs.connection.timeout"));
+            }
+        }
+    }
+
+    @Test
+    public void testGsEndpointCannotAlterPolicyResource() throws Exception {
+        S3Resource resource = new S3Resource("gcp_resource");
+        Map<String, String> properties = new HashMap<>(s3Properties);
+        properties.put("provider", "GCP");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        resource.references.put("policy", Resource.ReferenceType.POLICY);
+        try {
+            resource.modifyProperties(ImmutableMap.of("gs.endpoint", "https://custom.example.com"));
+            Assert.fail("A gs.endpoint alias must not bypass the policy endpoint restriction");
+        } catch (DdlException exception) {
+            Assert.assertTrue(exception.getMessage().contains(S3Properties.ENDPOINT));
+        }
+        Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+    }
+
+    @Test
+    public void testGsEndpointDoesNotOverrideOtherProviders() throws Exception {
+        for (String provider : new String[] {"S3", "OSS", "AZURE", ""}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            if (!provider.isEmpty()) {
+                properties.put("provider", provider);
+            }
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            S3Resource resource = new S3Resource("other_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+            resource.modifyProperties(ImmutableMap.of("gs.endpoint", "https://custom.example.com"));
+            Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+            Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.Env.ENDPOINT));
+        }
+    }
+
+    @Test
+    public void testGsEndpointUsesEffectiveProviderOnAlter() throws Exception {
+        S3Resource resource = new S3Resource("gcp_resource");
+        Map<String, String> properties = new HashMap<>(s3Properties);
+        properties.put("provider", "GCP");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        resource.modifyProperties(ImmutableMap.of("provider", "S3", "gs.endpoint", "https://ignored.example.com"));
+        Assert.assertEquals("S3", resource.getProperty("provider"));
+        Assert.assertEquals(s3Endpoint, resource.getProperty(S3Properties.ENDPOINT));
+        resource.modifyProperties(ImmutableMap.of("provider", "gcp", "gs.endpoint", "https://storage.googleapis.com"));
+        Assert.assertEquals("gcp", resource.getProperty("provider"));
+        Assert.assertEquals("https://storage.googleapis.com", resource.getProperty(S3Properties.ENDPOINT));
+        resource.modifyProperties(ImmutableMap.of("provider", "", "gs.endpoint", "https://custom.example.com"));
+        Assert.assertEquals("gcp", resource.getProperty("provider"));
+        Assert.assertEquals("https://custom.example.com", resource.getProperty(S3Properties.ENDPOINT));
+    }
+
+    @Test
+    public void testGsAliasesMatchConnectorAndResourceProtocols() throws Exception {
+        for (String provider : new String[] {"GCP", "gcp"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", provider);
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            properties.put("gs.access_key", "gcp-access");
+            properties.put("gs.secret_key", "gcp-secret");
+            properties.put("gs.session_token", "gcp-token");
+            properties.put("gs.connection.maximum", "123");
+            properties.put("gs.connection.request.timeout", "456");
+            properties.put("gs.connection.timeout", "789");
+            properties.put("gs.use_path_style", "true");
+            properties.put("gs.force_parsing_by_standard_uri", "true");
+            properties.put(S3Properties.SECRET_KEY, "other-secret");
+            properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "999");
+            Map<String, String> original = new HashMap<>(properties);
+            GCSProperties connector = (GCSProperties) StorageProperties.createPrimary(properties);
+
+            S3Resource resource = new S3Resource("gcp_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            Map<String, String> normalized = resource.getCopiedProperties();
+            Assert.assertFalse(normalized.keySet().stream().anyMatch(key -> key.startsWith("gs.")));
+            Assert.assertEquals("true", normalized.get("force_parsing_by_standard_uri"));
+            TS3StorageParam thrift = S3Properties.getS3TStorageParam(normalized);
+            Assert.assertEquals(connector.getEndpoint(), thrift.getEndpoint());
+            Assert.assertEquals(connector.getAccessKey(), thrift.getAk());
+            Assert.assertEquals(connector.getSecretKey(), thrift.getSk());
+            Assert.assertEquals(connector.getSessionToken(), thrift.getToken());
+            Assert.assertEquals(Integer.parseInt(connector.getMaxConnections()), thrift.getMaxConn());
+            Assert.assertEquals(Integer.parseInt(connector.getRequestTimeoutS()), thrift.getRequestTimeoutMs());
+            Assert.assertEquals(Integer.parseInt(connector.getConnectionTimeoutS()), thrift.getConnTimeoutMs());
+            Assert.assertEquals(Boolean.parseBoolean(connector.getUsePathStyle()), thrift.isUsePathStyle());
+            Assert.assertEquals(connector.getAccessKey(), S3Properties.getObjStoreInfoPB(normalized).getAk());
+            Assert.assertEquals(connector.getSecretKey(), S3Properties.getObjStoreInfoPB(normalized).getSk());
+            Assert.assertEquals(thrift.isUsePathStyle(), S3Properties.getObjStoreInfoPB(normalized).getUsePathStyle());
+            Assert.assertEquals(original, properties);
+
+            resource.modifyProperties(ImmutableMap.of("gs.secret_key", "new-secret",
+                    "gs.connection.timeout", "321", "gs.use_path_style", "false"));
+            thrift = S3Properties.getS3TStorageParam(resource.getCopiedProperties());
+            Assert.assertEquals("new-secret", thrift.getSk());
+            Assert.assertEquals(321, thrift.getConnTimeoutMs());
+            Assert.assertFalse(thrift.isUsePathStyle());
+            resource.modifyProperties(ImmutableMap.of(S3Properties.SECRET_KEY, "canonical-secret",
+                    S3Properties.SESSION_TOKEN, ""));
+            connector = (GCSProperties) StorageProperties.createPrimary(resource.getCopiedProperties());
+            Assert.assertEquals("canonical-secret", connector.getSecretKey());
+            Assert.assertEquals("", connector.getSessionToken());
+        }
+    }
+
+    @Test
+    public void testBlankGsCredentialAndConnectionAliases() throws Exception {
+        for (String blank : new String[] {"", " \t"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", "GCP");
+            properties.put("gs.access_key", blank);
+            properties.put("gs.secret_key", blank);
+            properties.put("gs.session_token", blank);
+            properties.put(S3Properties.SESSION_TOKEN, "canonical-token");
+            properties.put("gs.connection.maximum", blank);
+            properties.put(S3Properties.MAX_CONNECTIONS, "123");
+            properties.put("gs.use_path_style", blank);
+            properties.put(S3Properties.USE_PATH_STYLE, "true");
+            S3Resource resource = new S3Resource("gcp_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            resource.modifyProperties(ImmutableMap.of("gs.secret_key", blank, "gs.connection.maximum", blank));
+            TS3StorageParam thrift = S3Properties.getS3TStorageParam(resource.getCopiedProperties());
+            Assert.assertEquals(s3AccessKey, thrift.getAk());
+            Assert.assertEquals(s3SecretKey, thrift.getSk());
+            Assert.assertEquals("canonical-token", thrift.getToken());
+            Assert.assertEquals(123, thrift.getMaxConn());
+            Assert.assertTrue(thrift.isUsePathStyle());
+            Assert.assertFalse(resource.getCopiedProperties().keySet().stream().anyMatch(key -> key.startsWith("gs.")));
+        }
+    }
+
+    @Test
+    public void testGsAliasesDoNotOverrideOtherProviders() throws Exception {
+        for (String provider : new String[] {"S3", "OSS", "AZURE", ""}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", provider);
+            properties.put("gs.access_key", "ignored-access");
+            properties.put("gs.secret_key", "ignored-secret");
+            properties.put("gs.connection.timeout", "789");
+            properties.put("gs.use_path_style", "true");
+            S3Resource resource = new S3Resource("other_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            resource.modifyProperties(ImmutableMap.of("gs.secret_key", "also-ignored",
+                    "gs.connection.timeout", "321"));
+            TS3StorageParam thrift = S3Properties.getS3TStorageParam(resource.getCopiedProperties());
+            Assert.assertEquals(s3AccessKey, thrift.getAk());
+            Assert.assertEquals(s3SecretKey, thrift.getSk());
+            Assert.assertEquals(Integer.parseInt(s3ConnTimeoutMs), thrift.getConnTimeoutMs());
+            Assert.assertFalse(thrift.isUsePathStyle());
+        }
+    }
+
+    @Test
+    public void testGsCredentialAliasesCannotBypassNativeAuthValidation() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("provider", "GCP");
+        properties.put("gs.endpoint", "https://storage.googleapis.com");
+        properties.put(S3Properties.BUCKET, "bucket");
+        properties.put(S3Properties.VALIDITY_CHECK, "false");
+        properties.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+        for (String key : new String[] {"gs.access_key", "gs.secret_key", "gs.session_token",
+                S3Properties.ACCESS_KEY, S3Properties.SECRET_KEY, S3Properties.SESSION_TOKEN}) {
+            S3Resource resource = new S3Resource("gcp_resource");
+            Map<String, String> conflicting = new HashMap<>(properties);
+            conflicting.put(key, "conflicting-credential");
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> resource.setProperties(ImmutableMap.copyOf(conflicting)));
+
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            Map<String, String> before = resource.getCopiedProperties();
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> resource.modifyProperties(ImmutableMap.of(key, "conflicting-credential")));
+            Assert.assertEquals(before, resource.getCopiedProperties());
+            Assert.assertEquals("DEFAULT", resource.getProperty(GCSProperties.CREDENTIAL_PROVIDER_TYPE));
+        }
+        S3Resource resource = new S3Resource("gcp_resource");
+        properties.remove(GCSProperties.CREDENTIAL_PROVIDER_TYPE);
+        properties.put("gs.access_key", "access");
+        properties.put("gs.secret_key", "secret");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        Assert.assertThrows(IllegalArgumentException.class, () -> resource.modifyProperties(
+                ImmutableMap.of(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "DEFAULT")));
+        // Empty AK/SK updates are ignored by Resource ALTER and cannot clear stored credentials.
+        Assert.assertThrows(IllegalArgumentException.class, () -> resource.modifyProperties(
+                ImmutableMap.of(GCSProperties.CREDENTIAL_PROVIDER_TYPE, "DEFAULT",
+                        S3Properties.ACCESS_KEY, "", S3Properties.SECRET_KEY, "")));
+    }
+
+    @Test
+    public void testGsAliasesTakePrecedenceAfterMergingAlter() throws Exception {
+        Map<String, String> properties = new HashMap<>(s3Properties);
+        properties.put("provider", "GCP");
+        S3Resource resource = new S3Resource("gcp_resource");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        // Simulate a resource persisted before gs.* normalization was introduced.
+        Field field = S3Resource.class.getDeclaredField("properties");
+        field.setAccessible(true);
+        Map<String, String> legacy = resource.getCopiedProperties();
+        legacy.put("gs.secret_key", "old-secret");
+        legacy.put("gs.session_token", "old-token");
+        legacy.put("gs.connection.timeout", "789");
+        field.set(resource, legacy);
+        resource.modifyProperties(ImmutableMap.of(S3Properties.SECRET_KEY, "new-secret",
+                S3Properties.SESSION_TOKEN, ""));
+        Map<String, String> normalized = resource.getCopiedProperties();
+        GCSProperties connector = (GCSProperties) StorageProperties.createPrimary(normalized);
+        Assert.assertEquals("old-secret", connector.getSecretKey());
+        Assert.assertEquals("old-token", connector.getSessionToken());
+        Assert.assertEquals(connector.getSecretKey(), S3Properties.getS3TStorageParam(normalized).getSk());
+        Assert.assertEquals(connector.getSessionToken(), S3Properties.getS3TStorageParam(normalized).getToken());
+        Assert.assertEquals(connector.getSecretKey(), S3Properties.getObjStoreInfoPB(normalized).getSk());
+        Assert.assertEquals(789, S3Properties.getS3TStorageParam(normalized).getConnTimeoutMs());
+        Assert.assertFalse(normalized.containsKey("gs.secret_key"));
+        Assert.assertFalse(normalized.containsKey("gs.session_token"));
+        Assert.assertFalse(normalized.containsKey("gs.connection.timeout"));
+
+        // Within the same ALTER input, gs.* also takes precedence over s3.*.
+        resource.modifyProperties(ImmutableMap.of("gs.secret_key", "updated-gs-secret",
+                S3Properties.SECRET_KEY, "ignored-s3-secret"));
+        Assert.assertEquals("updated-gs-secret", resource.getProperty(S3Properties.SECRET_KEY));
+    }
+
+    @Test
+    public void testBlankStoredGsAliasesFallBackToAlterValues() throws Exception {
+        for (String blank : new String[] {"", " \t"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", "GCP");
+            S3Resource resource = new S3Resource("gcp_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            Field field = S3Resource.class.getDeclaredField("properties");
+            field.setAccessible(true);
+            Map<String, String> legacy = resource.getCopiedProperties();
+            legacy.put("gs.secret_key", blank);
+            legacy.put("gs.session_token", blank);
+            field.set(resource, legacy);
+
+            resource.modifyProperties(ImmutableMap.of(S3Properties.SECRET_KEY, "new-secret",
+                    S3Properties.SESSION_TOKEN, ""));
+            Map<String, String> normalized = resource.getCopiedProperties();
+            GCSProperties connector = (GCSProperties) StorageProperties.createPrimary(normalized);
+            Assert.assertEquals("new-secret", connector.getSecretKey());
+            Assert.assertEquals("", connector.getSessionToken());
+            Assert.assertEquals(connector.getSecretKey(), S3Properties.getS3TStorageParam(normalized).getSk());
+            Assert.assertFalse(normalized.containsKey("gs.secret_key"));
+            Assert.assertFalse(normalized.containsKey("gs.session_token"));
+        }
+    }
+
+    @Test
+    public void testStoredGsEndpointCannotChangePolicyResourceOnAlter() throws Exception {
+        Map<String, String> properties = new HashMap<>(s3Properties);
+        properties.put("provider", "GCP");
+        S3Resource resource = new S3Resource("gcp_resource");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        resource.references.put("policy", Resource.ReferenceType.POLICY);
+        Field field = S3Resource.class.getDeclaredField("properties");
+        field.setAccessible(true);
+        Map<String, String> legacy = resource.getCopiedProperties();
+        legacy.put("gs.endpoint", "https://different.example.com");
+        field.set(resource, legacy);
+
+        Assert.assertThrows(DdlException.class, () -> resource.modifyProperties(
+                ImmutableMap.of(S3Properties.SECRET_KEY, "new-secret")));
+        Assert.assertEquals(legacy, resource.getCopiedProperties());
     }
 }

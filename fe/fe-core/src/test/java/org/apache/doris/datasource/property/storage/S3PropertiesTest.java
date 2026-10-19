@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.collect.Maps;
@@ -293,6 +294,30 @@ public class S3PropertiesTest {
         s3StorageParam = S3Properties.getS3TStorageParam(origProps);
         Assertions.assertEquals(TCredProviderType.ENV, s3StorageParam.getCredProviderType());
         Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testThriftProviderMapping() {
+        Map<String, TObjStorageType> expected = new HashMap<>();
+        expected.put("S3", TObjStorageType.AWS);
+        expected.put("AZURE", TObjStorageType.AZURE);
+        expected.put("BOS", TObjStorageType.BOS);
+        expected.put("COS", TObjStorageType.COS);
+        expected.put("OBS", TObjStorageType.OBS);
+        expected.put("OSS", TObjStorageType.OSS);
+        expected.put("GCP", TObjStorageType.GCP);
+        expected.put("TOS", TObjStorageType.TOS);
+
+        expected.forEach((provider, thriftProvider) -> {
+            origProps.clear();
+            origProps.put(StorageProperties.FS_PROVIDER_KEY, provider.toLowerCase());
+            Assertions.assertEquals(thriftProvider,
+                    S3Properties.getS3TStorageParam(origProps).getProvider(), provider);
+        });
+
+        origProps.clear();
+        origProps.put(StorageProperties.FS_PROVIDER_KEY, "   ");
+        Assertions.assertFalse(S3Properties.getS3TStorageParam(origProps).isSetProvider());
     }
 
     @Test

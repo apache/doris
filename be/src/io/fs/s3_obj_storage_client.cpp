@@ -69,6 +69,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/gcs_signed_url_provider.h"
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
 
@@ -489,7 +490,22 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
 
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
                                                        int64_t expiration_secs,
-                                                       const S3ClientConf&) {
+                                                       const S3ClientConf& conf) {
+    if (const auto* gcp_credential = std::get_if<GcpCredentialConfig>(&conf.credential)) {
+        std::string signed_url;
+        auto status = generate_gcs_v4_signed_url({.endpoint = conf.endpoint,
+                                                  .bucket = opts.bucket,
+                                                  .key = opts.key,
+                                                  .expiration_secs = expiration_secs,
+                                                  .request_timeout_ms = conf.request_timeout_ms},
+                                                 *gcp_credential, _gcs_signing_token_provider,
+                                                 &signed_url);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;
+            return {};
+        }
+        return signed_url;
+    }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }
