@@ -926,9 +926,8 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
-// Produces the source RowLocation used by compaction row-id conversion. This is an
-// internal storage format and is distinct from GlobalRowLoacationV2, which is the
-// query-facing distributed row-id format.
+// Reads COMPACTION_ROWID_COL by synthesizing the physical source RowLocation during compaction.
+// Its payload is RowLocation, distinct from the query-facing GlobalRowLoacationV2 format.
 class CompactionRowIdColumnIterator : public ColumnIterator {
 public:
     CompactionRowIdColumnIterator(RowsetId rowset_id, uint32_t segment_id)

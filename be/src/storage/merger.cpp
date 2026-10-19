@@ -99,6 +99,12 @@ Status set_key_range(TabletReader::ReaderParams* reader_params, const TabletSche
     return Status::OK();
 }
 
+// Compaction reorders and filters rows, so COMPACTION_ROWID_COL carries the original
+// (rowset_id, segment_id, row_id) alongside each surviving row through filtering and merge.
+// For example, source (rs1, 3, 7) may become output (rs2, 0, 2). Extract the source locations
+// so row-id conversion can map them to the new output positions for delete-bitmap conversion
+// and inverted-index compaction. Remove this synthetic column before writing the data;
+// it is never persisted in the output segment.
 Block prepare_compaction_output_block(const Block& block, int32_t rowid_ordinal,
                                       std::vector<RowLocation>* row_locations) {
     DORIS_CHECK_GE(rowid_ordinal, 0);
@@ -185,7 +191,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     reader_params.read_schema = std::make_shared<ReadSchema>(cur_tablet_schema.columns());
     if (convert_rowids) {
-        reader_params.read_schema->append_rowid_column();
+        reader_params.read_schema->append_compaction_rowid_column();
     }
     RETURN_IF_ERROR(reader.init(reader_params));
 
@@ -398,7 +404,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema.columns(), column_group));
     if (convert_rowids) {
-        reader_params.read_schema->append_rowid_column();
+        reader_params.read_schema->append_compaction_rowid_column();
     }
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));

@@ -1889,7 +1889,8 @@ Status SegmentIterator::_init_column_iterators() {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
-        if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
+        if (_schema->column(cid)->name() == BeConsts::COMPACTION_ROWID_COL) {
+            // Compaction reads synthesize source locations rather than reading a stored column.
             _column_iterators[cid].reset(
                     new CompactionRowIdColumnIterator(_opts.rowset_id, _segment->id()));
             continue;

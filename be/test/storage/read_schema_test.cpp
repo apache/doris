@@ -462,12 +462,12 @@ TEST(ReadSchemaTest, TabletColumnFromSlotKeepsTypeDetails) {
     EXPECT_TRUE(variant_column.variant_enable_doc_mode());
 }
 
-TEST(ReadSchemaTest, AppendedRowIdExtendsReadBlockBeforeDroppedColumns) {
+TEST(ReadSchemaTest, AppendedCompactionRowIdExtendsReadBlockBeforeDroppedColumns) {
     std::vector<TabletColumnPtr> read_columns {create_int_column(10, "k", true)};
     auto dropped_column = create_int_column(11, "dropped");
     ReadSchema read_schema(std::move(read_columns));
 
-    read_schema.append_rowid_column();
+    read_schema.append_compaction_rowid_column();
     read_schema.append_dropped_columns({*dropped_column});
 
     EXPECT_EQ(1, read_schema.rowid_ordinal());
@@ -476,7 +476,7 @@ TEST(ReadSchemaTest, AppendedRowIdExtendsReadBlockBeforeDroppedColumns) {
     EXPECT_EQ(2, read_schema.ordinal_by_uid(11));
     Block block = read_schema.create_read_block();
     ASSERT_EQ(2, block.columns());
-    EXPECT_EQ(BeConsts::ROWID_COL, block.get_by_position(1).name);
+    EXPECT_EQ(BeConsts::COMPACTION_ROWID_COL, block.get_by_position(1).name);
     EXPECT_EQ(PrimitiveType::TYPE_STRING, block.get_by_position(1).type->get_primitive_type());
 }
 

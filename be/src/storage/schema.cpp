@@ -182,14 +182,14 @@ void ReadSchema::append_dropped_columns(std::vector<TabletColumn> columns) {
     }
 }
 
-void ReadSchema::append_rowid_column() {
+void ReadSchema::append_compaction_rowid_column() {
     DORIS_CHECK_EQ(_num_block_columns, _read_columns.size());
     DORIS_CHECK_EQ(_rowid_ordinal, -1);
     auto column = std::make_shared<TabletColumn>(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE,
             FieldType::OLAP_FIELD_TYPE_STRING, false, std::numeric_limits<int32_t>::max(),
             sizeof(RowLocation));
-    column->set_name(BeConsts::ROWID_COL);
+    column->set_name(BeConsts::COMPACTION_ROWID_COL);
     _read_columns.emplace_back(column);
     _read_types.emplace_back(column->get_vec_type());
     ++_num_block_columns;

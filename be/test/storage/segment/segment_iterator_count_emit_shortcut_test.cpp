@@ -113,7 +113,7 @@ struct Fixture {
         tablet_schema = make_tablet_schema();
         read_schema = make_read_schema(tablet_schema);
         if (with_rowid) {
-            read_schema->append_rowid_column();
+            read_schema->append_compaction_rowid_column();
         }
         StorageReadOptions opts(stats);
         iter = std::make_unique<SegmentIterator>(std::make_shared<MockSegment>(tablet_schema),

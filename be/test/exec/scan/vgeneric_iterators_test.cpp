@@ -602,7 +602,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
-    schema.append_rowid_column();
+    schema.append_compaction_rowid_column();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
