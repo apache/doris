@@ -138,10 +138,24 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     }
     }
     if (!open_status.ok()) {
-        // A transformer failure happens after object creation, so remove any published file.
-        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file after open error");
+        _cleanup_open_error();
     }
     return open_status;
+}
+
+void VIcebergPartitionWriter::_cleanup_open_error() {
+    // A rejected projjson schema still owns a Parquet stream. Destroying it closes the S3
+    // writer and may upload an empty object, so finish that work before the final deletion.
+    _file_format_transformer.reset();
+    // Stream destruction normally closes the writer. Unsupported compression has no stream;
+    // a failed close may also leave pending work, and ASYNC_CLOSING requires a blocking wait.
+    if (_file_writer->state() != io::FileWriter::State::CLOSED) {
+        WARN_IF_ERROR(_file_writer->close(), fmt::format("failed to close Iceberg file {}", _path));
+    }
+    // S3 destruction waits for outstanding uploads even when close failed.
+    _file_writer.reset();
+    WARN_IF_ERROR(_fs->delete_file(_path),
+                  fmt::format("failed to delete Iceberg file {} after open error", _path));
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {

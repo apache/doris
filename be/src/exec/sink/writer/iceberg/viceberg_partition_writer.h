@@ -79,6 +79,8 @@ private:
 
     Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
 
+    void _cleanup_open_error();
+
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);
 

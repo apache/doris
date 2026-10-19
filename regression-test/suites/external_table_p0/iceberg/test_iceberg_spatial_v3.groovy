@@ -15,6 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.ListObjectsV2Request
+
 suite("test_iceberg_spatial_v3", "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -168,18 +174,25 @@ public class CreateIcebergSpatialV3Table {
                 PartitionSpec.unpartitioned(), referencedProperties);
         for (boolean isGeography : new boolean[] {false, true}) {
             String column = isGeography ? "geog" : "geom";
-            TableIdentifier copy = TableIdentifier.of(namespace,
-                    isGeography ? "referenced_geography_copy" : "referenced_geometry_copy");
-            if (catalog.tableExists(copy)) {
-                catalog.dropTable(copy);
-            }
-            catalog.createTable(copy, new Schema(
+            Schema copySchema = new Schema(
                     Types.NestedField.required(1, "id", Types.IntegerType.get()),
                     Types.NestedField.optional(2, column, isGeography
                             ? Types.GeographyType.of("projjson:my_crs",
                                     org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL)
-                            : Types.GeometryType.of("projjson:my_crs"))),
-                    PartitionSpec.unpartitioned(), referencedProperties);
+                            : Types.GeometryType.of("projjson:my_crs")));
+            for (boolean partitioned : new boolean[] {false, true}) {
+                String name = (isGeography ? "referenced_geography_copy" : "referenced_geometry_copy")
+                        + (partitioned ? "_partitioned" : "");
+                TableIdentifier copy = TableIdentifier.of(namespace, name);
+                if (catalog.tableExists(copy)) {
+                    catalog.dropTable(copy);
+                }
+                Table copyTable = catalog.createTable(copy, copySchema, partitioned
+                        ? PartitionSpec.builderFor(copySchema).identity("id").build()
+                        : PartitionSpec.unpartitioned(), referencedProperties);
+                System.out.println("SPATIAL_DATA_LOCATION\\t" + name + "\\t"
+                        + copyTable.properties().getOrDefault("write.data.path", copyTable.location() + "/data"));
+            }
         }
         // Iceberg 1.10 exposes spatial schema types but its generic Parquet writer does not implement them.
         // Store standard WKB BYTE_ARRAY values with field ids; the Iceberg schema carries CRS/algorithm.
@@ -210,12 +223,41 @@ public class CreateIcebergSpatialV3Table {
 }
 '''
     String encodedJavaSource = javaSource.getBytes("UTF-8").encodeBase64().toString()
-    executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc '"
+    String fixtureOutput = executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc '"
             + "task_java_dir=\$(mktemp -d /tmp/iceberg-spatial-v3.XXXXXX) && "
             + "echo ${encodedJavaSource} | base64 -d >\"\$task_java_dir/CreateIcebergSpatialV3Table.java\" && "
             + "javac -cp \"/opt/spark/jars/*\" \"\$task_java_dir/CreateIcebergSpatialV3Table.java\" && "
             + "java -cp \"\$task_java_dir:/opt/spark/jars/*\" "
             + "CreateIcebergSpatialV3Table ${dbName} geometry_values'")
+
+    def dataLocations = [:]
+    fixtureOutput.readLines().findAll { it.startsWith("SPATIAL_DATA_LOCATION\t") }.each { line ->
+        def fields = line.split("\t", 3)
+        dataLocations[fields[1]] = fields[2]
+    }
+    def minioClient = AmazonS3ClientBuilder.standard()
+            .withEndpointConfiguration(new EndpointConfiguration("http://${externalEnvIp}:${minioPort}", "us-east-1"))
+            .withPathStyleAccessEnabled(true)
+            .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials("admin", "password")))
+            .build()
+    def listDataObjects = { String table ->
+        String location = dataLocations[table]
+        assertNotNull(location, "Missing data location for ${table}")
+        def uri = new URI(location)
+        def objects = new TreeMap<String, Long>()
+        String token = null
+        while (true) {
+            def listing = minioClient.listObjectsV2(new ListObjectsV2Request()
+                    .withBucketName(uri.host).withPrefix(uri.path.substring(1).replaceAll('/+$', '') + '/')
+                    .withContinuationToken(token))
+            listing.objectSummaries.each { objects[it.key] = it.size }
+            if (!listing.isTruncated()) {
+                break
+            }
+            token = listing.nextContinuationToken
+        }
+        return objects
+    }
 
     def createCatalog = {
         sql """drop catalog if exists ${catalogName}"""
@@ -327,12 +369,44 @@ public class CreateIcebergSpatialV3Table {
     order_qt_referenced_crs_source """select id, ST_AsText(geom), ST_AsText(geog)
         from referenced_crs_values"""
     [geom: "referenced_geometry_copy", geog: "referenced_geography_copy"].each { column, target ->
-        test {
-            sql """insert into ${target} select id, ${column} from referenced_crs_values"""
-            exception "Referenced spatial CRS"
+        for (String table : [target, target + "_partitioned"]) {
+            def before = listDataObjects(table)
+            for (int attempt = 0; attempt < 2; attempt++) {
+                test {
+                    // Two source partition keys exercise dynamic writer creation, not only the
+                    // unpartitioned writer that the sink registers before opening.
+                    sql """insert into ${table} select s.id + cast(n.number as int), s.${column}
+                        from referenced_crs_values s cross join numbers('number' = '2') n"""
+                    exception "Referenced spatial CRS"
+                }
+                assertEquals(before, listDataObjects(table),
+                        "Rejected ${column} write left physical objects in ${table}, attempt ${attempt}")
+            }
+            String tag = table == target ? column : table
+            "qt_referenced_crs_no_commit_${tag}"("""select
+                (select count(*) from ${table}), (select count(*) from `${table}\$files`)""")
         }
-        "qt_referenced_crs_no_commit_${column}"("""select
-            (select count(*) from ${target}), (select count(*) from `${target}\$files`)""")
+    }
+    minioClient.shutdown()
+    sql """drop table if exists spatial_partitioned_copy"""
+    sql """create table spatial_partitioned_copy (id int, geom geometry, geog geography)
+        partition by list(id) () properties ('format-version' = '3')"""
+    sql """insert into spatial_partitioned_copy select id, geom, geog from geometry_values"""
+    order_qt_spatial_partitioned_copy """select id, ST_AsText(geom), ST_AsText(geog)
+        from spatial_partitioned_copy"""
+
+    // FULL collection should still analyze ordinary columns, while excluding every spatial
+    // metadata identity. Drop prior stats so an old cache cannot make this check pass.
+    for (String table : ["geometry_values", "projected_values", "referenced_crs_values"]) {
+        sql """drop stats ${table}"""
+        sql """analyze table ${table} with full with sync"""
+        quickRunTest("spatial_analyze_${table}", "show column stats ${table}", true) { row -> row.take(5) }
+    }
+    for (String column : ["geom", "geog"]) {
+        test {
+            sql """select ndv(${column}) from geometry_values"""
+            exception "does not support spatial"
+        }
     }
     for (String expression : ["case when id = 1 then geom else NULL end",
             "if(id = 1, geom, NULL)", "coalesce(geom, NULL)"]) {

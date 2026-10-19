@@ -76,8 +76,30 @@ POINT (3 4)	\N	1
 -- !referenced_crs_no_commit_geom --
 0	0
 
+-- !referenced_crs_no_commit_referenced_geometry_copy_partitioned --
+0	0
+
 -- !referenced_crs_no_commit_geog --
 0	0
+
+-- !referenced_crs_no_commit_referenced_geography_copy_partitioned --
+0	0
+
+-- !spatial_partitioned_copy --
+1	POINT (1 2)	POINT (1 2)
+11	POINT (1 2)	POINT (1 2)
+2	\N	\N
+3	POINT (3 4)	\N
+4	\N	POINT (3 4)
+
+-- !spatial_analyze_geometry_values --
+id	geometry_values	5.0	5.0	0.0
+
+-- !spatial_analyze_projected_values --
+id	projected_values	1.0	1.0	0.0
+
+-- !spatial_analyze_referenced_crs_values --
+id	referenced_crs_values	1.0	1.0	0.0
 
 -- !projected_values --
 1	POINT (1000 2000)	1000	2000	ST_POINT	01010000000000000000408F400000000000409F40	POINT (1 2)
