@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -82,6 +83,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -218,6 +220,17 @@ public class GroupStructInfo {
      * and the grouping sets of a repeat.
      */
     private static final String[] CONDITION_HEADER_MARKERS = {"F{", "A{gb:", "J{", "R{gs:["};
+
+    /**
+     * The functions whose value depends on the session time zone although neither their arguments nor
+     * their result are a date: an epoch value is read in that zone ({@code hour_from_unixtime(t.ts) = 0}
+     * keeps 1000 rows in one session and 1 row in another although its argument is the same integer).
+     * A function whose argument or result is a date or a datetime is covered by its type instead (see
+     * {@link #usesSessionTimeZone}).
+     */
+    private static final List<String> EPOCH_TIME_ZONE_FUNCTIONS = Arrays.asList(
+            "hour_from_unixtime", "minute_from_unixtime", "second_from_unixtime",
+            "microsecond_from_unixtime", "unix_timestamp");
 
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
@@ -2515,12 +2528,52 @@ public class GroupStructInfo {
             return className + '<'
                     + encodeSlotComponent(((SearchExpression) expression).getDslString()) + '>';
         }
-        if (!(expression instanceof Udf)) {
-            return className;
+        if (expression instanceof Udf) {
+            Udf udf = (Udf) expression;
+            return className + '<' + encodeSlotComponent(udf.getDbName()) + '.'
+                    + encodeSlotComponent(udf.getName()) + '#' + udf.getFunctionId() + '>';
         }
-        Udf udf = (Udf) expression;
-        return className + '<' + encodeSlotComponent(udf.getDbName()) + '.'
-                + encodeSlotComponent(udf.getName()) + '#' + udf.getFunctionId() + '>';
+        if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
+            // the session which evaluates the expression decides how an epoch value is read: the same
+            // arguments keep a different number of rows in another time zone
+            return className + '<' + encodeSlotComponent(sessionTimeZone()) + '>';
+        }
+        return className;
+    }
+
+    /**
+     * The time zone of the session which evaluates the expression (the one the planner and the backends
+     * read), or the default of this FE when there is no session.
+     */
+    private static String sessionTimeZone() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || context.getSessionVariable() == null) {
+            return ZoneId.systemDefault().getId();
+        }
+        return context.getSessionVariable().getTimeZone();
+    }
+
+    /** Whether the value of a function depends on the session time zone (see the two lists above). */
+    private static boolean usesSessionTimeZone(Function function) {
+        if (EPOCH_TIME_ZONE_FUNCTIONS.contains(function.getName())) {
+            return true;
+        }
+        try {
+            if (function.getDataType().isDateLikeType()) {
+                return true;
+            }
+            for (Expression child : function.children()) {
+                if (child.getDataType().isDateLikeType()) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException e) {
+            // a function whose type can only be computed once it is bound (a table function, or a call
+            // whose arguments need a cast the analysis inserts) has no date argument the renderer could
+            // see: it contributes its class name only, as before
+            return false;
+        }
+        return false;
     }
 
     /**
