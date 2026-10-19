@@ -39,11 +39,15 @@ import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable.FallbackSplit;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.QueryAuthSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.table.system.AuditLogTable;
+import org.apache.paimon.table.system.ReadOptimizedTable;
+import org.apache.paimon.table.system.RowTrackingTable;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
@@ -208,7 +212,8 @@ public class PaimonJniScanner extends JniScanner {
     private void initReader() throws IOException {
         Split split = getSplit();
         QueryAuthSplit authSplit = PaimonTimestampQueryAuth.findAuthSplit(split);
-        RowType policyTableType = authSplit == null ? table.rowType() : policyRowType(table, split);
+        Table dataSource = dataSource(table);
+        RowType policyTableType = policyRowType(dataSource, split);
         if (authSplit != null && authSplit.authResult() != null
                 && Boolean.parseBoolean(params.getOrDefault(
                         PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"))
@@ -239,6 +244,14 @@ public class PaimonJniScanner extends JniScanner {
             }
             outputToReadIndex[outputIndex] = readIndex;
             DataField tableField = table.rowType().getFields().get(projected[readIndex]);
+            if (requiresDatetimeV2PrecisionRepair && dataSource instanceof FallbackReadFileStoreTable
+                    && !SpecialFields.isSystemField(tableField.name())) {
+                // Fallback schemas agree positionally, but their names and field IDs are independent.
+                // Resolve positions in the data schema, not a system wrapper's rowkind-prefixed schema.
+                int dataIndex = dataSource.rowType().getFieldIndex(tableField.name());
+                Preconditions.checkState(dataIndex >= 0, "Data field %s not found in schema", tableField.name());
+                tableField = policyTableType.getFields().get(dataIndex);
+            }
             PaimonVariantProjection variantProjection = tableField.type() instanceof VariantType
                     ? PaimonVariantProjection.create(
                             variantAccessPathsByColumn.get(outputIndex), timeZone)
@@ -292,17 +305,22 @@ public class PaimonJniScanner extends JniScanner {
         paimonDataTypeList = outputReadFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
-    private static RowType policyRowType(Table source, Split split) {
+    private static Table dataSource(Table source) {
         if (source instanceof FileStoreTable) {
-            source = unwrapSystemPlanningSource((FileStoreTable) source);
-        } else {
-            // A row-backed system wrapper synthesizes its system fields outside the policy
-            // callback. Resolve the pinned data source, without reopening the catalog.
-            Optional<FileStoreTable> systemSource = hiddenSystemSource(source);
-            if (systemSource.isPresent()) {
-                return policyRowType(systemSource.get(), split);
-            }
+            return unwrapSystemPlanningSource((FileStoreTable) source);
         }
+        if (!(source instanceof AuditLogTable || source instanceof ReadOptimizedTable
+                || source instanceof RowTrackingTable)) {
+            return source;
+        }
+        // A row-backed system wrapper synthesizes its system fields outside the data reader.
+        // Resolve the pinned data source, without reopening the catalog.
+        Optional<FileStoreTable> systemSource = hiddenSystemSource(source);
+        return systemSource.isPresent() ? dataSource(systemSource.get()) : source;
+    }
+
+    private static RowType policyRowType(Table source, Split split) {
+        source = dataSource(source);
         if (source instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) source;
             boolean readFallback = split instanceof FallbackSplit && ((FallbackSplit) split).isFallback();

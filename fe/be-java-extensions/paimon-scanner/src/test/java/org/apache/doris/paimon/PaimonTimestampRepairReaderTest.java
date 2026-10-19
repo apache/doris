@@ -131,6 +131,186 @@ public class PaimonTimestampRepairReaderTest {
     }
 
     @Test
+    public void fallbackHistoricalOrcUsesSelectedBranchFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(false, false, "true");
+    }
+
+    @Test
+    public void fallbackRenamedFieldsRetainHiddenPolicyAndFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(true, false, "true");
+    }
+
+    @Test
+    public void auditLogFallbackRetainsSystemColumnsAndBranchFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(true, true, "true");
+    }
+
+    @Test
+    public void legacyFallbackHistoricalOrcUsesSelectedBranchFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(false, false, null);
+    }
+
+    @Test
+    public void fallbackWithoutRepairKeepsSdkProjection() throws Exception {
+        checkFallbackBranchFieldIds(false, false, "false");
+    }
+
+    private void checkFallbackBranchFieldIds(boolean renamedPolicy, boolean audit, String repairOption)
+            throws Exception {
+        OffHeap.setTesting();
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier mainId = Identifier.create("db", "main");
+            Identifier otherId = Identifier.create("db", "other");
+            catalog.createTable(mainId, Schema.newBuilder().column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT()).column("allowed", DataTypes.INT())
+                    .column("ts", DataTypes.TIMESTAMP(0))
+                    .partitionKeys("pt").option("file.format", "orc").build(), false);
+            if (!"false".equals(repairOption)) {
+                catalog.alterTable(mainId, Collections.singletonList(SchemaChange.dropColumn("ts")), false);
+                catalog.alterTable(mainId, Collections.singletonList(
+                        SchemaChange.addColumn("ts", DataTypes.TIMESTAMP(0))), false);
+            }
+            catalog.createTable(otherId, Schema.newBuilder().column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT()).column("allowed", DataTypes.INT())
+                    .column("ts", DataTypes.TIMESTAMP(9))
+                    .partitionKeys("pt").option("file.format", "orc").build(), false);
+            // Match schema versions, but not the independently allocated timestamp field IDs.
+            catalog.alterTable(otherId, Collections.singletonList(SchemaChange.setOption("test.option", "1")),
+                    false);
+            LocalDateTime second = LocalDateTime.of(2025, 1, 1, 0, 0, 1);
+            writeRows(catalog.getTable(mainId), GenericRow.of(0, 0, 7, Timestamp.fromLocalDateTime(second)));
+            writeRows(catalog.getTable(otherId),
+                    GenericRow.of(1, 1, 7, Timestamp.fromLocalDateTime(second)),
+                    GenericRow.of(1, 2, 7, Timestamp.fromLocalDateTime(second.withNano(999999500))),
+                    GenericRow.of(1, 3, 7, null));
+            if (renamedPolicy) {
+                writeRows(catalog.getTable(otherId), GenericRow.of(1, 4, 8, Timestamp.fromLocalDateTime(second)));
+            }
+            catalog.alterTable(otherId, Collections.singletonList(
+                    SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(0), true)), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(mainId);
+            FileStoreTable other = (FileStoreTable) catalog.getTable(otherId);
+            if (renamedPolicy) {
+                catalog.alterTable(otherId, Arrays.asList(SchemaChange.renameColumn("ts", "branch_ts"),
+                        SchemaChange.renameColumn("allowed", "branch_allowed")), false);
+                other = (FileStoreTable) catalog.getTable(otherId);
+            }
+            Assertions.assertEquals(!"false".equals(repairOption), main.rowType().getFields().get(3).id()
+                    != other.rowType().getFields().get(3).id());
+            Map<Integer, Object> expected = new HashMap<>();
+            expected.put(0, second);
+            expected.put(1, second);
+            expected.put(2, second);
+            expected.put(3, null);
+            for (boolean wrappedFirst : new boolean[] {true, false}) {
+                FileStoreTable wrapped = wrappedFirst ? main : main.copy(Collections.singletonMap(
+                        CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"));
+                Table pair = new FallbackReadFileStoreTable(wrapped, other, wrappedFirst);
+                if (audit) {
+                    pair = org.apache.paimon.table.system.SystemTableLoader.load("audit_log", (FileStoreTable) pair);
+                }
+                List<Split> splits = pair.newReadBuilder().newScan().plan().splits();
+                if (renamedPolicy) {
+                    // FileSystemCatalog has no policy provider. Attach serialized policy results below,
+                    // after planning, just as the existing historical-reader policy tests do.
+                    pair = new FallbackReadFileStoreTable(wrapped,
+                            other.copy(Collections.singletonMap("query-auth.enabled", "true")), wrappedFirst);
+                    if (audit) {
+                        pair = org.apache.paimon.table.system.SystemTableLoader.load("audit_log", (FileStoreTable) pair);
+                    }
+                }
+                Map<Integer, Object> actual = new HashMap<>();
+                for (Split split : splits) {
+                    if (renamedPolicy && ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback()
+                            == wrappedFirst) {
+                        PredicateBuilder policy = new PredicateBuilder(other.rowType());
+                        Split policySplit = new QueryAuthSplit(
+                                ((FallbackReadFileStoreTable.FallbackSplit) split).wrapped(),
+                                new TableQueryAuthResult(Collections.singletonList(JsonSerdeUtil.toJson(
+                                        policy.equal(policy.indexOf("branch_allowed"), 7))),
+                                        Collections.emptyMap()));
+                        split = wrappedFirst ? FallbackReadFileStoreTable.toFallbackSplit(policySplit, true)
+                                : policySplit;
+                    }
+                    Map<String, String> params = new HashMap<>();
+                    params.put("required_fields", audit ? "rowkind,ts,id" : "ts,id");
+                    params.put("columns_types", audit ? "string#datetimev2(0)#int" : "datetimev2(0)#int");
+                    params.put("time_zone", "UTC");
+                    params.put("serialized_table_cache_key", "fallback-field-ids-" + warehouse + wrappedFirst);
+                    params.put("serialized_table", encode(pair));
+                    params.put("paimon_split", encode(split));
+                    params.put("paimon_predicate", encode(Collections.emptyList()));
+                    if (repairOption != null) {
+                        params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, repairOption);
+                    }
+                    PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+                    try {
+                        scanner.open();
+                        while (scanner.getNextBatchMeta() != 0 && scanner.getTable().getNumRows() > 0) {
+                            int count = scanner.getTable().getNumRows();
+                            Object[] timestamps = scanner.getTable().getColumn(audit ? 1 : 0).getObjectColumn(0, count);
+                            Object[] ids = scanner.getTable().getColumn(audit ? 2 : 1).getObjectColumn(0, count);
+                            for (int i = 0; i < count; i++) {
+                                if (audit) {
+                                    Assertions.assertEquals("+I", scanner.getTable().getColumn(0)
+                                            .getObjectColumn(0, count)[i]);
+                                }
+                                Assertions.assertFalse(actual.containsKey((Integer) ids[i]));
+                                actual.put((Integer) ids[i], timestamps[i]);
+                            }
+                        }
+                    } finally {
+                        scanner.close();
+                        PaimonTableCache.clearForTest();
+                    }
+                }
+                Assertions.assertEquals(expected, actual, "wrappedFirst=" + wrappedFirst);
+                if (repairOption == null) {
+                    checkSnapshotMetadata(pair);
+                }
+            }
+        }
+    }
+
+    private void checkSnapshotMetadata(Table pair) throws Exception {
+        Table snapshots = org.apache.paimon.table.system.SystemTableLoader.load("snapshots", (FileStoreTable) pair);
+        Map<String, String> params = new HashMap<>();
+        params.put("required_fields", "snapshot_id,commit_time");
+        params.put("columns_types", "bigint#datetimev2(3)");
+        params.put("time_zone", "UTC");
+        params.put("serialized_table_cache_key", "fallback-snapshots-" + warehouse);
+        params.put("serialized_table", encode(snapshots));
+        params.put("paimon_split", encode(snapshots.newReadBuilder().newScan().plan().splits().get(0)));
+        params.put("paimon_predicate", encode(Collections.emptyList()));
+        // An older FE sends no repair option for metadata tables either.
+        PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+        try {
+            scanner.open();
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(1, scanner.getTable().getNumRows());
+            Assertions.assertEquals(1L, scanner.getTable().getColumn(0).getObjectColumn(0, 1)[0]);
+            Assertions.assertNotNull(scanner.getTable().getColumn(1).getObjectColumn(0, 1)[0]);
+        } finally {
+            scanner.close();
+            PaimonTableCache.clearForTest();
+        }
+    }
+
+    private static void writeRows(Table table, GenericRow... rows) throws Exception {
+        BatchWriteBuilder writer = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = writer.newWrite()) {
+            for (GenericRow row : rows) {
+                write.write(row);
+            }
+            try (BatchTableCommit commit = writer.newCommit()) {
+                commit.commit(write.prepareCommit());
+            }
+        }
+    }
+
+    @Test
     public void nanosecondOutputsRetainLogicalPrecisionWithDatetimeSibling() throws Exception {
         for (int precision : new int[] {7, 8}) {
             checkNanosecondReader(precision, false);
