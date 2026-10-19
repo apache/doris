@@ -433,7 +433,7 @@ void CacheBlockMetaStore::clear() {
 namespace {
 
 // Tablet policies are keyed by this prefix and the tablet id in the default column family.
-constexpr char TABLET_POLICY_KEY_PREFIX = 0x2;
+constexpr char TABLET_POLICY_KEY_PREFIX = 0x1;
 
 std::string tablet_policy_key(int64_t tablet_id) {
     std::string key;
