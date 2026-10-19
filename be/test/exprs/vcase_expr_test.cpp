@@ -27,10 +27,13 @@
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/type_limit.h"
+#include "exprs/vliteral.h"
 
 namespace doris {
 
@@ -135,6 +138,294 @@ TYPED_TEST(VCaseSelectionTest, MaximumAndWideBranchIndices) {
     const size_t branches = sizeof(typename TypeParam::IndexType) == 1 ? 255 : 257;
     this->check_selection(4099, branches, false);
     this->check_selection(4099, branches, true);
+}
+
+namespace {
+
+class SimpleCaseColumnExpr final : public VExpr {
+public:
+    SimpleCaseColumnExpr(DataTypePtr type, ColumnPtr column)
+            : VExpr(std::move(type), true), _column(std::move(column)) {}
+
+    const std::string& expr_name() const override {
+        static const std::string name = "simple_case_test_column";
+        return name;
+    }
+
+    bool is_constant() const override { return false; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector* selector, size_t count,
+                               ColumnPtr& result) const override {
+        ++calls;
+        if (fail) {
+            return Status::InvalidArgument("simple case test branch error");
+        }
+        result = filter_column_with_selector(_column, selector, count);
+        return Status::OK();
+    }
+
+    mutable size_t calls = 0;
+    bool fail = false;
+
+private:
+    ColumnPtr _column;
+};
+
+VExprSPtr simple_case_literal(const DataTypePtr& type, const Field& value) {
+    return VLiteral::create_shared(type, value);
+}
+
+VCaseExpr make_simple_case(const DataTypePtr& result_type, bool has_else) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::CASE_EXPR);
+    node.__set_type(remove_nullable(result_type)->to_thrift());
+    node.__set_is_nullable(result_type->is_nullable());
+    node.case_expr.__set_has_case_expr(true);
+    node.case_expr.__set_has_else_expr(has_else);
+    return VCaseExpr(node);
+}
+
+} // namespace
+
+TEST(VSimpleCaseTest, NullPayloadDuplicateKeysAndNullableResults) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto nullable_type = make_nullable(type);
+    auto input = ColumnInt32::create();
+    auto nulls = ColumnUInt8::create();
+    // NULL payloads deliberately equal keys and must never match.
+    for (int value : {1, 1, 2, 3, 2}) {
+        input->insert_value(value);
+    }
+    for (uint8_t value : {0, 1, 0, 0, 1}) {
+        nulls->insert_value(value);
+    }
+    auto input_expr = std::make_shared<SimpleCaseColumnExpr>(
+            nullable_type, ColumnNullable::create(std::move(input), std::move(nulls)));
+    for (bool has_else : {false, true}) {
+        auto expr = make_simple_case(nullable_type, has_else);
+        expr.add_child(input_expr);
+        size_t branch = 0;
+        for (int value : {1, 1, 2}) {
+            expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(value)));
+            expr.add_child(simple_case_literal(
+                    nullable_type,
+                    value == 2 ? Field() : Field::create_field<TYPE_INT>(branch == 0 ? 11 : 99)));
+            ++branch;
+        }
+        if (has_else) {
+            expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(33)));
+        }
+        ColumnPtr result;
+        auto status = expr.execute_column(nullptr, nullptr, nullptr, 5, result);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(result->size(), 5);
+        EXPECT_EQ((*result)[0].get<TYPE_INT>(), 11);
+        EXPECT_TRUE(result->is_null_at(2));
+        for (size_t row : {1, 3, 4}) {
+            EXPECT_EQ(result->is_null_at(row), !has_else);
+            if (has_else) {
+                EXPECT_EQ((*result)[row].get<TYPE_INT>(), 33);
+            }
+        }
+    }
+    EXPECT_EQ(input_expr->calls, 2);
+}
+
+TEST(VSimpleCaseTest, ConstantInputsAndEmptyBatch) {
+    auto type = std::make_shared<DataTypeInt32>();
+    for (bool null_input : {false, true}) {
+        auto input_type = null_input ? make_nullable(type) : type;
+        auto input = input_type->create_column_const(
+                7, null_input ? Field() : Field::create_field<TYPE_INT>(1));
+        auto input_expr = std::make_shared<SimpleCaseColumnExpr>(input_type, input);
+        for (bool has_else : {false, true}) {
+            auto expr = make_simple_case(make_nullable(type), has_else);
+            expr.add_child(input_expr);
+            expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(1)));
+            expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(11)));
+            if (has_else) {
+                expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(33)));
+            }
+            for (size_t count : {0, 7}) {
+                ColumnPtr result;
+                auto status = expr.execute_column(nullptr, nullptr, nullptr, count, result);
+                ASSERT_TRUE(status.ok()) << status.to_string();
+                ASSERT_EQ(result->size(), count);
+                for (size_t row = 0; row < count; ++row) {
+                    EXPECT_EQ(result->is_null_at(row), null_input && !has_else);
+                    if (!result->is_null_at(row)) {
+                        EXPECT_EQ((*result)[row].get<TYPE_INT>(), null_input ? 33 : 11);
+                    }
+                }
+            }
+        }
+        // Empty batches do not execute children.
+        EXPECT_EQ(input_expr->calls, 2);
+    }
+}
+
+TEST(VSimpleCaseTest, WideBranchIndexAndSelector) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto input = ColumnInt32::create();
+    for (int value : {1, 255, -1, 0}) {
+        input->insert_value(value);
+    }
+    auto expr = make_simple_case(type, true);
+    auto input_expr = std::make_shared<SimpleCaseColumnExpr>(type, std::move(input));
+    expr.add_child(input_expr);
+    for (int branch = 0; branch < 256; ++branch) {
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(branch)));
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(branch + 1000)));
+    }
+    expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(-99)));
+    Selector selector {1, 2, 0};
+    ColumnPtr result;
+    auto status = expr.execute_column(nullptr, nullptr, &selector, selector.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(result->size(), 3);
+    EXPECT_EQ(result->get_int(0), 1255);
+    EXPECT_EQ(result->get_int(1), -99);
+    EXPECT_EQ(result->get_int(2), 1001);
+    EXPECT_EQ(input_expr->calls, 1);
+}
+
+TEST(VSimpleCaseTest, StringKeysAndResults) {
+    auto type = std::make_shared<DataTypeString>();
+    auto input = ColumnString::create();
+    const std::array<std::string, 4> values {"", "a", std::string("a\0b", 3), "other"};
+    for (const auto& value : values) {
+        input->insert_data(value.data(), value.size());
+    }
+    auto expr = make_simple_case(type, true);
+    expr.add_child(std::make_shared<SimpleCaseColumnExpr>(type, std::move(input)));
+    for (size_t i = 0; i < 3; ++i) {
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_STRING>(values[i])));
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_STRING>(values[i])));
+    }
+    expr.add_child(simple_case_literal(type, Field::create_field<TYPE_STRING>("fallback")));
+    ColumnPtr result;
+    auto status = expr.execute_column(nullptr, nullptr, nullptr, values.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    for (size_t i = 0; i < values.size(); ++i) {
+        const std::string expected = i < 3 ? values[i] : "fallback";
+        EXPECT_EQ(result->get_data_at(i), StringRef(expected));
+    }
+}
+
+TEST(VSimpleCaseTest, ShadowedThenStillExecutesAndUnmatchedThenIsSkipped) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto input = type->create_column_const(3, Field::create_field<TYPE_INT>(1));
+    auto failing = std::make_shared<SimpleCaseColumnExpr>(type, input);
+    failing->fail = true;
+    for (int key : {2, 1}) {
+        auto expr = make_simple_case(type, true);
+        expr.add_child(std::make_shared<SimpleCaseColumnExpr>(type, input));
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(1)));
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(11)));
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(key)));
+        expr.add_child(failing);
+        expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(33)));
+        ColumnPtr result;
+        auto status = expr.execute_column(nullptr, nullptr, nullptr, 3, result);
+        EXPECT_EQ(status.ok(), key == 2) << status.to_string();
+    }
+    EXPECT_EQ(failing->calls, 1);
+}
+
+using SimpleCaseNumericTypes =
+        ::testing::Types<std::integral_constant<PrimitiveType, TYPE_TINYINT>,
+                         std::integral_constant<PrimitiveType, TYPE_SMALLINT>,
+                         std::integral_constant<PrimitiveType, TYPE_INT>,
+                         std::integral_constant<PrimitiveType, TYPE_BIGINT>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL32>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL64>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL128I>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL256>>;
+
+template <typename T>
+class VSimpleCaseNumericTest : public ::testing::Test {};
+
+TYPED_TEST_SUITE(VSimpleCaseNumericTest, SimpleCaseNumericTypes);
+
+TYPED_TEST(VSimpleCaseNumericTest, InputDispatchAndFirstMatch) {
+    constexpr PrimitiveType pt = TypeParam::value;
+    using Type = typename PrimitiveTypeTraits<pt>::DataType;
+    using Value = typename PrimitiveTypeTraits<pt>::CppType;
+    const auto type = [] {
+        if constexpr (is_decimal(pt)) {
+            return std::make_shared<Type>(Type::max_precision(), 6);
+        } else {
+            return std::make_shared<Type>();
+        }
+    }();
+    const auto field = [](int value) {
+        return Field::create_field<pt>(Value(is_decimal(pt) ? value * 1000000 : value));
+    };
+    auto input = type->create_column();
+    for (int value : {1, 2, 3, -1}) {
+        input->insert(field(value));
+    }
+    auto result_type = std::make_shared<DataTypeInt32>();
+    auto expr = make_simple_case(result_type, true);
+    expr.add_child(std::make_shared<SimpleCaseColumnExpr>(type, std::move(input)));
+    for (int value : {1, 2}) {
+        expr.add_child(simple_case_literal(type, field(value)));
+        expr.add_child(simple_case_literal(result_type, Field::create_field<TYPE_INT>(value * 11)));
+    }
+    expr.add_child(simple_case_literal(result_type, Field::create_field<TYPE_INT>(33)));
+    ColumnPtr result;
+    auto status = expr.execute_column(nullptr, nullptr, nullptr, 4, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const std::array<int, 4> expected {11, 22, 33, 33};
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(result->get_int(row), expected[row]);
+    }
+}
+
+TYPED_TEST(VSimpleCaseNumericTest, NullableMatchingAcrossVectorBoundaries) {
+    constexpr PrimitiveType pt = TypeParam::value;
+    using Type = typename PrimitiveTypeTraits<pt>::DataType;
+    using Value = typename PrimitiveTypeTraits<pt>::CppType;
+    const auto type = [] {
+        if constexpr (is_decimal(pt)) {
+            return std::make_shared<Type>(Type::max_precision(), 6);
+        } else {
+            return std::make_shared<Type>();
+        }
+    }();
+    const auto field = [](int value) {
+        return Field::create_field<pt>(Value(is_decimal(pt) ? value * 1000000 : value));
+    };
+    constexpr size_t rows = 257;
+    auto result_type = std::make_shared<DataTypeInt32>();
+    for (bool has_null : {false, true}) {
+        auto input = type->create_column();
+        auto nulls = ColumnUInt8::create();
+        for (size_t row = 0; row < rows; ++row) {
+            // Include NULL payloads equal to a key, a vector tail and unmatched rows.
+            input->insert(field(row % 5));
+            nulls->insert_value(has_null && row % 7 == 0);
+        }
+        auto expr = make_simple_case(result_type, true);
+        expr.add_child(std::make_shared<SimpleCaseColumnExpr>(
+                make_nullable(type), ColumnNullable::create(std::move(input), std::move(nulls))));
+        const std::array<int, 3> keys {1, 1, 2};
+        const std::array<int, 3> values {11, 99, 22};
+        for (size_t branch = 0; branch < keys.size(); ++branch) {
+            expr.add_child(simple_case_literal(type, field(keys[branch])));
+            expr.add_child(simple_case_literal(result_type,
+                                               Field::create_field<TYPE_INT>(values[branch])));
+        }
+        expr.add_child(simple_case_literal(result_type, Field::create_field<TYPE_INT>(33)));
+        ColumnPtr result;
+        auto status = expr.execute_column(nullptr, nullptr, nullptr, rows, result);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        for (size_t row = 0; row < rows; ++row) {
+            const bool matches = !(has_null && row % 7 == 0) && (row % 5 == 1 || row % 5 == 2);
+            EXPECT_EQ(result->get_int(row), matches ? static_cast<int>(row % 5) * 11 : 33)
+                    << "row=" << row << ", has_null=" << has_null;
+        }
+    }
 }
 
 } // namespace doris

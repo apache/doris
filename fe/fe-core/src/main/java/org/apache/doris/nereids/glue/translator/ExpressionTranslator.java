@@ -118,6 +118,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDictFunction;
 
 import com.google.common.collect.ImmutableList;
@@ -142,6 +143,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
     private static final Logger LOG = LogManager.getLogger(ExpressionTranslator.class);
+    private static final int MAX_SIMPLE_CASE_BRANCHES = 256;
 
     /**
      * The entry function of ExpressionTranslator.
@@ -439,10 +441,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitCaseWhen(CaseWhen caseWhen, PlanTranslatorContext context) {
+        ConnectContext connectContext = ConnectContext.get();
+        Expression caseInput = connectContext != null
+                && connectContext.getSessionVariable().enableExperimentalSimpleCase
+                // ShortCircuitCaseExpr requires searched CASE's condition/result layout.
+                && !connectContext.getSessionVariable().isShortCircuitEvaluation()
+                ? simpleCaseInput(caseWhen) : null;
         List<CaseWhenClause> caseWhenClauses = new ArrayList<>();
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+            Expression condition = caseInput == null ? whenClause.left() : ((EqualTo) whenClause.left()).right();
             caseWhenClauses.add(new CaseWhenClause(
-                    whenClause.left().accept(this, context),
+                    condition.accept(this, context),
                     whenClause.right().accept(this, context)
             ));
         }
@@ -451,8 +460,42 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         if (defaultValue.isPresent()) {
             elseExpr = defaultValue.get().accept(this, context);
         }
-        CaseExpr caseExpr = new CaseExpr(caseWhenClauses, elseExpr, caseWhen.nullable());
+        CaseExpr caseExpr = new CaseExpr(caseInput == null ? null : caseInput.accept(this, context),
+                caseWhenClauses, elseExpr, caseWhen.nullable());
         return caseExpr;
+    }
+
+    private Expression simpleCaseInput(CaseWhen caseWhen) {
+        if (caseWhen.getWhenClauses().isEmpty()
+                || caseWhen.getWhenClauses().size() > MAX_SIMPLE_CASE_BRANCHES) {
+            return null;
+        }
+        Expression caseInput = null;
+        // Restrict this experimental path to comparisons whose coercion is already identical.
+        for (WhenClause clause : caseWhen.getWhenClauses()) {
+            if (!(clause.left() instanceof EqualTo)) {
+                return null;
+            }
+            EqualTo equalTo = (EqualTo) clause.left();
+            Expression input = equalTo.left();
+            boolean decimalInput = input.getDataType().isDecimalV3Type();
+            boolean stringInput = input.getDataType().isStringType() || input.getDataType().isVarcharType();
+            boolean stringComparison = stringInput
+                    && (equalTo.right().getDataType().isStringType() || equalTo.right().getDataType().isVarcharType());
+            boolean supportedInput = input instanceof SlotReference
+                    || (decimalInput && input instanceof Cast && input.child(0) instanceof SlotReference);
+            if (!supportedInput || !(equalTo.right() instanceof Literal)
+                    || equalTo.right().nullable()
+                    || !(input.getDataType().isIntegerLikeType() || decimalInput || stringInput)
+                    || (!stringComparison && !equalTo.left().getDataType().equals(equalTo.right().getDataType()))) {
+                return null;
+            }
+            if (caseInput != null && !caseInput.equals(input)) {
+                return null;
+            }
+            caseInput = input;
+        }
+        return caseInput;
     }
 
     @Override
