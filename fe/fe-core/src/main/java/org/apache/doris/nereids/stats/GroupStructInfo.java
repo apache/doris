@@ -624,9 +624,34 @@ public class GroupStructInfo {
     private static void applyColumnDefinitions(Plan plan, Node node) {
         Map<ExprId, Expression> childDefinitions = childColumnDefinitions(node);
         resolveNodeExpressions(node, childDefinitions);
-        node.columnDefinitions = plan instanceof Project
-                ? projectColumnDefinitions((Project) plan, childDefinitions)
-                : childDefinitions;
+        if (plan instanceof Project) {
+            node.columnDefinitions = projectColumnDefinitions((Project) plan, childDefinitions);
+        } else if (plan instanceof Aggregate) {
+            node.columnDefinitions = aggregateColumnDefinitions((Aggregate<?>) plan, childDefinitions);
+        } else {
+            node.columnDefinitions = childDefinitions;
+        }
+    }
+
+    /**
+     * The columns an aggregation computes. Its header keeps the grouping keys - the number of groups,
+     * which is the row count of the node, depends on them alone - so the values its aggregate
+     * functions produce are defined nowhere: {@code Filter(s = 1) -> Aggregate(group by k, MIN(v) AS
+     * s)} and the same tree with {@code MAX(v) AS s} render one filter key although one k group whose
+     * values are 1 and 2 keeps zero and one rows. A definition is the aggregate function under the
+     * name of the alias which exposes it, resolved against the columns of the child like the header of
+     * the aggregation itself.
+     */
+    private static Map<ExprId, Expression> aggregateColumnDefinitions(Aggregate<?> aggregate,
+            Map<ExprId, Expression> childDefinitions) {
+        Map<ExprId, Expression> definitions = new LinkedHashMap<>();
+        for (NamedExpression output : aggregate.getOutputExpressions()) {
+            if (output instanceof Alias) {
+                definitions.put(output.getExprId(),
+                        resolveColumnDefinitions(((Alias) output).child(), childDefinitions));
+            }
+        }
+        return Collections.unmodifiableMap(definitions);
     }
 
     /** The definitions the children of a node expose: a join forwards the columns of both sides. */

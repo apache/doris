@@ -45,6 +45,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -330,6 +332,23 @@ public class GroupStructInfoGoldenTest {
         GroupStructInfo renamed = built("filter_above_a_renamed_project_output");
         Assertions.assertFalse(renamed.getCanonical(WITH_LITERAL).contains("col(x)"),
                 "the rename is not resolved: " + renamed.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testAnAggregateOutputIsDefinedInTheKeyOfTheNodeAbove() {
+        // the header of an aggregation keeps the grouping keys only, because the row count of the node
+        // is the number of groups: a predicate above it which reads an aggregate function has to carry
+        // the function, otherwise MIN and MAX under one alias share a key and one row count
+        GroupStructInfo min = built("filter_above_an_aggregate_min");
+        GroupStructInfo max = built("filter_above_an_aggregate_max");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(min.getFingerprint(mode), max.getFingerprint(mode),
+                    "MIN and MAX share a key in mode " + mode);
+        }
+        Assertions.assertTrue(min.getCanonical(WITH_LITERAL).startsWith("F{EqualTo(Min("),
+                "the aggregate function is not in the filter key: " + min.getCanonical(WITH_LITERAL));
+        Assertions.assertFalse(min.getCanonical(WITH_LITERAL).contains("col(s)"),
+                "the filter still names the aggregate's alias: " + min.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -861,6 +880,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_above_a_renamed_project_output",
                 "a filter on the alias of a plain rename (a AS x): the definition of x is the column a",
                 GroupStructInfoGoldenTest::filterAboveARenamedProjectOutput));
+        cases.add(new PlanCase("filter_above_an_aggregate_min",
+                "a filter on an aggregate function's output (MIN(v) AS s): s is the minimum of v",
+                GroupStructInfoGoldenTest::filterAboveAnAggregateMin));
+        cases.add(new PlanCase("filter_above_an_aggregate_max",
+                "the same filter with MAX(v) AS s: a different key although the aggregate header is the same",
+                GroupStructInfoGoldenTest::filterAboveAnAggregateMax));
         cases.add(new PlanCase("aggregate_no_keys", "aggregation without group by keys over a scan",
                 GroupStructInfoGoldenTest::aggregateNoKeys));
         cases.add(new PlanCase("self_join_one_table",
@@ -1318,6 +1343,31 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<NamedExpression>of(x), t1);
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(x.toSlot(), new IntegerLiteral(1))), project));
+    }
+
+    private static GroupStructInfo filterAboveAnAggregateMin() {
+        return filterAboveAnAggregateFunction(true);
+    }
+
+    private static GroupStructInfo filterAboveAnAggregateMax() {
+        return filterAboveAnAggregateFunction(false);
+    }
+
+    /**
+     * A predicate which reads the output of an aggregate function: {@code MIN(v) AS s} and
+     * {@code MAX(v) AS s} keep the same alias and the same grouping key, yet a group whose values are
+     * 1 and 2 satisfies {@code s = 1} for the minimum and not for the maximum, so the filter keeps a
+     * different number of rows.
+     */
+    private static GroupStructInfo filterAboveAnAggregateFunction(boolean min) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        Expression value = t1.getOutput().get(1);
+        Alias s = new Alias(min ? new Min(value) : new Max(value), "s");
+        LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(ImmutableList.of(key),
+                ImmutableList.<NamedExpression>of(key, s), true, Optional.empty(), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(s.toSlot(), new IntegerLiteral(1))), aggregate));
     }
 
     private static GroupStructInfo aggregateNoKeys() {
