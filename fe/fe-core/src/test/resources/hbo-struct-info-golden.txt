@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 63, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 65, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -412,6 +412,30 @@ WITH_LITERAL.fingerprint = ac8d7482930deaa78bc965fad6b8ac2485f51c047f0fd4ec6b493
 NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0,v1,r0}
 NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)))];out:[x];on:[]}S{null.null.t1#ti:0}
 NO_LITERAL.fingerprint = ac8d7482930deaa78bc965fad6b8ac2485f51c047f0fd4ec6b493c2c66cee49a
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN generate_outputs_swapped]
+desc = the same two functions with the names of their outputs swapped: a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[y,x];on:[]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[y,x];on:[]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 4c7f84bcfb5607c35f6e16cf713d4b115205db77f96b479d230d9d1080ff42c6
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[y,x];on:[]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[y,x];on:[]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 4c7f84bcfb5607c35f6e16cf713d4b115205db77f96b479d230d9d1080ff42c6
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN generate_outputs_x_y]
+desc = generate of two functions whose outputs are named x and y, in that order
+valid = true
+skipReason =
+WITH_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[x,y];on:[]}S{null.null.t1#ti:0,v1,r0}
+WITH_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[x,y];on:[]}S{null.null.t1#ti:0}
+WITH_LITERAL.fingerprint = 591a1e09c93c30553a37a98ed3d7cdb270086457d0fb8d8ae9503005e808640e
+NO_LITERAL.canonical = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[x,y];on:[]}S{null.null.t1#ti:0,v1,r0}
+NO_LITERAL.shape = G{tf:[ExplodeSplit(Cast(col(db.t1.id)),lit(%2C:VARCHAR(1)));ExplodeSplit(Cast(col(db.t1.name)),lit(%2C:VARCHAR(1)))];out:[x,y];on:[]}S{null.null.t1#ti:0}
+NO_LITERAL.fingerprint = 591a1e09c93c30553a37a98ed3d7cdb270086457d0fb8d8ae9503005e808640e
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_unnest]

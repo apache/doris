@@ -19,7 +19,6 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
@@ -47,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -431,6 +431,22 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testTheOutputsOfAGeneratorAreBoundToTheirFunctions() {
+        // the same two functions in the same order: only the name of the column each one fills separates
+        // the two plans, and a predicate above the generate reads exactly one of them
+        GroupStructInfo xy = built("generate_outputs_x_y");
+        GroupStructInfo swapped = built("generate_outputs_swapped");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(xy.getFingerprint(mode), swapped.getFingerprint(mode),
+                    "two output bindings share a key in mode " + mode);
+        }
+        Assertions.assertTrue(xy.getCanonical(WITH_LITERAL).contains("out:[x,y]"),
+                "the outputs are not in the key: " + xy.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(swapped.getCanonical(WITH_LITERAL).contains("out:[y,x]"),
+                "the outputs are not in the key: " + swapped.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -1065,6 +1081,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("generate_explode_split",
                 "generate of explode_split(cast(a as varchar), ',') over a scan: the delimiter is identity",
                 GroupStructInfoGoldenTest::generateExplodeSplit));
+        cases.add(new PlanCase("generate_outputs_x_y",
+                "generate of two functions whose outputs are named x and y, in that order",
+                GroupStructInfoGoldenTest::generateOutputsXY));
+        cases.add(new PlanCase("generate_outputs_swapped",
+                "the same two functions with the names of their outputs swapped: a different key",
+                GroupStructInfoGoldenTest::generateOutputsSwapped));
         cases.add(new PlanCase("repeat_grouping_sets", "repeat of the grouping sets ((a), ()) over a scan",
                 GroupStructInfoGoldenTest::repeatGroupingSets));
         cases.add(new PlanCase("invalid_too_many_scans",
@@ -1277,7 +1299,7 @@ public class GroupStructInfoGoldenTest {
      */
     private static GroupStructInfo filterUdf(String name, long functionId, String dbName) {
         LogicalOlapScan t1 = scan(0, "t1");
-        JavaUdf udf = new JavaUdf(name, functionId, dbName, Function.BinaryType.JAVA_UDF,
+        JavaUdf udf = new JavaUdf(name, functionId, dbName, org.apache.doris.catalog.Function.BinaryType.JAVA_UDF,
                 FunctionSignature.ret(BooleanType.INSTANCE).args(IntegerType.INSTANCE),
                 NullableMode.ALWAYS_NULLABLE, FunctionVolatility.IMMUTABLE,
                 Udf.createVolatileIdentity(FunctionVolatility.IMMUTABLE),
@@ -1752,6 +1774,32 @@ public class GroupStructInfoGoldenTest {
         return describe(new LogicalGenerate<>(
                 ImmutableList.of(new ExplodeSplit(argument, new VarcharLiteral(","))),
                 ImmutableList.of(generatorOutput), t1));
+    }
+
+    private static GroupStructInfo generateOutputsXY() {
+        return generateWithOutputNames(false);
+    }
+
+    private static GroupStructInfo generateOutputsSwapped() {
+        return generateWithOutputNames(true);
+    }
+
+    /**
+     * The same two generator functions in the same order, with the names of the two columns they produce
+     * swapped: a predicate above the generate reads one of the columns, so the binding of an output name to
+     * the function which fills it is part of the identity.
+     */
+    private static GroupStructInfo generateWithOutputNames(boolean swap) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        Expression first = new ExplodeSplit(new Cast(t1.getOutput().get(0), VarcharType.SYSTEM_DEFAULT),
+                new VarcharLiteral(","));
+        Expression second = new ExplodeSplit(new Cast(t1.getOutput().get(1), VarcharType.SYSTEM_DEFAULT),
+                new VarcharLiteral(","));
+        Slot x = new SlotReference("x", VarcharType.SYSTEM_DEFAULT);
+        Slot y = new SlotReference("y", VarcharType.SYSTEM_DEFAULT);
+        return describe(new LogicalGenerate<>(
+                ImmutableList.of((Function) first, (Function) second),
+                ImmutableList.of(swap ? y : x, swap ? x : y), t1));
     }
 
     private static GroupStructInfo repeatGroupingSets() {
