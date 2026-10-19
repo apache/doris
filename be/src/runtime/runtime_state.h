@@ -679,11 +679,6 @@ public:
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
 
-    bool enable_aggregate_function_null_v2() const {
-        return _query_options.__isset.enable_aggregate_function_null_v2 &&
-               _query_options.enable_aggregate_function_null_v2;
-    }
-
     bool enable_prune_nested_column() const {
         return _query_options.__isset.enable_prune_nested_column &&
                _query_options.enable_prune_nested_column;

@@ -122,7 +122,6 @@ protected:
     bool _should_limit_output = false;
 
     PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
 
     Block _preagg_block;
 

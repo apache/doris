@@ -1714,7 +1714,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableParallelScan = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, fuzzy = true, needForward = true)
+    // Accepted for saved sessions and old clients; nullable aggregation always executes V2.
+    @Deprecated
+    @VarAttrDef.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, flag = VarAttrDef.INVISIBLE)
     private boolean enableAggregateFunctionNullV2 = true;
 
     @VarAttrDef.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
@@ -5762,7 +5764,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
-        tResult.setEnableAggregateFunctionNullV2(enableAggregateFunctionNullV2);
+        // Old BEs still use this protocol field to select their unary intermediate codec.
+        tResult.setEnableAggregateFunctionNullV2(true);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);

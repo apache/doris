@@ -31,7 +31,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_foreach.h"
-#include "exprs/aggregate/aggregate_function_null.h"
+#include "exprs/aggregate/aggregate_function_null_v2.h"
 
 namespace doris {
 
@@ -284,7 +284,7 @@ TEST_F(AggregateFunctionExceptionTest, DeserializeAndMergeVecDestroysRhsStateOnF
 }
 
 TEST_F(AggregateFunctionExceptionTest,
-       DeserializeAndMergeVecSelectedDestroysAllCreatedRhsStatesOnFailure) {
+       DeserializeAndMergeVecSelectedSkipsUnselectedStatesOnFailure) {
     auto column = make_column({"skip", "throw"});
     std::vector<char> place_storage(function.size_of_data());
     std::vector<char> rhs_storage(function.size_of_data() * 2);
@@ -302,7 +302,7 @@ TEST_F(AggregateFunctionExceptionTest,
     }
 
     EXPECT_TRUE(thrown);
-    EXPECT_EQ(TrackingAggregateState::destroy_count - destroy_count_before_call, 2);
+    EXPECT_EQ(TrackingAggregateState::destroy_count - destroy_count_before_call, 1);
 
     function.destroy(place);
     EXPECT_EQ(TrackingAggregateState::construct_count, TrackingAggregateState::destroy_count);
@@ -415,7 +415,7 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachNormalizesVisibleRowsOnceP
     auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
     auto* foreach_function =
             new AggregateFunctionForEach(nested_function, DataTypes {input_type, input_type});
-    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+    AggregateFunctionNullVariadicInlineV2<AggregateFunctionForEach, true> nullable_foreach(
             foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
             false);
 
@@ -457,7 +457,7 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisible
     auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
     auto* foreach_function =
             new AggregateFunctionForEach(nested_function, DataTypes {input_type, input_type});
-    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+    AggregateFunctionNullVariadicInlineV2<AggregateFunctionForEach, true> nullable_foreach(
             foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
             false);
 
@@ -478,7 +478,7 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisible
     auto original_nullable = ColumnNullable::create(std::move(original), ColumnUInt8::create(3, 0));
     original_nullable->get_null_map_data()[0] = 1;
     const IColumn* columns[] = {compacted_nullable.get(), original_nullable.get()};
-    MutableColumnPtr serialized = ColumnString::create();
+    MutableColumnPtr serialized = nullable_foreach.create_serialize_column();
 
     nullable_foreach.streaming_agg_serialize_to_column(columns, serialized, 3, arena);
 
@@ -486,11 +486,9 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisible
     EXPECT_EQ(serialized->size(), 3);
 
     auto result = nullable_foreach.get_return_type()->create_column();
-    const auto& serialized_column = assert_cast<const ColumnString&>(*serialized);
-    for (size_t row = 0; row < serialized_column.size(); ++row) {
+    for (size_t row = 0; row < serialized->size(); ++row) {
         AggregateFunctionGuard state(&nullable_foreach);
-        VectorBufferReader reader(serialized_column.get_data_at(row));
-        nullable_foreach.deserialize(state.data(), reader, arena);
+        nullable_foreach.deserialize_from_column_row(state.data(), *serialized, row, arena);
         nullable_foreach.insert_result_into(state.data(), *result);
     }
     const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
@@ -512,7 +510,7 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingReleasesHeapState
     auto int_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
     auto* foreach_function = new AggregateFunctionForEach(
             nested_function, DataTypes {string_array_type, int_array_type});
-    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+    AggregateFunctionNullVariadicInlineV2<AggregateFunctionForEach, true> nullable_foreach(
             foreach_function,
             DataTypes {make_nullable(string_array_type), make_nullable(int_array_type)}, false);
 
@@ -536,7 +534,7 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingReleasesHeapState
             ColumnNullable::create(ColumnArray::create(std::move(key_data), std::move(key_offsets)),
                                    ColumnUInt8::create(row_count, 0));
     const IColumn* columns[] = {strings.get(), keys.get()};
-    MutableColumnPtr serialized = ColumnString::create();
+    MutableColumnPtr serialized = nullable_foreach.create_serialize_column();
 
     nullable_foreach.streaming_agg_serialize_to_column(columns, serialized, row_count, arena);
 

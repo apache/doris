@@ -65,6 +65,9 @@ public:
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "DataTypeAggState function get failed, type={}", do_get_name());
         }
+        // Keep the published AGG_STATE column/storage contract independent of query options.
+        // Only nullable byte encoding is adapted; the nested aggregate always executes V2.
+        _agg_function = make_agg_state_compatible_function(std::move(_agg_function));
         _agg_function->set_version(be_exec_version);
         _agg_serialized_type = _agg_function->get_serialized_type();
     }

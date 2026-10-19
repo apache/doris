@@ -81,11 +81,13 @@ protected:
         SCOPED_TRACE(name);
         SCOPED_TRACE(null_v2);
         AggregateFunctionAttr attr;
-        attr.enable_aggregate_function_null_v2 = null_v2;
         const auto version = BeExecVersionManager::get_newest_version();
         auto nested = AggregateFunctionSimpleFactory::instance().get(
                 name, arguments, nullptr, result_nullable, version, attr);
         ASSERT_NE(nested, nullptr);
+        if (!null_v2) {
+            nested = make_agg_state_compatible_function(std::move(nested));
+        }
         nested->set_version(version);
         auto actual = nested->get_return_type()->create_column();
         auto expected = actual->clone_empty();

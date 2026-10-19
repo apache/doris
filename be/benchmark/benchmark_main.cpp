@@ -22,6 +22,9 @@
 #include <iostream>
 #include <vector>
 
+#ifdef DORIS_NULLABLE_AGGREGATION_BENCHMARK_ONLY
+#include "benchmark_nullable_aggregation.hpp"
+#else
 #include "benchmark_array_range.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
@@ -36,23 +39,25 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_nullable_aggregation.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
-#include "common/config.h"
-#include "core/block/block.h"
-#include "core/column/column_string.h"
-#include "core/data_type/data_type.h"
-#include "core/data_type/data_type_string.h"
 #include "parquet/benchmark_file_scanner_expr.hpp"
 #include "parquet/benchmark_parquet_decoder.hpp"
 #include "parquet/benchmark_parquet_kernels.hpp"
 #include "parquet/benchmark_parquet_reader.hpp"
 #include "parquet/benchmark_parquet_selection.hpp"
+#include "variant/benchmark_variant_segment.hpp"
+#endif
+#include "common/config.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
-#include "variant/benchmark_variant_segment.hpp"
 
 namespace doris { // change if need
 
@@ -123,6 +128,9 @@ int main(int argc, char** argv) {
     doris::ExecEnv::set_tracking_memory(false);
 
     ::benchmark::Initialize(&argc, argv);
+#ifdef DORIS_NULLABLE_ALLOCATION_COUNTER
+    doris::nullable_aggregation_benchmark::register_allocation_counter();
+#endif
     if (::benchmark::ReportUnrecognizedArguments(argc, argv)) {
         return 1;
     }

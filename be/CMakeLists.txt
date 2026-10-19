@@ -1193,6 +1193,16 @@ if (BUILD_BENCHMARK)
         # without tcmalloc (see the MALLOCLIB branch above).
         ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    if ("$ENV{DORIS_BE_BENCHMARK}" STREQUAL "nullable_aggregation")
+        target_compile_definitions(benchmark_test PRIVATE DORIS_NULLABLE_AGGREGATION_BENCHMARK_ONLY)
+        if ("$ENV{DORIS_BE_BENCHMARK_ALLOCATIONS}" STREQUAL "1" AND NOT APPLE)
+            target_sources(benchmark_test PRIVATE ${BASE_DIR}/benchmark/nullable_allocation_counter.cpp)
+            target_compile_definitions(benchmark_test PRIVATE DORIS_NULLABLE_ALLOCATION_COUNTER)
+            target_link_options(benchmark_test PRIVATE
+                -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc
+                -Wl,--wrap=_Znwm -Wl,--wrap=_Znam)
+        endif()
+    endif()
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)

@@ -64,7 +64,6 @@ protected:
                                   uint32_t num_rows);
 
     PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;

@@ -50,7 +50,6 @@ class QueryContext;
 struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
-    bool enable_aggregate_function_null_v2 {false};
     bool new_version_percentile {false};
     std::vector<std::string> column_names;
     // Negotiated execution version propagated to nested aggregate function creators.
@@ -64,6 +63,11 @@ class AggregateFunctionBitmapOp;
 struct AggregateFunctionBitmapUnionOp;
 class IAggregateFunction;
 using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
+
+AggregateFunctionPtr make_agg_state_compatible_function(AggregateFunctionPtr function);
+AggregateFunctionPtr make_nullable_wire_compatible_function(AggregateFunctionPtr function,
+                                                            int be_exec_version,
+                                                            bool legacy_unary_v2);
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -263,6 +267,10 @@ public:
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
+
+    // AGG_STATE persists the historical nullable flag + nested byte stream, independently
+    // of the native intermediate column used by query execution.
+    virtual bool has_legacy_nullable_state_format() const { return false; }
 
     virtual void set_version(const int version_) { version = version_; }
 
@@ -567,56 +575,34 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        const Derived* derived = assert_cast<const Derived*>(this);
-        const auto size_of_data = derived->size_of_data();
-        const auto* column_string = assert_cast<const ColumnString*>(column);
-
-        size_t created_count = 0;
-        try {
-            for (size_t i = 0; i != num_rows; ++i) {
-                auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column_string->get_data_at(i));
-                derived->create(rhs_place);
-                ++created_count;
-                derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
-            }
-        } catch (...) {
-            for (size_t j = 0; j < created_count; ++j) {
-                auto place = rhs + size_of_data * j;
-                derived->destroy(place);
-            }
-            throw;
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto* strings = assert_cast<const ColumnString*>(column);
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto* state = rhs + size_of_data() * i;
+            derived->create(state);
+            DEFER({ derived->destroy(state); });
+            VectorBufferReader reader(strings->get_data_at(i));
+            derived->deserialize_and_merge(places[i] + offset, state, reader, arena);
         }
-
-        derived->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         const auto* derived = assert_cast<const Derived*>(this);
-        const auto size_of_data = derived->size_of_data();
-        const auto* column_string = assert_cast<const ColumnString*>(column);
-        size_t created_count = 0;
-        try {
-            for (size_t i = 0; i != num_rows; ++i) {
-                auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column_string->get_data_at(i));
-                derived->create(rhs_place);
-                ++created_count;
-                if (places[i]) {
-                    derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
-                                                   arena);
-                }
+        const auto* strings = assert_cast<const ColumnString*>(column);
+        for (size_t i = 0; i < num_rows; ++i) {
+            // A selected-out row may contain no readable state. Skip it before constructing
+            // or decoding scratch, rather than allocating one hash/string state per input row.
+            if (!places[i]) {
+                continue;
             }
-        } catch (...) {
-            for (size_t j = 0; j < created_count; ++j) {
-                auto place = rhs + size_of_data * j;
-                derived->destroy(place);
-            }
-            throw;
+            auto* state = rhs + size_of_data() * i;
+            derived->create(state);
+            DEFER({ derived->destroy(state); });
+            VectorBufferReader reader(strings->get_data_at(i));
+            derived->deserialize_and_merge(places[i] + offset, state, reader, arena);
         }
-        derived->destroy_vec(rhs, num_rows);
     }
 
     void merge_vec(const AggregateDataPtr __restrict* __restrict places, size_t offset,
@@ -626,6 +612,26 @@ public:
         const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
             derived->merge(places[i] + offset, rhs + size_of_data * i, arena);
+        }
+    }
+
+    // Native readers can consume a null map directly without materializing selected pointers.
+    template <bool selected>
+    void merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
+                                 ConstAggregateDataPtr rhs, const UInt8* null_map, Arena& arena,
+                                 size_t rows) const {
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto state_size = derived->size_of_data();
+        for (size_t row = 0; row < rows; ++row) {
+            if (null_map[row]) {
+                continue;
+            }
+            if constexpr (selected) {
+                if (!places[row]) {
+                    continue;
+                }
+            }
+            derived->merge(places[row] + offset, rhs + state_size * row, arena);
         }
     }
 

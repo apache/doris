@@ -148,7 +148,7 @@ struct AggregateFunctionHistogramData {
         // NOTE: We need an extral branch for to handle max_num_buckets == 0,
         // when target column is nullable, and input block is all null,
         // set_parameters will not be called because of the short-circuit in
-        // AggregateFunctionNullVariadicInline, so max_num_buckets will be 0 in this situation.
+        // AggregateFunctionNullVariadicInlineV2, so max_num_buckets will be 0 in this situation.
         build_histogram(
                 buckets, ordered_map,
                 max_num_buckets == BUCKET_NUM_INIT_VALUE ? DEFAULT_BUCKET_NUM : max_num_buckets);

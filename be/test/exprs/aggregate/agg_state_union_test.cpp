@@ -195,11 +195,13 @@ protected:
                                           bool result_nullable = false, bool null_v2 = false) {
         SCOPED_TRACE(name);
         AggregateFunctionAttr attr;
-        attr.enable_aggregate_function_null_v2 = null_v2;
         auto nested = AggregateFunctionSimpleFactory::instance().get(
                 name, arguments, nullptr, result_nullable,
                 BeExecVersionManager::get_newest_version(), attr);
         ASSERT_NE(nested, nullptr);
+        if (!null_v2) {
+            nested = make_agg_state_compatible_function(std::move(nested));
+        }
         nested->set_version(BeExecVersionManager::get_newest_version());
         ASSERT_EQ(nested->needs_deserialize_and_merge_scratch(), needs_scratch);
         check_function(nested, inputs, nested->get_serialized_type());
