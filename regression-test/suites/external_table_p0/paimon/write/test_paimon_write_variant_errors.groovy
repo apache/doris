@@ -129,10 +129,19 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             LATERAL VIEW explode(ARRAY(IF(TRUE, payload, 1))) generated AS generated_payload
         """
 
+        // Invalid JSON now fails parsing instead of becoming a Variant string. Verify that
+        // the failed insert leaves the sink usable before writing the valid rows below.
+        test {
+            sql """
+                INSERT INTO t_variant_error VALUES (20, parse_to_variant('not-json'))
+            """
+            exception "Parse json document failed at row 0, error:"
+        }
+
         sql """
             INSERT INTO t_variant_error VALUES
                 (20, parse_to_variant('{"recovered":true}')),
-                (21, try_parse_to_variant('not-json')),
+                (21, parse_to_variant('"not-json"')),
                 (22, CAST(CAST('{"typed":"string"}' AS STRING) AS VARIANT))
         """
         // Primitive-to-Variant coercion remains supported for both inline VALUES and ordinary SELECT.
@@ -190,8 +199,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             row.collect { value -> value == null ? null : value.toString() }
         })
 
-        // Invalid JSON is preserved as a Variant string unless the global
-        // throw-on-invalid-JSON option is enabled.
+        // The recovered object and the explicitly quoted JSON string survive the failed insert.
         order_qt_variant_after_errors """
             SELECT id, payload IS NULL,
                    CAST(payload['recovered'] AS BOOLEAN),
