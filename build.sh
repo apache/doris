@@ -958,6 +958,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
     update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+    update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
         compile_bench_phase_end
     fi

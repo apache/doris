@@ -51,6 +51,8 @@ struct TTabletInfo {
     23: optional i64 local_segment_size = 0    // .dat
     24: optional i64 remote_index_size = 0     // .idx
     25: optional i64 remote_segment_size = 0   // .dat
+    // 26: deprecated binlog_size
+    // 27: deprecated binlog_file_num
     
     // For cloud
     1000: optional bool is_persistent
