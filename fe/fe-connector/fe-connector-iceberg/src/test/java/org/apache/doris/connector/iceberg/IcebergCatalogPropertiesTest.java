@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -133,6 +134,24 @@ public class IcebergCatalogPropertiesTest {
                 "enable.mapping.varbinary", "true", "enable.mapping.timestamp_tz", "TRUE"));
         Assertions.assertTrue(on.isEnableMappingVarbinary());
         Assertions.assertTrue(on.isEnableMappingTimestampTz(), "parsing must stay case-insensitive");
+    }
+
+    @Test
+    public void createTimeRulesRejectTheApacheHttpClientType() {
+        // WHY: iceberg-aws's "apache" client needs an AWS SDK newer than Doris ships; accepting it would only defer
+        // the failure to a NoClassDefFoundError on the first S3 or Glue call. The rebuild path (of()) must still
+        // accept it so an existing catalog comes back. MUTATION: dropping the check -> accepted -> red.
+        Map<String, String> p = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh",
+                HttpClientProperties.CLIENT_TYPE, "Apache");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergCatalogProperties.of(p).checkCreateTimeOnlyRules());
+        Assertions.assertTrue(e.getMessage().contains(HttpClientProperties.CLIENT_TYPE),
+                "the message must name the offending key: " + e.getMessage());
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(p));
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(props(
+                "iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh",
+                HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION))
+                .checkCreateTimeOnlyRules());
     }
 
     @Test

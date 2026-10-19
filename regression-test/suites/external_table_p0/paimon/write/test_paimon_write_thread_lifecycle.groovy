@@ -95,57 +95,73 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
     sql """use ${dbName}"""
 
     try {
-        // Warm common writer and metrics paths before measuring phase-to-phase growth. The
-        // blocking scheduler may still assign later writes to native workers that have not entered
-        // the JVM yet, so a bounded one-time increase after warm-up is not evidence of a leak.
-        for (int round = 0; round < 12; round++) {
-            sql """
-                INSERT INTO t_thread_lifecycle
-                SELECT number + ${round * 1000}, repeat('w', 32)
-                FROM numbers("number" = "1000")
-            """
-        }
-        sleep(3000)
-
-        def writePhase = { int firstRound ->
-            for (int round = firstRound; round < firstRound + 12; round++) {
+        def jvmPhases = []
+        def processPhases = []
+        int nextRound = 0
+        def writeAndSamplePhase = {
+            for (int round = nextRound; round < nextRound + 12; round++) {
                 sql """
                     INSERT INTO t_thread_lifecycle
                     SELECT number + ${round * 1000}, repeat('x', 32)
                     FROM numbers("number" = "1000")
                 """
             }
-        }
-
-        def jvmPhases = []
-        def processPhases = []
-        for (int phase = 0; phase < 4; phase++) {
-            writePhase(12 + phase * 12)
+            nextRound += 12
             sleep(5000)
             jvmPhases.add(minimumThreadCounts(jvmThreadCounts))
             processPhases.add(minimumThreadCounts(processThreadCounts))
-            logger.info("Paimon thread phase ${phase + 1}: jvm=${jvmPhases[-1]}, "
+            logger.info("Paimon thread phase ${jvmPhases.size()}: jvm=${jvmPhases[-1]}, "
                     + "process=${processPhases[-1]}")
         }
 
-        assertEquals(60000L,
+        // Native workers can initialize after the first writes. Require a stable window instead
+        // of treating a single increase followed by a plateau as a continuously leaking writer.
+        def stableWindow = { phases, long tolerance ->
+            backendEndpoints.keySet().every { backendId ->
+                def counts = phases.takeRight(3).collect { sample -> sample[backendId] as long }
+                counts.max() - counts.min() <= tolerance
+            }
+        }
+        boolean warmedUp = false
+        for (int phase = 0; phase < 6; phase++) {
+            writeAndSamplePhase()
+            if (jvmPhases.size() >= 3 && stableWindow(jvmPhases, 2L)
+                    && stableWindow(processPhases, 4L)) {
+                warmedUp = true
+                break
+            }
+        }
+        assertTrue(warmedUp, "Thread counts did not stabilize during bounded warm-up: "
+                + "jvm=${jvmPhases}, process=${processPhases}")
+
+        int warmupPhases = jvmPhases.size()
+        def baseline = { phases ->
+            backendEndpoints.keySet().collectEntries { backendId ->
+                [(backendId): phases.takeRight(3).collect { sample -> sample[backendId] as long }.min()]
+            }
+        }
+        def jvmBaseline = baseline(jvmPhases)
+        def processBaseline = baseline(processPhases)
+        // Freeze the low-water marks before additional writes. Moving the baseline on each phase
+        // would hide slow, persistent leaks that fit within the per-window sampling tolerance.
+        for (int phase = 0; phase < 6; phase++) {
+            writeAndSamplePhase()
+        }
+
+        assertEquals(nextRound * 1000L,
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
 
+        // Use the final two low-water marks to tolerate one isolated background-thread spike.
+        // Six validation phases also expose one new process thread per phase starting after warm-up.
         backendEndpoints.keySet().each { backendId ->
-            // Judge persistent growth between equal measured phases. Comparing the early and late
-            // low-water marks allows a bounded worker-pool warm-up or an isolated background-thread
-            // spike, while a leaked thread cannot disappear in a later phase.
             def jvmCounts = jvmPhases.collect { sample -> sample[backendId] as long }
             def processCounts = processPhases.collect { sample -> sample[backendId] as long }
-            def earlyJvmFloor = jvmCounts.take(2).min()
-            def lateJvmFloor = jvmCounts.drop(2).min()
-            def earlyProcessFloor = processCounts.take(2).min()
-            def lateProcessFloor = processCounts.drop(2).min()
-
-            assertTrue(lateJvmFloor <= earlyJvmFloor + 2,
-                    "JVM threads kept growing on backend ${backendId}: phases=${jvmCounts}")
-            assertTrue(lateProcessFloor <= earlyProcessFloor + 4,
-                    "Process threads kept growing on backend ${backendId}: phases=${processCounts}")
+            assertTrue(jvmCounts.drop(warmupPhases).takeRight(2).min() <= jvmBaseline[backendId] + 2,
+                    "JVM threads grew after warm-up on backend ${backendId}: "
+                    + "baseline=${jvmBaseline[backendId]}, phases=${jvmCounts}")
+            assertTrue(processCounts.drop(warmupPhases).takeRight(2).min() <= processBaseline[backendId] + 4,
+                    "Process threads grew after warm-up on backend ${backendId}: "
+                    + "baseline=${processBaseline[backendId]}, phases=${processCounts}")
         }
     } finally {
         sql """drop catalog if exists ${catalogName}"""

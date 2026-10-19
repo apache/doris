@@ -356,8 +356,13 @@ public class BaseController {
     // return currentUserIdentity from Doris auth
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request)
             throws UnauthorizedException {
+
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(authInfo.fullUserName, authInfo.remoteIp) != null) {
+            throw new UnauthorizedException("Authentication-bound users must authenticate through their integration");
+        }
         CertificateAuthDecision certDecision = tryCertificateAuth(authInfo, request);
-        if (certDecision.shouldSkipPasswordVerification()) {
+        if (certDecision.shouldSkipPasswordVerification()
+                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
             return certDecision.getUserIdentity();
         }
 

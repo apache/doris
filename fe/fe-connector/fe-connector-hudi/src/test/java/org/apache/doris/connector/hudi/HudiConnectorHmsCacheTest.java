@@ -255,9 +255,10 @@ public class HudiConnectorHmsCacheTest {
 
     private static HudiConnectorMetadata hiveSyncMetadata(HmsClient hms) {
         // hive-sync so collectPartitions lists partition names from HMS (where the fresh/cached split lives);
-        // the stub executor returns the canned instant latestInstant would read off the timeline.
+        // the stub executor supplies the timeline/config state from the metaClient visit.
         return new HudiConnectorMetadata(hms,
-                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"), stub(7L));
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                stub(new HudiConnectorMetadata.PartitionState(7L, true)));
     }
 
     /** Executor that ignores the action and returns a canned value (stubs out the live metaClient). */

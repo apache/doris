@@ -17,6 +17,11 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.FileSystemCatalog;
@@ -32,6 +37,7 @@ import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
@@ -60,6 +66,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The table {@link PaimonScanPlanProvider#getScanNodeProperties} serializes to the BE must carry no
@@ -113,8 +120,8 @@ public class PaimonBackendBoundTableTest {
         FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                dataHandle(), table, Collections.emptyMap(), false,
-                Collections.emptyMap(), Collections.emptySet());
+                dataHandle(), table, Collections.emptyMap(),
+                writeHandle(false, Collections.emptyMap(), Collections.emptySet()));
         FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
@@ -135,13 +142,58 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> requested = Collections.singletonMap("pt", "NULL");
 
         PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.emptySet());
+                Collections.emptyMap(), writeHandle(true, requested, Collections.emptySet()));
         PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.singleton("pt"));
+                Collections.emptyMap(), writeHandle(true, requested, Collections.singleton("pt")));
 
         Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
         Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
                 sqlNull.getStaticPartition().get("pt"));
+    }
+
+    @Test
+    public void chainTableKeepsItsChainGroupWithoutTheCatalogLoader(@TempDir Path warehouse) {
+        // Paimon builds a chain table as a fallback pair whose other branch is a ChainGroupReadTable over the
+        // snapshot and the delta branch. Every branch is rebuilt without the loader, so the chain group has to
+        // come back as one, with both of its branches. MUTATION: rebuilding the chain group as one plain table
+        // -> red.
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        CatalogEnvironment env = catalogEnvironment(catalog);
+        FileStoreTable snapshot = primaryKeyTable(warehouse, "snapshot", env);
+        FileStoreTable delta = primaryKeyTable(warehouse, "delta", env);
+        FileStoreTable chain = new FallbackReadFileStoreTable(primaryKeyTable(warehouse, "main", env),
+                new ChainGroupReadTable(snapshot, delta), true);
+
+        FileStoreTable forBackend = PaimonScanPlanProvider.dropCatalogLoader(chain);
+
+        FileStoreTable group = ((FallbackReadFileStoreTable) forBackend).other();
+        Assertions.assertTrue(group instanceof ChainGroupReadTable, group.getClass().getName());
+        ChainGroupReadTable chainGroup = (ChainGroupReadTable) group;
+        Assertions.assertEquals(snapshot.location(), chainGroup.wrapped().location());
+        Assertions.assertEquals(delta.location(), chainGroup.other().location());
+        Assertions.assertNull(chainGroup.wrapped().catalogEnvironment().catalogLoader());
+        Assertions.assertNull(chainGroup.other().catalogEnvironment().catalogLoader());
+    }
+
+    @Test
+    public void scanOfAChainTableFailsClearly(@TempDir Path warehouse) {
+        // Doris plans neither the partitions a chain table reads from its snapshot and delta branches nor the chain
+        // splits, so a scan would read them as empty; it fails instead. A branch read on its own is a plain table
+        // and still reads. MUTATION: dropping the check -> red.
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        CatalogEnvironment env = catalogEnvironment(catalog);
+        FileStoreTable snapshot = primaryKeyTable(warehouse, "snapshot", env);
+        FileStoreTable chain = new FallbackReadFileStoreTable(primaryKeyTable(warehouse, "main", env),
+                new ChainGroupReadTable(snapshot, primaryKeyTable(warehouse, "delta", env)), true);
+        PaimonTableHandle handle = dataHandle();
+        handle.setPaimonTable(chain);
+        PaimonTableHandle branch = dataHandle();
+        branch.setPaimonTable(snapshot);
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider().resolveScanTable(handle));
+        Assertions.assertTrue(error.getMessage().contains("Paimon chain table db.tbl"), error.getMessage());
+        Assertions.assertDoesNotThrow(() -> provider().resolveScanTable(branch));
     }
 
     @Test
@@ -769,6 +821,40 @@ public class PaimonBackendBoundTableTest {
         return new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList());
     }
 
+    /**
+     * A write whose static partition values need no cast, so the handle's default cast spec applies. Only an
+     * overwrite resolves the static partition.
+     */
+    private static ConnectorWriteHandle writeHandle(boolean overwrite, Map<String, String> staticPartition,
+            Set<String> nullKeys) {
+        return new ConnectorWriteHandle() {
+            @Override
+            public ConnectorTableHandle getTableHandle() {
+                return null;
+            }
+
+            @Override
+            public List<ConnectorColumn> getColumns() {
+                return Collections.emptyList();
+            }
+
+            @Override
+            public boolean isOverwrite() {
+                return overwrite;
+            }
+
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return staticPartition;
+            }
+
+            @Override
+            public Set<String> getStaticPartitionNullKeys() {
+                return nullKeys;
+            }
+        };
+    }
+
     private static PaimonTableHandle sysHandle(String sysTableType, FileStoreTable base) {
         PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "tbl", sysTableType,
                 PaimonScanParams.requiresPaimonReader(sysTableType));
@@ -799,6 +885,16 @@ public class PaimonBackendBoundTableTest {
                 Collections.emptyList(), Collections.emptyList(), options, "");
         return FileStoreTableFactory.create(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl"), schema, env);
+    }
+
+    /** A primary-key table object, as each branch of a chain table is; no files are written. */
+    private static FileStoreTable primaryKeyTable(Path warehouse, String name, CatalogEnvironment env) {
+        TableSchema schema = new TableSchema(0L,
+                Arrays.asList(new DataField(0, "id", DataTypes.INT().notNull()),
+                        new DataField(1, "v", DataTypes.STRING())),
+                1, Collections.emptyList(), Collections.singletonList("id"), Collections.emptyMap(), "");
+        return FileStoreTableFactory.create(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/" + name), schema, env);
     }
 
     /** A real, on-disk table so its {@code SnapshotManager} answers from real snapshot files. */

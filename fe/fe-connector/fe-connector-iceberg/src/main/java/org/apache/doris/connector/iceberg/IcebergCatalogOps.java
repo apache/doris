@@ -34,6 +34,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -138,6 +139,12 @@ public interface IcebergCatalogOps {
 
     /** Renames {@code dbName.oldName} to {@code dbName.newName} (same database). */
     void renameTable(String dbName, String oldName, String newName);
+
+    /**
+     * Sets {@code properties} on {@code dbName.tableName} in ONE {@code UpdateProperties} commit, so iceberg
+     * validates the whole map before any of it is written. Keys not in the map keep their current values.
+     */
+    void setTableProperties(String dbName, String tableName, Map<String, String> properties);
 
     /** The table's storage location, or empty when blank — read BEFORE a drop to prune empty dirs. */
     Optional<String> loadTableLocation(String dbName, String tableName);
@@ -474,6 +481,16 @@ public interface IcebergCatalogOps {
         @Override
         public void renameTable(String dbName, String oldName, String newName) {
             catalog.renameTable(toTableIdentifier(dbName, oldName), toTableIdentifier(dbName, newName));
+        }
+
+        @Override
+        public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+            withTable(dbName, tableName, table -> {
+                UpdateProperties updateProperties = table.updateProperties();
+                properties.forEach(updateProperties::set);
+                updateProperties.commit();
+                return null;
+            });
         }
 
         @Override

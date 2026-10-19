@@ -69,14 +69,14 @@
 #include "storage/data_dir.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_compaction.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
-#include "storage/index/snii/compaction/eligibility.h"
-#include "storage/index/snii/compaction/snii_index_compaction.h"
-#include "storage/index/snii/writer/memory_reporter.h"
-#include "storage/index/snii/writer/snii_build_memory_tracker.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/inverted_index_compaction.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
+#include "storage/index/inverted/snii/compaction/eligibility.h"
+#include "storage/index/inverted/snii/compaction/snii_index_compaction.h"
+#include "storage/index/inverted/snii/writer/memory_reporter.h"
+#include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
@@ -1335,7 +1335,8 @@ Status Compaction::do_inverted_index_compaction() {
                             break;
                         }
                         auto* destination_writer =
-                                inverted_index_file_writers[cast_set<int>(destination_ordinal)]
+                                inverted_index_file_writers
+                                        .at(dest_segment_ids[destination_ordinal])
                                         .get();
                         merge_status = destination_writer->add_snii_index_streamed(
                                 index_meta, dest_segment_num_rows[destination_ordinal],

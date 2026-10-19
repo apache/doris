@@ -75,6 +75,7 @@ protected:
             channel = std::make_shared<TabletsChannel>(*_engine, TabletsChannelKey(id, 10),
                                                        UniqueId(1, 2), true, nullptr);
         }
+        channel->set_load_cancel_status(_load->_cancel_status);
         // No writers are needed to exercise real sender accounting and close.
         channel->_state = BaseTabletsChannel::kOpened;
         channel->_num_remaining_senders = senders;
@@ -287,7 +288,7 @@ TEST_P(LoadChannelEosTest, NonWaitingLastSenderReleasesEarlierWaiter) {
     EXPECT_EQ(replies, 1);
 }
 
-TEST_P(LoadChannelEosTest, CancelReleasesRegisteredAndNotYetRegisteredRpcs) {
+TEST_P(LoadChannelEosTest, FinalOwnerReleasesRegisteredAndNotYetRegisteredRpcsAfterCancel) {
     auto channel = make_channel(3);
     PTabletWriterAddBlockResult response;
     std::shared_ptr<EosCompletion> first;
@@ -297,14 +298,17 @@ TEST_P(LoadChannelEosTest, CancelReleasesRegisteredAndNotYetRegisteredRpcs) {
     int replies = 0;
     auto callback = [&](const Status& status) {
         EXPECT_TRUE(status.is<ErrorCode::CANCELLED>());
-        // Re-enter the load lock; cancellation must invoke callbacks outside it.
-        EXPECT_FALSE(_load->is_finished());
+        // Final-owner cleanup invokes RPC callbacks outside the tablets-channel lock.
+        std::lock_guard lock(channel->_lock);
         ++replies;
     };
     first->add_waiter(callback);
     EXPECT_TRUE(_load->cancel().ok());
-    second->add_waiter(callback);
     EXPECT_TRUE(_load->cancel().ok());
+    EXPECT_EQ(replies, 0);
+    _load.reset();
+    EXPECT_EQ(replies, 1);
+    second->add_waiter(callback);
     EXPECT_EQ(replies, 2);
 }
 
@@ -322,6 +326,7 @@ TEST_P(LoadChannelEosTest, TimeoutCleanerReleasesPendingRpc) {
         EXPECT_TRUE(manager.get_all_load_channel_ids().empty());
         ++replies;
     });
+    _load.reset(); // The manager is the final owner, as with pending asynchronous RPCs.
     EXPECT_TRUE(manager._start_load_channels_clean().ok());
     EXPECT_EQ(replies, 1);
     manager.stop();
@@ -481,15 +486,15 @@ TEST_P(LoadChannelEosTest, ArrivalCallbacksAllowConcurrentRetryAndCancel) {
     Defer disable_sync_points {[&] { sp->disable_processing(); }};
 
     std::shared_ptr<EosCompletion> last;
-    EXPECT_TRUE(_load->add_batch(eos(1), &response, &last).ok());
+    EXPECT_TRUE(_load->add_batch(eos(1), &response, &last).is<ErrorCode::CANCELLED>());
     last->add_waiter([&](const Status& status) {
         EXPECT_TRUE(status.ok());
         ++replies;
     });
     EXPECT_EQ(replies, 3);
-    EXPECT_EQ(final_closes, 1);
+    EXPECT_EQ(final_closes, 0);
     EXPECT_TRUE(_load->is_cancelled());
-    EXPECT_TRUE(_load->is_finished());
+    EXPECT_FALSE(_load->is_finished());
 }
 
 TEST_P(LoadChannelEosTest, FinalSenderRetryWaitsForCommitFailure) {

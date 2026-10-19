@@ -204,6 +204,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -588,6 +590,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
+    public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+
+    public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -806,6 +812,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -1489,8 +1497,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
     @VarAttrDef.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            needForward = true,
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
+
+    public static final String EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM = "external_scan_consistent_hash_spread_num";
+    @VarAttrDef.VarAttr(name = EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM,
+            checker = "checkExternalScanConsistentHashSpreadNum", needForward = true,
+            description = "1 preserves the original scheduling, candidate counts and redistribution (default). "
+                    + "It does not limit scans to one backend. "
+                    + "0 enables automatic spreading across all eligible backends in the compute group. "
+                    + "Values above 1 bound consistent hash candidates "
+                    + "when file cache or use_consistent_hash_for_external_scan is enabled. "
+                    + "Spreading balances assigned weights with random ties and disables global redistribution.")
+    public int externalScanConsistentHashSpreadNum = 1;
 
     @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
@@ -1530,6 +1550,18 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to allow use binary search algorithm to filter partitions. ON by default."
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VarAttrDef.GLOBAL,
+            description = "Whether to prevent background dynamic partition tasks from automatically dropping "
+                    + "partitions. OFF by default."
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VarAttrDef.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
@@ -2363,7 +2395,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = "Set wether to use file cache. "
             + "This variable takes effect only if the BE config enable_file_cache=true. "
             + "The cache is not used when BE config enable_file_cache=false.")
-    public boolean enableFileCache = false;
+    public boolean enableFileCache = true;
 
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
@@ -2568,6 +2600,22 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
     public int numFilesInBatchMode = 1024;
+
+    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
+            description = "Maximum number of splits in a producer batch.")
+    public int splitBatchSize = 128;
+
+    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
+            description = "Maximum number of queued split batches per backend.")
+    public int splitQueueCapacity = 32;
+
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
@@ -2939,6 +2987,11 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = "Prefer paimon-rust for eligible Paimon reads")
+    private boolean enablePaimonRustReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3639,6 +3692,21 @@ public class SessionVariable implements Serializable, Writable {
             description = "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                     + "DELETE by row_id).")
     public boolean enableIcebergMergePartitioning = true;
+
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VarAttrDef.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
+            checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
+            description = "Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
+                    + "'static' (default, identical to Spark's default partitionOverwriteMode=static): the "
+                    + "whole table is overwritten, including data written under an older partition spec. "
+                    + "'dynamic' (Hive-compatible and identical to Spark's "
+                    + "spark.sql.sources.partitionOverwriteMode=dynamic): only the partitions the new data "
+                    + "lands in are replaced, so data written under an older partition spec is left untouched.",
+            options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
+    public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
@@ -3818,6 +3886,9 @@ public class SessionVariable implements Serializable, Writable {
         this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
         this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
         this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // paimon
+        this.enablePaimonRustReader = random.nextBoolean();
 
         // jni
         this.forceJniScanner = random.nextBoolean();
@@ -4880,6 +4951,14 @@ public class SessionVariable implements Serializable, Writable {
         return numFilesInBatchMode;
     }
 
+    public int getSplitBatchSize() {
+        return splitBatchSize;
+    }
+
+    public int getSplitQueueCapacity() {
+        return splitQueueCapacity;
+    }
+
     public long getFetchSplitsMaxWaitTime() {
         return fetchSplitsMaxWaitTime;
     }
@@ -5380,6 +5459,29 @@ public class SessionVariable implements Serializable, Writable {
         parseInsertVisibleTimeoutReturnMode(mode);
     }
 
+    public void checkIcebergPartitionOverwriteMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment.
+        parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    public void setIcebergPartitionOverwriteMode(String mode) {
+        this.icebergPartitionOverwriteMode = parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    // Parse the stored string case-insensitively; an unsupported value must fail SET/SET_VAR instead of being
+    // silently treated as 'dynamic' by the connector.
+    private static String parseIcebergPartitionOverwriteMode(String mode) {
+        if (mode != null) {
+            String normalized = mode.trim().toLowerCase(Locale.ROOT);
+            if (ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC.equals(normalized)
+                    || ICEBERG_PARTITION_OVERWRITE_MODE_STATIC.equals(normalized)) {
+                return normalized;
+            }
+        }
+        throw new UnsupportedOperationException(
+                "iceberg_partition_overwrite_mode must be 'dynamic' or 'static', but was: " + mode);
+    }
+
     // Parse the stored string case-insensitively and expose the enum only to business logic.
     private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
         if (StringUtils.isEmpty(mode)) {
@@ -5630,6 +5732,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6456,6 +6559,10 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6471,6 +6578,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
+    }
+
+    public int getExternalScanConsistentHashSpreadNum() {
+        return externalScanConsistentHashSpreadNum;
+    }
+
+    public void checkExternalScanConsistentHashSpreadNum(String value) throws Exception {
+        checkFieldValue(EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, 0, value);
     }
 
     public void setForceJniScanner(boolean force) {

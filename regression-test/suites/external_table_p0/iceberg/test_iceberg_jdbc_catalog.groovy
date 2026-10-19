@@ -28,6 +28,10 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         return;
     }
 
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     // Get test environment configuration
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")

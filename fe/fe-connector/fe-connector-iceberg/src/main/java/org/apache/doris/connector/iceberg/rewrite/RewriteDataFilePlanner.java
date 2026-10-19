@@ -123,8 +123,9 @@ public class RewriteDataFilePlanner {
         // the legacy live-rewrite behaviour, which threw, with master's full matrix).
         if (parameters.hasWhereCondition()) {
             ConnectorExpression where = parameters.getWhereCondition().getExpression();
-            List<Expression> predicates = new IcebergPredicateConverter(
-                    icebergTable.schema(), sessionZone, IcebergPredicateConverter.Mode.REWRITE).convert(where);
+            List<Expression> predicates = IcebergPredicateConverter.forTable(
+                    icebergTable, icebergTable.schema(), sessionZone,
+                    IcebergPredicateConverter.Mode.REWRITE).convert(where);
             if (predicates.size() < countTopLevelConjuncts(where)) {
                 throw new DorisConnectorException(
                         "WHERE condition for rewrite_data_files cannot be pushed down to file pruning: " + where);

@@ -67,12 +67,12 @@
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_define.h"
@@ -2226,8 +2226,7 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
 
     auto read_schema = std::make_shared<ReadSchema>(schema->columns());
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<RowwiseIterator> iterator;
     RETURN_IF_ERROR_RESULT(segment->new_iterator(read_schema, read_options, &iterator));
 
@@ -3032,6 +3031,12 @@ protected:
         RETURN_IF_ERROR_RESULT(writer->flush());
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR_RESULT(writer->build(rowset));
+        // This helper constructs a visible historical rowset without going through publish. Keep
+        // its metadata consistent with the publish invariant enforced for TSO-enabled schemas.
+        if (schema->is_tso_enabled()) {
+            constexpr int64_t kHistoryCommitTso = 100;
+            rowset->make_visible(context.version, kHistoryCommitTso);
+        }
         return rowset;
     }
 

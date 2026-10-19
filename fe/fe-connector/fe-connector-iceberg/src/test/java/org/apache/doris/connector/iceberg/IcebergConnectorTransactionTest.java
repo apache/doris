@@ -43,6 +43,7 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -127,7 +128,17 @@ public class IcebergConnectorTransactionTest {
         return new IcebergConnectorTransaction(42L, ops, ctx);
     }
 
-    private static final ConnectorSession SESSION = new FakeWriteSession("UTC");
+    // The overwrite tests below predate the static default (iceberg_partition_overwrite_mode defaults to
+    // 'static'), so the shared session carries an explicit 'dynamic' and keeps exercising the dynamic path;
+    // overwriteDefaultsToWholeTable pins the deployed default instead.
+    private static final ConnectorSession SESSION = sessionWithOverwriteMode("dynamic");
+    private static final ConnectorSession DEFAULT_SESSION = new FakeWriteSession("UTC");
+    private static final ConnectorSession STATIC_SESSION = sessionWithOverwriteMode("static");
+
+    private static ConnectorSession sessionWithOverwriteMode(String mode) {
+        return new FakeWriteSession("UTC",
+                Collections.singletonMap("iceberg_partition_overwrite_mode", mode));
+    }
 
     private static IcebergWriteContext insertCtx() {
         return new IcebergWriteContext(WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty());
@@ -669,6 +680,68 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteDefaultsToWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // No session property at all: the deployed default (static) is a whole-table overwrite, so the
+        // untouched 'us' partition is cleared together with everything else.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(DEFAULT_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(1, files.size(), files.toString());
+        Assertions.assertTrue(files.get(0).path().toString().contains("region=eu"),
+                files.get(0).path().toString());
+    }
+
+    @Test
+    public void overwriteStaticClearsTheWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // An explicit 'static' is the same whole-table overwrite as the default (Spark's static mode).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(STATIC_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(1, currentDataFiles(catalog.loadTable(id)).size());
+    }
+
+    @Test
+    public void overwriteDynamicKeepsOtherPartitions() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // iceberg_partition_overwrite_mode=dynamic: only the written partition is replaced, so the 'us' seed
+        // survives (Hive-compatible, Spark's partitionOverwriteMode=dynamic).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(2, currentDataFiles(catalog.loadTable(id)).size());
+    }
+
+    @Test
     public void overwriteDynamicRejectsConcurrentDataInReplacedPartition() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -886,6 +959,89 @@ public class IcebergConnectorTransactionTest {
         Snapshot snap = reloadCurrentSnapshot(catalog, id);
         Assertions.assertEquals("overwrite", snap.operation());
         Assertions.assertEquals("1", snap.summary().get("added-data-files"));
+    }
+
+    @Test
+    public void promotedDateStaticOverwriteRejectsUnsafeRetainedBounds() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()));
+        Table table = catalog.createTable(id, schema, PartitionSpec.unpartitioned(), props("format-version", "3"));
+        Map<Integer, java.nio.ByteBuffer> bounds = Collections.singletonMap(1,
+                org.apache.iceberg.types.Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://bucket/retained-date.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withMetrics(new org.apache.iceberg.Metrics(1L, null, null, null, null, bounds, bounds))
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        org.apache.iceberg.TableOperations ops = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = ops.current();
+        ops.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base).setCurrentSchema(new Schema(
+                Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone())), 1).build());
+        table.refresh();
+        table.updateSpec().addField("ts").commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-02")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 100L,
+                Collections.singletonList("2024-01-02 00:00:00.000000000"))));
+        // DATE metrics are days, so silently committing a nanos equality would retain the old file.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("historical DATE bounds"), ex.getMessage());
+        table.refresh();
+        Assertions.assertEquals(snapshotId, table.currentSnapshot().snapshotId());
+    }
+
+    @Test
+    public void dateOnlyNanosecondStaticOverwriteKeepsAdjacentPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(id, schema, spec, props("format-version", "3"));
+        long midnight = 1704067200000000000L;
+        for (long nanos : new long[] {midnight, midnight + 1}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("s3://bucket/" + nanos + ".parquet").withFileSizeInBytes(1024)
+                    .withRecordCount(1).withPartition(partition).withFormat(FileFormat.PARQUET).build()).commit();
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+                Collections.singletonList("2024-01-01 00:00:00.000000000"))));
+        txn.commit();
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size());
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.partition().get(0, Long.class) == midnight + 1));
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.path().toString().endsWith("replacement.parquet")));
+    }
+
+    @Test
+    public void offsetNanosecondStaticOverwriteKeepsAdjacentPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(id, schema, spec, props("format-version", "3"));
+        long midnight = 1704067200000000000L;
+        for (long nanos : new long[] {midnight, midnight - 8 * 3600_000_000_000L}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("s3://bucket/" + nanos + ".parquet").withFileSizeInBytes(1024)
+                    .withRecordCount(1).withPartition(partition).withFormat(FileFormat.PARQUET).build()).commit();
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01 00:00:00+08:00")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+                Collections.singletonList("2023-12-31 16:00:00.000000000"))));
+        txn.commit();
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size());
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.partition().get(0, Long.class) == midnight));
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.path().toString().endsWith("replacement.parquet")));
     }
 
     @Test
@@ -2180,9 +2336,15 @@ public class IcebergConnectorTransactionTest {
     /** Minimal {@link ConnectorSession} exposing a time zone (for partition-timestamp parsing); no Mockito. */
     private static final class FakeWriteSession implements ConnectorSession {
         private final String timeZone;
+        private final Map<String, String> properties;
 
         FakeWriteSession(String timeZone) {
+            this(timeZone, Collections.emptyMap());
+        }
+
+        FakeWriteSession(String timeZone, Map<String, String> properties) {
             this.timeZone = timeZone;
+            this.properties = properties == null ? Collections.emptyMap() : properties;
         }
 
         @Override
@@ -2207,7 +2369,8 @@ public class IcebergConnectorTransactionTest {
 
         @Override
         public <T> T getProperty(String name, Class<T> type) {
-            return null;
+            String value = properties.get(name);
+            return value == null ? null : type.cast(value);
         }
 
         @Override

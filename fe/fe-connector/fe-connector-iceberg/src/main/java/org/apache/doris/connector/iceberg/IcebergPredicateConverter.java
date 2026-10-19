@@ -29,14 +29,17 @@ import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,6 +56,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -103,6 +107,7 @@ public class IcebergPredicateConverter {
     private static final List<Object> SIGNED_ZEROS = Collections.unmodifiableList(Arrays.asList(-0.0d, 0.0d));
 
     private final Schema schema;
+    private final Set<Integer> unsafeNanosFields = new LinkedHashSet<>();
     private final ZoneId sessionZone;
     // The conversion matrix. SCAN = scan-time pushdown (BE re-filters, so widening is safe). CONFLICT = O5-2
     // write-time optimistic conflict detection (no-missed-conflict, so widening is also safe) -- a port of
@@ -110,6 +115,7 @@ public class IcebergPredicateConverter {
     // so strictly all-or-nothing/precise) -- mirrors IcebergNereidsUtils.convertNereidsToIcebergExpression. The
     // shared leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
     private final Mode mode;
+    private final boolean requireExact;
 
     /** Conversion matrix selector. See the field comment and the class javadoc. */
     public enum Mode { SCAN, CONFLICT, REWRITE }
@@ -124,9 +130,47 @@ public class IcebergPredicateConverter {
     }
 
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode) {
+        this(schema, sessionZone, mode, false);
+    }
+
+    private IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode, boolean requireExact) {
+        this.requireExact = requireExact;
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
         this.mode = mode;
+    }
+
+    public static IcebergPredicateConverter forTable(Table table, Schema schema, ZoneId zone, Mode mode) {
+        IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, zone, mode);
+        converter.unsafeNanosFields.addAll(unsafeNanosFields(table, schema));
+        return converter;
+    }
+
+    static Set<Integer> unsafeNanosFields(Table table, Schema schema) {
+        Set<Integer> unsafeFields = new LinkedHashSet<>();
+        Map<Integer, Schema> history = table.schemas();
+        // Iceberg allocates schema IDs from zero. Gaps mean cleanup removed type history, not
+        // necessarily its data files; without that history any nanos field may have DATE bounds.
+        int maxSchemaId = history.keySet().stream().mapToInt(Integer::intValue).max().orElse(-1);
+        boolean incompleteHistory = history.isEmpty()
+                || history.size() != (long) maxSchemaId + 1;
+        for (Types.NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+            if (field.type().typeId() != TypeID.TIMESTAMP_NANO) {
+                continue;
+            }
+            if (incompleteHistory) {
+                unsafeFields.add(field.fieldId());
+                continue;
+            }
+            for (Schema historical : history.values()) {
+                Type oldType = historical.findType(field.fieldId());
+                if (oldType != null && oldType.typeId() == TypeID.DATE) {
+                    unsafeFields.add(field.fieldId());
+                    break;
+                }
+            }
+        }
+        return unsafeFields;
     }
 
     /**
@@ -209,7 +253,7 @@ public class IcebergPredicateConverter {
         for (ConnectorExpression child : and.getConjuncts()) {
             Expression c = convertSingle(child);
             if (c == null) {
-                if (mode == Mode.REWRITE) {
+                if (mode == Mode.REWRITE || requireExact) {
                     return null;
                 }
                 continue;
@@ -233,7 +277,10 @@ public class IcebergPredicateConverter {
     }
 
     private Expression buildNot(ConnectorNot not) {
-        Expression child = convertSingle(not.getOperand());
+        // Negating a widened operand narrows the result and can permanently prune matching files.
+        IcebergPredicateConverter exact = new IcebergPredicateConverter(schema, sessionZone, mode, true);
+        exact.unsafeNanosFields.addAll(unsafeNanosFields);
+        Expression child = exact.convertSingle(not.getOperand());
         return child == null ? null : Expressions.not(child);
     }
 
@@ -475,7 +522,10 @@ public class IcebergPredicateConverter {
                 || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(colName)) {
             return null;
         }
-        return schema.caseInsensitiveFindField(colName);
+        Types.NestedField field = schema.caseInsensitiveFindField(colName);
+        // Iceberg 1.11 widens retained four-byte DATE bounds to unscaled longs. Pruning those
+        // epoch-day bounds with nanosecond predicates can discard matching files in every planner.
+        return field != null && unsafeNanosFields.contains(field.fieldId()) ? null : field;
     }
 
     /**
@@ -509,6 +559,8 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return date.toString();
+                case TIMESTAMP_NANO:
+                    return toNanos(date.atStartOfDay(), icebergType);
                 case TIMESTAMP:
                     return toMicros(date.atStartOfDay(), icebergType);
                 default:
@@ -520,6 +572,8 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return dorisDateTimeString(dateTime);
+                case TIMESTAMP_NANO:
+                    return toNanos(dateTime, icebergType);
                 case TIMESTAMP:
                     return toMicros(dateTime, icebergType,
                             "TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName()));
@@ -603,6 +657,9 @@ public class IcebergPredicateConverter {
         } else if (value instanceof String) {
             String string = (String) value;
             switch (id) {
+                case TIMESTAMP_NANO:
+                    LocalDateTime parsedNs = parseDorisDateTime(string);
+                    return parsedNs == null ? null : toNanos(parsedNs, icebergType);
                 case TIMESTAMP:
                     if (mode == Mode.SCAN) {
                         // Legacy IcebergUtils.extractDorisLiteral returns the raw string for a TIMESTAMP column and
@@ -669,6 +726,19 @@ public class IcebergPredicateConverter {
                 ? sessionZone : ZoneOffset.UTC;
         Instant instant = dateTime.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    }
+
+    private static Literal<Long> toNanos(LocalDateTime dateTime, Type icebergType) {
+        if (((Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
+            return null;
+        }
+        try {
+            // A raw Long is a microsecond literal in Iceberg; preserve the nanosecond unit explicitly.
+            // Unzoned values use a UTC wall-clock carrier, never the session zone.
+            return Expressions.nanos(IcebergPartitionUtils.toEpochNanos(dateTime));
+        } catch (ArithmeticException e) {
+            return null;
+        }
     }
 
     // Parse a Doris-format datetime string ("yyyy-MM-dd HH:mm:ss[.fraction]") -- or a date-only string, taken
@@ -740,7 +810,7 @@ public class IcebergPredicateConverter {
                 Expression right = checkConversion(andExpr.right());
                 if (left != null && right != null) {
                     return andExpr;
-                } else if (mode == Mode.REWRITE) {
+                } else if (mode == Mode.REWRITE || requireExact) {
                     // all-or-nothing: a single unbindable arm fails the whole AND (no silent widen for rewrite).
                     return null;
                 } else if (left != null) {

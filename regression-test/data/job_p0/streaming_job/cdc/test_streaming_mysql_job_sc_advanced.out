@@ -14,12 +14,27 @@ B1	2	\N	\N	\N
 C1	3	F	7	\N
 D1	4	G	8	hz
 
+-- !mixed_paused --
+PAUSED
+
+-- !mixed_not_applied --
+0
+
+-- !mixed_row_not_written --
+0
+
+-- !missing_column_pause --
+PAUSED
+
 -- !mixed_add_modify --
 A1	1	\N	\N	\N	\N
 B1	2	\N	\N	\N	\N
 C1	3	F	7	\N	\N
 D1	4	G	8	hz	\N
 E1	5	X	9	sh	100
+
+-- !modify_paused --
+PAUSED
 
 -- !modify --
 A1	1	\N	\N	\N	\N
@@ -29,11 +44,20 @@ D1	4	G	8	hz	\N
 E1	5	X	9	sh	100
 F1	6	M	10	sz	200
 
+-- !rename_paused --
+PAUSED
+
 -- !change --
-A1	1	\N	\N	\N	\N
-B1	2	\N	\N	\N	\N
-C1	3	F	7	\N	\N
-D1	4	G	8	hz	\N
-E1	5	X	9	sh	100
-F1	6	M	10	sz	200
-G1	\N	R	11	bj	300
+A1	\N	\N	\N	\N	\N
+B1	\N	\N	\N	\N	\N
+C1	\N	F	7	\N	\N
+D1	\N	G	8	hz	\N
+E1	\N	X	9	sh	100
+F1	\N	M	10	sz	200
+G1	7	R	11	bj	300
+
+-- !column_comment_paused --
+PAUSED
+
+-- !column_comment_resumed --
+H1	8	S	12	cd	400

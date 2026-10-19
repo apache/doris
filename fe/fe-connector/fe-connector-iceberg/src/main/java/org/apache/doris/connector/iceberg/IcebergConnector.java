@@ -173,6 +173,8 @@ public class IcebergConnector implements Connector {
 
     /** The key BE looks up (case-sensitively) to learn which location to probe. */
     private static final String BE_TEST_LOCATION = "test_location";
+    /** Prefix of iceberg-aws's HTTP client settings ({@code http-client.type}, proxy, timeouts). */
+    private static final String HTTP_CLIENT_PROPERTY_PREFIX = "http-client.";
 
     private final Map<String, String> properties;
     // The bound connector-level facts (flavor, type-mapping switches, namespace level), the single
@@ -469,12 +471,12 @@ public class IcebergConnector implements Connector {
 
         // Map Doris s3.* keys to Iceberg S3FileIO keys and force static credentials (disable
         // remote/vended signing) so the probe validates exactly what the user configured.
-        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get());
+        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get(), properties);
 
         // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
         // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
         // Pin the TCCL to the plugin loader for the probe: iceberg-aws builds its S3 client lazily and
-        // resolves org.apache.iceberg.aws.ApacheHttpClientConfigurations via DynMethods (default loader =
+        // resolves its org.apache.iceberg.aws.*HttpClientConfigurations class via DynMethods (default loader =
         // TCCL). This CREATE-CATALOG thread runs under the default 'app' TCCL, which would return the
         // fe-core copy of the class and ClassCast against the child-loaded plugin copy the rest of the
         // iceberg-aws stack uses — the SAME split-brain TcclPinningConnectorContext guards on the commit
@@ -510,8 +512,8 @@ public class IcebergConnector implements Connector {
         return probeStorageFromBackend(location);
     }
 
-    static Map<String, String> buildStorageProbeProperties(
-            String catalogType, S3CompatibleFileSystemProperties storageProperties) {
+    static Map<String, String> buildStorageProbeProperties(String catalogType,
+            S3CompatibleFileSystemProperties storageProperties, Map<String, String> catalogProperties) {
         String endpoint = storageProperties.getEndpoint();
         if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
                 && "OSS".equals(storageProperties.providerName())) {
@@ -530,6 +532,14 @@ public class IcebergConnector implements Connector {
         if (!isBlank(storageProperties.getRegion())) {
             ioProps.put("client.region", storageProperties.getRegion());
         }
+        // The probe builds its own S3FileIO, so it must reach the store the way the catalog does: same HTTP client
+        // and proxy settings, and the same default client type as every other iceberg AWS client.
+        for (Map.Entry<String, String> e : catalogProperties.entrySet()) {
+            if (e.getKey().startsWith(HTTP_CLIENT_PROPERTY_PREFIX)) {
+                ioProps.put(e.getKey(), e.getValue());
+            }
+        }
+        IcebergCatalogFactory.applyDefaultAwsHttpClient(ioProps);
         return ioProps;
     }
 

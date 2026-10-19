@@ -7,3 +7,18 @@
 1	snapshot
 2	after_add
 3	after_drop
+
+-- !oceanbase_modify_paused --
+PAUSED
+
+-- !oceanbase_after_modify --
+1	snapshot
+2	after_add
+3	after_drop
+4	after_modify
+
+-- !oceanbase_column_comment_paused --
+PAUSED
+
+-- !oceanbase_column_comment_resumed --
+5	after_column_comment

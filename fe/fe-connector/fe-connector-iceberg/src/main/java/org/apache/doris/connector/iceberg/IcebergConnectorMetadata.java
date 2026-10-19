@@ -1239,6 +1239,27 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    /**
+     * Sets table properties for {@code ALTER TABLE ... SET (...)}: a thin seam delegation inside the auth
+     * context. The seam puts every entry into one {@code UpdateProperties} commit, so a map iceberg rejects
+     * (a format-version downgrade, say) leaves the table exactly as it was, valid entries included.
+     */
+    @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+            Map<String, String> properties) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            executeAuthenticated(() -> {
+                catalogOps.setTableProperties(iceHandle.getDbName(), iceHandle.getTableName(), properties);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to set properties for Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
     // ========== Column evolution (B2) — mirror legacy IcebergMetadataOps add/drop/rename/modify/reorder ==========
 
     /**

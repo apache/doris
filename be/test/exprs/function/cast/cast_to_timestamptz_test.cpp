@@ -529,11 +529,20 @@ TEST_F(CastTimeStampTzTest, timestamp_ns_local_year_overflow_returns_status) {
         block.get_by_position(1).column = std::move(ns_column);
         block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "comparison"});
         FunctionComparison<EqualsOp, NameEquals> equals;
-        // Error reporting must not try to display the unrepresentable session-local year.
+        FunctionComparison<LessOp, NameLess> less;
+        // Comparisons use signed civil years even outside the cast's representable range.
         for (const ColumnNumbers& inputs : {ColumnNumbers {0, 1}, ColumnNumbers {1, 0}}) {
             ASSERT_NO_THROW(status = equals.execute_impl(&context, block, inputs, 2, 1));
-            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-            EXPECT_NE(status.to_string().find("can not compare timestamptz"), std::string::npos);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column)
+                              .get_element(0),
+                      0);
+
+            ASSERT_NO_THROW(status = less.execute_impl(&context, block, inputs, 2, 1));
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column)
+                              .get_element(0),
+                      inputs[0] == 0 ? !upper : upper);
         }
     }
 }

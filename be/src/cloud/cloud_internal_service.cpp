@@ -724,6 +724,10 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    // Startup restore needs the caller's tablet; older clients omit rowset_meta.
+    if (request->has_rowset_meta()) {
+        ctx.tablet_id = request->rowset_meta().tablet_id();
+    }
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))

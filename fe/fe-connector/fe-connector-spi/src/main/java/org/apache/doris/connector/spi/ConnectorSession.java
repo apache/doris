@@ -115,6 +115,17 @@ public interface ConnectorSession {
     }
 
     /**
+     * Query-wide backend execution version selected by the engine, for planning decisions that depend on a
+     * backend capability (for example a write distribution whose partition function older backends reject).
+     * Mirrors {@link org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion()}, which
+     * carries the same value at {@code planWrite}. Offline and third-party sessions default to the
+     * newest-capability side of any fence.
+     */
+    default int getBeExecVersion() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
      * Returns the transaction this session is currently bound to, if any.
      *
      * <p>Used by connectors whose {@code begin*} write operations need to

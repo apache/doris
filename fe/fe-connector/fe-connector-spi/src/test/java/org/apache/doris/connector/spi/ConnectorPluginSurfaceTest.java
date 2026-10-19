@@ -20,6 +20,7 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
@@ -87,12 +88,13 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 15 replaces filesystem credential maps with typed, protocol-independent descriptions.
-        Assertions.assertEquals("15.0", version.getProperty("api.version"));
+        // Major 19 adds typed filesystem credential descriptions to the major 18 surface.
+        Assertions.assertEquals("19.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,
@@ -103,6 +105,8 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
+            ConnectorScanRequest.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,

@@ -178,6 +178,16 @@ public class FlussScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return properties.getOrDefault(PROP_RANGE_TYPE, "") + "\u0001"
+                + properties.getOrDefault(PROP_PARTITION_ID, "") + "\u0001"
+                + properties.getOrDefault(PROP_BUCKET_ID, "") + "\u0001"
+                + properties.getOrDefault(PROP_LOG_START_OFFSET, "") + "\u0001"
+                + properties.getOrDefault(PROP_LOG_STOP_OFFSET, "") + "\u0001"
+                + properties.getOrDefault(PROP_KV_SNAPSHOT_ID, "");
+    }
+
+    @Override
     public Map<String, String> getProperties() {
         return properties;
     }
