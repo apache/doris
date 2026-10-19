@@ -1008,6 +1008,12 @@ public class ConnectContext {
         currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
+    void restoreDatabaseName(String db) {
+        // A forwarded session can retain its namespace even when the metastore cannot resolve the database ID.
+        currentDb = db;
+        currentDbId = -1;
+    }
+
     public void setExecutor(StmtExecutor executor) {
         this.executor = executor;
     }

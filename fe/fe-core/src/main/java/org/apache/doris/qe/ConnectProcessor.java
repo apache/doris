@@ -591,9 +591,18 @@ public abstract class ConnectProcessor {
                 CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
                 if (catalog != null) {
                     ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
-                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    // Restore the selected database after its catalog, checking existence when metadata is available.
                     if (request.isSetDefaultDatabase()) {
-                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        DatabaseIf db = null;
+                        try {
+                            db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        } catch (RuntimeException e) {
+                            // Optional context restoration must not block catalog repair commands. Retain the name
+                            // so statements that actually use the database still resolve it and report failures.
+                            ctx.restoreDatabaseName(request.getDefaultDatabase());
+                            LOG.debug("Deferring lookup of forwarded default database {}.{}",
+                                    request.getDefaultCatalog(), request.getDefaultDatabase(), e);
+                        }
                         if (db != null) {
                             ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
                         }
