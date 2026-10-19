@@ -330,10 +330,15 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void addConjunct(Expr conjunct) {
+        addConjunct(conjunct, false);
+    }
+
+    /** Add a conjunct, preserving repeated score contributions when requested. */
+    public void addConjunct(Expr conjunct, boolean preserveDuplicates) {
         if (conjuncts == null) {
             conjuncts = Lists.newArrayList();
         }
-        if (!conjuncts.contains(conjunct)) {
+        if (preserveDuplicates || !conjuncts.contains(conjunct)) {
             conjuncts.add(conjunct);
         }
     }

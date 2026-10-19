@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.ScoringMatch;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -3359,7 +3360,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         for (Expression conjunct : filter.getConjuncts()) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
-                planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
+                // Legacy expression equality does not retain the scoring occurrence identity.
+                planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context),
+                        singleConjunct.anyMatch(ScoringMatch.class::isInstance));
             }
         }
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);

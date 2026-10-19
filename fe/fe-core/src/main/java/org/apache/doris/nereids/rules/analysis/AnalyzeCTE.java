@@ -65,7 +65,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
-            LogicalCTE<Plan> logicalCTE = ctx.root;
+            LogicalCTE<Plan> logicalCTE = PreserveScoringMatch.preserveCte(ctx.root);
             if (logicalCTE.isRecursive()
                     && !ctx.connectContext.getSessionVariable().isEnableNereidsDistributePlanner()) {
                 throw new AnalysisException("please set enable_nereids_distribute_planner=true to use RECURSIVE CTE");
