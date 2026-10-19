@@ -1540,6 +1540,8 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
         return false;
     }
+    // A historical .600000 timestamp narrowed to p0 must be materialized through the
+    // truncating cast; reusing its file column directly would retain the fraction.
     if (mapping.truncate_datetimev2_precision) {
         return false;
     }
@@ -1591,6 +1593,8 @@ static FilterConversionType direct_filter_conversion(const ColumnMapping& mappin
     if (type_contains_varbinary(mapping.table_type)) {
         return FilterConversionType::FINALIZE_ONLY;
     }
+    // Filtering the historical .600000 value before p0 truncation can reject a row
+    // that equals the whole-second literal after repair. Keep that predicate above materialization.
     if (mapping.truncate_datetimev2_precision) {
         return FilterConversionType::FINALIZE_ONLY;
     }

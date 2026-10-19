@@ -34,12 +34,14 @@ import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.predicate.Transform;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.source.ChainSplit;
 import org.apache.paimon.table.source.QueryAuthSplit;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataType;
@@ -153,6 +155,76 @@ public class PaimonTimestampRepairReaderTest {
     @Test
     public void fallbackWithoutRepairKeepsSdkProjection() throws Exception {
         checkFallbackBranchFieldIds(false, false, "false");
+    }
+
+    @Test
+    public void chainAuditLogUsesDeltaReaderFieldIds() throws Exception {
+        OffHeap.setTesting();
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier mainId = Identifier.create("db", "main");
+            Identifier snapshotId = Identifier.create("db", "snapshot");
+            Identifier deltaId = Identifier.create("db", "delta");
+            for (Identifier id : Arrays.asList(mainId, snapshotId, deltaId)) {
+                catalog.createTable(id, Schema.newBuilder().column("pt", DataTypes.INT())
+                        .column("id", DataTypes.INT()).column("ts", DataTypes.TIMESTAMP(6))
+                        .primaryKey("pt", "id").partitionKeys("pt")
+                        .option("bucket", "1").option("file.format", "parquet").build(), false);
+            }
+            catalog.alterTable(snapshotId, Collections.singletonList(SchemaChange.dropColumn("ts")), false);
+            catalog.alterTable(snapshotId, Collections.singletonList(
+                    SchemaChange.addColumn("ts", DataTypes.TIMESTAMP(6))), false);
+            LocalDateTime second = LocalDateTime.of(2025, 1, 1, 0, 0, 1);
+            writeRows(catalog.getTable(deltaId),
+                    GenericRow.of(1, 1, Timestamp.fromLocalDateTime(second)),
+                    GenericRow.of(1, 2, Timestamp.fromLocalDateTime(second.withNano(600000000))),
+                    GenericRow.of(1, 3, null));
+            for (Identifier id : Arrays.asList(mainId, snapshotId, deltaId)) {
+                catalog.alterTable(id, Collections.singletonList(
+                        SchemaChange.updateColumnType("ts", DataTypes.TIMESTAMP(0), true)), false);
+            }
+            FileStoreTable main = (FileStoreTable) catalog.getTable(mainId);
+            FileStoreTable snapshot = (FileStoreTable) catalog.getTable(snapshotId);
+            FileStoreTable delta = (FileStoreTable) catalog.getTable(deltaId);
+            Assertions.assertNotEquals(snapshot.rowType().getFields().get(2).id(),
+                    delta.rowType().getFields().get(2).id());
+            Map<String, String> chainOptions = new HashMap<>();
+            chainOptions.put(CoreOptions.SCAN_FALLBACK_SNAPSHOT_BRANCH.key(), "snapshot");
+            chainOptions.put(CoreOptions.SCAN_FALLBACK_DELTA_BRANCH.key(), "main");
+            FileStoreTable chain = new FallbackReadFileStoreTable(main,
+                    new ChainGroupReadTable(snapshot.copy(chainOptions), delta.copy(chainOptions)), true);
+            Table audit = org.apache.paimon.table.system.SystemTableLoader.load("audit_log", chain);
+            List<Split> splits = audit.newReadBuilder().newScan().plan().splits();
+            Assertions.assertEquals(1, splits.size());
+            Split split = splits.get(0);
+            Assertions.assertTrue(split instanceof FallbackReadFileStoreTable.FallbackSplit);
+            Assertions.assertTrue(((FallbackReadFileStoreTable.FallbackSplit) split).wrapped() instanceof ChainSplit);
+            Map<String, String> params = new HashMap<>();
+            params.put("required_fields", "rowkind,id,ts");
+            params.put("columns_types", "string#int#datetimev2(0)");
+            params.put("time_zone", "UTC");
+            params.put("serialized_table_cache_key", "chain-audit-" + warehouse);
+            params.put("serialized_table", encode(audit));
+            params.put("paimon_split", encode(split));
+            params.put("paimon_predicate", encode(Collections.emptyList()));
+            params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, "true");
+            PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+            try {
+                scanner.open();
+                Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                Assertions.assertEquals(3, scanner.getTable().getNumRows());
+                Assertions.assertArrayEquals(new Object[] {"+I", "+I", "+I"},
+                        scanner.getTable().getColumn(0).getObjectColumn(0, 3));
+                Assertions.assertArrayEquals(new Object[] {1, 2, 3},
+                        scanner.getTable().getColumn(1).getObjectColumn(0, 3));
+                Assertions.assertArrayEquals(new Object[] {second, second, null},
+                        scanner.getTable().getColumn(2).getObjectColumn(0, 3));
+            } finally {
+                scanner.close();
+                PaimonTableCache.clearForTest();
+            }
+        }
     }
 
     private void checkFallbackBranchFieldIds(boolean renamedPolicy, boolean audit, String repairOption)

@@ -321,6 +321,11 @@ public class PaimonJniScanner extends JniScanner {
 
     private static RowType policyRowType(Table source, Split split) {
         source = dataSource(source);
+        if (source instanceof ChainGroupReadTable) {
+            // ChainSplit has no fallback flag: the SDK always reads it through the delta table.
+            // Using the snapshot schema here can turn a stored delta ts#2 into a missing ts#3.
+            return policyRowType(((ChainGroupReadTable) source).other(), split);
+        }
         if (source instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) source;
             boolean readFallback = split instanceof FallbackSplit && ((FallbackSplit) split).isFallback();
