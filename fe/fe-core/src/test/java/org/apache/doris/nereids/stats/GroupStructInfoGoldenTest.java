@@ -301,6 +301,13 @@ public class GroupStructInfoGoldenTest {
         GroupStructInfo active = built("filter_udf_is_active");
         Assertions.assertTrue(active.getCanonical(WITH_LITERAL).contains("JavaUdf<db1.is_active#1>"),
                 "the udf identity is not in the canonical: " + active.getCanonical(WITH_LITERAL));
+        // a function of the global function manager has no database: its scope is rendered explicitly
+        // instead of failing the render (the name of the database is null for it)
+        GroupStructInfo global = built("filter_global_udf_is_active");
+        Assertions.assertTrue(global.getCanonical(WITH_LITERAL).contains("JavaUdf<global:is_active#3>"),
+                "the scope of a global udf is not in the canonical: " + global.getCanonical(WITH_LITERAL));
+        Assertions.assertNotEquals(global.getFingerprint(WITH_LITERAL), active.getFingerprint(WITH_LITERAL),
+                "a global udf and a database scoped udf share a key");
         String[][] distinct = {
                 {"filter_udf_is_active", "filter_udf_is_deleted"},
                 {"filter_udf_is_active", "filter_udf_is_active_in_another_database"},
@@ -1144,6 +1151,9 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_udf_is_active_in_another_database",
                 "the same udf name and catalog id in another database: a different key",
                 GroupStructInfoGoldenTest::filterUdfIsActiveInAnotherDatabase));
+        cases.add(new PlanCase("filter_global_udf_is_active",
+                "a filter calling a udf of the global function manager (it has no database)",
+                GroupStructInfoGoldenTest::filterGlobalUdfIsActive));
         cases.add(new PlanCase("filter_udf_is_active_other_overload",
                 "the same udf name in the same database, another overload (catalog id): a different key",
                 GroupStructInfoGoldenTest::filterUdfIsActiveOtherOverload));
@@ -1339,6 +1349,10 @@ public class GroupStructInfoGoldenTest {
 
     private static GroupStructInfo filterUdfIsActiveInAnotherDatabase() {
         return filterUdf("is_active", 1, "db2");
+    }
+
+    private static GroupStructInfo filterGlobalUdfIsActive() {
+        return filterUdf("is_active", 3, null);
     }
 
     private static GroupStructInfo filterUdfIsActiveOtherOverload() {

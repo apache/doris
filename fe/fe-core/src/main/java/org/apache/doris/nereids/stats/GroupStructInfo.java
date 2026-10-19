@@ -2530,8 +2530,13 @@ public class GroupStructInfo {
         }
         if (expression instanceof Udf) {
             Udf udf = (Udf) expression;
-            return className + '<' + encodeSlotComponent(udf.getDbName()) + '.'
-                    + encodeSlotComponent(udf.getName()) + '#' + udf.getFunctionId() + '>';
+            // a function of the global function manager has no database (it is registered with a null
+            // name): its scope is encoded explicitly, so that a database with the same name as the
+            // function cannot be mistaken for it - the two scopes never render one text
+            String qualifiedName = udf.getDbName() == null
+                    ? "global:" + encodeSlotComponent(udf.getName())
+                    : encodeSlotComponent(udf.getDbName()) + '.' + encodeSlotComponent(udf.getName());
+            return className + '<' + qualifiedName + '#' + udf.getFunctionId() + '>';
         }
         if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
             // the session which evaluates the expression decides how an epoch value is read: the same
