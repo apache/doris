@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -458,6 +459,52 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
         Assertions.assertTrue(ops.log.isEmpty());
         Assertions.assertEquals(0, ctx.authCount);
+    }
+
+    @Test
+    public void testCreateTableWithVariantNeedsFormatThreeParquet() {
+        // A VARIANT column needs a format-version 3 table that writes Parquet data files, whether the table request
+        // or the catalog's table-default / table-override sets them; the check runs before the remote seam.
+        Map<String, String> v3Orc = new HashMap<>();
+        v3Orc.put(TableProperties.FORMAT_VERSION, "3");
+        v3Orc.put(TableProperties.DEFAULT_FILE_FORMAT, "orc");
+        assertVariantCreateRejected(Collections.emptyMap(), Collections.emptyMap(),
+                "Iceberg VARIANT writes require table format-version 3, but found 2");
+        assertVariantCreateRejected(v3Orc, Collections.emptyMap(),
+                "Iceberg VARIANT writes require Parquet data files, but found ORC");
+        assertVariantCreateRejected(Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"),
+                Collections.singletonMap("table-override." + TableProperties.DEFAULT_FILE_FORMAT, "orc"),
+                "Iceberg VARIANT writes require Parquet data files, but found ORC");
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> catalogProps = props(IcebergCatalogProperties.TYPE_REST);
+        catalogProps.put("table-default.format-version", "3");
+        new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(catalogProps), new RecordingConnectorContext())
+                .createTable(null, variantTable(Collections.emptyMap()));
+        Assertions.assertEquals(Types.VariantType.get(), ops.lastCreateSchema.findField("payload").type());
+    }
+
+    private static ConnectorCreateTableRequest variantTable(Map<String, String> properties) {
+        return ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Arrays.asList(
+                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false),
+                        new ConnectorColumn("payload", ConnectorType.of("VARIANT"), "", true, null, false)))
+                .properties(properties)
+                .build();
+    }
+
+    private static void assertVariantCreateRejected(Map<String, String> properties,
+            Map<String, String> catalogProperties, String message) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> catalogProps = props(IcebergCatalogProperties.TYPE_REST);
+        catalogProps.putAll(catalogProperties);
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(catalogProps), new RecordingConnectorContext());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.createTable(null, variantTable(properties)));
+        Assertions.assertEquals(message, ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
     }
 
     // ---------- dropTable ----------
