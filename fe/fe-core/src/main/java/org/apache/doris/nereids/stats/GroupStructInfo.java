@@ -1017,7 +1017,10 @@ public class GroupStructInfo {
         STORAGE_AGGREGATE("A", false),
         FILTER("F", false),
         AGGREGATE("A", false),
-        JOIN("J", false),
+        // a join's residual conditions decide which rows the join keeps (a range bound, a function of both
+        // sides), so their literals are identity: the published and learned keys of a join must not fold
+        // `t.b > u.b + 1000` and `t.b > u.b + 1` into one entry
+        JOIN("J", true),
         TOPN("T", true),
         LIMIT("L", true),
         WINDOW("W", true),
@@ -1629,7 +1632,7 @@ public class GroupStructInfo {
                 return;
             case JOIN:
                 out.append("J{").append(node.flattenable ? "inner" : String.valueOf(node.joinType))
-                        .append(",c:[").append(distinctConditions(node.conditions, mode)).append("]}(");
+                        .append(",c:[").append(distinctIdentityConditions(node.conditions)).append("]}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
@@ -1704,6 +1707,18 @@ public class GroupStructInfo {
         TreeSet<String> rendered = new TreeSet<>();
         for (Expression condition : conditions) {
             rendered.add(renderExpression(condition, mode));
+        }
+        return String.join(SEP, rendered);
+    }
+
+    /**
+     * The conditions of a join, rendered with their literals in both modes (see {@link Kind#JOIN}), sorted
+     * and de-duplicated like every other join condition collection.
+     */
+    private static String distinctIdentityConditions(List<Expression> conditions) {
+        TreeSet<String> rendered = new TreeSet<>();
+        for (Expression condition : conditions) {
+            rendered.add(identityText(condition));
         }
         return String.join(SEP, rendered);
     }

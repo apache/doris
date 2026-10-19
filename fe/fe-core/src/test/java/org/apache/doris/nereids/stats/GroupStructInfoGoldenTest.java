@@ -28,6 +28,7 @@ import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -443,6 +444,21 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testAResidualConstantOfAJoinIsIdentity() {
+        // the residual decides whether a pair of rows survives the join: the published and learned keys
+        // (which are the constant agnostic form) must not fold two bounds into one entry
+        GroupStructInfo thousand = built("join_with_a_residual_constant");
+        GroupStructInfo one = built("join_with_another_residual_constant");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(thousand.getFingerprint(mode), one.getFingerprint(mode),
+                    "two residual constants share a key in mode " + mode);
+        }
+        Assertions.assertTrue(thousand.getCanonical(NO_LITERAL).contains("lit(1000:INT)"),
+                "the residual constant is folded in the constant agnostic key: "
+                        + thousand.getCanonical(NO_LITERAL));
     }
 
     @Test
@@ -1087,6 +1103,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("join_over_another_computed_project",
                 "the same join over the same project with another modulo (a % 3): a different key",
                 GroupStructInfoGoldenTest::joinOverAnotherComputedProject));
+        cases.add(new PlanCase("join_with_a_residual_constant",
+                "an inner join whose residual compares the two sides against a constant (t.b > u.b + 1000)",
+                GroupStructInfoGoldenTest::joinWithAResidualConstant));
+        cases.add(new PlanCase("join_with_another_residual_constant",
+                "the same join with another constant (t.b > u.b + 1): a different key",
+                GroupStructInfoGoldenTest::joinWithAnotherResidualConstant));
         cases.add(new PlanCase("join_left_outer",
                 "left outer join of two scans (the join type and the memo order are kept)",
                 GroupStructInfoGoldenTest::joinLeftOuter));
@@ -1624,6 +1646,28 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t2 = scan(1, "t2");
         return describe(new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, ImmutableList.of(
                 new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))), t1, t2, null));
+    }
+
+    private static GroupStructInfo joinWithAResidualConstant() {
+        return joinWithAResidualConstant(1000);
+    }
+
+    /**
+     * A join whose residual compares the two sides against a constant: it decides which rows the join
+     * keeps, so its literal is part of the identity in both literal modes.
+     */
+    private static GroupStructInfo joinWithAResidualConstant(int constant) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        return describe(new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(t.getOutput().get(0), u.getOutput().get(0))),
+                ImmutableList.<Expression>of(new GreaterThan(t.getOutput().get(1),
+                        new Add(u.getOutput().get(1), new IntegerLiteral(constant)))),
+                t, u, null));
+    }
+
+    private static GroupStructInfo joinWithAnotherResidualConstant() {
+        return joinWithAResidualConstant(1);
     }
 
     private static GroupStructInfo joinOverAComputedProject() {
