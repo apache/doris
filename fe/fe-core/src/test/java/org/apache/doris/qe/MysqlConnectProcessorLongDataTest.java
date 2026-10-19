@@ -45,8 +45,8 @@ import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 public class MysqlConnectProcessorLongDataTest {
     @Test
@@ -79,14 +79,66 @@ public class MysqlConnectProcessorLongDataTest {
         Assertions.assertInstanceOf(NullLiteral.class, h.bound(3));
         Assertions.assertFalse(h.prepared.hasLongData());
 
-        ByteBuffer forwarded = h.context.getPrepareExecuteBuffer();
+        assertForwardedParameters(h);
+    }
+
+    @Test
+    public void testForwardInlineParametersWithCachedTypes() throws Exception {
+        Harness h = new Harness(MysqlColType.MYSQL_TYPE_VARSTRING, MysqlColType.MYSQL_TYPE_LONG,
+                MysqlColType.MYSQL_TYPE_VARSTRING);
+        MysqlSerializer initial = MysqlSerializer.newInstance();
+        initial.writeInt1(4); // Third parameter is NULL, but still has a cached type.
+        initial.writeInt1(1);
+        initial.writeInt2(MysqlColType.MYSQL_TYPE_VARSTRING.getCode());
+        initial.writeInt2(MysqlColType.MYSQL_TYPE_LONG.getCode() | 0x8000);
+        initial.writeInt2(MysqlColType.MYSQL_TYPE_VARSTRING.getCode());
+        initial.writeLenEncodedString("first");
+        initial.writeInt4(-1);
+        h.execute(initial.toArray());
+        assertForwardedParameters(h);
+
+        MysqlSerializer cached = MysqlSerializer.newInstance();
+        cached.writeInt1(1); // First parameter becomes NULL; third becomes non-NULL.
+        cached.writeInt1(0);
+        cached.writeInt4(-2);
+        cached.writeLenEncodedString("second");
+        h.execute(cached.toArray());
+        Assertions.assertInstanceOf(NullLiteral.class, h.bound(0));
+        Assertions.assertEquals(new StringLiteral("second"), h.bound(2));
+        assertForwardedParameters(h);
+    }
+
+    @Test
+    public void testForwardUpdatedTypesAndAllNullParameters() throws Exception {
+        Harness h = new Harness(MysqlColType.MYSQL_TYPE_LONG);
+        h.execute(new byte[] {0, 1, 3, 0, 42, 0, 0, 0});
+        assertForwardedParameters(h);
+        h.execute(new byte[] {0, 0, 43, 0, 0, 0});
+        assertForwardedParameters(h);
+        h.execute(new byte[] {0, 1, (byte) 253, 0, 1, 65});
+        assertForwardedParameters(h);
+        h.execute(new byte[] {1, 0});
+        Assertions.assertInstanceOf(NullLiteral.class, h.bound(0));
+        assertForwardedParameters(h);
+        h.execute(new byte[] {0, 0, 1, 66});
+        Assertions.assertEquals(new StringLiteral("B"), h.bound(0));
+        assertForwardedParameters(h);
+    }
+
+    private static void assertForwardedParameters(Harness follower) throws Exception {
+        ByteBuffer forwarded = follower.context.getPrepareExecuteBuffer().duplicate();
         byte[] payload = new byte[forwarded.remaining()];
         forwarded.get(payload);
-        Harness master = new Harness(MysqlColType.MYSQL_TYPE_BLOB, MysqlColType.MYSQL_TYPE_LONG,
-                MysqlColType.MYSQL_TYPE_VARSTRING, MysqlColType.MYSQL_TYPE_VARSTRING);
+        // A proxy EXECUTE starts with a fresh PREPARE, without the client's cached parameter types.
+        Harness master = new Harness(follower.prepared.command.placeholderCount());
+        for (Placeholder placeholder : master.prepared.command.getPlaceholders()) {
+            Assertions.assertFalse(placeholder.hasMysqlColType());
+        }
         master.execute(payload);
-        for (int i = 0; i < 4; ++i) {
-            Assertions.assertEquals(h.bound(i), master.bound(i));
+        for (int i = 0; i < follower.prepared.command.placeholderCount(); ++i) {
+            Assertions.assertEquals(follower.bound(i), master.bound(i));
+            Assertions.assertEquals(follower.prepared.command.getPlaceholders().get(i).getMysqlTypeCode(),
+                    master.prepared.command.getPlaceholders().get(i).getMysqlTypeCode());
         }
     }
 
@@ -212,21 +264,28 @@ public class MysqlConnectProcessorLongDataTest {
     }
 
     private static class Harness {
-        private final ConnectContext context = new ConnectContext();
+        private final ConnectContext context;
         private final MysqlChannel channel = Mockito.mock(MysqlChannel.class);
         private final MysqlConnectProcessor processor;
         private final PreparedStatementContext prepared;
 
         Harness(MysqlColType... types) throws Exception {
+            this(new ConnectContext(), IntStream.range(0, types.length)
+                    .mapToObj(i -> new Placeholder(new PlaceholderId(i), types[i].getCode())).toList());
+        }
+
+        Harness(int parameterCount) throws Exception {
+            this(new ConnectContext(null, true), IntStream.range(0, parameterCount)
+                    .mapToObj(i -> new Placeholder(new PlaceholderId(i))).toList());
+        }
+
+        private Harness(ConnectContext context, List<Placeholder> placeholders) throws Exception {
+            this.context = context;
             Field adapter = ConnectContext.class.getDeclaredField("protocolAdapter");
             adapter.setAccessible(true);
             adapter.set(context, new MysqlProtocolAdapter(channel));
             Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
             context.getSessionVariable().enableServeSidePreparedStatement = true;
-            List<Placeholder> placeholders = new ArrayList<>();
-            for (int i = 0; i < types.length; ++i) {
-                placeholders.add(new Placeholder(new PlaceholderId(i), types[i].getCode()));
-            }
             PrepareCommand command = new PrepareCommand("7", null, placeholders,
                     new OriginStatement("select ?", 0));
             prepared = new PreparedStatementContext(command, context, new StatementContext(), "select ?");

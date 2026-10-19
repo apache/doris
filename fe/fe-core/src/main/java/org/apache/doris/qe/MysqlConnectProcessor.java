@@ -170,7 +170,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
                 // new_params_bind_flag
-                if ((int) packetBuf.get() != 0) {
+                boolean hasNewParameterTypes = packetBuf.get() != 0;
+                if (hasNewParameterTypes) {
                     List<Placeholder> typedPlaceholders = new ArrayList<>();
                     // parse params's types
                     for (int i = 0; i < paramCount; ++i) {
@@ -184,9 +185,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
                 }
-                // Inline uploaded values for forwarding: the master reparses this EXECUTE without
-                // the connection-local upload state. Include cached types even when bind_flag=0.
-                MysqlSerializer forwarded = prepCtx.hasLongData() ? MysqlSerializer.newInstance() : null;
+                // The master prepares each forwarded EXECUTE again without connection-local state.
+                // Include cached parameter types and inline uploaded values so it can bind independently.
+                MysqlSerializer forwarded = prepCtx.hasLongData() || !hasNewParameterTypes
+                        ? MysqlSerializer.newInstance() : null;
                 if (forwarded != null) {
                     for (int i = 0; i < paramCount; ++i) {
                         if (prepCtx.hasLongData(i)) {
