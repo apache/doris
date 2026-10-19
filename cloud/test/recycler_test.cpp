@@ -5999,6 +5999,318 @@ TEST(CheckerTest, do_inspect) {
     }
 }
 
+TEST(CheckerTest, delete_bitmap_orphan_check_reverse_first_missing) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 30, 2}), rowset.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 30, "present", 100, 0}), "bitmap");
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "missing", 8, 0}), "bitmap");
+    auto missing_key = meta_delete_bitmap_key({instance_id, 20, "missing", 9, 2});
+    blob_put(txn.get(), missing_key, std::string(MIN_BLOB_SPLIT_SIZE + 1, 'A'), 0,
+             MIN_BLOB_SPLIT_SIZE);
+    // A failure here would mean the scan continued after finding the first missing rowset.
+    txn->put(meta_rowset_key({instance_id, 10, 2}), "malformed rowset");
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "older", 1000, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_EQ(result.tablet_id, 20);
+    EXPECT_EQ(result.rowset_id, "missing");
+    EXPECT_EQ(result.version, 9);
+    EXPECT_EQ(result.segment_id, 2);
+    EXPECT_EQ(result.key, encode_blob_key(missing_key, 0, 1));
+    EXPECT_EQ(result.scanned_kvs, 2);
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_pagination_scope_and_limit) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+    for (int64_t version = 1; version <= 300; ++version) {
+        txn->put(meta_delete_bitmap_key({instance_id, 20, "present", version, 0}), "bitmap");
+    }
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 4, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_EQ(result.scanned_kvs, 4);
+    EXPECT_FALSE(result.range_exhausted);
+
+    std::tie(code, msg) = check_delete_bitmap_orphan(txn_kv, instance_id, 20, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_EQ(result.scanned_kvs, 300);
+    EXPECT_TRUE(result.range_exhausted);
+
+    std::tie(code, msg) = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_EQ(result.tablet_id, 10);
+    EXPECT_EQ(result.scanned_kvs, 301);
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_retry_bitmap_read) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "present", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool injected = false;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_call_back("check_delete_bitmap_orphan::get_bitmap");
+    };
+    sp->set_call_back("check_delete_bitmap_orphan::get_bitmap", [&](auto&& args) {
+        if (injected) {
+            return;
+        }
+        injected = true;
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+        std::unique_ptr<Transaction> writer;
+        ASSERT_EQ(txn_kv->create_txn(&writer), TxnErrorCode::TXN_OK);
+        writer->put(meta_delete_bitmap_key({instance_id, 30, "new_missing", 1, 0}), "bitmap");
+        ASSERT_EQ(writer->commit(), TxnErrorCode::TXN_OK);
+    });
+    sp->enable_processing();
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 1, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(injected);
+    EXPECT_EQ(result.tablet_id, 30);
+    EXPECT_EQ(result.rowset_id, "new_missing");
+    EXPECT_EQ(result.scanned_kvs, 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_retry_rowsets_revalidates_current_key) {
+    for (bool remove_bitmap : {false, true}) {
+        SCOPED_TRACE(remove_bitmap);
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        txn->put(instance_key({instance_id}), instance.SerializeAsString());
+        RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("present");
+        txn->put(meta_rowset_key({instance_id, 30, 1}), rowset.SerializeAsString());
+        txn->put(meta_delete_bitmap_key({instance_id, 30, "present", 1, 0}), "bitmap");
+        rowset.set_rowset_id_v2("unrelated");
+        txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+        auto retry_key = meta_delete_bitmap_key({instance_id, 20, "pending", 1, 0});
+        txn->put(retry_key, "bitmap");
+        txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 1, 0}), "bitmap");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        bool injected = false;
+        auto* sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->clear_call_back("check_delete_bitmap_orphan::get_rowsets");
+        };
+        sp->set_call_back("check_delete_bitmap_orphan::get_rowsets", [&](auto&& args) {
+            auto key = *try_any_cast<std::string_view*>(args[1]);
+            if (injected || key != retry_key) {
+                return;
+            }
+            injected = true;
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+            std::unique_ptr<Transaction> writer;
+            ASSERT_EQ(txn_kv->create_txn(&writer), TxnErrorCode::TXN_OK);
+            if (remove_bitmap) {
+                writer->remove(retry_key);
+            } else {
+                rowset.set_rowset_id_v2("pending");
+                writer->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+            }
+            ASSERT_EQ(writer->commit(), TxnErrorCode::TXN_OK);
+        });
+        sp->enable_processing();
+
+        DeleteBitmapOrphanCheckResult result;
+        int64_t max_scan_keys = remove_bitmap ? 2 : 3;
+        auto [code, msg] =
+                check_delete_bitmap_orphan(txn_kv, instance_id, 0, max_scan_keys, &result);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        EXPECT_TRUE(injected);
+        EXPECT_EQ(result.tablet_id, 10);
+        EXPECT_EQ(result.rowset_id, "missing");
+        EXPECT_EQ(result.scanned_kvs, max_scan_keys);
+        EXPECT_FALSE(result.range_exhausted);
+    }
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_http_validation_and_result) {
+    // Standalone controllers have no peer socket; model an active server request explicitly.
+    class ConnectedController : public brpc::Controller {
+    public:
+        bool IsCanceled() const override { return false; }
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    for (const auto* query :
+         {"", "instance_id=test&tablet_id=1x", "instance_id=test&tablet_id=9223372036854775807",
+          "instance_id=test&max_scan_keys=-1", "instance_id=test&max_scan_keys="}) {
+        brpc::Controller cntl;
+        cntl.http_request().uri() = std::string("/check_delete_bitmap_orphan?") + query;
+        EXPECT_EQ(process_check_delete_bitmap_orphan(&service, &cntl).status_code, 400);
+    }
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 9, 2}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ConnectedController cntl;
+    cntl.http_request().uri() = "/check_delete_bitmap_orphan?instance_id=" + instance_id;
+    auto response = process_check_delete_bitmap_orphan(&service, &cntl);
+    ASSERT_EQ(response.status_code, 200);
+    rapidjson::Document body;
+    body.Parse(response.body.c_str());
+    ASSERT_FALSE(body.HasParseError());
+    EXPECT_STREQ(body["result"]["status"].GetString(), "suspected_orphan");
+    EXPECT_EQ(body["result"]["tablet_id"].GetInt64(), 10);
+    EXPECT_EQ(body["result"]["scanned_kvs"].GetInt64(), 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_http_cancelled_before_scan) {
+    class CancelledController : public brpc::Controller {
+    public:
+        bool IsCanceled() const override { return true; }
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    CancelledController cntl;
+    cntl.http_request().uri() = "/check_delete_bitmap_orphan?instance_id=" + instance_id;
+    auto response = process_check_delete_bitmap_orphan(&service, &cntl);
+    ASSERT_EQ(response.status_code, 200);
+    rapidjson::Document body;
+    body.Parse(response.body.c_str());
+    ASSERT_FALSE(body.HasParseError());
+    EXPECT_STREQ(body["result"]["status"].GetString(), "cancelled");
+    EXPECT_EQ(body["result"]["scanned_kvs"].GetInt64(), 0);
+    EXPECT_FALSE(body["result"]["range_exhausted"].GetBool());
+    EXPECT_EQ(txn_kv->get_count_, 0);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_instance_read) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    DeleteBitmapOrphanCheckResult result;
+    // Cancel as soon as the instance read completes, even though the instance is missing.
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return txn_kv->get_count_ > 0; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 0);
+    EXPECT_FALSE(result.range_exhausted);
+    EXPECT_EQ(txn_kv->get_count_, 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_bitmap_scan) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+    for (int64_t version = 1; version <= 3; ++version) {
+        txn->put(meta_delete_bitmap_key({instance_id, 20, "present", version, 0}), "bitmap");
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return result.scanned_kvs >= 2; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 2);
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_rowset_scan) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+    txn->put(meta_rowset_key({instance_id, 20, 2}), "malformed rowset");
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "present", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool cancelled = false;
+    int range_reads = 0;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_call_back("memkv::Transaction::get");
+    };
+    sp->set_call_back("memkv::Transaction::get", [&](auto&&) {
+        // The first range read fetches bitmaps; the second fetches rowset metadata.
+        if (++range_reads == 2) {
+            cancelled = true;
+        }
+    });
+    sp->enable_processing();
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return cancelled; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 1);
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_FALSE(result.range_exhausted);
+}
+
 TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     // normal case, all delete bitmaps belong to a rowset
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -6614,6 +6926,139 @@ TEST(CheckerTest, do_restore_job_check) {
 
     // Run the check
     ASSERT_EQ(checker.do_restore_job_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_delayed_aggregation_replay) {
+    for (bool point_delete : {false, true}) {
+        SCOPED_TRACE(point_delete);
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
+        auto rate_limiter = std::make_shared<RateLimiter>();
+        auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+        MetaServiceImpl meta_service(txn_kv, resource_mgr, rate_limiter, snapshot);
+
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        instance.add_obj_info()->set_id("1");
+        InstanceChecker checker(txn_kv, mock_instance);
+        ASSERT_EQ(checker.init(instance), 0);
+        constexpr int64_t tablet_id = 900031;
+        const std::string pre_rowset_id = "100091";
+        // Exercise the actual version check, beyond its compaction grace period.
+        const auto creation_time =
+                current_time - config::delete_bitmap_storage_optimize_v2_check_skip_seconds - 1;
+        auto put_rowset = [&](Transaction* txn, int64_t start, int64_t end,
+                              const std::string& rowset_id) {
+            RowsetMetaCloudPB rowset;
+            rowset.set_rowset_id(0);
+            rowset.set_rowset_id_v2(rowset_id);
+            rowset.set_start_version(start);
+            rowset.set_end_version(end);
+            rowset.set_creation_time(creation_time);
+            txn->put(meta_rowset_key({mock_instance, tablet_id, end}), rowset.SerializeAsString());
+        };
+        auto bitmap_key = [&](int64_t version) {
+            return meta_delete_bitmap_key({mock_instance, tablet_id, pre_rowset_id, version, 0});
+        };
+        auto bitmap_value = [](int64_t version) { return fmt::format("bitmap_{}", version); };
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_rowset(txn.get(), 0, 91, pre_rowset_id);
+        put_rowset(txn.get(), 92, 163, "output_163");
+        for (auto version : {92, 110}) {
+            blob_put(txn.get(), bitmap_key(version), bitmap_value(version), 0);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        auto make_request = [&](int64_t end, const std::vector<int64_t>& source_versions) {
+            UpdateDeleteBitmapRequest request;
+            request.set_cloud_unique_id("test_cloud_unique_id");
+            request.set_table_id(10000);
+            request.set_partition_id(10002);
+            request.set_tablet_id(tablet_id);
+            request.set_store_version(1);
+            request.set_without_lock(true);
+            request.set_lock_id(COMPACTION_WITHOUT_LOCK_DELETE_BITMAP_LOCK_ID);
+            request.set_pre_rowset_agg_start_version(92);
+            request.set_pre_rowset_agg_end_version(end);
+            request.set_enable_remove_agg_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            request.set_enable_remove_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            request.add_rowset_ids(pre_rowset_id);
+            request.add_pre_rowset_versions(91);
+            request.add_versions(end);
+            request.add_segment_ids(0);
+            request.add_segment_delete_bitmaps(bitmap_value(end));
+            auto* rowset_stats = request.add_pre_rowset_delete_bitmap_stats();
+            rowset_stats->set_rowset_id(pre_rowset_id);
+            for (auto version : source_versions) {
+                auto* stats = rowset_stats->add_delete_bitmap_stats();
+                stats->set_segment_id(0);
+                stats->set_version(version);
+                stats->set_delete_bitmap_size(bitmap_value(version).size());
+            }
+            return request;
+        };
+        auto submit = [&](const UpdateDeleteBitmapRequest& request) {
+            brpc::Controller cntl;
+            UpdateDeleteBitmapResponse response;
+            meta_service.update_delete_bitmap(&cntl, &request, &response, nullptr);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+        };
+        auto check_versions = [&](const std::vector<int64_t>& expected) {
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            for (auto version : {92, 110, 163, 180}) {
+                ValueBuf value;
+                auto err = blob_get(txn.get(), bitmap_key(version), &value);
+                if (std::find(expected.begin(), expected.end(), version) != expected.end()) {
+                    ASSERT_EQ(err, TxnErrorCode::TXN_OK) << version;
+                    EXPECT_EQ(value.value(), bitmap_value(version));
+                } else {
+                    EXPECT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND) << version;
+                }
+            }
+            std::string rowset_value;
+            ASSERT_EQ(txn->get(meta_rowset_key({mock_instance, tablet_id, 91}), &rowset_value),
+                      TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB rowset;
+            ASSERT_TRUE(rowset.ParseFromString(rowset_value));
+            EXPECT_EQ(rowset.rowset_id_v2(), pre_rowset_id);
+            EXPECT_EQ(rowset.start_version(), 0);
+            EXPECT_EQ(rowset.end_version(), 91);
+        };
+        auto check_no_useless_versions = [&] {
+            int64_t abnormal_rowsets = 0;
+            EXPECT_EQ(checker.check_delete_bitmap_storage_optimize_v2(tablet_id, false,
+                                                                      abnormal_rowsets),
+                      0);
+            // The return code tolerates one abnormal rowset; assert the count as well.
+            EXPECT_EQ(abnormal_rowsets, 0);
+        };
+
+        check_versions({92, 110});
+        const auto q163 = make_request(163, {92, 110});
+        submit(q163);
+        check_versions({163});
+        // An identical retry remains valid while its compaction output is live.
+        submit(q163);
+        check_versions({163});
+        check_no_useless_versions();
+
+        // Publish [92,180], replacing [92,163], while keeping pre-rowset [0,91].
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(meta_rowset_key({mock_instance, tablet_id, 163}));
+        put_rowset(txn.get(), 92, 180, "output_180");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        const auto q180 = make_request(180, {163});
+        submit(q180);
+        check_versions({180});
+        check_no_useless_versions();
+
+        // A delayed at-least-once replay must not restore the obsolete version 163.
+        submit(q163);
+        check_versions({180});
+        check_no_useless_versions();
+    }
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {

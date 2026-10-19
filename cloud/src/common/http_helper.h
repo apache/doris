@@ -203,6 +203,9 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_check_instance(RecyclerServiceImpl* service,
                                                      brpc::Controller* cntl);
 
+[[maybe_unused]] HttpResponse process_check_delete_bitmap_orphan(RecyclerServiceImpl* service,
+                                                                 brpc::Controller* cntl);
+
 [[maybe_unused]] HttpResponse process_skip_instance_data_cleanup(RecyclerServiceImpl* service,
                                                                  brpc::Controller* ctrl);
 
