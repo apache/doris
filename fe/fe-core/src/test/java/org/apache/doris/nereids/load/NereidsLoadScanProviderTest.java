@@ -41,10 +41,12 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
@@ -345,27 +347,103 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
-    public void testArrowStructSearchComparesFields() throws Exception {
+    public void testArrowStructSearchComparesWholeJsonTextOnce() throws Exception {
         OlapTable table = mockTable(Arrays.asList(
                 new Column("k", PrimitiveType.INT, true),
                 new Column("v", new org.apache.doris.catalog.StructType(
                         new org.apache.doris.catalog.StructField("f1", ScalarType.INT),
                         new org.apache.doris.catalog.StructField("f2", ScalarType.createStringType())), true)));
         DataType complexType = DataType.fromCatalogType(table.getColumn("v").getType());
-        StringLiteral search = new StringLiteral("{7, \"x\"}");
+        UnboundSlot searchSlot = new UnboundSlot("w");
 
-        // STRUCT is rejected by ComparisonPredicate, so every field is compared by its 1-based
-        // constant index; a nested NULL field matches another NULL field through <=>.
+        // A STRUCT is not comparable directly. Its fields are only expanded when the JSON text is
+        // not a lossless identity, and every expanded field comparison embeds the typed search,
+        // which parses the whole search string. A STRUCT with a lossless JSON text is compared as
+        // one value, so a dynamic search over an N field STRUCT parses the search once, not N times.
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(searchSlot, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("w", null)));
+        Expression replaced = context.exprMap.get("v");
+        // EqualTo of two JSON texts is unknown for a NULL search, like the structural ARRAY
+        // comparison, so the text format behavior is kept without an extra guard.
+        Expression comparison = ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertTrue(comparison instanceof EqualTo, comparison.toSql());
+        EqualTo equality = (EqualTo) comparison;
+        assertJsonText(equality.child(0), null);
+        assertJsonText(equality.child(1), null);
+        Cast typedSearch = (Cast) equality.child(1).child(0).child(0);
+        Assertions.assertEquals(complexType, typedSearch.getDataType());
+        Assertions.assertEquals(searchSlot, typedSearch.child());
+
+        List<Cast> typedSearches = replaced.collectToList(
+                expression -> expression instanceof Cast
+                        && ((Cast) expression).getDataType().equals(complexType)
+                        && ((Cast) expression).child() instanceof UnboundSlot);
+        Assertions.assertEquals(1, typedSearches.size(), replaced.toSql());
+        Assertions.assertEquals(searchSlot, typedSearches.get(0).child());
+        Assertions.assertTrue(typedSearches.get(0).isStrict(), typedSearches.get(0).toSql());
+    }
+
+    @Test
+    public void testArrowStructSearchWithLossyTimeScaleIsRejected() {
+        // TIMEV2 and TIMESTAMPTZ keep their microseconds in the Arrow reader whatever the declared
+        // scale is, while the JSON text is printed at that scale. A value that has to use the JSON
+        // fallback rejects a scale below the maximum instead of comparing two different values as
+        // equal and replacing a row that did not match.
+        for (ScalarType lossy : Arrays.asList(
+                ScalarType.createTimeStampTzType(0), ScalarType.createTimeV2Type(3))) {
+            OlapTable table = mockTable(Arrays.asList(
+                    new Column("k", PrimitiveType.INT, true),
+                    new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                            new org.apache.doris.catalog.StructField("t", lossy)), true), true)));
+            UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(
+                    table,
+                    new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"), new NullLiteral())),
+                    Pair.of("replace_value", Lists.newArrayList("[]", null))));
+            Assertions.assertTrue(exception.getMessage().contains("no lossless comparison"),
+                    exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testArrowStructSearchAtMaximumTimeScaleComparesWholeJsonText() throws Exception {
+        // The maximum scale keeps every stored microsecond digit in the text, so the whole STRUCT
+        // is still compared through its JSON text.
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("t",
+                                ScalarType.createTimeStampTzType(6))), true), true)));
+        StringLiteral search = new StringLiteral("[]");
+
         NereidsParamCreateContext context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
-                Pair.of("replace_value", Lists.newArrayList("{7, \"x\"}", null)));
+                Pair.of("replace_value", Lists.newArrayList("[]", null)));
+        Expression replaced = context.exprMap.get("v");
+        Expression comparison = ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertTrue(comparison instanceof EqualTo, comparison.toSql());
+        assertJsonText(comparison.child(0), null);
+    }
+
+    @Test
+    public void testArrowTopLevelStructWithLossyTimeScaleComparesFields() throws Exception {
+        // A top level STRUCT does not need the JSON fallback: every field of a TIMESTAMPTZ(0) can
+        // be compared structurally, which keeps the microseconds the JSON text would drop.
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", new org.apache.doris.catalog.StructType(
+                        new org.apache.doris.catalog.StructField("t",
+                                ScalarType.createTimeStampTzType(0))), true)));
+
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("{null}"),
+                        new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("{null}", null)));
         Expression replaced = context.exprMap.get("v");
         UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
         Assertions.assertEquals("if", condition.getName());
-        And equality = (And) condition.child(2);
-        Assertions.assertEquals(2, equality.children().size(), equality.toSql());
-        assertStructFieldComparison(equality.child(0), 1, complexType, search);
-        assertStructFieldComparison(equality.child(1), 2, complexType, search);
+        Assertions.assertTrue(condition.child(0) instanceof IsNull, condition.toSql());
+        Assertions.assertTrue(condition.child(2) instanceof NullSafeEqual, condition.toSql());
     }
 
     @Test
@@ -423,8 +501,9 @@ public class NereidsLoadScanProviderTest {
 
     @Test
     public void testArrowNestedStructSearchKeepsStructNullIdentity() throws Exception {
+        // The DOUBLE leaf rules out the JSON comparison, so this pins the structural fallback.
         org.apache.doris.catalog.StructType nested = new org.apache.doris.catalog.StructType(
-                new org.apache.doris.catalog.StructField("x", ScalarType.INT));
+                new org.apache.doris.catalog.StructField("x", ScalarType.DOUBLE));
         OlapTable table = mockTable(Arrays.asList(
                 new Column("k", PrimitiveType.INT, true),
                 new Column("v", new org.apache.doris.catalog.StructType(
@@ -554,21 +633,14 @@ public class NereidsLoadScanProviderTest {
         Assertions.assertEquals(search, searchCast.child(0));
     }
 
-    private static void assertStructFieldComparison(Expression equality, int index, DataType complexType,
-            StringLiteral search) {
-        Assertions.assertTrue(equality instanceof NullSafeEqual, equality.toSql());
-        Expression left = equality.child(0);
-        Expression right = equality.child(1);
-        Assertions.assertEquals("element_at", ((UnboundFunction) left).getName());
-        Assertions.assertEquals("element_at", ((UnboundFunction) right).getName());
-        Assertions.assertTrue(left.child(0) instanceof UnboundSlot, left.toSql());
-        Assertions.assertEquals(new IntegerLiteral(index), left.child(1));
-        Expression searchCast = right.child(0);
-        Assertions.assertTrue(searchCast instanceof Cast, searchCast.toSql());
-        Assertions.assertEquals(complexType, searchCast.getDataType());
-        Assertions.assertTrue(((Cast) searchCast).isStrict(), searchCast.toSql());
-        Assertions.assertEquals(search, searchCast.child(0));
-        Assertions.assertEquals(new IntegerLiteral(index), right.child(1));
+    private static void assertJsonText(Expression expression, Expression expectedChild) {
+        Assertions.assertTrue(expression instanceof Cast, expression.toSql());
+        Assertions.assertEquals(StringType.INSTANCE, expression.getDataType());
+        Expression toJson = expression.child(0);
+        Assertions.assertTrue(toJson instanceof ToJson, toJson.toSql());
+        if (expectedChild != null) {
+            Assertions.assertEquals(expectedChild, toJson.child(0));
+        }
     }
 
     private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,

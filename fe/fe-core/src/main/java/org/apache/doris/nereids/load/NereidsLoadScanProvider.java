@@ -59,6 +59,8 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.thrift.TFileFormatType;
@@ -674,7 +676,9 @@ public class NereidsLoadScanProvider {
      * nested NULLs apart from values and treats two NULLs as equal like the engine does inside a
      * complex value; {@code <=>} expresses that for a nested value. MAP and STRUCT are rejected by
      * {@code ComparisonPredicate}, so their sub-values are compared recursively: a MAP is identified
-     * by its keys and values in order, a STRUCT both by its own NULL flag and by its fields.
+     * by its keys and values in order, and a STRUCT that cannot be serialized losslessly enough for
+     * a whole JSON comparison both by its own NULL flag and by its fields. A STRUCT whose JSON text
+     * is a lossless identity is compared as one value, so the search is parsed once.
      *
      * <p>JSON is used only for a value the engine cannot compare structurally. A MAP is never
      * rendered as a JSON object: JSONB object keys are limited to 255 bytes and lose the key NULL
@@ -714,6 +718,16 @@ public class NereidsLoadScanProvider {
             return topLevel ? guardNullSearch(right, equality) : equality;
         }
         if (type.isStructType()) {
+            if (supportsJsonEncoding(type)) {
+                // The engine rejects a direct STRUCT comparison, so its JSON text is the comparison
+                // key. Compare the whole value at once: expanding the fields would embed the typed
+                // search in every field comparison and each occurrence parses the whole search
+                // string, which makes a dynamic search over an N field STRUCT convert N times the
+                // N fields for every row.
+                return topLevel
+                        ? new EqualTo(jsonText(left), jsonText(right))
+                        : new NullSafeEqual(jsonText(left), jsonText(right));
+            }
             List<StructField> fields = ((StructType) type).getFields();
             List<Expression> equalities = Lists.newArrayListWithCapacity(fields.size());
             for (int i = 0; i < fields.size(); i++) {
@@ -793,9 +807,9 @@ public class NereidsLoadScanProvider {
      * Whether a value can be compared by its JSON text. A MAP anywhere inside the value is rejected
      * because JSONB object keys are limited to 255 bytes and lose the key NULL flag; a STRUCT field
      * name is such a key and is checked at every level. Floats are rejected because the text keeps
-     * the sign of zero while numeric equality does not. The version one DATE/DATETIME, DECIMALV2 and
-     * the sketch types have no JSONB serde. A value the engine compares structurally never reaches
-     * this method.
+     * the sign of zero while numeric equality does not, and TIMEV2/TIMESTAMPTZ below the maximum
+     * scale because the text drops the stored microseconds that the Arrow reader keeps. The version
+     * one DATE/DATETIME, DECIMALV2 and the sketch types have no JSONB serde.
      */
     private static boolean supportsJsonEncoding(DataType type) {
         if (type.isArrayType()) {
@@ -818,8 +832,26 @@ public class NereidsLoadScanProvider {
         // A float keeps its sign bit in the JSON text (-0.0 renders as "-0"), while numeric equality
         // treats -0.0 and 0.0 as equal, so their JSON text is not a lossless equality key.
         return type.isPrimitive() && !type.isFloatLikeType() && !type.isDateType()
-                && !type.isDateTimeType() && !type.isDecimalV2Type() && !type.isHllType()
+                && !type.isDateTimeType() && !hasLossyJsonScale(type)
+                && !type.isDecimalV2Type() && !type.isHllType()
                 && !type.isBitmapType() && !type.isQuantileStateType() && !type.isAggStateType();
+    }
+
+    /**
+     * Whether the JSON text of a scaled time type drops digits that the stored value keeps. The
+     * Arrow reader stores the full microseconds of TIMEV2 and TIMESTAMPTZ whatever the declared
+     * scale is, while their JSON text is written at that scale, so two different values can render
+     * the same text. Only the maximum scale keeps every stored digit. DATETIMEV2 is not affected:
+     * its reader rounds the payload to the declared scale before it is stored.
+     */
+    private static boolean hasLossyJsonScale(DataType type) {
+        if (type.isTimeStampTzType()) {
+            return ((TimeStampTzType) type).getScale() != TimeStampTzType.MAX_SCALE;
+        }
+        if (type.isTimeType()) {
+            return ((TimeV2Type) type).getScale() != TimeV2Type.MAX_SCALE;
+        }
+        return false;
     }
 
     private static boolean supportsMapValueComparison(DataType type) {

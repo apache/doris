@@ -32,6 +32,8 @@ suite("test_arrow_complex_replace_value", "p0") {
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_empty_search"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_null_search"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_nested_struct"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_time_scale"
+    sql "DROP TABLE IF EXISTS test_arrow_complex_replace_wide_struct"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_float_struct"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_long_struct_name"
     sql "DROP TABLE IF EXISTS test_arrow_complex_replace_too_long_struct_name"
@@ -433,6 +435,70 @@ suite("test_arrow_complex_replace_value", "p0") {
     sql "sync"
     order_qt_nested_struct """
         SELECT k, s FROM test_arrow_complex_replace_nested_struct ORDER BY k
+    """
+
+    // The Arrow reader keeps the microseconds of a TIMESTAMPTZ whatever the declared scale is,
+    // while the JSON text of a low precision value hides them: two different timestamps would
+    // render the same text. The search is rejected when the load plan is built instead of
+    // replacing a row whose value does not match.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_time_scale (
+            `k` INT,
+            `v` ARRAY<STRUCT<t: TIMESTAMPTZ(0)>>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_time_scale"
+        set 'format', 'arrow'
+        set 'columns', "k, v, v = replace_value('[]', NULL)"
+        file 'arrow_complex_replace_time_scale.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("no lossless comparison"))
+        }
+    }
+
+    // A dynamic search on a wide STRUCT is parsed once per row: the whole STRUCT is compared
+    // through its JSON text instead of re-parsing the search for every field.
+    sql """
+        CREATE TABLE test_arrow_complex_replace_wide_struct (
+            `k` INT,
+            `s` STRUCT<f1: INT, f2: INT, f3: INT, f4: INT, f5: INT, f6: INT, f7: INT, f8: INT>,
+            `w` STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    streamLoad {
+        table "test_arrow_complex_replace_wide_struct"
+        set 'format', 'arrow'
+        set 'columns', "k, s, s = replace_value(w, NULL), w"
+        file 'arrow_complex_replace_wide_struct.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_wide_struct """
+        SELECT k, s FROM test_arrow_complex_replace_wide_struct ORDER BY k
     """
 
     // An ARRAY<STRUCT> is compared through its JSON text. The text keeps the sign of zero while
