@@ -368,15 +368,4 @@ public class TypeTest {
         Assertions.assertEquals("struct<b:text comment \"field doc\">",
                 structType.hideVersionForVersionColumn(true, true, false));
     }
-
-    /** SHOW CREATE must quote every nested field name that the type grammar cannot read bare. */
-    @Test
-    public void testStructDdlQuotesNestedFieldIdentifiers() {
-        StructType structType = new StructType(
-                new StructField("a-b", Type.INT, null, true),
-                new StructField("order", Type.INT, null, true),
-                new StructField("Metric`Name", Type.STRING, null, true));
-        Assertions.assertEquals("struct<`a-b`:int,`order`:int,`Metric``Name`:text>",
-                structType.hideVersionForVersionColumn(true, true, false));
-    }
 }

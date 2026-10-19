@@ -87,7 +87,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -140,7 +139,6 @@ import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
-import org.apache.doris.sqlparser.DorisSqlParser;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.InvalidateStatsTarget;
@@ -1034,12 +1032,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TColumnDesc getColumnDesc(Column column) {
         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-        if (!column.getOriginalName().equals(column.getName())) {
-            desc.setOriginalName(column.getOriginalName());
-        }
-        String originalName = column.getOriginalName();
-        desc.setSqlName(DorisSqlParser.isValidUnquotedIdentifier(originalName)
-                ? originalName : SqlUtils.getIdentSql(originalName));
         final Integer precision = column.getOriginType().getPrecision();
         if (precision != null) {
             desc.setColumnPrecision(precision);

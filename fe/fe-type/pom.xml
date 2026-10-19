@@ -34,11 +34,6 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-sql-parser</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>

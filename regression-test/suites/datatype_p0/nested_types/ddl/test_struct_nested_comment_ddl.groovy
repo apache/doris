@@ -19,7 +19,6 @@ suite("test_struct_nested_comment_ddl", "p0") {
     sql "DROP TABLE IF EXISTS struct_nested_comment"
     sql "DROP TABLE IF EXISTS struct_nested_comment_replay"
     sql "DROP TABLE IF EXISTS struct_nested_comment_like"
-    sql "DROP TABLE IF EXISTS struct_field_name_quoting"
 
     // The comment on b carries a single quote and a back slash, both have to survive the DDL.
     sql """
@@ -58,26 +57,4 @@ suite("test_struct_nested_comment_ddl", "p0") {
     assertEquals(nbseStmt.replace("`struct_nested_comment`", "`struct_nested_comment_like`"),
             (sql "SHOW CREATE TABLE struct_nested_comment_like")[0][1].toString())
     sql "SET sql_mode = ''"
-
-    // Field names holding a separator are legal and have to stay tellable apart in COLUMN_TYPE.
-    sql """
-        CREATE TABLE struct_field_name_quoting (
-            id INT,
-            s STRUCT<`a,b`:INT, `c:d`:INT, `e<f>`:INT, plain:INT>
-        )
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
-    """
-
-    // COLUMN_TYPE has to describe a struct with its field names.
-    sql "use information_schema"
-    qt_column_type """
-        SELECT column_name, data_type, column_type FROM columns
-        WHERE table_name = 'struct_nested_comment' ORDER BY column_name
-    """
-    qt_column_type_quoting """
-        SELECT column_name, column_type FROM columns
-        WHERE table_name = 'struct_field_name_quoting' ORDER BY column_name
-    """
 }

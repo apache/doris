@@ -180,24 +180,6 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     }
 }
 
-namespace {
-
-// Old FE versions do not send SQL-ready field names. Quote their fallback names so mixed-version
-// clusters still return a parseable COLUMN_TYPE.
-std::string quote_struct_field_name(const std::string& name) {
-    std::string quoted = "`";
-    for (char ch : name) {
-        if (ch == '`') {
-            quoted += "``";
-        } else {
-            quoted += ch;
-        }
-    }
-    return quoted + "`";
-}
-
-} // namespace
-
 std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     switch (desc.columnType) {
     case TPrimitiveType::BOOLEAN:
@@ -313,21 +295,11 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::STRUCT: {
         // for old be service we should compitable
         std::string ret = "struct<";
-        // Name every field, a client rebuilds the schema from this text.
-        for (size_t i = 0; i < desc.children.size(); ++i) {
-            if (i != 0) {
-                ret += ",";
+        if (!desc.children.empty()) {
+            for (int i = 0; i < desc.children.size() - 1; ++i) {
+                ret += _type_to_string(desc.children[i]) + ",";
             }
-            if (desc.children[i].__isset.sqlName) {
-                // FE has already applied the parser's reserved-word rules and backtick escaping.
-                ret += desc.children[i].sqlName;
-            } else {
-                const std::string& field_name = desc.children[i].__isset.originalName
-                                                        ? desc.children[i].originalName
-                                                        : desc.children[i].columnName;
-                ret += quote_struct_field_name(field_name);
-            }
-            ret += ":" + _type_to_string(desc.children[i]);
+            ret += _type_to_string(desc.children[desc.children.size() - 1]);
         }
         ret += ">";
         return ret;
