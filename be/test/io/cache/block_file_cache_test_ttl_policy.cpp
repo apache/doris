@@ -766,4 +766,38 @@ TEST_F(BlockFileCacheTest, ttl_policy_counts_protected_bytes_evicted_over_query_
     EXPECT_EQ(cache._ttl_protected_evicted_bytes->get_value(), kBlockSize);
 }
 
+// While the cache is still loading, the queue sweep has not started: a reservation under disk
+// pressure must still skip the blocks of a tablet that gained a TTL after they were loaded, and
+// move them to the TTL queue, as eviction does after loading.
+TEST_F(BlockFileCacheTest, ttl_policy_startup_reservation_keeps_protected_blocks) {
+    TtlPolicyTestGuard guard;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    BlockFileCache cache(cache_base_path, ttl_policy_test_settings());
+    open_cache(cache);
+    auto* registry = TabletCachePolicyRegistry::instance();
+    const int64_t now = UnixSeconds();
+    ReadStatistics stats;
+    // The protected blocks are the coldest.
+    fill(cache, "t1", 2, context_of(1, FileCacheType::NORMAL, 0, &stats));
+    fill(cache, "t2", 2, context_of(2, FileCacheType::NORMAL, 0, &stats));
+    registry->upsert(1, {3600, now});
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        cache._async_open_done = false;
+        cache._disk_resource_limit_mode = true;
+        EXPECT_TRUE(cache.try_reserve_during_async_load(2 * kBlockSize, cache_lock));
+        cache._disk_resource_limit_mode = false;
+        cache._async_open_done = true;
+    }
+    EXPECT_TRUE(is_cached(cache, "t1", 0));
+    EXPECT_TRUE(is_cached(cache, "t1", 1));
+    EXPECT_EQ(block_of(cache, "t1", 0)->cache_type(), FileCacheType::TTL);
+    EXPECT_FALSE(is_cached(cache, "t2", 0));
+    EXPECT_FALSE(is_cached(cache, "t2", 1));
+    EXPECT_EQ(cache._ttl_protected_evicted_bytes->get_value(), 0);
+}
+
 } // namespace doris::io

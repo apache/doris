@@ -2925,6 +2925,9 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     size_t index_queue_size = _index_queue.get_capacity(cache_lock);
 
     std::vector<FileBlockCell*> to_evict;
+    std::vector<FileBlockCell*> to_relocate;
+    const int64_t now = UnixSeconds();
+    size_t skipped = 0;
     auto collect_eliminate_fragments = [&](LRUQueue& queue) {
         for (const auto& [entry_key, entry_offset, entry_size] : queue) {
             if (!_disk_resource_limit_mode || removed_size >= size) {
@@ -2938,7 +2941,18 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
             size_t cell_size = cell->size();
             DCHECK(entry_size == cell_size);
 
-            if (cell->releasable()) {
+            if (is_protected(*cell->file_block, now)) {
+                // Its tablet gained a TTL after the block was loaded, and the queue sweep only
+                // starts once loading is done. Never evicted as unprotected data, as on the
+                // eviction paths after loading.
+                if (to_relocate.size() <
+                    static_cast<size_t>(config::file_cache_ttl_relocate_batch_blocks)) {
+                    to_relocate.push_back(cell);
+                }
+                if (skip_evict_candidate(skipped)) {
+                    break;
+                }
+            } else if (cell->releasable()) {
                 auto& file_block = cell->file_block;
 
                 std::lock_guard block_lock(file_block->_mutex);
@@ -2957,6 +2971,8 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     if (index_queue_size != 0) {
         collect_eliminate_fragments(get_queue(FileCacheType::INDEX));
     }
+    *_evict_skipped_blocks << skipped;
+    relocate_to_ttl_queue(to_relocate, cache_lock);
     std::string reason = "async load";
     remove_file_blocks(to_evict, cache_lock, true, reason);
 
