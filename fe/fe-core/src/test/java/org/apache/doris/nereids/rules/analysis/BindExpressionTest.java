@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
@@ -45,10 +47,14 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -59,8 +65,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Optional;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
 
@@ -295,6 +303,36 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> BindExpression.coerceMergeOutput(columns, output.subList(0, 2)));
         Assertions.assertTrue(exception.getMessage().contains("not aligned"), exception.getMessage());
+    }
+
+    @Test
+    void testDeleteOnlyMergeDoesNotValidateNestedSpatialDataWrites() {
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            ArrayType array = ArrayType.of(spatial);
+            LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                    new Alias(new NullLiteral(array), "shapes")));
+            LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                    new Alias(new TinyIntLiteral((byte) 1), MergeOperation.OPERATION_COLUMN),
+                    new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                    new Alias(input.getOutput().get(0), "shapes")), input);
+            List<Column> columns = ImmutableList.of(new Column("shapes", array.toCatalogDataType()));
+            for (boolean writesDataFiles : new boolean[] {false, true}) {
+                LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                        Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                        "schema-1", columns, ImmutableList.of(), writesDataFiles, true,
+                        Optional.empty(), Optional.empty(), source);
+                if (writesDataFiles) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+                    Assertions.assertTrue(exception.getMessage().contains("Nested spatial columns"),
+                            exception.getMessage());
+                } else {
+                    Assertions.assertDoesNotThrow(
+                            () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+                }
+            }
+        }
     }
 
     @Test

@@ -32,12 +32,79 @@
 #include "core/column/column_spatial.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/sip_hash.h"
+#include "exec/sort/sort_block.h"
 
 namespace doris {
+
+static void check_spatial_multikey_sort(PrimitiveType primitive, int nullable, int direction,
+                                        int nulls_direction, size_t limit) {
+    auto values = ColumnSpatial::create(primitive);
+    for (const char coordinate : {2, 1, 2, 3, 1}) {
+        std::string point(21, '\0');
+        point[0] = 1;
+        point[1] = 1;
+        point[13] = coordinate;
+        values->insert_data(point.data(), point.size());
+    }
+    auto ids = ColumnInt32::create();
+    ids->get_data() = {5, 4, 1, 3, 2};
+    DataTypePtr type = std::make_shared<DataTypeSpatial>(primitive);
+    ColumnPtr column = std::move(values);
+    if (nullable != 0) {
+        auto nulls = ColumnUInt8::create();
+        nulls->get_data() =
+                nullable == 2 ? IColumn::Filter {0, 1, 0, 1, 0} : IColumn::Filter {0, 0, 0, 0, 0};
+        column = ColumnNullable::create(column, std::move(nulls));
+        type = make_nullable(type);
+    }
+    Block input {{column, type, "shape"},
+                 {std::move(ids), std::make_shared<DataTypeInt32>(), "id"}};
+    Block output = input.clone_empty();
+    HybridSorter sorter;
+    ASSERT_NO_THROW(
+            sort_block(input, output, {{0, direction, nulls_direction}, {1, 1, 1}}, sorter, limit));
+    std::vector<int> expected;
+    if (nullable == 2) {
+        expected = direction == 1 ? std::vector<int> {2, 1, 5} : std::vector<int> {1, 5, 2};
+        if (direction * nulls_direction < 0) {
+            expected.insert(expected.begin(), {3, 4});
+        } else {
+            expected.insert(expected.end(), {3, 4});
+        }
+    } else {
+        expected = direction == 1 ? std::vector<int> {2, 4, 1, 5, 3}
+                                  : std::vector<int> {3, 1, 5, 2, 4};
+    }
+    if (limit != 0) {
+        expected.resize(limit);
+    }
+    const auto& sorted_ids = assert_cast<const ColumnInt32&>(*output.get_by_position(1).column);
+    ASSERT_EQ(expected.size(), output.rows());
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(expected[row], sorted_ids.get_element(row));
+    }
+}
+
+TEST(DataTypeSpatialTest, MultiColumnSortSupportsNullableSpatial) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (int nullable = 0; nullable < 3; ++nullable) {
+            for (const int direction : {1, -1}) {
+                for (const int nulls_direction : {1, -1}) {
+                    for (const size_t limit : {0, 1, 3, 4}) {
+                        check_spatial_multikey_sort(primitive, nullable, direction, nulls_direction,
+                                                    limit);
+                    }
+                }
+            }
+        }
+    }
+}
 
 TEST(DataTypeSpatialTest, DefaultCrsCaseIsCanonicalButCustomCrsIsPreserved) {
     for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {

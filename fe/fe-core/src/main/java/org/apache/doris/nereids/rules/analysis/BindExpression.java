@@ -306,7 +306,10 @@ public class BindExpression implements AnalysisRuleFactory {
             validateMergeNoLossyCoercion(sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
         }
         List<NamedExpression> castExprs = coerceMergeOutput(sink.getCols(), outputExprs);
-        validateMergeSpatialTypes(sink.getCols(), sink.child(), outputExprs);
+        if (sink.isWritesDataFiles()) {
+            // Delete-only MERGE forwards target values but writes only position-delete row ids.
+            validateMergeSpatialTypes(sink.getCols(), sink.child(), outputExprs);
+        }
         if (castExprs.equals(outputExprs)) {
             if (sink.getOutputExprs().equals(outputExprs)) {
                 return sink;

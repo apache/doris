@@ -149,6 +149,7 @@ public class CreateIcebergSpatialV3Table {
                 Types.NestedField.optional(1, "shapes",
                         Types.ListType.ofOptional(2, Types.GeometryType.crs84()))),
                 PartitionSpec.unpartitioned(), tableProperties);
+        nestedTable.updateProperties().set("write.merge.mode", "merge-on-read").commit();
         TableIdentifier projected = TableIdentifier.of(namespace, "projected_values");
         if (catalog.tableExists(projected)) {
             catalog.dropTable(projected);
@@ -312,6 +313,14 @@ public class CreateIcebergSpatialV3Table {
         }
     }
     qt_spatial_schema """desc geometry_values"""
+    for (String spatialColumn : ["geom", "geog"]) {
+        "qt_spatial_multikey_${spatialColumn}"("""select id from geometry_values
+            order by ${spatialColumn} asc nulls last, id""")
+        "qt_spatial_multikey_topn_${spatialColumn}"("""select id from geometry_values
+            order by ${spatialColumn} desc nulls first, id limit 3""")
+        "qt_spatial_multikey_nonnull_${spatialColumn}"("""select id from geometry_values
+            where ${spatialColumn} is not null order by ${spatialColumn}, id""")
+    }
     order_qt_spatial_values """
         select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), ST_GeometryType(geom),
                hex(ST_AsBinary(geom)), ST_AsText(geog), ST_Distance(geog, geog)
@@ -507,14 +516,15 @@ public class CreateIcebergSpatialV3Table {
         engine=iceberg properties ('format-version' = '3',
             'write.update.mode' = 'merge-on-read', 'write.merge.mode' = 'merge-on-read')"""
     sql """insert into spatial_dml_values select id, geom, geog from geometry_values"""
+    // UPDATE coercion rejects incompatible carriers before the spatial identity checks.
     test {
         sql """explain update spatial_dml_values set geog =
             ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') where id = 1"""
-        exception "Spatial connector write type mismatch"
+        exception "can not cast from origin type GEOMETRY('OGC:CRS84') to target type=GEOGRAPHY"
     }
     test {
         sql """explain update spatial_dml_values set geom = 'not WKB' where id = 1"""
-        exception "Spatial connector write cannot convert"
+        exception "can not cast from origin type VARCHAR(7) to target type=GEOMETRY"
     }
     test {
         sql """explain merge into spatial_dml_values t using projected_values s on t.id = s.id
@@ -563,6 +573,14 @@ public class CreateIcebergSpatialV3Table {
         sql """insert into nested_spatial_values select * from nested_spatial_values"""
         exception "Nested spatial columns"
     }
+    test {
+        sql """explain merge into nested_spatial_values t using (select 1 id) s on s.id = 1
+            when matched then update set shapes = t.shapes"""
+        exception "Nested spatial columns"
+    }
+    sql """merge into nested_spatial_values t using (select 1 id) s on s.id = 1
+        when matched then delete"""
+    qt_nested_spatial_delete_only_merge """select count(*) from nested_spatial_values"""
     sql """drop table if exists spatial_wkb_values"""
     sql """create table spatial_wkb_values (id int, geom geometry, geog geography)
         engine=iceberg properties ('format-version' = '3')"""

@@ -28,6 +28,36 @@ id	int	Yes	true	\N
 geom	GEOMETRY('OGC:CRS84')	Yes	true	\N	
 geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N	
 
+-- !spatial_multikey_geom --
+3
+1
+2
+4
+
+-- !spatial_multikey_topn_geom --
+2
+4
+1
+
+-- !spatial_multikey_nonnull_geom --
+3
+1
+
+-- !spatial_multikey_geog --
+4
+1
+2
+3
+
+-- !spatial_multikey_topn_geog --
+2
+3
+1
+
+-- !spatial_multikey_nonnull_geog --
+4
+1
+
 -- !spatial_values --
 1	POINT (1 2)	1	2	ST_POINT	0101000000000000000000F03F0000000000000040	POINT (1 2)	0
 2	\N	\N	\N	\N	\N	\N	\N
@@ -120,6 +150,9 @@ id	referenced_crs_values	1.0	1.0	0.0
 
 -- !nested_spatial_values --
 1	POINT (1 2)	0101000000000000000000F03F0000000000000040
+
+-- !nested_spatial_delete_only_merge --
+0
 
 -- !spatial_wkb_values --
 1	false	false	MULTIPOINT ((1 2), (3 4))	MULTIPOINT ((1 2), (3 4))	ST_MULTIPOINT	\N	\N	0104000000020000000101000000000000000000F03F0000000000000040000000000140080000000000004010000000000000
