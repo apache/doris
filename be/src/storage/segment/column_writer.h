@@ -35,7 +35,7 @@
 #include "common/status.h" // for Status
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/segment/common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -210,6 +210,8 @@ public:
     virtual uint64_t get_raw_data_bytes() const = 0;
     virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
+    // Points to one of the three data bytes getters above.
+    using DataBytesGetter = uint64_t (ColumnWriter::*)() const;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -223,9 +225,6 @@ public:
     size_t cell_size() const { return field_type_size(_column->type()); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
-
-protected:
-    DataTypePtr _data_type;
 
 private:
     TabletColumnPtr _column;
@@ -512,7 +511,8 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows,
+                             bool is_null); // U+5199 U+5165 num_rowsU+4E2A nullU+6807 U+8BB0
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
@@ -622,16 +622,14 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override { return _writer->get_raw_data_bytes(); }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_uncompressed_data_pages_bytes();
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_compressed_data_pages_bytes();
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -690,17 +688,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
 
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
 
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

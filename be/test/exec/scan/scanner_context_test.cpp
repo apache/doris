@@ -33,6 +33,7 @@
 #include <tuple>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exec/operator/olap_scan_operator.h"
@@ -287,19 +288,16 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     stats1->snii_stats.prx_raw_frames = 1;
     stats1->snii_stats.prx_plaintext_bytes = 10;
     stats1->snii_stats.prx_decode_ns = 100;
-    stats1->snii_stats.phrase_candidate_docs = 3;
     auto* stats2 = scanner2->_tablet_reader->mutable_stats();
     stats2->snii_stats.prx_raw_frames = 2;
     stats2->snii_stats.prx_plaintext_bytes = 20;
     stats2->snii_stats.prx_decode_ns = 200;
-    stats2->snii_stats.phrase_candidate_docs = 4;
 
     RuntimeProfile* index_filter = local_state->_index_filter_profile.get();
     ASSERT_NE(index_filter, nullptr);
     auto* raw_frames = index_filter->get_counter("SniiPrxRawFrames");
     auto* plaintext_bytes = index_filter->get_counter("SniiPrxPlaintextBytes");
     auto* decode_time = index_filter->get_counter("SniiPrxInclusiveDecodeTime");
-    auto* phrase_candidate_docs = index_filter->get_counter("SniiPhraseCandidateDocs");
 
     std::vector<TRuntimeProfileNode> zero_nodes;
     index_filter->to_thrift(&zero_nodes);
@@ -307,25 +305,21 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     ASSERT_NE(raw_frames, nullptr);
     ASSERT_NE(plaintext_bytes, nullptr);
     ASSERT_NE(decode_time, nullptr);
-    ASSERT_NE(phrase_candidate_docs, nullptr);
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
-    EXPECT_EQ(phrase_candidate_docs->value(), 3);
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
-    EXPECT_EQ(phrase_candidate_docs->value(), 3);
 
     scanner2->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 3);
     EXPECT_EQ(plaintext_bytes->value(), 30);
     EXPECT_EQ(decode_time->value(), 300);
-    EXPECT_EQ(phrase_candidate_docs->value(), 7);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {
@@ -1129,17 +1123,65 @@ TEST_F(ScannerContextTest, debug_string_reports_distinguishable_fields) {
             scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     // Every value is distinct so a misplaced placeholder is visible in the output.
-    shared_limit.store(100);
     scanner_context->_in_flight_tasks_num = 2;
     scanner_context->_is_context_queued = true;
     scanner_context->_num_finished_scanners = 5;
 
     const std::string debug = scanner_context->debug_string();
-    EXPECT_NE(debug.find("limit: 7, remaining_limit: 100, _in_flight_tasks_num: 2, "
+    EXPECT_NE(debug.find("limit: 7, _in_flight_tasks_num: 2, "
                          "_is_context_queued: true, _num_finished_scanners: 5, "
                          "_max_scan_concurrency: 3, expected_scanners: -1,"),
               std::string::npos)
             << debug;
+}
+
+TEST_F(ScannerContextTest, debug_string_after_scan_operator_destroyed) {
+    auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_exec_ctx);
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), local_state.get(), output_tuple_desc, false,
+            std::list<std::shared_ptr<ScannerDelegate>> {}, -1, scan_dependency,
+            &scan_operator->_shared_scan_limit, nullptr, nullptr, 0, false, 1);
+
+    // A queued task can retain the context after the fragment releases the scan operator.
+    local_state.reset();
+    scan_operator.reset();
+    task_exec_ctx.reset();
+    EXPECT_FALSE(scanner_context->debug_string().empty());
+    ASSERT_EQ(scanner_context->task_exec_ctx(), nullptr);
+    // A failed context lock logs diagnostics before returning without touching the scan task.
+    EXPECT_TRUE(scan_scheduler->submit(scanner_context, nullptr).ok());
+}
+
+TEST_F(ScannerContextTest, adaptive_cleanup_after_scan_operator_destroyed) {
+    const auto query_id = state->get_query_ctx()->query_id();
+    const int64_t query_mem_limit = 1024 * 1024 * 1024;
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, 1, false, query_mem_limit);
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), local_state.get(), output_tuple_desc, false,
+            std::list<std::shared_ptr<ScannerDelegate>> {}, -1, scan_dependency,
+            &scan_operator->_shared_scan_limit, arbitrator, limiter, 0, true, 1);
+    limiter->update_open_tasks_count(1);
+    arbitrator->register_scan_node();
+    limiter->update_arb_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
+
+    // Enable the destructor's diagnostic path, and restore the module's previous log level.
+    const int old_vlog_level = google::SetVLOGLevel("scanner_context", 7);
+    Defer restore_vlog([&] { google::SetVLOGLevel("scanner_context", old_vlog_level); });
+    local_state.reset();
+    scan_operator.reset();
+    scanner_context.reset();
+
+    EXPECT_EQ(limiter->update_open_tasks_count(0), 0);
+    EXPECT_EQ(limiter->get_arb_scanner_mem_bytes(), 0);
+    EXPECT_EQ(arbitrator->total_mem_bytes.load(), 0);
 }
 
 TEST_F(ScannerContextTest, thread_pool_submit_failure_policy) {

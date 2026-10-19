@@ -125,7 +125,11 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
     return _bloom_filter_func ? _bloom_filter_func->build_bf_by_runtime_size() : false;
 }
 
-Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+// Pre-existing size/complexity debt from the per-filter-type switch below, already over
+// threshold before this change; not addressed here to keep this diff focused.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
+                                   bool other_exclusively_owned) {
     DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
@@ -189,9 +193,15 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(_change_to_bloom_filter());
                 }
-            } else {
-                // case1&case2: use input bf directly and insert hybrid set data into bf
+            } else if (other_exclusively_owned) {
+                // `other` has no other reader, so its bf can be taken over directly instead of
+                // cloned before inserting the hybrid set data into it.
                 _bloom_filter_func = other->_bloom_filter_func;
+                RETURN_IF_ERROR(_change_to_bloom_filter());
+            } else {
+                // case1&case2: use a copy of input bf and insert hybrid set data into it. `other`
+                // may still be used by its own consumers, so it must not be written.
+                RETURN_IF_ERROR(other->_bloom_filter_func->clone(&_bloom_filter_func, true));
                 RETURN_IF_ERROR(_change_to_bloom_filter());
             }
         } else {
@@ -209,6 +219,29 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         return Status::InternalError("unknown runtime filter");
     }
     set_state(State::READY);
+    return Status::OK();
+}
+
+Status RuntimeFilterWrapper::clone(std::shared_ptr<RuntimeFilterWrapper>* res) const {
+    auto cloned = std::make_shared<RuntimeFilterWrapper>(_column_return_type, _filter_type,
+                                                         _filter_id, _state.load(), _max_in_num);
+    cloned->_disable_always_true_logic = _disable_always_true_logic;
+    cloned->_reason.update(_reason.status());
+    if (_hybrid_set) {
+        cloned->_hybrid_set.reset(create_set(_column_return_type, _hybrid_set->null_aware()));
+        cloned->_hybrid_set->insert(_hybrid_set.get());
+    }
+    if (_minmax_func) {
+        cloned->_minmax_func.reset(_minmax_func->clone());
+    }
+    if (_bloom_filter_func) {
+        // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter: a
+        // later merge which changes the copy to a bloom filter either re-initializes the bloom
+        // filter or takes a copy of the input one first. So do not copy the unused bloom filter.
+        RETURN_IF_ERROR(_bloom_filter_func->clone(
+                &cloned->_bloom_filter_func, get_real_type() == RuntimeFilterType::BLOOM_FILTER));
+    }
+    *res = std::move(cloned);
     return Status::OK();
 }
 

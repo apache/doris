@@ -399,6 +399,18 @@ final class IcebergPartitionUtils {
                 // Iceberg time is stored as microseconds since midnight.
                 long micros = (Long) value;
                 return LocalTime.ofNanoOfDay(micros * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_NANO:
+                if (value == null) {
+                    return null;
+                }
+                long nanos = (Long) value;
+                LocalDateTime timestampNs = LocalDateTime.ofEpochSecond(
+                        Math.floorDiv(nanos, 1_000_000_000L),
+                        (int) Math.floorMod(nanos, 1_000_000_000L), ZoneOffset.UTC);
+                if (((org.apache.iceberg.types.Types.TimestampNanoType) type).shouldAdjustToUTC()) {
+                    return timestampNs.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                }
+                return timestampNs.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case TIMESTAMP:
                 if (value == null) {
                     return null;
@@ -479,6 +491,21 @@ final class IcebergPartitionUtils {
                 case DATE:
                     // Iceberg date is days since epoch (1970-01-01).
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIMESTAMP_NANO:
+                    // Match the sink cast: a date-only static partition denotes midnight.
+                    if (valueStr.length() == 10) {
+                        return toEpochNanos(LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
+                    }
+                    java.time.temporal.TemporalAccessor parsedNs =
+                            TIMESTAMP_PARTITION_FORMAT.parse(valueStr.replace('T', ' '));
+                    LocalDateTime timestampNs = LocalDateTime.from(parsedNs);
+                    ZoneOffset offset = parsedNs.query(java.time.temporal.TemporalQueries.offset());
+                    if (offset != null) {
+                        // The sink casts offset literals to session-local civil time before writing NTZ.
+                        // Overwrite filters must target that same partition, not discard the input offset.
+                        timestampNs = LocalDateTime.ofInstant(timestampNs.toInstant(offset), zone);
+                    }
+                    return toEpochNanos(timestampNs);
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
                 case DECIMAL:
@@ -801,6 +828,13 @@ final class IcebergPartitionUtils {
                 return false;
             }
             PartitionField partitionField = fields.get(0);
+            Type sourceType = spec.schema().findType(partitionField.sourceId());
+            // Historical void partition fields can outlive their dropped source column.
+            if (sourceType == null || sourceType.typeId() == Type.TypeID.TIMESTAMP_NANO) {
+                // Calendar boundaries and the NULL sentinel can exceed TIMESTAMP_NS's domain.
+                // Leave pruning to Iceberg instead of building invalid Doris RANGE boundaries.
+                return false;
+            }
             String transformName = partitionField.transform().toString();
             if (!YEAR.equals(transformName) && !MONTH.equals(transformName)
                     && !DAY.equals(transformName) && !HOUR.equals(transformName)) {
@@ -1137,4 +1171,12 @@ final class IcebergPartitionUtils {
             return upperBound;
         }
     }
+
+    static long toEpochNanos(LocalDateTime timestamp) {
+        // Widen before combining: the minimum nanosecond timestamp's whole second overflows long.
+        return BigDecimal.valueOf(timestamp.toEpochSecond(ZoneOffset.UTC))
+                .multiply(BigDecimal.valueOf(1_000_000_000L))
+                .add(BigDecimal.valueOf(timestamp.getNano())).longValueExact();
+    }
+
 }

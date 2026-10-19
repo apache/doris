@@ -19,6 +19,20 @@ import java.util.concurrent.ThreadLocalRandom
 
 suite("hive_on_hms_and_dlf", "p2,external") {
 
+    // DLF 1.0 is no longer an HMS metastore. Check its explicit rejection without cloud
+    // credentials, while retaining the HMS storage and authentication matrix below.
+    sql """DROP CATALOG IF EXISTS hive_dlf_unsupported_catalog"""
+    test {
+        sql """
+            CREATE CATALOG hive_dlf_unsupported_catalog PROPERTIES (
+                'type' = 'hms',
+                'hive.metastore.type' = 'dlf'
+            )
+        """
+        exception "hive.metastore.type = dlf is no longer supported: " +
+                "Alibaba Cloud DLF 1.0 as an HMS thrift metastore has been removed. Supported types: hms."
+    }
+
     // Keep generated identifiers under the FE 64-character limit for long prefixes.
     def buildDbName = { String prefix ->
         def suffix = String.format("_db%d%03d", System.currentTimeMillis(), ThreadLocalRandom.current().nextInt(1000))
@@ -501,17 +515,6 @@ suite("hive_on_hms_and_dlf", "p2,external") {
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
     
-    String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
-    String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
-    /**************** DLF *******************/
-
-    String dlf_oss_properties = """
-               "oss.endpoint" = "${oss_endpoint}",
-               "oss.access_key" = "${dlf_access_key}",
-               "oss.secret_key" = "${dlf_secret_key}",
-    """
-
-
     String hms_kerberos_old_prop = """
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "hadoop.security.authentication" = "kerberos",
@@ -626,31 +629,4 @@ suite("hive_on_hms_and_dlf", "p2,external") {
 
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "hive_hms_hdfs_new_kerberos_test", db_location)
-
-    /**************** DLF *******************/
-    String dlf_warehouse = "oss://selectdb-qa-datalake-test/hive-dlf-oss-warehouse"
-    String hive_dlf_catalog_base_properties = """
-            'type'='hms',
-            'hive.metastore.type'='dlf',
-            "dlf.uid" = "203225413946383283",
-            "dlf.catalog.id" = "p2_regression_case",
-            "dlf.access_key" = "${dlf_access_key}",
-            "dlf.secret_key" = "${dlf_secret_key}"
-   """
-    String dlf_region = "cn-beijing"
-    String dlf_region_param = """
-            "dlf.region" = "${dlf_region}",
-    """
-    String dlf_endpoint = context.config.otherConfigs.get("dlf_endpoint")
-    String dlf_endpoint_properties = """
-             "dlf.endpoint" = "${dlf_endpoint}",
-    """
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param + dlf_oss_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test_with_oss", db_location)
- 
-    // not has region param
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_endpoint_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
 }

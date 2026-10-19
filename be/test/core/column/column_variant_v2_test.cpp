@@ -81,9 +81,7 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -101,6 +99,18 @@ std::string empty_metadata_bytes() {
             static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
     metadata.push_back(0);
     metadata.push_back(0);
+    return metadata;
+}
+
+std::string single_key_metadata_bytes(std::string_view key) {
+    EXPECT_LE(key.size(), std::numeric_limits<uint8_t>::max());
+    std::string metadata;
+    metadata.push_back(
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
+    metadata.push_back(1);
+    metadata.push_back(0);
+    metadata.push_back(static_cast<char>(key.size()));
+    metadata.append(key);
     return metadata;
 }
 
@@ -225,6 +235,51 @@ struct OwnedEncodedData {
                 .value_bytes = {value_bytes.data(), value_bytes.size()},
                 .value_offsets = value_offsets};
     }
+};
+
+class MaterializableShreddedState final : public VariantShreddedState {
+public:
+    explicit MaterializableShreddedState(ColumnPtr materialized)
+            : _materialized(std::move(materialized)) {}
+
+    size_t size() const override { return _materialized->size(); }
+    size_t byte_size() const override { return _materialized->byte_size(); }
+    size_t allocated_bytes() const override { return _materialized->allocated_bytes(); }
+    void sanity_check() const override { _materialized->sanity_check(); }
+    void for_each_subcolumn(IColumn::ColumnCallback callback) const override {
+        callback(*_materialized);
+    }
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t result_size_hint) const override {
+        return std::make_shared<MaterializableShreddedState>(
+                _materialized->filter(filter, result_size_hint));
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
+        return std::make_shared<MaterializableShreddedState>(_materialized->cut(start, length));
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        MutableColumnPtr selected = _materialized->clone_empty();
+        selected->insert_indices_from(*_materialized, indices_begin, indices_end);
+        return std::make_shared<MaterializableShreddedState>(std::move(selected));
+    }
+    bool can_materialize() const override { return true; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        return assert_cast<const ColumnVariantV2&>(*_materialized);
+    }
+    const ColumnVariantV2& serialized_column() const override { return materialized_column(); }
+
+private:
+    ColumnPtr _materialized;
 };
 
 OwnedEncodedData late_invalid_encoded_rows() {
@@ -1067,6 +1122,136 @@ TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotChangeTypedState) {
     }
 }
 
+TEST(ColumnVariantV2Test, InvalidEncodedRowsAppenderDoesNotChangeTypedState) {
+    constexpr std::array<int32_t, 1> TYPED_VALUES {7};
+    constexpr std::array<uint8_t, 1> TYPED_NULLS {0};
+    const VariantField first = encode_json("1");
+    const VariantField second = encode_json("2");
+    std::string invalid_value(second.ref().value.data, second.ref().value.size);
+    invalid_value.push_back('\0');
+    const std::array<VariantRef, 2> invalid_rows {
+            first.ref(), VariantRef {.metadata = second.ref().metadata,
+                                     .value = {invalid_value.data(), invalid_value.size()}}};
+
+    auto typed = typed_int32(TYPED_VALUES, TYPED_NULLS);
+    const IColumn* typed_storage = subcolumns(*typed).front().get();
+    auto appender = typed->create_encoded_rows_appender();
+    EXPECT_THROW(appender.append(invalid_rows), Exception);
+    ASSERT_TRUE(typed->is_typed());
+    EXPECT_EQ(subcolumns(*typed).front().get(), typed_storage);
+    expect_int32_rows(*typed, TYPED_VALUES, TYPED_NULLS);
+    typed->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderRejectsSameEncodedColumnBorrow) {
+    auto column = ColumnVariantV2::create();
+    insert_encoded_field(*column, encode_json(R"({"old":"value-that-must-remain-owned"})"));
+    const std::string expected = json_at(*column, 0);
+    const VariantRef borrowed = column->get_value_ref(0);
+    // Repeating the borrowed value makes the requested append exceed the existing value capacity,
+    // covering the reserve-induced invalidation that this API must reject before mutation.
+    const std::vector<VariantRef> borrowed_rows(4096, borrowed);
+
+    auto appender = column->create_encoded_rows_appender();
+    try {
+        appender.append(borrowed_rows);
+        FAIL() << "expected same-column encoded rows to be rejected";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(exception.message().find("must not alias"), std::string::npos)
+                << exception.message();
+    }
+
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(json_at(*column, 0), expected);
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderRejectsSameShreddedColumnBorrow) {
+    auto materialized = ColumnVariantV2::create();
+    insert_encoded_field(*materialized, encode_json(R"({"old":7})"));
+    auto column = ColumnVariantV2::create_shredded(
+            std::make_shared<MaterializableShreddedState>(std::move(materialized)));
+    const VariantRef borrowed = column->get_value_ref(0);
+
+    auto appender = column->create_encoded_rows_appender();
+    try {
+        appender.append(std::span<const VariantRef>(&borrowed, 1));
+        FAIL() << "expected same-column shredded rows to be rejected";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(exception.message().find("must not alias"), std::string::npos)
+                << exception.message();
+    }
+
+    EXPECT_TRUE(column->is_shredded());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(json_at(*column, 0), R"({"old":7})");
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderInternsHighCardinalityMetadataAcrossChunks) {
+    constexpr size_t ROWS = 4097;
+    std::vector<std::string> metadata_storage;
+    metadata_storage.reserve(ROWS);
+    for (size_t row = 0; row < ROWS; ++row) {
+        metadata_storage.push_back(single_key_metadata_bytes("unused-" + std::to_string(row)));
+    }
+    const std::string value = integer_value_bytes(7, 1);
+    std::vector<VariantRef> encoded_rows;
+    encoded_rows.reserve(ROWS);
+    for (const std::string& metadata : metadata_storage) {
+        encoded_rows.push_back({.metadata = {.data = metadata.data(), .size = metadata.size()},
+                                .value = {value.data(), value.size()}});
+    }
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    appender.append(std::span<const VariantRef>(encoded_rows.data(), 4096));
+    appender.append(std::span<const VariantRef>(encoded_rows.data() + 4096, 1));
+
+    ASSERT_EQ(column->size(), ROWS);
+    ASSERT_EQ(metadata_count(*column), ROWS);
+    // A hash collision may require a byte comparison, but lookups must not scan the growing
+    // destination dictionary as the old O(U^2) implementation did.
+    EXPECT_LT(appender.metadata_comparisons_for_test(), ROWS * 4);
+    for (const size_t row : {size_t {0}, size_t {4095}, size_t {4096}}) {
+        const VariantRef imported = column->get_value_ref(row);
+        EXPECT_EQ(as_view({imported.metadata.data, imported.metadata.size}), metadata_storage[row]);
+        EXPECT_EQ(imported.value, StringRef(value));
+        EXPECT_EQ(imported.get_int(), 7);
+    }
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderReusesValidationScratchAcrossChunks) {
+    constexpr size_t FIELDS = 64;
+    constexpr size_t ROWS = 4096;
+    std::string json = R"({"nested":{"x":1,"y":[{"z":2}]})";
+    for (size_t field = 0; field < FIELDS; ++field) {
+        json += ",\"k" + std::to_string(field) + "\":" + std::to_string(field);
+    }
+    json.push_back('}');
+    const VariantField wide = encode_json(json);
+    const std::vector<VariantRef> rows(ROWS, wide.ref());
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), 0);
+    appender.append(rows);
+    const size_t capacity = appender.validation_scratch_capacity_for_test();
+    EXPECT_GE(capacity, FIELDS + 1);
+    appender.append(rows);
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), capacity);
+
+    ASSERT_EQ(column->size(), 2 * ROWS);
+    JsonWriter expected;
+    to_json(wide.ref(), expected);
+    EXPECT_EQ(json_at(*column, 0), expected.value);
+    EXPECT_EQ(json_at(*column, 2 * ROWS - 1), expected.value);
+    column->sanity_check();
+}
+
 TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotPartiallyAppendEncodedState) {
     const OwnedEncodedData invalid = late_invalid_encoded_rows();
     for (const bool omit_single_metadata_ids : {false, true}) {
@@ -1118,6 +1303,21 @@ TEST(ColumnVariantV2Test, EmptyEncodedAppendsPreserveTypedState) {
     ASSERT_TRUE(batch_destination->is_typed());
     EXPECT_EQ(subcolumns(*batch_destination).front().get(), batch_storage);
     expect_int32_rows(*batch_destination, VALUES, NULLS);
+
+    auto borrowed_destination = typed_int32(VALUES, NULLS);
+    const IColumn* borrowed_storage = subcolumns(*borrowed_destination).front().get();
+    auto borrowed_appender = borrowed_destination->create_encoded_rows_appender();
+    borrowed_appender.append(std::span<const VariantRef> {});
+    ASSERT_TRUE(borrowed_destination->is_typed());
+    EXPECT_EQ(subcolumns(*borrowed_destination).front().get(), borrowed_storage);
+    expect_int32_rows(*borrowed_destination, VALUES, NULLS);
+
+    auto size_calls = std::make_shared<size_t>(0);
+    auto shredded_destination = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+    auto shredded_appender = shredded_destination->create_encoded_rows_appender();
+    shredded_appender.append(std::span<const VariantRef> {});
+    EXPECT_TRUE(shredded_destination->is_shredded());
 }
 
 TEST(ColumnVariantV2Test, ReadViewBorrowsValidatedEncodedState) {
@@ -1279,9 +1479,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         encoder.add_json(StringRef("7", 1));
         VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
@@ -1291,9 +1490,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         constexpr std::string_view FIRST = R"({"a":[1,{"b":true}]})";
         constexpr std::string_view SECOND = R"({"b":2,"a":[]})";
         encoder.add_json({FIRST.data(), FIRST.size()});

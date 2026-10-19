@@ -115,7 +115,7 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
                 return new String[] {rs.getString("TABLE_OWNER"), rs.getString("TABLE_NAME")};
             }
         } catch (SQLException e) {
-            LOG.debug("Failed to resolve synonym {}.{}: {}", schema, tableName, e.getMessage());
+            LOG.debug("Failed to resolve synonym {}.{}: {}", schema, tableName, jdbcDiagnosticMessage(e));
         } finally {
             closeResources(rs, stmt, conn);
         }
@@ -171,6 +171,9 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
                 }
                 return createDecimalOrString(scale, scale);
             }
+            case "BINARY_FLOAT":
+                return ConnectorType.of("FLOAT");
+            case "BINARY_DOUBLE":
             case "FLOAT":
                 return ConnectorType.of("DOUBLE");
             case "DATE":
@@ -207,7 +210,7 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, e.getMessage());
+            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, jdbcDiagnosticMessage(e));
         }
         return -1;
     }

@@ -446,7 +446,12 @@ public class Alter {
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
-                setExternalTableAutoAnalyzePolicy(table, alterOps);
+                Map<String, String> properties = alterOp.getProperties();
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+                    setExternalTableAutoAnalyzePolicy(table, alterOps);
+                } else {
+                    table.getCatalog().updateTableProperties(table, properties);
+                }
             } else if (alterOp instanceof CreateOrReplaceBranchOp) {
                 table.getCatalog().createOrReplaceBranch(
                         table, ((CreateOrReplaceBranchOp) alterOp).getBranchInfo());

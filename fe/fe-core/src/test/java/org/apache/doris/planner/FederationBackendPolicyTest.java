@@ -36,6 +36,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -65,6 +67,78 @@ public class FederationBackendPolicyTest {
     @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
+    }
+
+    @Test
+    public void testRoundRobinUsesCandidateOrderAcrossBatches() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend first = new Backend(10002L, "172.30.0.100", 9050);
+        Backend second = new Backend(10003L, "172.30.0.106", 9050);
+        Backend third = new Backend(10004L, "172.30.0.118", 9050);
+        for (Backend backend : List.of(first, second, third)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+
+        // Test different query-local candidate orders. A Host map has one stable iteration order,
+        // so it cannot satisfy both first-split expectations.
+        for (List<Backend> order : List.of(List.of(first, second, third), List.of(third, first, second))) {
+            FederationBackendPolicy policy = new FederationBackendPolicy();
+            policy.init();
+            policy.replaceBackendOrder(order);
+            policy.setEnableSplitsRedistribution(false);
+            for (int i = 0; i < 4; i++) {
+                FileSplit split = new FileSplit(LocationPath.of("hdfs://example/test/part-" + i),
+                        0, 1, 1, 0, null, Collections.emptyList());
+                Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                        new ArrayList<>(List.of(split)));
+                Assertions.assertEquals(order.get(i % order.size()), assignment.keySet().iterator().next());
+            }
+
+            policy.replaceBackendOrder(List.of(first, second));
+            FileSplit excludedLocalSplit = new FileSplit(LocationPath.of("hdfs://example/excluded-local-part"),
+                    0, 1, 1, 0, new String[]{third.getHost()}, Collections.emptyList());
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                    new ArrayList<>(List.of(excludedLocalSplit)));
+            Assertions.assertTrue(assignment.keySet().stream()
+                    .allMatch(backend -> backend.equals(first) || backend.equals(second)));
+        }
+    }
+
+    @Test
+    public void testRoundRobinPreservesOrderForBackendsOnSameHost() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend first = new Backend(11002L, "172.30.0.100", 9050);
+        Backend second = new Backend(11003L, "172.30.0.100", 9051);
+        Backend third = new Backend(11004L, "172.30.0.100", 9052);
+        for (Backend backend : List.of(first, second, third)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        policy.replaceBackendOrder(List.of(second, third, first));
+        policy.setEnableSplitsRedistribution(false);
+        for (int i = 0; i < 3; i++) {
+            FileSplit split = new FileSplit(LocationPath.of("hdfs://example/same-host-part-" + i),
+                    0, 1, 1, 0, null, Collections.emptyList());
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                    new ArrayList<>(List.of(split)));
+            Assertions.assertEquals(List.of(second, third, first).get(i),
+                    assignment.keySet().iterator().next());
+        }
+        Assertions.assertDoesNotThrow(() -> policy.replaceBackendOrder(List.of(first, second)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(List.of(first, first, third)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(List.of(new Backend(11005L, "172.30.0.101", 9050))));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(Collections.emptyList()));
     }
 
     @Test
@@ -102,6 +176,9 @@ public class FederationBackendPolicyTest {
 
         Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
 
+        Assertions.assertEquals(splits.size(), assignment.values().size());
+        Assertions.assertTrue(assignment.keySet().stream()
+                .allMatch(backend -> backend.equals(backend1) || backend.equals(backend2) || backend.equals(backend3)));
         for (Backend backend : assignment.keySet()) {
             Collection<Split> assignedSplits = assignment.get(backend);
             long scanBytes = 0L;
@@ -221,6 +298,9 @@ public class FederationBackendPolicyTest {
 
         Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
 
+        Assertions.assertEquals(splits.size(), assignment.values().size());
+        Assertions.assertTrue(assignment.keySet().stream()
+                .allMatch(backend -> backend.equals(backend1) || backend.equals(backend2) || backend.equals(backend3)));
         int maxAssignedSplitNum = Integer.MIN_VALUE;
         int minAssignedSplitNum = Integer.MAX_VALUE;
         for (Backend backend : assignment.keySet()) {
@@ -242,6 +322,49 @@ public class FederationBackendPolicyTest {
 
     }
 
+    @Test
+    public void testConsistentHashSingleSplitTieIsStableAcrossPolicies() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend1 = new Backend(10002L, "172.30.0.100", 9050);
+        Backend backend2 = new Backend(10003L, "172.30.0.106", 9050);
+        Backend backend3 = new Backend(10004L, "172.30.0.118", 9050);
+        for (Backend backend : List.of(backend1, backend2, backend3)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
+
+        int originalCandidateNum = Config.split_assigner_min_consistent_hash_candidate_num;
+        Config.split_assigner_min_consistent_hash_candidate_num = 2;
+        try {
+            Backend assignedBackend = null;
+            for (int i = 0; i < 10; i++) {
+                FederationBackendPolicy policy = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+                policy.init();
+                policy.setEnableSplitsRedistribution(false);
+                FileSplit split = new FileSplit(LocationPath.of("hdfs://example/cache-hotspot.csv"),
+                        0, 1024, 1024, 0, null, Collections.emptyList());
+                Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                        new ArrayList<>(List.of(split)));
+                Backend currentBackend = assignment.keySet().iterator().next();
+                if (assignedBackend == null) {
+                    assignedBackend = currentBackend;
+                } else {
+                    Assertions.assertEquals(assignedBackend, currentBackend);
+                }
+            }
+            FederationBackendPolicy consistentHashPolicy =
+                    new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+            consistentHashPolicy.init();
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> consistentHashPolicy.replaceBackendOrder(List.of(backend1, backend2)));
+        } finally {
+            Config.split_assigner_min_consistent_hash_candidate_num = originalCandidateNum;
+        }
+    }
+
     public static void sortSplits(List<Split> splits) {
         splits.sort((split1, split2) -> {
             int pathComparison = split1.getPathString().compareTo(split2.getPathString());
@@ -257,15 +380,15 @@ public class FederationBackendPolicyTest {
         });
     }
 
-    @Test
-    public void testGenerateRandomly() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testGenerateRandomly(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -303,7 +426,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();
@@ -367,15 +491,15 @@ public class FederationBackendPolicyTest {
         }
     }
 
-    @Test
-    public void testNonAliveNodes() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testNonAliveNodes(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -419,7 +543,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();

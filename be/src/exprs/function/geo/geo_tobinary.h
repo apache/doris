@@ -25,6 +25,8 @@ struct ToBinaryContext;
 
 namespace doris {
 
+enum class wkbType : int;
+
 class GeoShape;
 class GeoPoint;
 class GeoLine;
@@ -47,7 +49,7 @@ private:
 
     static void writeByteOrder(ToBinaryContext* ctx);
 
-    static void writeGeometryType(int geometryType, ToBinaryContext* ctx);
+    static void writeGeometryType(wkbType geometryType, ToBinaryContext* ctx);
 
     static void writeInt(int intValue, ToBinaryContext* ctx);
 

@@ -90,6 +90,14 @@ BaseTabletsChannel::~BaseTabletsChannel() {
 
 TabletsChannel::~TabletsChannel() = default;
 
+Status BaseTabletsChannel::_check_cancelled() {
+    if (_load_cancel_status && !_load_cancel_status->ok()) {
+        _close_status = _load_cancel_status->status();
+        return _close_status;
+    }
+    return Status::OK();
+}
+
 Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
                                             const PTabletWriterAddBlockRequest& request,
                                             bool& should_write) {
@@ -138,8 +146,9 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
-    // if _state is kOpened, it's a normal case, already open by other sender
-    // if _state is kFinished, already cancelled by other sender
+    RETURN_IF_ERROR(_check_cancelled());
+    // Another sender may have already opened or closed this channel.
+    // Shared load cancellation is checked above and does not change _state.
     if (_state == kOpened) {
         RETURN_IF_ERROR(_init_adaptive_random_bucket_state(request));
         return Status::OK();
@@ -198,6 +207,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     }
 
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
 
     // one sender may incremental_open many times. but only close one time. so dont count duplicately.
     if (_open_by_incremental) {
@@ -238,6 +248,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         incremental_tablet_num++;
 
         WriteRequest wrequest;
+        wrequest.load_cancel_status = _load_cancel_status;
         wrequest.index_id = params.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
@@ -357,11 +368,15 @@ Status BaseTabletsChannel::_close_and_notify(std::unique_lock<std::mutex>& lock,
     _state = kFinished;
     _final_sender_id = sender_id;
     _final_close_in_progress = true;
+    const auto arrival_status = _check_cancelled();
     lock.unlock();
-    _eos_completion->complete(Status::OK());
+    _eos_completion->complete(arrival_status);
     lock.lock();
 
-    _close_status = _close_writers(response);
+    _close_status = _check_cancelled();
+    if (_close_status.ok()) {
+        _close_status = _close_writers(response);
+    }
     _final_close_result = std::make_unique<PTabletWriterAddBlockResult>(*response);
     _final_close_in_progress = false;
     _final_close_cv.notify_all();
@@ -424,6 +439,7 @@ Status TabletsChannel::_close_writers(PTabletWriterAddBlockResult* res) {
     std::set<DeltaWriter*> need_wait_writers;
     // under _lock. no need _tablet_writers_lock again.
     for (auto&& [tablet_id, writer] : _tablet_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         if (_partition_ids.contains(writer->partition_id())) {
             auto st = writer->close();
             if (!st.ok()) {
@@ -620,6 +636,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
+                .load_cancel_status = _load_cancel_status,
         };
         if (tablet.has_binlog_tablet_id()) {
             wrequest.binlog_tablet_id = tablet.binlog_tablet_id();

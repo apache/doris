@@ -94,9 +94,10 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -216,6 +217,11 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.tablefunction.FileTableValuedFunction;
+import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.HttpTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -254,7 +260,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -335,7 +340,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
-        PlanFragment upstreamFragment = upstream.accept(this, context);
+        // The exchange keeps the upstream fragment apart from any fragment-merging ancestor,
+        // so an aggregate fused into BucketedAggregationNode below it is safe.
+        int fragmentMergeChildDepth = context.enterExchangeBoundary();
+        PlanFragment upstreamFragment;
+        try {
+            upstreamFragment = upstream.accept(this, context);
+        } finally {
+            context.exitExchangeBoundary(fragmentMergeChildDepth);
+        }
         List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
@@ -565,7 +578,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
         rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE,
-                false, false, deleteSink.getBoundWriteMetadataIdentity()));
+                false, false, deleteSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -603,7 +616,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
         rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
                 mergeSink.isWritesDataFiles(), mergeSink.isRequireMergeCardinalityCheck(),
-                mergeSink.getBoundWriteMetadataIdentity()));
+                mergeSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -621,7 +634,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
             PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
             boolean writesDataFiles, boolean requireMergeCardinalityCheck,
-            String boundWriteMetadataIdentity) {
+            String boundWriteMetadataIdentity, PlanTranslatorContext context) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -660,7 +673,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
                 providerTableHandle, connectorColumns, connectorColumns, null, writeOperation,
-                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata);
+                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata,
+                context.getBeExecVersion());
     }
 
     @Override
@@ -727,8 +741,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
                 writePlanProvider, connSession, providerTableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, false,
-                boundWriteMetadataIdentity, metadata);
+                boundTargetColumns, writeSortInfo, writeOperation, true, false,
+                boundWriteMetadataIdentity, metadata, context.getBeExecVersion());
         rootFragment.setSink(providerSink);
         return rootFragment;
     }
@@ -1148,6 +1162,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        if (context.getRelationPushAggOp(tvfRelation.getRelationId()) == TPushAggOp.COUNT) {
+            scanNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+            scanNode.setPushDownCountSlotIds(ImmutableList.of());
+        }
         scanNode.setEnableConditionCache(true);
         scanNode.setDistributeExprLists(getDistributeExpr(tvfRelation));
         scanNode.setNereidsId(tvfRelation.getId());
@@ -1193,6 +1211,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return visitBucketedFusion(aggregate, context);
         }
 
+        countPushDownFileTvf(aggregate, ConnectContext.get().getSessionVariable()).ifPresent(tvf -> {
+            context.setRelationPushAggOp(tvf.getRelationId(), TPushAggOp.COUNT);
+            context.setRelationPushCountArgumentExprIds(tvf.getRelationId(), ImmutableList.of());
+        });
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1259,7 +1281,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // agg(update serialize) <- child, also set colocate = true
             if (aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
                     && child instanceof PhysicalHashAggregate
-                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode.consumeAggregateBuffer
+                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode
+                            .consumeAggregateBuffer
                     && inputPlanFragment.getPlanRoot() instanceof AggregationNode) {
                 AggregationNode childAgg = (AggregationNode) inputPlanFragment.getPlanRoot();
                 childAgg.setColocate(true);
@@ -1293,6 +1316,47 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return inputPlanFragment;
+    }
+
+    /** Match only row-count aggregates over an unfiltered external file TVF. */
+    static Optional<PhysicalTVFRelation> countPushDownFileTvf(
+            PhysicalHashAggregate<? extends Plan> aggregate, SessionVariable sessionVariable) {
+        Plan child = aggregate.child(0);
+        if (child instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) child;
+            // COUNT readers synthesize column values, but retained expressions still execute on those columns.
+            if (project.getProjects().stream()
+                    .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))
+                    || project.getMultiLayerProjects().stream().flatMap(List::stream)
+                            .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))) {
+                return Optional.empty();
+            }
+        }
+        Plan tvfChild = child instanceof PhysicalProject && child.child(0) instanceof PhysicalTVFRelation
+                ? child.child(0) : child;
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        AggregateFunction aggregateFunction = aggregateFunctions.size() == 1
+                ? aggregateFunctions.iterator().next() : null;
+        if (tvfChild instanceof PhysicalTVFRelation
+                && isCountPushDownFileTvf(((PhysicalTVFRelation) tvfChild).getFunction().getCatalogFunction())
+                && aggregate.getGroupByExpressions().isEmpty()
+                && aggregateFunction instanceof Count
+                && ((Count) aggregateFunction).isCountStar()
+                && !aggregateFunction.isDistinct()
+                && !aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
+                && sessionVariable.enablePushDownNoGroupAgg()
+                && sessionVariable.isEnableCountPushDownForExternalTable()) {
+            return Optional.of((PhysicalTVFRelation) tvfChild);
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isCountPushDownFileTvf(TableValuedFunctionIf catalogFunction) {
+        return catalogFunction instanceof FileTableValuedFunction
+                || catalogFunction instanceof HdfsTableValuedFunction
+                || catalogFunction instanceof HttpTableValuedFunction
+                || catalogFunction instanceof LocalTableValuedFunction
+                || catalogFunction instanceof S3TableValuedFunction;
     }
 
     @Override
@@ -3329,43 +3393,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade, no UDAF
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
-            return false;
-        }
-        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
-        if (aggregate.getAggPhase() != AggPhase.GLOBAL
-                || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
-            return false;
-        }
-        // BucketedAggregationNode always finalizes into the output tuple slot
-        // types (need_finalize=true, isPartial=false), so fusing an aggregate
-        // whose functions produce buffers (partial) would fail the BE
-        // result-type check: the slot type of a buffer-producing function is
-        // Varchar while the function's final return type (e.g. DOUBLE for
-        // stddev) is what insert_result_into writes. The one-phase GLOBAL
-        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
-        // the node itself is INPUT_TO_RESULT but its non-distinct functions
-        // run in INPUT_TO_BUFFER mode — and must stay on the regular
-        // AggregationNode path, which serializes when isPartial.
-        if (containsPartialAggFunction(aggregate)) {
-            return false;
-        }
-        // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
-        // BucketedAggregationNode has no sort-info field, so fusing would drop
-        // the aggregate ORDER BY contract. Only aggregates supporting two-phase
-        // execution can be safely fused.
-        if (!supportsTwoPhaseAgg(aggregate)) {
-            return false;
-        }
-        // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
-        // optimization). Regular AggregationNode fills sort info; fusing would drop it.
-        if (aggregate.getTopnPushInfo() != null) {
-            return false;
-        }
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
         if (!(child instanceof PhysicalDistribute)) {
+            return false;
+        }
+        // Shared eligibility (also used by the regulator, the cost model and the
+        // output property deriver):
+        // session var, single-BE, GROUP BY, spill / query cache off, smooth upgrade,
+        // no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial (buffer-producing)
+        // function, two-phase capable functions, no pushed TopN, child hash-distributed
+        // by exactly the GROUP BY keys. A distribute on a strict subset of them
+        // (agg_shuffle_use_parent_key) must be kept: the parent consumes the aggregate
+        // without an exchange and relies on that distribution.
+        if (!AggregateUtils.isBucketedHashAggFusible(aggregate,
+                ((PhysicalDistribute<?>) child).getDistributionSpec())) {
             return false;
         }
         // Bucketed fusion bypasses the distribute/exchange and builds directly on the
@@ -3383,28 +3425,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // UnassignedJobBuilder: "Not supported multiple scan multiple OlapTable but
         // not contains colocate join or bucket shuffle join"), and fusing over a
         // nested aggregate would break the bucket alignment between stages.
-        if (!isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
+        if (!AggregateUtils.isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
             return false;
         }
-        // The parent is a fragment-merging node (join / set-op) that consumes this
-        // fragment without an exchange boundary: fusing removes the exchange that
-        // keeps the scan in its own fragment, so multiple scans would end up in the
-        // same fragment and the scan-assignment would fail. Only fuse when the
-        // parent chain keeps an exchange boundary (e.g. a top-level aggregate).
-        if (context.isInFragmentMergeChild()) {
-            return false;
-        }
-        DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
-        if (!(distSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        List<ExprId> distKeys = ((DistributionSpecHash) distSpec).getOrderedShuffledColumns();
-        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toList());
-        return distKeys.equals(groupByKeys);
+        // The parent is a fragment-merging node (join / set-op / recursive union) that
+        // consumes this fragment without an exchange boundary: fusing removes the
+        // exchange that keeps the scan in its own fragment, so multiple scans would end
+        // up in the same fragment and the scan-assignment would fail. A distribute
+        // between the merging node and this aggregate clears the context (see
+        // visitPhysicalDistribute), because its exchange keeps the fused fragment apart.
+        return !context.isInFragmentMergeChild();
     }
 
     /** Returns true if the plan subtree contains a physical CTE consumer. */
@@ -3414,94 +3444,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         for (Plan child : plan.children()) {
             if (containsCTEConsumer(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if the plan subtree is a unary pipeline over exactly one olap
-     * scan, i.e. it translates into a single-scan fragment that bucketed fusion
-     * can safely build upon. Subtrees containing fragment-merging or
-     * distribution-changing nodes (join / set-op / CTE / nested aggregate /
-     * storage-layer aggregate) are rejected.
-     */
-    private boolean isSingleOlapScanPipeline(Plan plan) {
-        if (plan instanceof PhysicalOlapScan) {
-            return true;
-        }
-        if (plan instanceof PhysicalHashJoin
-                || plan instanceof PhysicalNestedLoopJoin
-                || plan instanceof PhysicalSetOperation
-                || plan instanceof PhysicalCTEConsumer
-                || plan instanceof PhysicalCTEAnchor
-                || plan instanceof PhysicalHashAggregate
-                || plan instanceof PhysicalStorageLayerAggregate) {
-            return false;
-        }
-        if (plan.children().size() == 1) {
-            return isSingleOlapScanPipeline(plan.child(0));
-        }
-        return false;
-    }
-
-    /**
-     * Check whether all aggregate functions in this physical hash aggregate
-     * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
-     * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
-     * carry sort-info metadata (aggSortInfos); fusing them would drop the
-     * aggregate ORDER BY contract and produce unordered results.
-     */
-    private boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof OrderExpression) {
-                    // Any aggregate function with an internal ORDER BY
-                    // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
-                    // metadata, which BucketedAggregationNode does not carry.
-                    foundOnePhaseOnly.set(true);
-                    return true;
-                }
-                if (c instanceof AggregateExpression) {
-                    AggregateFunction func = ((AggregateExpression) c).getFunction();
-                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
-                        foundOnePhaseOnly.set(true);
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (foundOnePhaseOnly.get()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check whether the aggregate's output contains any buffer-producing
-     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
-     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
-     * functions: it always finalizes into the output tuple slot types, while a
-     * buffer-producing function's slot type is the serialized Varchar type
-     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
-     * for stddev) into that String column fails the BE result-type check.
-     */
-    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundPartial = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof AggregateExpression) {
-                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
-                        foundPartial.set(true);
-                    }
-                    return true;
-                }
-                return false;
-            });
-            if (foundPartial.get()) {
                 return true;
             }
         }
@@ -3805,9 +3747,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+            return DataPartition.forHiveTableSink(partitionExprs, context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+            return DataPartition.forHiveTableSink(Collections.emptyList(), context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

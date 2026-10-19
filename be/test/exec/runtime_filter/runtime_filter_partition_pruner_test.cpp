@@ -588,10 +588,11 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
     assert_parse_and_prune_type<TYPE_CHAR>(String("aa"), String("bb"));
     assert_parse_and_prune_type<TYPE_VARCHAR>(String("alpha"), String("bravo"));
     assert_parse_and_prune_type<TYPE_STRING>(String("left"), String("right"));
-    assert_parse_and_prune_type<TYPE_DATE>(VecDateTimeValue(0, 2, 0, 0, 0, 2024, 1, 1),
-                                           VecDateTimeValue(0, 2, 0, 0, 0, 2024, 2, 1));
-    assert_parse_and_prune_type<TYPE_DATETIME>(VecDateTimeValue(0, 3, 0, 0, 0, 2024, 1, 1),
-                                               VecDateTimeValue(0, 3, 0, 0, 0, 2024, 2, 1));
+    assert_parse_and_prune_type<TYPE_DATE>(VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2024, 1, 1),
+                                           VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2024, 2, 1));
+    assert_parse_and_prune_type<TYPE_DATETIME>(
+            VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2024, 1, 1),
+            VecDateTimeValue(0, TIME_DATETIME, 0, 0, 0, 2024, 2, 1));
     assert_parse_and_prune_type<TYPE_DATEV2>(date_v2(2024, 1, 1), date_v2(2024, 2, 1));
     assert_parse_and_prune_type<TYPE_DATETIMEV2>(datetime_v2(2024, 1, 1), datetime_v2(2024, 2, 1),
                                                  0, 6);

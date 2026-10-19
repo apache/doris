@@ -65,6 +65,7 @@ renderShowCreateTableDdl(org.apache.doris.connector.spi.ConnectorSession,org.apa
 reorderColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List)
 replacePartitionField(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.PartitionFieldChange)
 resolveTimeTravel(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec)
+setTableProperties(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Map)
 supportsCastPredicatePushdown(org.apache.doris.connector.spi.ConnectorSession)
 supportsColumnHandleSnapshotPin(org.apache.doris.connector.spi.ConnectorSession)
 truncateTable(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List)

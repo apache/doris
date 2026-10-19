@@ -42,6 +42,11 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    // Complete unshredded roots imported without rebuilding their Variant value tree. Bytes count
+    // the per-row metadata and value references presented to the direct importer.
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
     // Pure metadata+value roots can seek a requested path before constructing a root column.
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
@@ -159,8 +164,11 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
     RuntimeProfile::Counter* filtered_group_rows = nullptr;
     RuntimeProfile::Counter* filtered_page_rows = nullptr;
-    // File-level Variant access paths that safely retained a physical typed-leaf projection.
+    // Variant access paths eligible for a row-group physical typed-leaf projection.
     RuntimeProfile::Counter* variant_leaf_projections = nullptr;
+    // Row-group outcomes for candidate Variant projections, counted per projected column opened.
+    RuntimeProfile::Counter* variant_leaf_projection_row_group_columns = nullptr;
+    RuntimeProfile::Counter* variant_full_projection_row_group_columns = nullptr;
 
     // ======== Page Skip ========
     RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
@@ -184,6 +192,10 @@ struct ParquetProfile {
     RuntimeProfile::Counter* materialization_time = nullptr;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    // These counters are persistent because direct import can happen after scanner teardown.
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;

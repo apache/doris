@@ -29,6 +29,10 @@ public class JdbcTypeHandlerFactory {
      * @return the appropriate type handler
      */
     public static JdbcTypeHandler create(String tableType) {
+        return create(tableType, new String[0]);
+    }
+
+    public static JdbcTypeHandler create(String tableType, String... sensitiveValues) {
         if (tableType == null || tableType.isEmpty()) {
             return new DefaultTypeHandler();
         }
@@ -38,7 +42,7 @@ public class JdbcTypeHandlerFactory {
                 return new MySQLTypeHandler(tableType);
             case "ORACLE":
             case "OCEANBASE_ORACLE":
-                return new OracleTypeHandler();
+                return new OracleTypeHandler(sensitiveValues);
             case "POSTGRESQL":
                 return new PostgreSQLTypeHandler();
             case "CLICKHOUSE":

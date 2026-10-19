@@ -59,13 +59,34 @@ TEST(StringTypeTest, to_string) {
 }
 
 TEST(TimestampTypeTest, to_string) {
-    TimestampType timestamp_type_with_utc(true);
+    TimestampTzType timestamp_type_with_utc;
     EXPECT_EQ(timestamp_type_with_utc.to_string(), "timestamptz");
-    EXPECT_EQ(timestamp_type_with_utc.type_id(), TypeID::TIMESTAMP);
+    EXPECT_EQ(timestamp_type_with_utc.type_id(), TypeID::TIMESTAMPTZ);
 
-    TimestampType timestamp_type_without_utc(false);
+    TimestampType timestamp_type_without_utc;
     EXPECT_EQ(timestamp_type_without_utc.to_string(), "timestamp");
     EXPECT_EQ(timestamp_type_without_utc.type_id(), TypeID::TIMESTAMP);
+
+    TimestampNsType timestamp_ns;
+    EXPECT_EQ(timestamp_ns.to_string(), "timestamp_ns");
+    EXPECT_EQ(timestamp_ns.type_id(), TypeID::TIMESTAMP_NS);
+
+    TimestampTzNsType timestamptz_ns;
+    EXPECT_EQ(timestamptz_ns.to_string(), "timestamptz_ns");
+    EXPECT_EQ(timestamptz_ns.type_id(), TypeID::TIMESTAMPTZ_NS);
+}
+
+TEST(TimestampTypeTest, ParsedTimestampKindsHaveDistinctIds) {
+    const char* names[] = {"timestamp", "timestamptz", "timestamp_ns", "timestamptz_ns"};
+    // Type-based dispatch must preserve both the timestamp unit and timezone semantics.
+    for (int i = 0; i < 4; ++i) {
+        auto type = Types::from_primitive_string(names[i]);
+        EXPECT_EQ(type->to_string(), names[i]);
+        for (int j = 0; j < i; ++j) {
+            EXPECT_NE(type->type_id(), Types::from_primitive_string(names[j])->type_id())
+                    << names[i] << " and " << names[j];
+        }
+    }
 }
 
 TEST(TimeTypeTest, to_string) {
@@ -118,8 +139,10 @@ TEST(PrimitiveTypesTest, from_primitive_string) {
     EXPECT_EQ(Types::from_primitive_string("double")->type_id(), TypeID::DOUBLE);
     EXPECT_EQ(Types::from_primitive_string("date")->type_id(), TypeID::DATE);
     EXPECT_EQ(Types::from_primitive_string("time")->type_id(), TypeID::TIME);
-    EXPECT_EQ(Types::from_primitive_string("timestamptz")->type_id(), TypeID::TIMESTAMP);
+    EXPECT_EQ(Types::from_primitive_string("timestamptz")->type_id(), TypeID::TIMESTAMPTZ);
     EXPECT_EQ(Types::from_primitive_string("timestamp")->type_id(), TypeID::TIMESTAMP);
+    EXPECT_EQ(Types::from_primitive_string("timestamp_ns")->type_id(), TypeID::TIMESTAMP_NS);
+    EXPECT_EQ(Types::from_primitive_string("timestamptz_ns")->type_id(), TypeID::TIMESTAMPTZ_NS);
     EXPECT_EQ(Types::from_primitive_string("string")->type_id(), TypeID::STRING);
     EXPECT_EQ(Types::from_primitive_string("uuid")->type_id(), TypeID::UUID);
     EXPECT_EQ(Types::from_primitive_string("binary")->type_id(), TypeID::BINARY);

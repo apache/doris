@@ -32,6 +32,7 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegrationAuthenticator;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
@@ -90,6 +91,45 @@ class AuthenticatorManagerTest {
             envMockedStatic.close();
         }
         resetAuthenticatorManagerState();
+    }
+
+    @Test
+    void testBoundClearCredentialsRequireRealTlsBeforeResolver() throws Exception {
+        AuthenticationIntegrationAuthenticator bound = Mockito.mock(AuthenticationIntegrationAuthenticator.class);
+        Mockito.when(bound.isBoundAuthentication()).thenReturn(true);
+        Mockito.when(bound.prepareBoundAuthentication()).thenReturn(true);
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        Mockito.doReturn(bound).when(manager).chooseAuthenticator(USER_NAME, REMOTE_IP);
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        Assertions.assertFalse(manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class)));
+        Assertions.assertEquals(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED, state.getErrorCode());
+        Mockito.verify(bound, Mockito.never()).getPasswordResolver();
+        Mockito.verify(bound, Mockito.never()).authenticate(Mockito.any());
+    }
+
+    @Test
+    void testBoundAuthenticationFailureNeverUsesChain() throws Exception {
+        Config.authentication_chain = "corp_ldap";
+        AuthenticationIntegrationAuthenticator bound = Mockito.mock(AuthenticationIntegrationAuthenticator.class);
+        Mockito.when(bound.isBoundAuthentication()).thenReturn(true);
+        Mockito.when(bound.prepareBoundAuthentication()).thenReturn(false);
+        PasswordResolver resolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(bound.getPasswordResolver()).thenReturn(resolver);
+        Mockito.when(resolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(bound.authenticate(Mockito.any())).thenReturn(AuthenticateResponse.failedResponse);
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        Mockito.doReturn(bound).when(manager).chooseAuthenticator(USER_NAME, REMOTE_IP);
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        Assertions.assertFalse(manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class)));
+        Mockito.verify(manager, Mockito.never()).getAuthenticationChainAuthenticator();
     }
 
     @Test

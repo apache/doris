@@ -26,6 +26,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -48,6 +50,8 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/utils.h"
 #include "testutil/creators.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -82,6 +86,9 @@ public:
 
     Status flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) override {
         EXPECT_GT(block->rows(), 0);
+        if (_flush_hook) {
+            _flush_hook();
+        }
         if (_flush_enter_cnt != nullptr) {
             ++(*_flush_enter_cnt);
         }
@@ -126,11 +133,14 @@ public:
     std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override { return nullptr; }
     bool is_partial_update() override { return false; }
 
+    void set_flush_hook(std::function<void()> hook) { _flush_hook = std::move(hook); }
+
     int32_t last_segment_id() const { return _last_segment_id; }
 
     ConstAllocatedLsnVectorSharedPtr last_seg_lsn() const { return _last_seg_lsn; }
 
 private:
+    std::function<void()> _flush_hook;
     std::atomic<int>* _flush_cnt;
     bool _fail_on_flush;
     std::string _flush_error_msg;
@@ -720,6 +730,115 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenCancelledCleanup)
     EXPECT_EQ(0, data_flush_cnt.load());
     EXPECT_EQ(0, binlog_flush_cnt.load());
 
+    drop_tablet(ctx.request);
+}
+
+class MemTableFlushCancellationTest : public MemTableFlushExecutorGroupFlushTest,
+                                      public testing::WithParamInterface<bool> {
+protected:
+    static void expect_skipped_flush(const FlushStatistic& stats) {
+        EXPECT_EQ(stats.flush_submit_count.load(), 0);
+        EXPECT_EQ(stats.flush_running_count.load(), 0);
+        EXPECT_EQ(stats.flush_finish_count.load(), 0);
+    }
+};
+
+TEST_P(MemTableFlushCancellationTest, SharedCancellationSkipsQueuedFlushes) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    const bool group_flush = GetParam();
+    GroupFlushTestContext ctx;
+    prepare_group_flush_test_context(10007 + group_flush, 270068379 + group_flush, {7000, 7001},
+                                     &ctx);
+    std::atomic<int> data_flush_cnt = 0;
+    std::atomic<int> binlog_flush_cnt = 0;
+    auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
+    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    std::shared_ptr<GroupRowsetWriter> group_writer;
+    ASSERT_TRUE(create_group_rowset_writer(ctx, 7, data_writer, binlog_writer, &group_writer).ok());
+
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("CancelledFlushTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&pool)
+                        .ok());
+    auto status = std::make_shared<AtomicStatus>();
+    auto token = FlushToken::create_shared(pool.get(), nullptr, status);
+    token->set_rowset_writer(group_flush ? std::static_pointer_cast<RowsetWriter>(group_writer)
+                                         : data_writer);
+    token->set_table_schema_param(create_group_flush_table_schema_param(ctx));
+    CountDownLatch entered(1);
+    CountDownLatch release(1);
+    Defer cleanup {[&] {
+        release.count_down();
+        pool->wait();
+    }};
+    ASSERT_TRUE(pool->submit_func([&] {
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(token->submit(ctx.memtable).ok());
+    EXPECT_EQ(token->get_stats().flush_submit_count.load(), group_flush ? 2 : 1);
+    status->update(Status::Cancelled("cancel queued flush"));
+    // Both pre-cancel and post-cancel submissions must skip flushing when dispatched.
+    ASSERT_TRUE(token->submit(ctx.memtable).ok());
+    release.count_down();
+    EXPECT_TRUE(token->wait().is<ErrorCode::CANCELLED>());
+    pool->wait();
+    EXPECT_EQ(data_flush_cnt.load(), 0);
+    EXPECT_EQ(binlog_flush_cnt.load(), 0);
+    expect_skipped_flush(token->get_stats());
+    EXPECT_FALSE(group_writer->context().allocated_lsn_map->contains_segment(0));
+    drop_tablet(ctx.request);
+}
+
+INSTANTIATE_TEST_SUITE_P(LoadCancellation, MemTableFlushCancellationTest, testing::Bool());
+
+TEST_F(MemTableFlushExecutorGroupFlushTest, SharedCancellationDuringGroupFlush) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    GroupFlushTestContext ctx;
+    prepare_group_flush_test_context(10009, 270068381, {9000, 9001}, &ctx);
+    std::atomic<int> data_flush_cnt = 0;
+    std::atomic<int> binlog_flush_cnt = 0;
+    auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
+    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    CountDownLatch entered(1);
+    CountDownLatch release(1);
+    data_writer->set_flush_hook([&] {
+        entered.count_down();
+        release.wait();
+    });
+    std::shared_ptr<GroupRowsetWriter> group_writer;
+    ASSERT_TRUE(create_group_rowset_writer(ctx, 9, data_writer, binlog_writer, &group_writer).ok());
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("RunningFlushCancellationTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&pool)
+                        .ok());
+    auto status = std::make_shared<AtomicStatus>();
+    auto token = FlushToken::create_shared(pool.get(), nullptr, status);
+    token->set_rowset_writer(group_writer);
+    token->set_table_schema_param(create_group_flush_table_schema_param(ctx));
+    Defer cleanup {[&] {
+        release.count_down();
+        pool->wait();
+    }};
+    ASSERT_TRUE(token->submit(ctx.memtable).ok());
+    ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
+    status->update(Status::Cancelled("cancel during data flush"));
+    auto waiter = std::async(std::launch::async, [&] { return token->wait(); });
+    EXPECT_EQ(waiter.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    release.count_down();
+    EXPECT_TRUE(waiter.get().is<ErrorCode::CANCELLED>());
+    pool->wait();
+    EXPECT_EQ(data_flush_cnt.load(), 1);
+    EXPECT_EQ(binlog_flush_cnt.load(), 0);
+    EXPECT_EQ(token->get_stats().flush_submit_count.load(), 0);
+    EXPECT_EQ(token->get_stats().flush_running_count.load(), 0);
+    EXPECT_FALSE(group_writer->context().allocated_lsn_map->contains_segment(
+            data_writer->last_segment_id()));
     drop_tablet(ctx.request);
 }
 

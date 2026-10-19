@@ -22,8 +22,11 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -101,10 +104,24 @@ public class JdbcDataSource {
                             + ", remaining: " + sourcesMap.size());
                 }
             } catch (Exception e) {
-                LOG.warn("failed to cleanup jdbc data source", e);
+                LOG.warn("failed to cleanup jdbc data source: {}", cleanupErrorStackTrace(e));
             }
         }, cleanupInterval, cleanupInterval, TimeUnit.MILLISECONDS);
         LOG.info("jdbc datasource cleanup task started, interval: " + cleanupInterval + "ms");
+    }
+
+    // Cleanup can fail outside an individual pool, where no credential policy is available.
+    // Keep exception types and locations without rendering driver-supplied messages.
+    static String cleanupErrorStackTrace(Throwable error) {
+        StringBuilder trace = new StringBuilder();
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = error; current != null && visited.add(current); current = current.getCause()) {
+            trace.append(current.getClass().getName()).append('\n');
+            for (StackTraceElement frame : current.getStackTrace()) {
+                trace.append("\tat ").append(frame).append('\n');
+            }
+        }
+        return trace.toString();
     }
 
     private synchronized void startCleanupTask() {
