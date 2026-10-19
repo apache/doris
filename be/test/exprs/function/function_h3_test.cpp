@@ -63,14 +63,18 @@ TEST(FunctionH3Test, OnlyNullLatLngToCell) {
         ASSERT_NE(function, nullptr);
         FunctionUtils utils(result_type, types, false);
         auto* context = utils.get_fn_ctx();
-        ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-        ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
         block.insert({nullptr, result_type, "result"});
         ASSERT_TRUE(function->execute(context, block, {0, 1, 2}, 3, rows).ok());
         EXPECT_EQ(block.get_by_position(3).column->size(), rows);
         EXPECT_TRUE(block.get_by_position(3).column->only_null());
-        EXPECT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-        EXPECT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        EXPECT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     }
 }
 
@@ -109,8 +113,8 @@ static void check_coordinates(bool boundary, bool constant, bool only_null, size
         constants[0] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column);
     }
     context->set_constant_cols(constants);
-    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     block.insert({nullptr, output_type, "result"});
     ASSERT_TRUE(function->execute(context, block, {0}, 1, rows).ok());
     auto result = block.get_by_position(1).column->convert_to_full_column_if_const();
@@ -146,8 +150,8 @@ static void check_coordinates(bool boundary, bool constant, bool only_null, size
             }
         }
     }
-    EXPECT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-    EXPECT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 
