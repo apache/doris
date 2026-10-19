@@ -134,27 +134,42 @@ public class PaimonTimestampRepairReaderTest {
 
     @Test
     public void fallbackHistoricalOrcUsesSelectedBranchFieldIds() throws Exception {
-        checkFallbackBranchFieldIds(false, false, "true");
+        checkFallbackBranchFieldIds(false, null, "true");
     }
 
     @Test
     public void fallbackRenamedFieldsRetainHiddenPolicyAndFieldIds() throws Exception {
-        checkFallbackBranchFieldIds(true, false, "true");
+        checkFallbackBranchFieldIds(true, null, "true");
     }
 
     @Test
     public void auditLogFallbackRetainsSystemColumnsAndBranchFieldIds() throws Exception {
-        checkFallbackBranchFieldIds(true, true, "true");
+        checkFallbackBranchFieldIds(true, "audit_log", "true");
     }
 
     @Test
     public void legacyFallbackHistoricalOrcUsesSelectedBranchFieldIds() throws Exception {
-        checkFallbackBranchFieldIds(false, false, null);
+        checkFallbackBranchFieldIds(false, null, null);
     }
 
     @Test
     public void fallbackWithoutRepairKeepsSdkProjection() throws Exception {
-        checkFallbackBranchFieldIds(false, false, "false");
+        checkFallbackBranchFieldIds(false, null, "false");
+    }
+
+    @Test
+    public void binlogFallbackRetainsArrayWrapperAndBranchFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(false, "binlog", "true");
+    }
+
+    @Test
+    public void legacyBinlogFallbackRetainsArrayWrapperAndBranchFieldIds() throws Exception {
+        checkFallbackBranchFieldIds(false, "binlog", null);
+    }
+
+    @Test
+    public void binlogWithoutRepairKeepsSdkArrayProjection() throws Exception {
+        checkFallbackBranchFieldIds(false, "binlog", "false");
     }
 
     @Test
@@ -227,9 +242,11 @@ public class PaimonTimestampRepairReaderTest {
         }
     }
 
-    private void checkFallbackBranchFieldIds(boolean renamedPolicy, boolean audit, String repairOption)
+    private void checkFallbackBranchFieldIds(boolean renamedPolicy, String systemTable, String repairOption)
             throws Exception {
         OffHeap.setTesting();
+        boolean audit = systemTable != null;
+        boolean binlog = "binlog".equals(systemTable);
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -246,7 +263,7 @@ public class PaimonTimestampRepairReaderTest {
             }
             catalog.createTable(otherId, Schema.newBuilder().column("pt", DataTypes.INT())
                     .column("id", DataTypes.INT()).column("allowed", DataTypes.INT())
-                    .column("ts", DataTypes.TIMESTAMP(9))
+                    .column("ts", DataTypes.TIMESTAMP(binlog ? 6 : 9))
                     .partitionKeys("pt").option("file.format", "orc").build(), false);
             // Match schema versions, but not the independently allocated timestamp field IDs.
             catalog.alterTable(otherId, Collections.singletonList(SchemaChange.setOption("test.option", "1")),
@@ -255,7 +272,8 @@ public class PaimonTimestampRepairReaderTest {
             writeRows(catalog.getTable(mainId), GenericRow.of(0, 0, 7, Timestamp.fromLocalDateTime(second)));
             writeRows(catalog.getTable(otherId),
                     GenericRow.of(1, 1, 7, Timestamp.fromLocalDateTime(second)),
-                    GenericRow.of(1, 2, 7, Timestamp.fromLocalDateTime(second.withNano(999999500))),
+                    GenericRow.of(1, 2, 7, Timestamp.fromLocalDateTime(
+                            second.withNano(binlog ? 600000000 : 999999500))),
                     GenericRow.of(1, 3, 7, null));
             if (renamedPolicy) {
                 writeRows(catalog.getTable(otherId), GenericRow.of(1, 4, 8, Timestamp.fromLocalDateTime(second)));
@@ -281,7 +299,7 @@ public class PaimonTimestampRepairReaderTest {
                         CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"));
                 Table pair = new FallbackReadFileStoreTable(wrapped, other, wrappedFirst);
                 if (audit) {
-                    pair = org.apache.paimon.table.system.SystemTableLoader.load("audit_log", (FileStoreTable) pair);
+                    pair = org.apache.paimon.table.system.SystemTableLoader.load(systemTable, (FileStoreTable) pair);
                 }
                 List<Split> splits = pair.newReadBuilder().newScan().plan().splits();
                 if (renamedPolicy) {
@@ -290,7 +308,7 @@ public class PaimonTimestampRepairReaderTest {
                     pair = new FallbackReadFileStoreTable(wrapped,
                             other.copy(Collections.singletonMap("query-auth.enabled", "true")), wrappedFirst);
                     if (audit) {
-                        pair = org.apache.paimon.table.system.SystemTableLoader.load("audit_log", (FileStoreTable) pair);
+                        pair = org.apache.paimon.table.system.SystemTableLoader.load(systemTable, (FileStoreTable) pair);
                     }
                 }
                 Map<Integer, Object> actual = new HashMap<>();
@@ -308,7 +326,8 @@ public class PaimonTimestampRepairReaderTest {
                     }
                     Map<String, String> params = new HashMap<>();
                     params.put("required_fields", audit ? "rowkind,ts,id" : "ts,id");
-                    params.put("columns_types", audit ? "string#datetimev2(0)#int" : "datetimev2(0)#int");
+                    params.put("columns_types", binlog ? "string#array<datetimev2(0)>#array<int>"
+                            : audit ? "string#datetimev2(0)#int" : "datetimev2(0)#int");
                     params.put("time_zone", "UTC");
                     params.put("serialized_table_cache_key", "fallback-field-ids-" + warehouse + wrappedFirst);
                     params.put("serialized_table", encode(pair));
@@ -325,12 +344,20 @@ public class PaimonTimestampRepairReaderTest {
                             Object[] timestamps = scanner.getTable().getColumn(audit ? 1 : 0).getObjectColumn(0, count);
                             Object[] ids = scanner.getTable().getColumn(audit ? 2 : 1).getObjectColumn(0, count);
                             for (int i = 0; i < count; i++) {
+                                Object id = ids[i];
+                                Object timestamp = timestamps[i];
+                                if (binlog) {
+                                    Assertions.assertEquals(1, ((List<?>) id).size());
+                                    Assertions.assertEquals(1, ((List<?>) timestamp).size());
+                                    id = ((List<?>) id).get(0);
+                                    timestamp = ((List<?>) timestamp).get(0);
+                                }
                                 if (audit) {
                                     Assertions.assertEquals("+I", scanner.getTable().getColumn(0)
                                             .getObjectColumn(0, count)[i]);
                                 }
-                                Assertions.assertFalse(actual.containsKey((Integer) ids[i]));
-                                actual.put((Integer) ids[i], timestamps[i]);
+                                Assertions.assertFalse(actual.containsKey((Integer) id));
+                                actual.put((Integer) id, timestamp);
                             }
                         }
                     } finally {
@@ -339,7 +366,7 @@ public class PaimonTimestampRepairReaderTest {
                     }
                 }
                 Assertions.assertEquals(expected, actual, "wrappedFirst=" + wrappedFirst);
-                if (repairOption == null) {
+                if (repairOption == null && !audit) {
                     checkSnapshotMetadata(pair);
                 }
             }

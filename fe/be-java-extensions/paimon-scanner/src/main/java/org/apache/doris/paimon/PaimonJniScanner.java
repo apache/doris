@@ -46,6 +46,7 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.AuditLogTable;
+import org.apache.paimon.table.system.BinlogTable;
 import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.table.system.RowTrackingTable;
 import org.apache.paimon.table.system.SystemTableLoader;
@@ -251,6 +252,11 @@ public class PaimonJniScanner extends JniScanner {
                 int dataIndex = dataSource.rowType().getFieldIndex(tableField.name());
                 Preconditions.checkState(dataIndex >= 0, "Data field %s not found in schema", tableField.name());
                 tableField = policyTableType.getFields().get(dataIndex);
+                if (table instanceof BinlogTable) {
+                    // Binlog exposes each data field as an array, even when its branch field is scalar.
+                    // Preserve that wrapper while binding the branch ID, as BinlogTable.rowType() does.
+                    tableField = tableField.newType(new ArrayType(tableField.type().nullable()));
+                }
             }
             PaimonVariantProjection variantProjection = tableField.type() instanceof VariantType
                     ? PaimonVariantProjection.create(
