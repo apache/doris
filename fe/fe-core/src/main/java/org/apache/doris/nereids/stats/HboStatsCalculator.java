@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.statistics.model.Statistics;
@@ -372,27 +371,17 @@ public class HboStatsCalculator extends StatsCalculator {
             return null;
         }
         // a learned key does not contain the data state of its tables either, so the entry is judged
-        // by the rows it recorded for its input tables: an entry published before a large data change
-        // must not keep its old row count (see HboStructFreshness.ofLearnedEntry).
-        //
-        // Only a scan node reports the rows it read before its own predicates, which is the number a
-        // catalog row count can be compared with; every other node reports what its input produced
-        // after those predicates, where a ratio against the rows of the data would be off by the
-        // selectivity of that node. Guarding those would reject almost every selective entry, so they
-        // are left unguarded (the publish path would have to record the rows of the node's input
-        // tables for that).
+        // by the rows it recorded for the input tables of its sub tree: the publish path records one
+        // ScanPlanStatistics per scan which feeds the node, so the guard holds for every kind of node
+        // (see HboStructFreshness.ofLearnedEntry). A learned join, filter or aggregation would
+        // otherwise keep the row count of a run whose inputs have since grown by orders of magnitude.
         String hash = planNodeAndHashOpt.get().getHash().get();
-        if (planNode instanceof OlapScan) {
-            // the data state of a scan group is the scan itself, and it is the one this query built
-            // for the group (a scan node's own description)
-            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null);
-            if (liveStructInfo.isPresent()) {
-                HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
-                        matchedEntry.getInputTableStatistics(), liveStructInfo.get());
-                if (freshness.isStale()) {
-                    recordPinnedSkip(hash, freshness.getSummary());
-                    return null;
-                }
+        Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null);
+        if (liveStructInfo.isPresent()) {
+            HboStructFreshness freshness = learnedEntryFreshness(matchedEntry, liveStructInfo.get());
+            if (freshness.isStale()) {
+                recordPinnedSkip(hash, freshness.getSummary());
+                return null;
             }
         }
         // a learned entry also has to be visible as "used" in the explain annotation, which is keyed
@@ -404,6 +393,18 @@ public class HboStatsCalculator extends StatsCalculator {
                             mode == GroupStructInfo.LiteralMode.NO_LITERAL ? "no_literal" : "with_literal");
         }
         return delegateStats.withRowCountAndHboFlag(matchedEntry.getPlanStatistics().getOutputRows());
+    }
+
+    /**
+     * The verdict of a learned entry for one node: the rows the entry recorded for the input tables of
+     * its sub tree against the scans this query describes for the same node. The publish path records
+     * one scan statistics per scan below the node, so the comparison is the same for a scan node and for
+     * a join, filter or aggregation above it - none of them may keep the row count of a run whose
+     * inputs have since grown.
+     */
+    static HboStructFreshness learnedEntryFreshness(RecentRunsPlanStatisticsEntry matchedEntry,
+            GroupStructInfo liveStructInfo) {
+        return HboStructFreshness.ofLearnedEntry(matchedEntry.getInputTableStatistics(), liveStructInfo);
     }
 
     /** True while the optimizer's own filter estimate is in the pathological "extremely small" regime. */
