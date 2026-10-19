@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -2297,7 +2298,7 @@ public class GroupStructInfo {
             noLiteral.append(rendered);
         } else if (expression instanceof Literal) {
             Literal literal = (Literal) expression;
-            withLiteral.append("lit(").append(encodeLiteralValue(String.valueOf(literal.getValue())))
+            withLiteral.append("lit(").append(encodeLiteralValue(literalText(literal)))
                     .append(':').append(literal.getDataType()).append(')');
             noLiteral.append("lit(*)");
         } else if (expression.children().isEmpty()) {
@@ -2334,6 +2335,20 @@ public class GroupStructInfo {
         } else {
             appendNormalizedExpression(expression, out, new StringBuilder());
         }
+    }
+
+    /**
+     * The value of a literal as the canonical form prints it. A temporal literal prints its full text:
+     * {@code DateLiteral#getValue} is only yyyyMMdd (and a datetime only yyyyMMddHHmmss), so
+     * {@code 2020-01-01 00:00:00.000001} and {@code 2020-01-01 00:00:00.000002} would render one literal
+     * although execution compares the microseconds, i.e. two predicates which keep a different number of
+     * rows would share a key.
+     */
+    private static String literalText(Literal literal) {
+        if (literal instanceof DateLiteral) {
+            return ((DateLiteral) literal).getStringValue();
+        }
+        return String.valueOf(literal.getValue());
     }
 
     /**

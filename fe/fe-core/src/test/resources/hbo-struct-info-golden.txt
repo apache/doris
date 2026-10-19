@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 59, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 61, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -208,6 +208,30 @@ WITH_LITERAL.fingerprint = fb67c2d4e043d2608640901b7a7ec6f31660d4310c60009de1c8e
 NO_LITERAL.canonical = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0,v1,r0}))
 NO_LITERAL.shape = F{EqualTo(Min(col(db.t1.name)),lit(*))}(A{gb:col(db.t1.id)}(S{null.null.t1#ti:0}))
 NO_LITERAL.fingerprint = c1aa2158efd81f1db48e016f021c184063988e6d44743b85d40604b61b2373a3
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_datetime_with_another_microsecond]
+desc = the same filter with two microseconds: a different key although the second is the same
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(2020-01-01 00%3A00%3A00.000002:DATETIMEV2(6)))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(2020-01-01 00%3A00%3A00.000002:DATETIMEV2(6)))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 74159a4557d63ed33a68069ce17261e559fef4f3e9251ebd07931f78d806bdf2
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_datetime_with_microsecond_one]
+desc = a filter comparing a datetime literal with one microsecond
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(2020-01-01 00%3A00%3A00.000001:DATETIMEV2(6)))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(2020-01-01 00%3A00%3A00.000001:DATETIMEV2(6)))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 5c4c1707a0dff99ddd18e955dfda11e0fd5471d1958577633429728ea8835417
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_literal]

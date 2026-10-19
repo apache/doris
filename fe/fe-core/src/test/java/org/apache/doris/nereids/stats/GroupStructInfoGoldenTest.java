@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -83,6 +84,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MutableState;
@@ -415,6 +417,20 @@ public class GroupStructInfoGoldenTest {
                 "the id of the table is not in the key: " + original.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(recreated.getCanonical(WITH_LITERAL).contains("#ti:7"),
                 "the id of the table is not in the key: " + recreated.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testAFractionalSecondIsPartOfTheKey() {
+        // DateTimeV2Literal#getValue is only yyyyMMddHHmmss: printing it would fold .000001 and .000002
+        // into one literal, although execution compares the microseconds
+        GroupStructInfo one = built("filter_datetime_with_microsecond_one");
+        GroupStructInfo two = built("filter_datetime_with_another_microsecond");
+        Assertions.assertNotEquals(one.getFingerprint(WITH_LITERAL), two.getFingerprint(WITH_LITERAL),
+                "two fractional seconds share a key");
+        Assertions.assertTrue(one.getCanonical(WITH_LITERAL).contains("000001"),
+                "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
+                "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -912,6 +928,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_of_a_recreated_table",
                 "the same filter over another table of the same name (dropped and recreated): a different key",
                 GroupStructInfoGoldenTest::filterOfARecreatedTable));
+        cases.add(new PlanCase("filter_datetime_with_microsecond_one",
+                "a filter comparing a datetime literal with one microsecond",
+                GroupStructInfoGoldenTest::filterDatetimeWithMicrosecondOne));
+        cases.add(new PlanCase("filter_datetime_with_another_microsecond",
+                "the same filter with two microseconds: a different key although the second is the same",
+                GroupStructInfoGoldenTest::filterDatetimeWithAnotherMicrosecond));
         cases.add(new PlanCase("filter_slot_equal_slot",
                 "filter comparing two slots of one scan (both literal modes coincide)",
                 GroupStructInfoGoldenTest::filterSlotEqualSlot));
@@ -1119,6 +1141,27 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(tableId, "t1");
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new IsNull(t1.getOutput().get(0))), t1));
+    }
+
+    private static GroupStructInfo filterDatetimeWithMicrosecondOne() {
+        return filterDatetimeWithMicrosecond(1);
+    }
+
+    private static GroupStructInfo filterDatetimeWithAnotherMicrosecond() {
+        return filterDatetimeWithMicrosecond(2);
+    }
+
+    /**
+     * A predicate comparing a datetime literal whose fractional part differs: the value of a datetime
+     * literal is only yyyyMMddHHmmss, while execution compares the microseconds, so the printed literal
+     * has to carry the fraction.
+     */
+    private static GroupStructInfo filterDatetimeWithMicrosecond(int microSecond) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        DateTimeV2Literal literal = new DateTimeV2Literal(DateTimeV2Type.of(6),
+                2020, 1, 1, 0, 0, 0, microSecond);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(t1.getOutput().get(0), literal)), t1));
     }
 
     private static GroupStructInfo joinResidualConditionsPerModeOrder() {
