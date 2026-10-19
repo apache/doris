@@ -40,6 +40,13 @@ def evaluate(v):
             Thread.sleep(2500)
             "qt_result_2_${index}"("SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x ORDER BY x")
             "qt_result_3_${index}"("SELECT x FROM (SELECT CAST(NULL AS INT) v) s LATERAL VIEW py_auto_suspend_outer(v) t AS x")
+            // DROP now leaves a STOPPED pool until the monitor reclaims it. The next
+            // iteration recreates the same SQL name with a new function id and must still work.
+            sql "DROP FUNCTION py_auto_suspend(INT)"
+            test {
+                sql "SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend(v) t AS x"
+                exception "Can not found function"
+            }
         }
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
