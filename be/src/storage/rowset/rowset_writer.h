@@ -72,6 +72,9 @@ public:
     RowsetWriter() = default;
     virtual ~RowsetWriter() = default;
 
+    // Called after flush producers stop and before owner cleanup.
+    virtual void cancel_calc_delete_bitmap(const Status& st) {}
+
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
     virtual Status add_block(const Block* block) {
