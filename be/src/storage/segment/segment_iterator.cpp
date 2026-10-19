@@ -3098,7 +3098,8 @@ Status SegmentIterator::next_batch(Block* block) {
                     block->replace_by_position(idx, type->create_column());
                 }
 
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                if (_opts.condition_cache_digest && !_find_condition_cache &&
+                    !(_opts.read_limit > 0 && _rows_returned >= _opts.read_limit)) {
                     auto* condition_cache = ConditionCache::instance();
                     ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                        _opts.condition_cache_digest);
