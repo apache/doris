@@ -568,7 +568,8 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // V2 schema discovery honors logical annotations instead of exposing raw BYTE_ARRAY.
+            // V2 maps JSON/BSON annotations to text despite BYTE_ARRAY storage, so both
+            // document columns must keep textual golden results rather than VARBINARY hex.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/byte_array.parquet"
             order_qt_test_74 """ select * from HDFS(
                         "uri" = "${uri}",
