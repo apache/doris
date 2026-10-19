@@ -275,10 +275,46 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
+        assert_cast<const Derived*>(this)->prepare_streaming_columns(
+                columns, num_rows, [&](const IColumn** nested_columns, const UInt8* null_map) {
+                    streaming_serialize(nested_columns, null_map, dst, num_rows, arena);
+                });
+    }
+
+    template <typename Serialize>
+    void prepare_streaming_columns(const IColumn** columns, size_t num_rows,
+                                   Serialize&& serialize) const {
         const auto& column = assert_cast<const ColumnNullable&>(*columns[0]);
         const IColumn* nested_column = &column.get_nested_column();
-        streaming_serialize(&nested_column, column.get_null_map_data().data(), dst, num_rows,
-                            arena);
+        serialize(&nested_column, column.get_null_map_data().data());
+    }
+
+    void streaming_agg_serialize_to_column_legacy(const IColumn** columns, MutableColumnPtr& dst,
+                                                  size_t num_rows, Arena&) const {
+        if (num_rows == 0) {
+            return;
+        }
+        // A hidden NULL array may shift later physical offsets, e.g. [NULL,[1]] vs [[2],[3]].
+        // Normalize visible rows once for both native and historical String output.
+        assert_cast<const Derived*>(this)->prepare_streaming_columns(
+                columns, num_rows, [&](const IColumn** nested_columns, const UInt8* null_map) {
+                    VectorBufferWriter writer(assert_cast<ColumnString&>(*dst));
+                    AlignedAggregateData storage(this->size_of_data(), this->align_of_data());
+                    auto* place = storage.data();
+                    Arena row_arena;
+                    for (size_t row = 0; row < num_rows; ++row) {
+                        row_arena.clear();
+                        create(place);
+                        DEFER({ destroy(place); });
+                        if (!null_map[row]) {
+                            set_flag(place);
+                            nested_function->add(nested_place(place), nested_columns, row,
+                                                 row_arena);
+                        }
+                        serialize(place, writer);
+                        writer.commit();
+                    }
+                });
     }
 
 protected:
@@ -865,8 +901,9 @@ public:
         add_batch_selected_impl(batch_size, columns, arena, [&](size_t) { return place; });
     }
 
-    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           size_t num_rows, Arena& arena) const override {
+    template <typename Serialize>
+    void prepare_streaming_columns(const IColumn** columns, size_t num_rows,
+                                   Serialize&& serialize) const {
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
         NullMap null_map(num_rows, 0);
@@ -894,7 +931,7 @@ public:
                 }
             }
         }
-        this->streaming_serialize(nested_columns.data(), null_map.data(), dst, num_rows, arena);
+        serialize(nested_columns.data(), null_map.data());
     }
 
     void check_input_columns_type(const IColumn** columns) const override {

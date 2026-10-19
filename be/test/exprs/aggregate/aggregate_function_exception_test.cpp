@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
@@ -121,6 +122,21 @@ public:
 
 private:
     std::vector<size_t>* observed_column_sizes;
+};
+
+class StreamingPreparationForEach : public AggregateFunctionForEach {
+public:
+    using AggregateFunctionForEach::AggregateFunctionForEach;
+
+    template <typename IsSelected>
+    Columns prepare_batch_columns_for_streaming(size_t batch_size, const IColumn** columns,
+                                                IsSelected&& is_selected) const {
+        ++preparations;
+        return AggregateFunctionForEach::prepare_batch_columns_for_streaming(
+                batch_size, columns, std::forward<IsSelected>(is_selected));
+    }
+
+    mutable size_t preparations = 0;
 };
 
 class HeapStringAggregateFunction final
@@ -452,51 +468,60 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachNormalizesVisibleRowsOnceP
 }
 
 TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisibleRowsOncePerBatch) {
-    std::vector<size_t> observed_column_sizes;
-    auto nested_function = std::make_shared<PairSumAggregateFunction>(&observed_column_sizes);
-    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
-    auto* foreach_function =
-            new AggregateFunctionForEach(nested_function, DataTypes {input_type, input_type});
-    AggregateFunctionNullVariadicInlineV2<AggregateFunctionForEach, true> nullable_foreach(
-            foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
-            false);
+    for (bool legacy : {false, true}) {
+        SCOPED_TRACE(legacy);
+        std::vector<size_t> observed_column_sizes;
+        auto nested_function = std::make_shared<PairSumAggregateFunction>(&observed_column_sizes);
+        auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+        auto* foreach_function = new StreamingPreparationForEach(
+                nested_function, DataTypes {input_type, input_type});
+        auto native = std::make_shared<
+                AggregateFunctionNullVariadicInlineV2<StreamingPreparationForEach, true>>(
+                foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
+                false);
+        auto function = legacy ? make_agg_state_compatible_function(native) : native;
 
-    auto compacted_data = ColumnInt32::create();
-    compacted_data->get_data().assign({30, 40});
-    auto compacted_offsets = ColumnArray::ColumnOffsets::create();
-    compacted_offsets->get_data().assign({0, 1, 2});
-    auto compacted = ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
-    auto compacted_nullable =
-            ColumnNullable::create(std::move(compacted), ColumnUInt8::create(3, 0));
-    compacted_nullable->get_null_map_data()[0] = 1;
+        auto compacted_data = ColumnInt32::create();
+        compacted_data->get_data().assign({30, 40});
+        auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+        compacted_offsets->get_data().assign({0, 1, 2});
+        auto compacted =
+                ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
+        auto compacted_nullable =
+                ColumnNullable::create(std::move(compacted), ColumnUInt8::create(3, 0));
+        compacted_nullable->get_null_map_data()[0] = 1;
 
-    auto original_data = ColumnInt32::create();
-    original_data->get_data().assign({10, 20, 300, 400});
-    auto original_offsets = ColumnArray::ColumnOffsets::create();
-    original_offsets->get_data().assign({2, 3, 4});
-    auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
-    auto original_nullable = ColumnNullable::create(std::move(original), ColumnUInt8::create(3, 0));
-    original_nullable->get_null_map_data()[0] = 1;
-    const IColumn* columns[] = {compacted_nullable.get(), original_nullable.get()};
-    MutableColumnPtr serialized = nullable_foreach.create_serialize_column();
+        auto original_data = ColumnInt32::create();
+        original_data->get_data().assign({10, 20, 300, 400});
+        auto original_offsets = ColumnArray::ColumnOffsets::create();
+        original_offsets->get_data().assign({2, 3, 4});
+        auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
+        auto original_nullable =
+                ColumnNullable::create(std::move(original), ColumnUInt8::create(3, 0));
+        original_nullable->get_null_map_data()[0] = 1;
+        const IColumn* columns[] = {compacted_nullable.get(), original_nullable.get()};
+        MutableColumnPtr serialized = function->create_serialize_column();
 
-    nullable_foreach.streaming_agg_serialize_to_column(columns, serialized, 3, arena);
+        function->streaming_agg_serialize_to_column(columns, serialized, 3, arena);
 
-    EXPECT_EQ(observed_column_sizes, std::vector<size_t>({2, 2}));
-    EXPECT_EQ(serialized->size(), 3);
+        EXPECT_EQ(foreach_function->preparations, 1);
+        EXPECT_EQ(observed_column_sizes, std::vector<size_t>({2, 2}));
+        EXPECT_EQ(serialized->size(), 3);
 
-    auto result = nullable_foreach.get_return_type()->create_column();
-    for (size_t row = 0; row < serialized->size(); ++row) {
-        AggregateFunctionGuard state(&nullable_foreach);
-        nullable_foreach.deserialize_from_column_row(state.data(), *serialized, row, arena);
-        nullable_foreach.insert_result_into(state.data(), *result);
+        auto result = function->get_return_type()->create_column();
+        for (size_t row = 0; row < serialized->size(); ++row) {
+            AggregateFunctionGuard state(function.get());
+            function->deserialize_from_column_row(state.data(), *serialized, row, arena);
+            function->insert_result_into(state.data(), *result);
+        }
+        const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+        EXPECT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({1, 0, 0}));
+        const auto& result_array =
+                assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+        const auto& result_data = assert_cast<const ColumnInt64&>(
+                assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+        EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));
     }
-    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
-    EXPECT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({1, 0, 0}));
-    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
-    const auto& result_data = assert_cast<const ColumnInt64&>(
-            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
-    EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));
 }
 
 TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingReleasesHeapStatePerRow) {

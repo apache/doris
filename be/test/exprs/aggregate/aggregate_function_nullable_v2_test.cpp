@@ -301,6 +301,32 @@ TEST(NullableAggregationV2Test, NativeUnaryAndStableStateCodecs) {
     }
 }
 
+TEST(NullableAggregationV2Test, DistributeKeyStreamingAppendsWholeFixedLengthStates) {
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto function = nullable_function("multi_distinct_count_distribute_key", {type}, false);
+    auto input = nullable_ints({1, 2, 999, 3}, {0, 0, 1, 0});
+    const IColumn* columns[] = {input.get()};
+    Arena arena;
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, input->size(), arena);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*serialized);
+    EXPECT_EQ(nullable.get_null_map_data(), ColumnUInt8::Container({0, 0, 1, 0}));
+    const auto& payload = assert_cast<const ColumnFixedLengthObject&>(nullable.get_nested_column());
+    const auto* counts = reinterpret_cast<const UInt64*>(payload.get_data().data());
+    EXPECT_EQ(counts[0], 1);
+    EXPECT_EQ(counts[1], 1);
+    EXPECT_EQ(counts[3], 1);
+    auto result = function->get_return_type()->create_column();
+    for (size_t row = 0; row < input->size(); ++row) {
+        AggregateFunctionGuard state(function.get());
+        function->deserialize_from_column_row(state.data(), *serialized, row, arena);
+        function->insert_result_into(state.data(), *result);
+    }
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*result).get_data(),
+              ColumnInt64::Container({1, 1, 0, 1}));
+}
+
 TEST(NullableAggregationV2Test, VariadicNullableArgumentsAtEveryPosition) {
     auto type = std::make_shared<DataTypeFloat64>();
     for (bool nullable_first : {false, true}) {

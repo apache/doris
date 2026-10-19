@@ -96,6 +96,10 @@ public:
              Arena& arena) const override {
         _function->add(place, columns, row, arena);
     }
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           size_t rows, Arena& arena) const override {
+        _function->streaming_agg_serialize_to_column_legacy(columns, dst, rows, arena);
+    }
     void add_batch(size_t rows, AggregateDataPtr* places, size_t offset, const IColumn** columns,
                    Arena& arena, bool agg_many) const override {
         _function->add_batch(rows, places, offset, columns, arena, agg_many);
