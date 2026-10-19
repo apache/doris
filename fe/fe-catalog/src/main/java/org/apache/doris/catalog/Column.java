@@ -895,25 +895,18 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
-        return toSql(isUniqueTable, isCompatible, false, false);
+        return toSql(isUniqueTable, isCompatible, false);
     }
 
-    /**
-     * Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis.
-     * Pass the SQL mode the statement will be parsed under, a comment is escaped differently under
-     * NO_BACKSLASH_ESCAPES.
-     */
-    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder,
-            boolean noBackslashEscapes) {
+    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            // isToSql = true, showNestedComment = true
-            // SHOW CREATE TABLE and CREATE TABLE LIKE need the nested comment.
-            sb.append(type.hideVersionForVersionColumn(true, true, noBackslashEscapes));
+            sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
         }

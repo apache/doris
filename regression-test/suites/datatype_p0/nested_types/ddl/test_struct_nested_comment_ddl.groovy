@@ -47,14 +47,4 @@ suite("test_struct_nested_comment_ddl", "p0") {
     sql "CREATE TABLE struct_nested_comment_like LIKE struct_nested_comment"
     def likeStmt = (sql "SHOW CREATE TABLE struct_nested_comment_like")[0][1].toString()
     assertEquals(createStmt.replace("`struct_nested_comment`", "`struct_nested_comment_like`"), likeStmt)
-
-    // The comment is escaped for the mode the statement will be read under, so a back slash
-    // survives CREATE TABLE LIKE under NO_BACKSLASH_ESCAPES too.
-    sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
-    def nbseStmt = (sql "SHOW CREATE TABLE struct_nested_comment")[0][1].toString()
-    sql "DROP TABLE IF EXISTS struct_nested_comment_like"
-    sql "CREATE TABLE struct_nested_comment_like LIKE struct_nested_comment"
-    assertEquals(nbseStmt.replace("`struct_nested_comment`", "`struct_nested_comment_like`"),
-            (sql "SHOW CREATE TABLE struct_nested_comment_like")[0][1].toString())
-    sql "SET sql_mode = ''"
 }

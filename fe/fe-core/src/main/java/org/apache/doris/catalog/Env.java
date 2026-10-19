@@ -4382,13 +4382,6 @@ public class Env {
         sb.append(" (\n");
         int idx = 0;
         List<Column> columns = table.getBaseSchema(false);
-        // The emitted statement is parsed again by CREATE TABLE LIKE and by anyone replaying
-        // SHOW CREATE TABLE, so escape comments for the mode that parse will run under. Read it
-        // once here: a synced statement is built on the journal replay thread, which has no
-        // session, and reading the mode per column would clone the whole SessionVariable each time.
-        // Synced DDL travels to another cluster, so pin it to the default mode instead, otherwise
-        // the master and a replaying follower would ship different text for the same table.
-        boolean noBackslashEscapes = !getDdlForSync && SqlModeHelper.hasNoBackSlashEscapes();
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -4397,8 +4390,7 @@ public class Env {
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.isManagedTable()) {
                 sb.append("  ").append(
-                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true,
-                                noBackslashEscapes));
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true));
             } else {
                 sb.append("  ").append(column.toSql());
             }
@@ -4744,13 +4736,6 @@ public class Env {
         sb.append(" (\n");
         int idx = 0;
         List<Column> columns = table.getBaseSchema(false);
-        // The emitted statement is parsed again by CREATE TABLE LIKE and by anyone replaying
-        // SHOW CREATE TABLE, so escape comments for the mode that parse will run under. Read it
-        // once here: a synced statement is built on the journal replay thread, which has no
-        // session, and reading the mode per column would clone the whole SessionVariable each time.
-        // Synced DDL travels to another cluster, so pin it to the default mode instead, otherwise
-        // the master and a replaying follower would ship different text for the same table.
-        boolean noBackslashEscapes = !getDdlForSync && SqlModeHelper.hasNoBackSlashEscapes();
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -4759,8 +4744,7 @@ public class Env {
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.isManagedTable()) {
                 sb.append("  ").append(
-                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, false,
-                                noBackslashEscapes));
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
             } else {
                 sb.append("  ").append(column.toSql());
             }
