@@ -34,7 +34,7 @@ suite("test_hive_write_partition_limit",
     hive_docker """drop table if exists hive_write_partition_limit"""
     hive_docker """create table hive_write_partition_limit (id int)
         partitioned by (p int) stored as parquet"""
-    sql """use test_hive_write_partition_limit.default"""
+    sql """use test_hive_write_partition_limit.`default`"""
 
     // The limit belongs to each writer, so route all VALUES rows through one writer.
     sql """set parallel_pipeline_task_num = 1"""
