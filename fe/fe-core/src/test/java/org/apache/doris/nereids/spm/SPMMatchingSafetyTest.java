@@ -39,6 +39,7 @@ import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -324,6 +326,166 @@ public class SPMMatchingSafetyTest {
                         + crossLabels);
         Assertions.assertTrue(crossLabels.contains("mark"),
                 "the CROSS MARK star includes the mark label: " + crossLabels);
+    }
+
+    /**
+     * Round-66 review #1: a PROJECTED all-NULL CASE reaches its Boolean consumer through
+     * a derived-table output slot, i.e. across the producer/consumer block boundary.
+     * The CASE has no direct Boolean parent, so its NULL markers used to stay NullType,
+     * the derived slot stayed NullType, and the CONSUMER's ExpressionAnalyzer.visitOr
+     * replaced the whole slot with a typed constant NULL while the frozen plan was
+     * optimized - the frozen projection became `k > _spm_const_var(A) OR NULL`, and the
+     * matching ELSE TRUE variant returned NULL instead of TRUE. The frozen text must keep
+     * the CASE and every marker.
+     */
+    @Test
+    public void testProjectedAllNullCaseKeepsItsMarkers() throws Exception {
+        String bind = "SELECT k > 0 OR n AS c"
+                + " FROM (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s";
+        BaselinePlan baseline = SpmPlannerTestAccess.buildBaseline(
+                new SPMPlanner(), bind, bind);
+        CaseWhen caseWhen = findCaseWhen(baseline.getParameterizedBindPlan());
+        Assertions.assertNotNull(caseWhen,
+                "the parameterized tree keeps the CASE that produces n");
+        List<SpmConstVar> branchMarkers = new ArrayList<>();
+        collectConstVars(caseWhen, branchMarkers);
+        Assertions.assertEquals(3, branchMarkers.size(),
+                "the WHEN comparison keeps its marker and both branches keep theirs: "
+                        + caseWhen);
+        int nullMarkers = 0;
+        for (SpmConstVar marker : branchMarkers) {
+            if (marker.getValue() instanceof Literal
+                    && ((Literal) marker.getValue()).isNullLiteral()) {
+                nullMarkers++;
+                Assertions.assertTrue(marker.getValue().getDataType().isBooleanType(),
+                        "a projected all-NULL CASE types its NULL markers BOOLEAN: the"
+                                + " derived slot must not stay NullType, or the consumer's"
+                                + " OR binding replaces it with a constant NULL (marker"
+                                + " lost): " + marker);
+            }
+        }
+        Assertions.assertEquals(2, nullMarkers, "THEN and ELSE keep NULL markers: " + caseWhen);
+        Assertions.assertTrue(countOccurrences(
+                        baseline.getParameterizedBindPlan().treeString(), "SpmConstVar(") >= 4,
+                "every literal keeps a marker (k > 0, k = 0, THEN NULL, ELSE NULL)");
+        // the variant stays matchable (the markers are structural, not value-dependent)
+        Assertions.assertTrue(matchesParameterized(bind,
+                "SELECT k > 0 OR n AS c"
+                        + " FROM (SELECT k, CASE WHEN k = 0 THEN NULL ELSE TRUE END AS n"
+                        + " FROM t) s"),
+                "the ELSE TRUE variant must match the captured baseline");
+    }
+
+    /** The first CaseWhen of a plan tree (see the projected all-NULL CASE assertions). */
+    private static CaseWhen findCaseWhen(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            CaseWhen found = findCaseWhen(expression);
+            if (found != null) {
+                return found;
+            }
+        }
+        for (Plan child : plan.children()) {
+            CaseWhen found = findCaseWhen(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static CaseWhen findCaseWhen(Expression expression) {
+        if (expression instanceof CaseWhen) {
+            return (CaseWhen) expression;
+        }
+        for (Expression child : expression.children()) {
+            CaseWhen found = findCaseWhen(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /** Every scalar placeholder inside one expression (see the CASE marker assertions). */
+    private static void collectConstVars(Expression expression, List<SpmConstVar> out) {
+        if (expression instanceof SpmConstVar) {
+            out.add((SpmConstVar) expression);
+            return;
+        }
+        for (Expression child : expression.children()) {
+            collectConstVars(child, out);
+        }
+    }
+
+    /**
+     * Round-66 review #2: a QUALIFIED EXCEPT entry names a RELATION, not just a column.
+     * With `SELECT * EXCEPT(u.k) FROM (SELECT k, v + 1 AS z FROM t) d CROSS JOIN u` the
+     * derivation is the prefix [k, z] plus u's unknown-width tail; outputLabelOf(u.k) is
+     * only `k`, so the name-based removal deleted D's k from the prefix and the
+     * realignment reported [z, z, q] - even for identical SQL.
+     */
+    @Test
+    public void testQualifiedExceptKeepsTheDerivedColumn() {
+        LogicalPlan user = parse("SELECT * EXCEPT(u.k)"
+                + " FROM (SELECT k, v + 1 AS z FROM t) d CROSS JOIN u");
+        LogicalPlan frozen = parse("SELECT k AS `k`, (v + 1) AS `z`, (q) AS `q`"
+                + " FROM (SELECT k, v + 1 AS z FROM t) d CROSS JOIN u");
+        Assertions.assertSame(frozen,
+                SPMPlanTreeSupport.alignRootOutputLabels(frozen, user),
+                "an identical replay must keep [k, z, q]: the qualified exclusion addresses"
+                        + " u's column, not the derived prefix's k");
+    }
+
+    /**
+     * Round-66 review #3: recursion detection must key on the BINDING identity. A
+     * name-keyed set shared across derived scopes declared the legal nested shadowing
+     * query recursive: expanding the outer `c` added the NAME, so the DIFFERENT inner
+     * binding could not enter the set and the baseline could not be used at all.
+     */
+    @Test
+    public void testNestedShadowingCteUsesItsOwnBinding() {
+        LogicalPlan user = parse("WITH c AS (WITH c AS (SELECT k + 1 FROM t) SELECT * FROM c)"
+                + " SELECT * FROM c");
+        LogicalPlan frozen = parse(
+                "WITH c AS (SELECT k + 1 AS `k + 1` FROM t) SELECT * FROM c");
+        Assertions.assertSame(frozen,
+                SPMPlanTreeSupport.alignRootOutputLabels(frozen, user),
+                "the inner shadowing binding is a DIFFERENT declaration: it must expand");
+        // a TRUE self-reference still declines (the SAME binding re-enters the guard)
+        LogicalPlan recursive = parse("WITH c AS (SELECT * FROM c) SELECT * FROM c");
+        LogicalPlan recursiveFrozen = parse(
+                "WITH c AS (SELECT k AS `k` FROM t) SELECT * FROM c");
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> SPMPlanTreeSupport.alignRootOutputLabels(recursiveFrozen, recursive));
+        Assertions.assertTrue(failure.getMessage() != null
+                        && failure.getMessage().contains("recursive"),
+                String.valueOf(failure.getMessage()));
+    }
+
+    /**
+     * Round-66 review #4: a bare integer GROUP BY key is an ORDINAL (a positional
+     * reference resolved by bindWithOrdinal), not the SELECT item's literal value.
+     * Parameterizing it also recorded a group-by MIRROR that the SELECT literal then
+     * reused: `SELECT 1 AS c, count(*) FROM t GROUP BY 1` recorded ph1=1 from the group
+     * expression during matching, and the output expression rejected the caller's ph1=2,
+     * so the valid `SELECT 2 AS c ... GROUP BY 1` variant never hit its own baseline.
+     */
+    @Test
+    public void testGroupByOrdinalStaysPositional() throws Exception {
+        String bind = "SELECT 1 AS c, count(*) AS n FROM t GROUP BY 1";
+        Assertions.assertTrue(matchesParameterized(bind,
+                "SELECT 2 AS c, count(*) AS n FROM t GROUP BY 1"),
+                "the ordinal is a position reference: the SELECT literal stays an"
+                        + " independent placeholder");
+        BaselinePlan baseline = SpmPlannerTestAccess.buildBaseline(
+                new SPMPlanner(), bind, bind);
+        Assertions.assertEquals(1,
+                countOccurrences(baseline.getParameterizedBindPlan().treeString(), "SpmConstVar("),
+                "only the SELECT literal is parameterized; the ordinal stays concrete");
+        // The CREATE-side freeze guard (the decompiled text cannot carry the parameterized
+        // group key faithfully, so the user planSql is kept and the parameterized tree
+        // replays) is pinned end to end by regression-test
+        // spm/test_spm_review_round66.groovy.
     }
 
     /**

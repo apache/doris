@@ -4482,6 +4482,10 @@ public class BaselineManagerConcurrencyTest {
         SimulatedStore store = new SimulatedStore();
         try {
             doubles.idAllocatorStore = store;
+            // the round-72 gate: this store MODELS the reservation reads, so the create's
+            // ownership proof runs (and notices the lagged readback below) instead of
+            // being skipped because the watermark VALUE happened to be zero
+            doubles.modelReservationReads = true;
             long firstId = manager.createBaseline(baseline("rb-a", "rb-a-1"));
             Assertions.assertTrue(firstId > 0);
 

@@ -267,6 +267,17 @@ public final class BaselineManagerTestAccess {
     }
 
     /**
+     * The count statements the prune visibility proof runs for one schema fingerprint
+     * shape (see the round-72 fix): an EMPTY fingerprint stores two shapes, so the proof
+     * must cover both.
+     */
+    @SuppressWarnings("unchecked")
+    public static java.util.List<String> countVersionsBeforeSqlTexts(String schemaFingerprint) {
+        return (java.util.List<String>) invokeStatic("countVersionsBeforeSqlTexts",
+                new Class<?>[] {String.class}, schemaFingerprint);
+    }
+
+    /**
      * The stored second (epoch millis) the single HELD mutation window expects: a snapshot
      * row only proves the outcome when it carries this second or a LATER one (a same-status
      * row the intent supersedes is NOT the outcome, see round-71 #10a).

@@ -213,6 +213,12 @@ public final class BaselineTestDoubles {
         public DurableVisibilityProbe visibilityProbe;
         /** Explicit durable override; null = durable exactly when a hook is installed. */
         public Boolean durableOverride;
+        /**
+         * Whether this store MODELS the reservation reads (the round-72 capability gate):
+         * opt-in per scenario, because the confirmation proof only runs for a store whose
+         * sequence watermark / identity record are real readbacks.
+         */
+        public boolean modelReservationReads;
 
         /**
          * The rows a status-protocol simulator WROTE (the insert halves of creates and
@@ -251,6 +257,11 @@ public final class BaselineTestDoubles {
         @Override
         public boolean isDurable() {
             return durableOverride != null ? durableOverride : anyHookInstalled();
+        }
+
+        @Override
+        public boolean reservationReadsAvailable() {
+            return modelReservationReads;
         }
 
         @Override
