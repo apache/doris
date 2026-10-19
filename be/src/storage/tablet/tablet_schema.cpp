@@ -1118,6 +1118,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _disable_auto_compaction = schema.disable_auto_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
+    _skip_ann_index_on_load = schema.skip_ann_index_on_load();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
@@ -1273,6 +1274,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
+    _skip_ann_index_on_load = ori_tablet_schema.skip_ann_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
@@ -1450,6 +1452,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_skip_write_index_on_load(_skip_write_index_on_load);
+    tablet_schema_pb->set_skip_ann_index_on_load(_skip_ann_index_on_load);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
@@ -1826,6 +1829,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_page_size != b._storage_page_size) return false;
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
+    if (a._skip_ann_index_on_load != b._skip_ann_index_on_load) return false;
     if (a._deprecated_enable_variant_flatten_nested !=
         b._deprecated_enable_variant_flatten_nested) {
         return false;

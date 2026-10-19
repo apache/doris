@@ -2914,6 +2914,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    public void setSkipAnnIndexOnLoad(boolean skip) {
+        TableProperty property = getOrCreatTableProperty();
+        property.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD,
+                Boolean.toString(skip));
+        property.buildSkipAnnIndexOnLoad();
+    }
+
+    public boolean skipAnnIndexOnLoad() {
+        return tableProperty != null && tableProperty.skipAnnIndexOnLoad();
+    }
+
     public void setCompactionPolicy(String compactionPolicy) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, compactionPolicy);

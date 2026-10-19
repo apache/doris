@@ -1057,6 +1057,20 @@ TEST_F(TabletSchemaTest, init_from_pb_no_flags_defaults_v2) {
     EXPECT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2, schema.storage_format());
 }
 
+TEST_F(TabletSchemaTest, skip_ann_index_on_load_roundtrip) {
+    TabletSchemaPB in;
+    in.set_keys_type(DUP_KEYS);
+    in.set_skip_ann_index_on_load(true);
+
+    TabletSchema schema;
+    schema.init_from_pb(in);
+    EXPECT_TRUE(schema.skip_ann_index_on_load());
+
+    TabletSchemaPB out;
+    schema.to_schema_pb(&out);
+    EXPECT_TRUE(out.skip_ann_index_on_load());
+}
+
 // Rolling-downgrade compat: a V3 TabletSchema must redundantly emit the three
 // legacy flags so an old BE rolled back from a new one can still recognize V3.
 TEST_F(TabletSchemaTest, to_schema_pb_v3_emits_legacy_flags) {
