@@ -119,7 +119,17 @@ class ResultUtils {
             StringBuffer sb = new StringBuffer()
             while (matcher.find()) {
                 String hex = matcher.group().substring(2)
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(decodeHexString(hex)))
+                String decoded = decodeHexString(hex)
+                if (decoded == null) {
+                    // The bytes are not valid UTF-8: any String rendering would
+                    // go through a lossy replacement character, collapsing
+                    // distinct values (the single bytes 0x80 and 0x81 both
+                    // become U+FFFD) and making unequal results compare equal.
+                    // Keep the lossless 0x-hex token instead; a rendering that
+                    // cannot round-trip then fails loudly rather than passing.
+                    continue
+                }
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(decoded))
             }
             matcher.appendTail(sb)
             return sb.toString()
@@ -142,12 +152,22 @@ class ResultUtils {
         return value
     }
 
+    /**
+     * Decodes a hex token to the String the other engine renders for the same
+     * bytes, or returns null when the bytes are not valid UTF-8: decoding then
+     * could only go through a lossy replacement character, and the caller keeps
+     * the lossless 0x-hex form instead.
+     */
     private static String decodeHexString(String hex) {
         byte[] bytes = new byte[hex.length().intdiv(2)]
         for (int i = 0; i < bytes.length; i++) {
             bytes[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16)
         }
-        return new String(bytes, StandardCharsets.UTF_8)
+        String decoded = new String(bytes, StandardCharsets.UTF_8)
+        if (!Arrays.equals(decoded.getBytes(StandardCharsets.UTF_8), bytes)) {
+            return null
+        }
+        return decoded
     }
 
     static Object normalizeValue(Object value) {

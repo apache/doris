@@ -53,6 +53,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private boolean supportsPaimonRustReader;
+    // The PK-vector (ANN) search protocol bit, negotiated separately: an older
+    // rust-capable BE reports the batch bit but would reject a vector payload.
+    @SerializedName("supportsPaimonRustVectorReader")
+    private boolean supportsPaimonRustVectorReader;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -160,6 +164,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public void setPaimonRustReaderSupported(boolean supported) {
         this.supportsPaimonRustReader = supported;
+    }
+
+    public boolean isPaimonRustVectorReaderSupported() {
+        return supportsPaimonRustVectorReader;
+    }
+
+    public void setPaimonRustVectorReaderSupported(boolean supported) {
+        this.supportsPaimonRustVectorReader = supported;
     }
 
     @Override

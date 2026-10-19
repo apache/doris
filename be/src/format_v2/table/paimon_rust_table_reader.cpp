@@ -899,9 +899,12 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
         // clamp, and computing the inverse on an illegal score would produce a
         // non-finite distance (score <= 0 -> 1/score is inf; score > 1 -> negative
         // radicand -> NaN), which makes the coordinator's Top-N comparisons
-        // ill-defined. Report a distinct negative sentinel per case instead: both
-        // are unreachable for a genuine Euclidean distance, so they surface as
-        // visibly bogus rows that also say WHICH way the index is broken.
+        // ill-defined. Both emit kCorruptScoreDistance instead: +inf sorts last in
+        // an ASC Top-N, so these rows can never displace a valid closer row. A
+        // score of exactly 0 is REACHABLE from a genuine huge distance — the exact
+        // fallback (vector-index.search-mode=full) computes the squared L2 in f32,
+        // and norms above ~1.8e19 overflow to +inf, so 1/(1+d^2) rounds to 0;
+        // publishing a sentinel ahead of finite rows would invert the final TopN.
         //
         // A score slightly above 1 is NOT corruption: the kernel computes squared
         // L2 as ||a||^2 + ||b||^2 - 2<a,b>, which can yield a small negative
@@ -911,13 +914,13 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
         if (UNLIKELY(score <= 0.0F)) {
             LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score << " (row "
                          << i << ", expect score in (0, 1]), "
-                         << "sentinel " << kCorruptScoreNotPositive;
-            (*data)[i] = kCorruptScoreNotPositive;
+                         << "distance " << kCorruptScoreDistance;
+            (*data)[i] = kCorruptScoreDistance;
         } else if (UNLIKELY(score > 1.0F + kScoreAboveOneTolerance)) {
             LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score << " (row "
                          << i << ", expect score in (0, 1]), "
-                         << "sentinel " << kCorruptScoreAboveOne;
-            (*data)[i] = kCorruptScoreAboveOne;
+                         << "distance " << kCorruptScoreDistance;
+            (*data)[i] = kCorruptScoreDistance;
         } else if (score > 1.0F) {
             // Numerical artifact of a near-exact hit (see kScoreAboveOneTolerance):
             // clamp to distance 0 instead of sentineling a legitimate best match.
@@ -1301,6 +1304,20 @@ std::optional<std::string> PaimonRustTableReader::_resolve_branch(
     return std::nullopt;
 }
 
+#ifdef BE_TEST
+std::vector<std::string> PaimonRustTableReader::TEST_build_read_columns(
+        const TFileRangeDesc& range) const {
+    // _build_read_columns judges vector mode off _current_range; borrow it for the
+    // test by reading the columns through the same member path.
+    TFileRangeDesc& current = const_cast<TFileRangeDesc&>(_current_range);
+    TFileRangeDesc saved = current;
+    current = range;
+    std::vector<std::string> columns = _build_read_columns();
+    current = saved;
+    return columns;
+}
+#endif
+
 std::vector<std::string> PaimonRustTableReader::_build_read_columns() const {
     std::vector<std::string> columns;
     columns.reserve(_projected_columns.size());
@@ -1310,9 +1327,11 @@ std::vector<std::string> PaimonRustTableReader::_build_read_columns() const {
         }
         // The PK-vector search distance is reader-produced and auto-appended by
         // paimon-rust under its own field name; it is never a projectable table
-        // column, so exclude it from the projection in every mode (in non-vector
-        // mode it is simply absent).
-        if (column.name == kPaimonSearchDistanceColumn) {
+        // column, so exclude it from the projection — but only in vector mode:
+        // __paimon_search_score_to_dis is also a legal Paimon user column name, and
+        // skipping it on an ordinary rust scan would drop the real column and
+        // fill NULLs through _fill_non_arrow_columns.
+        if (_is_vector_mode(_current_range) && column.name == kPaimonSearchDistanceColumn) {
             continue;
         }
         columns.emplace_back(column.name);

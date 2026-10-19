@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -112,15 +113,15 @@ public:
     // paimon-rust FFI handles).
     //
     // A score outside l2's legal (0, 1] range is index corruption, and computing
-    // the inverse anyway would yield a non-finite distance (see the two sentinels
-    // below). Such rows are emitted as a NEGATIVE distance instead: negative is
-    // unreachable for a genuine Euclidean distance, so it cannot be confused with
-    // a real result, it is totally ordered (unlike NaN), and it stays finite, so
-    // the coordinator's Top-N comparisons remain well-defined. Rows land at the
-    // very front of an ASC Top-K -- deliberately: a corrupt index should be
-    // visible in the result, not averaged into it.
-    static constexpr float kCorruptScoreAboveOne = -1.0F;
-    static constexpr float kCorruptScoreNotPositive = -2.0F;
+    // the inverse anyway would yield a non-finite distance (see the two cases
+    // below). Such rows are emitted as +inf instead: +inf sorts LAST in an ASC
+    // Top-K, so a corrupt or infinite row can never displace a valid closer row
+    // from the coordinator's final ordering. A score of exactly 0 is reachable
+    // from a genuine (huge) distance — the exact fallback in
+    // vector-index.search-mode=full computes the squared L2 in f32, so norms
+    // above ~1.8e19 overflow to +inf and score = 1/(1+d^2) rounds to 0 — which
+    // is why the boundary maps to +inf rather than to an error.
+    static constexpr float kCorruptScoreDistance = std::numeric_limits<float>::infinity();
     // paimon-rust's lumina kernel computes the squared L2 distance as
     // ||a||^2 + ||b||^2 - 2<a,b> (vectorized dot), which suffers catastrophic
     // cancellation when a ~= b: the three terms nearly cancel and the residual
@@ -156,6 +157,9 @@ public:
     void TEST_set_projected_columns(std::vector<format::ColumnDefinition> columns) {
         _projected_columns = std::move(columns);
     }
+    // The projection the reader would request for the given range; exposed so the
+    // synthetic-distance-column exclusion (vector mode only) can be unit-tested.
+    std::vector<std::string> TEST_build_read_columns(const TFileRangeDesc& range) const;
     void TEST_set_partition_values(std::map<std::string, Field> values) {
         _partition_values = std::move(values);
     }

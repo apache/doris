@@ -147,6 +147,12 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+    // The PK-vector (ANN) search protocol bit, negotiated separately from the
+    // batch rust reader: an older rust-capable BE reports only the batch bit and
+    // rejects a vector payload ("missing paimon_split"), so the one-way vector
+    // rewrite must require this bit specifically.
+    @SerializedName("supportsPaimonRustVectorReader")
+    private volatile boolean supportsPaimonRustVectorReader;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -261,6 +267,10 @@ public class Backend implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public boolean isPaimonRustVectorReaderSupported() {
+        return supportsPaimonRustVectorReader;
     }
 
     public int getBePort() {
@@ -881,6 +891,10 @@ public class Backend implements Writable {
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
                 isChanged = true;
                 supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
+            if (supportsPaimonRustVectorReader != hbResponse.isPaimonRustVectorReaderSupported()) {
+                isChanged = true;
+                supportsPaimonRustVectorReader = hbResponse.isPaimonRustVectorReaderSupported();
             }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
