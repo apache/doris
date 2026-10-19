@@ -25,9 +25,11 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.utframe.TestWithFeService;
@@ -67,6 +69,10 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         Assertions.assertEquals((short) 3, olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum(),
                 tblName);
+        Assertions.assertFalse(olapTable.getTableProperty().getProperties()
+                .containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM), tblName);
+        Assertions.assertTrue(olapTable.getTableProperty().getProperties()
+                .containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION), tblName);
         for (Partition partition : olapTable.getPartitions()) {
             Assertions.assertEquals((short) 3,
                     partitionInfo.getReplicaAllocation(partition.getId()).getTotalReplicaNum());
@@ -83,5 +89,14 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
             Assertions.assertNotNull(table.getColumn(def.getName()));
         }
+    }
+
+    @Test
+    public void testCheckPartitionStatisticsTable() throws AnalysisException {
+        Database db = Env.getCurrentEnv().getCatalogMgr()
+                .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
+        Assertions.assertNotNull(db);
+        OlapTable table = db.getOlapTableOrAnalysisException(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        Assertions.assertEquals(PrimitiveType.HLL, table.getColumn("ndv").getType().getPrimitiveType());
     }
 }

@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.ShuffleType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,7 +44,6 @@ import java.util.Optional;
  * Physical SetOperation.
  */
 public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implements SetOperation {
-    public static final String DISTRIBUTE_TO_CHILD_INDEX = "DistributeToChildIndex";
 
     protected final Qualifier qualifier;
     protected final List<NamedExpression> outputs;

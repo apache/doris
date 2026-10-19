@@ -112,85 +112,85 @@ suite("test_iceberg_view_query_p0", "p0,external") {
         try {
             sql """select * from v_with_partitioned_table FOR TIME AS OF '2025-06-11 20:17:01' order by col1 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select * from v_with_partitioned_table FOR VERSION AS OF 5497706844625725452 order by col1 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_partitioned_table FOR TIME AS OF '2025-06-11 20:17:01'"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_partitioned_table FOR VERSION AS OF 5497706844625725452"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
 
         try {
             sql """select * from v_with_unpartitioned_table FOR TIME AS OF '2025-06-11 20:17:01' order by col1 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select * from v_with_unpartitioned_table FOR VERSION AS OF 5497706844625725452 order by col1 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_unpartitioned_table FOR TIME AS OF '2025-06-11 20:17:01'"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_unpartitioned_table FOR VERSION AS OF 5497706844625725452"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
 
         try {
             sql """select * from v_with_partitioned_column FOR TIME AS OF '2025-06-11 20:17:01' order by col5 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select * from v_with_partitioned_column FOR VERSION AS OF 5497706844625725452 order by col5 limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_partitioned_column FOR TIME AS OF '2025-06-11 20:17:01'"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_partitioned_column FOR VERSION AS OF 5497706844625725452"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
 
         try {
             sql """select * from v_with_joint_table FOR TIME AS OF '2025-06-11 20:17:01' order by sale_date limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select * from v_with_joint_table FOR VERSION AS OF 5497706844625725452 order by sale_date limit 10"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_joint_table FOR TIME AS OF '2025-06-11 20:17:01'"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
         try {
             sql """select count(*) from v_with_joint_table FOR VERSION AS OF 5497706844625725452"""
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("iceberg view not supported with snapshot time/version travel"), e.getMessage())
+            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
         }
 
         sql """drop view v_with_partitioned_table"""

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Binlog;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
-import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -46,6 +46,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitBackends(Backends backends, C context) {
         return visitTableValuedFunction(backends, context);
+    }
+
+    default R visitBinlog(Binlog binlog, C context) {
+        return visitTableValuedFunction(binlog, context);
     }
 
     default R visitCatalogs(Catalogs catalogs, C context) {
@@ -102,10 +106,6 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHttpStream(HttpStream httpStream, C context) {
         return visitTableValuedFunction(httpStream, context);
-    }
-
-    default R visitHudiMeta(HudiMeta hudiMeta, C context) {
-        return visitTableValuedFunction(hudiMeta, context);
     }
 
     default R visitLocal(Local local, C context) {

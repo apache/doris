@@ -70,9 +70,6 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
-    }
     std::string do_get_name() const override;
     const std::string get_family_name() const override { return "Struct"; }
 
@@ -115,17 +112,7 @@ public:
         }
         return std::make_shared<SerDeType>(ptrs, names, nesting_level);
     };
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        node->set_type(TTypeNodeType::STRUCT);
-        for (size_t i = 0; i < elems.size(); ++i) {
-            auto field = node->add_struct_fields();
-            field->set_name(get_element_name(i));
-            field->set_contains_null(elems[i]->is_nullable());
-        }
-        for (const auto& child : elems) {
-            child->to_protobuf(ptype);
-        }
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         node.type = TTypeNodeType::STRUCT;

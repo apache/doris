@@ -21,8 +21,7 @@ suite("test_index_delete_arr", "array_contains_inverted_index") {
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def indexTbName1 = "test_index_delete_arr"
 
@@ -63,7 +62,7 @@ suite("test_index_delete_arr", "array_contains_inverted_index") {
         qt_sql """ select count() from ${indexTbName1} where a >= 1 and a <= 10; """
         qt_sql """ select count() from ${indexTbName1} where a >= 1; """
         qt_sql """ select count() from ${indexTbName1} where a <= 10; """
-        
+
         test {
          sql """ delete from test_index_delete_arr where array_contains(b,'3'); """
          exception("errCode = 2")

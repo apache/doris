@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -71,6 +71,11 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "PhysicalTopN limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
     }

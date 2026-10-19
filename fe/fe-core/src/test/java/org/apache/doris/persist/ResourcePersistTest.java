@@ -17,41 +17,107 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.AzureResource;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.common.io.Text;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 
 public class ResourcePersistTest {
     @Test
     public void test() throws IOException {
         Resource resource = new S3Resource("s3_resource");
-        File file = new File("./ResourcePersistTest");
-        try {
-            // 1. Write objects to file
-            file.createNewFile();
-            DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-            resource.write(dos);
-            dos.flush();
-            dos.close();
+        S3Resource resource1 = (S3Resource) readWrittenResource(resource);
+        Assertions.assertEquals(resource1.toString(), resource.toString());
+        resource1.readLock();
+        resource1.readUnlock();
+    }
 
-            // 2. Read objects from file
-            DataInputStream dis = new DataInputStream(new FileInputStream(file));
-            S3Resource resource1 = (S3Resource) Resource.read(dis);
-            dis.close();
-            Assert.assertEquals(resource1.toString(), resource.toString());
-            resource1.readLock();
-            resource1.readUnlock();
-        } finally {
-            file.delete();
-        }
+    @Test
+    public void testAzureResourcePersist() throws IOException {
+        Resource resource = new AzureResource("azure_resource");
+        Assertions.assertTrue(resource.toString().contains("\"clazz\":\"AzureResource\""));
+
+        Resource readResource = readWrittenResource(resource);
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        readResource.readLock();
+        readResource.readUnlock();
+    }
+
+    @Test
+    public void testReadLegacyAzureResourceWithoutClazz() throws IOException {
+        String json = "{\"name\":\"legacy_azure_resource\",\"type\":\"AZURE\","
+                + "\"references\":{},\"id\":123,\"version\":0}";
+
+        Resource readResource = readResourceFromJson(json);
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("legacy_azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        readResource.readLock();
+        readResource.readUnlock();
+    }
+
+    @Test
+    public void testReadLegacyAzureResourceMgrWithoutClazz() throws IOException {
+        String json = "{\"nameToResource\":{\"legacy_azure_resource\":{\"name\":\"legacy_azure_resource\","
+                + "\"type\":\"AZURE\",\"references\":{},\"id\":123,\"version\":0}}}";
+
+        ResourceMgr resourceMgr = readResourceMgrFromJson(json);
+        Resource readResource = resourceMgr.getResource("legacy_azure_resource");
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("legacy_azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        readResource.readLock();
+        readResource.readUnlock();
+    }
+
+    private Resource readWrittenResource(Resource resource) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(byteArrayOutputStream);
+        resource.write(dos);
+        dos.flush();
+        dos.close();
+
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(byteArrayOutputStream.toByteArray()));
+        Resource readResource = Resource.read(dis);
+        dis.close();
+        return readResource;
+    }
+
+    private Resource readResourceFromJson(String json) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(byteArrayOutputStream);
+        Text.writeString(dos, json);
+        dos.flush();
+        dos.close();
+
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(byteArrayOutputStream.toByteArray()));
+        Resource readResource = Resource.read(dis);
+        dis.close();
+        return readResource;
+    }
+
+    private ResourceMgr readResourceMgrFromJson(String json) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(byteArrayOutputStream);
+        Text.writeString(dos, json);
+        dos.flush();
+        dos.close();
+
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(byteArrayOutputStream.toByteArray()));
+        ResourceMgr resourceMgr = ResourceMgr.read(dis);
+        dis.close();
+        return resourceMgr;
     }
 }

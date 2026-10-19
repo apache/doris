@@ -22,6 +22,7 @@
 
 suite("variant_mv_rowstore_crash", "variant_type") {
 
+    def variantV2Function = "parse_to_variant"
     def tbl = "var_mv_rs_tbl"
     def mv_name = "var_mv_rs_mv"
 
@@ -44,9 +45,9 @@ suite("variant_mv_rowstore_crash", "variant_type") {
 
     // All rows have non-null array values in a single batch
     sql """INSERT INTO ${tbl} VALUES
-        (1, '{"a":1,"arr":[{"x":1},{"x":2}]}'),
-        (2, '{"a":2,"arr":[{"x":3}]}'),
-        (3, '{"a":3,"arr":[{"x":4},{"x":5},{"x":6}]}')"""
+        (1, ${variantV2Function}('{"a":1,"arr":[{"x":1},{"x":2}]}')),
+        (2, ${variantV2Function}('{"a":2,"arr":[{"x":3}]}')),
+        (3, ${variantV2Function}('{"a":3,"arr":[{"x":4},{"x":5},{"x":6}]}'))"""
 
     sql "DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"
     sql """
@@ -67,8 +68,7 @@ suite("variant_mv_rowstore_crash", "variant_type") {
     order_qt_mv "SELECT * FROM ${mv_name} ORDER BY k"
 
     // Test 2: INSERT INTO ... SELECT variant subcolumn into rowstore table
-    // This ensures variant goes through parse_and_materialize_variant_columns
-    // with ensure_root_node_type path
+    // This ensures a Variant subcolumn is materialized into the row-store target.
     def tbl3 = "var_rs_target_tbl"
     sql "DROP TABLE IF EXISTS ${tbl3}"
     sql """

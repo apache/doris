@@ -68,10 +68,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
-THRIFT_NAME=thrift-0.16.0.tar.gz
-THRIFT_SOURCE=thrift-0.16.0
-THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.24.0/thrift-0.24.0.tar.gz"
+THRIFT_NAME=thrift-0.24.0.tar.gz
+THRIFT_SOURCE=thrift-0.24.0
+THRIFT_MD5SUM="232e035ff80c5fb4b7243f0be3a76b02"
 
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
@@ -99,10 +99,10 @@ GTEST_SOURCE=googletest-release-1.12.1
 GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
-SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.10.tar.gz"
-SNAPPY_NAME=snappy-1.1.10.tar.gz
-SNAPPY_SOURCE=snappy-1.1.10
-SNAPPY_MD5SUM="70153395ebe6d72febe2cf2e40026a44"
+SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.2.1.tar.gz"
+SNAPPY_NAME=snappy-1.2.1.tar.gz
+SNAPPY_SOURCE=snappy-1.2.1
+SNAPPY_MD5SUM="dd6f9b667e69491e1dbf7419bdf68823"
 
 # gperftools
 GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
@@ -135,13 +135,12 @@ BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
-LZO2_DOWNLOAD="https://fossies.org/linux/misc/lzo-2.10.tar.gz"
+LZO2_DOWNLOAD="https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
 LZO2_NAME=lzo-2.10.tar.gz
 LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-# Updated to match paimon-cpp version (commit 232389d4f1012dddec4ef84861face2d2ba85709)
 RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz"
 RAPIDJSON_NAME=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709.tar.gz
 RAPIDJSON_SOURCE=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709
@@ -242,10 +241,10 @@ BROTLI_SOURCE="brotli-1.0.9"
 BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
 
 # flatbuffers
-FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v2.0.0.tar.gz"
-FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
-FLATBUFFERS_SOURCE=flatbuffers-2.0.0
-FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-23.5.26.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-23.5.26
+FLATBUFFERS_MD5SUM="2ef00eaaa86ab5e9ad5eafe09c2e7b60"
 
 # c-ares
 CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
@@ -261,12 +260,43 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-# Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet.
-# https://github.com/apache/doris/pull/51217
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
-ARROW_NAME="apache-arrow-17.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-17.0.0"
-ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-24.0.0.tar.gz"
+ARROW_NAME="apache-arrow-24.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-24.0.0"
+ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
+
+# arrow-adbc
+# One source tree, three artifacts: the driver manager (statically linked into
+# doris_be), the JNI bridge (loaded by the FE adbc connector) and the SQLite
+# driver (BE unit tests only, not shipped).
+# Release "N" ships C/Go 1.12.0 and Java 0.24.0; the tag carries neither number.
+ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
+ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
+ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+
+# arrow-adbc Flight SQL driver, prebuilt.
+# Upstream writes this driver in Go and publishes no bare shared library, so it is
+# taken from the official release wheel (a zip) rather than adding a Go toolchain to
+# the thirdparty build. It must come from the same release as the source tree above
+# (C/Go 1.12.0): partition descriptors are driver-private bytes, so the FE and every
+# BE have to load the very same file. ADBC tests only, not shipped -- same treatment
+# as the SQLite driver. Linux only; the macOS wheels carry a .dylib no test looks for.
+if [[ "$(uname -s)" == 'Linux' ]]; then
+    ARROW_ADBC_FLIGHTSQL_SOURCE="adbc_driver_flightsql"
+    if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/2b/5b/f8566aa6d05eb40225f5874f8f5f5e8b8b4a4ce866d817a5ff352f326302/adbc_driver_flightsql-1.12.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-x86_64.zip"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="975a283dc72db0c646204e512b396e2a"
+    elif [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/57/45/6468fb425f3c0ae868c1ca9ab8e15cba76b59e941edd7e80e892e5476728/adbc_driver_flightsql-1.12.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
+        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-aarch64.zip"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="4ab31967910f9d2af20663b06412e6aa"
+    else
+        echo "no prebuilt adbc flightsql driver for ${MACHINE_TYPE}, skipping it"
+        ARROW_ADBC_FLIGHTSQL_SOURCE=""
+    fi
+fi
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
@@ -323,10 +353,10 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
-LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
-LIBUNWIND_SOURCE="libunwind-1.6.2"
-LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz"
+LIBUNWIND_NAME="libunwind-1.8.3.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.8.3"
+LIBUNWIND_MD5SUM="13bc7b41462ac6ea157d350eaf6c1503"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
@@ -356,13 +386,18 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
-AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.221"
+AWS_SDK_MD5SUM="95ea128da58829117a544b092bc39033"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+# Not every CI runner can reach gcc.gnu.org, and download_func() spends the first
+# of its two passes re-checking the file that is already on disk, so an
+# unreachable host costs a single attempt and then fails the build. The gcc-7
+# branch is closed, so this mirror serves a byte identical file.
+TSAN_HEADER_FALLBACK_DOWNLOAD="https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-7/libsanitizer/include/sanitizer/tsan_interface_atomic.h"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
@@ -428,11 +463,11 @@ BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
-# for arrow-17.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/13.0.0.tar.gz"
-XSIMD_NAME="13.0.0.tar.gz"
-XSIMD_SOURCE=xsimd-13.0.0
-XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
+# for arrow-24.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/14.0.0.tar.gz"
+XSIMD_NAME="14.0.0.tar.gz"
+XSIMD_SOURCE=xsimd-14.0.0
+XSIMD_MD5SUM="75c0d34cf7011924ba19978076c76dc1"
 
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
@@ -440,11 +475,25 @@ SIMDJSON_NAME=simdjson-3.11.6.tar.gz
 SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
+# simdutf
+SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
+SIMDUTF_NAME=simdutf-9.2.0.tar.gz
+SIMDUTF_SOURCE=simdutf-9.2.0
+SIMDUTF_MD5SUM="abeae9267c1c1caf183b8d24a39c0147"
+
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
 NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -477,16 +526,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
-HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
-
-# libhdfs 3.4
-HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
-HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.4-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="729a7ef9126f65255d1da124a88ffd50"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -548,6 +591,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# mecab-ipadic (UTF-8) for the Japanese kuromoji analyzer
+MECAB_IPADIC_DOWNLOAD="https://github.com/lindera/mecab-ipadic/archive/refs/tags/2.7.0-20250920.tar.gz"
+MECAB_IPADIC_NAME="mecab-ipadic-2.7.0-20250920.tar.gz"
+MECAB_IPADIC_SOURCE="mecab-ipadic-2.7.0-20250920"
+MECAB_IPADIC_MD5SUM="a95c409f12f1023fce8ef91f991ef042"
+
 # jindofs
 JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
 JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
@@ -567,14 +616,22 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
-# paimon-cpp
-PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
-PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
+# lance-c
+# Includes lance-c #91/#94: search filters and synchronous index prewarm.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_NAME="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d.tar.gz"
+LANCE_C_SOURCE="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_MD5SUM="9e32aa626caf1cea3bfe62d12d60a2c8"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'MECAB_IPADIC'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -604,6 +661,7 @@ export TP_ARCHIVES=(
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
+    'ARROW_ADBC'
     'BROTLI'
     'ZSTD'
     'ABSEIL'
@@ -636,13 +694,14 @@ export TP_ARCHIVES=(
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
+    'SIMDUTF'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS'
     'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'
@@ -657,8 +716,15 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
-    'PAIMON_CPP'
+    'LANCE_C'
+    'PAIMON_RUST'
 )
+
+# This variable is unset on macOS; callers may source this file with nounset.
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
+    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
+    export TP_ARCHIVES
+fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils

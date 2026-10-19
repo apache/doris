@@ -48,8 +48,14 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
     case TYPE_DATETIMEV2:
         return creator_without_type::create<AggregateFunction<TYPE_DATETIMEV2>>(
                 argument_types, result_is_nullable, attr);
+    case TYPE_TIMESTAMP_NS:
+        return creator_without_type::create<AggregateFunction<TYPE_TIMESTAMP_NS>>(
+                argument_types, result_is_nullable, attr);
     case TYPE_DATEV2:
         return creator_without_type::create<AggregateFunction<TYPE_DATEV2>>(
+                argument_types, result_is_nullable, attr);
+    case TYPE_TIMESTAMPTZ:
+        return creator_without_type::create<AggregateFunction<TYPE_TIMESTAMPTZ>>(
                 argument_types, result_is_nullable, attr);
     default:
         return nullptr;

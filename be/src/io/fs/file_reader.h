@@ -20,12 +20,18 @@
 #include <butil/macros.h>
 #include <stddef.h>
 
+#include <functional>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "io/fs/path.h"
 #include "util/profile_collector.h"
 #include "util/slice.h"
+
+namespace butil {
+class IOBuf;
+}
 
 namespace doris {
 
@@ -39,6 +45,18 @@ enum class FileCachePolicy : uint8_t {
     FILE_BLOCK_CACHE,
 };
 
+enum class CacheAlignMode : uint8_t {
+    ALIGN_TO_BLOCK,
+    UNALIGNED,
+};
+
+enum class CacheWriteMode : uint8_t {
+    DEFAULT,
+    NO_WRITE,
+    SYNC_WRITE,
+    ASYNC_WRITE,
+};
+
 inline FileCachePolicy cache_type_from_string(std::string_view type) {
     if (type == "file_block_cache") {
         return FileCachePolicy::FILE_BLOCK_CACHE;
@@ -50,6 +68,8 @@ inline FileCachePolicy cache_type_from_string(std::string_view type) {
 // Only affects remote file readers
 struct FileReaderOptions {
     FileCachePolicy cache_type {FileCachePolicy::NO_CACHE};
+    CacheAlignMode align_mode {CacheAlignMode::ALIGN_TO_BLOCK};
+    CacheWriteMode cache_write_mode {CacheWriteMode::DEFAULT};
     bool is_doris_table = false;
     std::string cache_base_path;
     // Length of the file in bytes, -1 means unset.
@@ -59,6 +79,13 @@ struct FileReaderOptions {
     int64_t mtime = 0;
     // Used to query the location of the file cache
     int64_t tablet_id = -1;
+    // Storage resource id of the remote file system. Used by peer fill to reconstruct
+    // the source file system without scanning tablet rowsets on the peer.
+    std::string storage_resource_id;
+    // Builds the file cache key of an external file from its path and modification time. The
+    // creator of the reader sets it when the path alone does not name the file, e.g. FileFactory
+    // adds the object storage endpoint or the HDFS name node. When it is empty the key is path:mtime.
+    std::function<std::string(const std::string& path, int64_t mtime)> cache_key_function {};
 
     static const FileReaderOptions DEFAULT;
 };
@@ -79,6 +106,12 @@ public:
     /// the caller must ensure that the IOContext exists during the left cycle of read_at()
     Status read_at(size_t offset, Slice result, size_t* bytes_read,
                    const IOContext* io_ctx = nullptr);
+    /// Read up to bytes_req bytes from offset and append them to out.
+    /// bytes_read is always set to the actual number of bytes appended on success; reading past
+    /// EOF is clamped to the file size and returns OK with fewer bytes. out and bytes_read must be
+    /// non-null. Readers that do not override the IOBuf path return NotSupported.
+    Status read_at_iobuf(size_t offset, size_t bytes_req, butil::IOBuf* out, size_t* bytes_read,
+                         const IOContext* io_ctx = nullptr);
 
     virtual Status close() = 0;
 
@@ -96,6 +129,10 @@ public:
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;
+    // Default implementation returns NotSupported. Override this in readers that can
+    // fill iobuf directly.
+    virtual Status read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                      size_t* bytes_read, const IOContext* io_ctx);
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;

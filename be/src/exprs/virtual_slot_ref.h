@@ -36,10 +36,13 @@ public:
     std::string expr_label() override;
     std::string debug_string() const override;
     bool is_constant() const override { return false; }
+    // The virtual column definition is stored outside _children and is not part of the digest.
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
     int column_id() const { return _column_id; }
     int slot_id() const { return _slot_id; }
     bool equals(const VExpr& other) override;
     size_t estimate_memory(const size_t rows) override { return 0; }
+    void set_column_id(int column_id) { _column_id = column_id; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);
     }
@@ -94,8 +97,7 @@ public:
      * 4. Collects performance statistics
      * 
      * @param range_search_runtime Runtime info containing query vector, radius, and metrics
-     * @param cid_to_index_iterators Vector of index iterators for each column
-     * @param idx_to_cid Mapping from index position to column ID
+     * @param index_iterators Vector of index iterators in read-schema order
      * @param column_iterators Vector of column iterators for data access
      * @param row_bitmap Output bitmap updated with matching row IDs
      * @param ann_index_stats Statistics collector for performance monitoring
@@ -103,14 +105,14 @@ public:
      */
     Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+            AnnRangeSearchEvaluationResult& result) override;
 
 #ifdef BE_TEST
     // Test-only setter methods for unit testing
-    void set_column_id(int column_id) { _column_id = column_id; }
     void set_column_name(const std::string* column_name) { _column_name = column_name; }
     void set_column_data_type(DataTypePtr column_data_type) {
         _column_data_type = std::move(column_data_type);

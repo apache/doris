@@ -27,6 +27,7 @@
 
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_bitmap.h"
+#include "core/pod_array.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 
@@ -43,7 +44,11 @@ template <PrimitiveType T>
 struct AggregateFunctionBitmapAggData {
     BitmapValue value;
 
-    void add(const typename PrimitiveTypeTraits<T>::CppType& value_) { value.add(value_); }
+    void add(const typename PrimitiveTypeTraits<T>::CppType& value_) {
+        if (value_ >= 0) {
+            value.add(value_);
+        }
+    }
 
     void reset() { value.reset(); }
 
@@ -92,19 +97,33 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena&) const override {
         if constexpr (arg_nullable) {
-            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
-            const auto& column =
-                    assert_cast<const ColVecType&>(nullable_column.get_nested_column());
-            std::vector<typename PrimitiveTypeTraits<T>::CppType> values;
-            for (int i = 0; i < batch_size; ++i) {
-                if (!nullable_column.is_null_at(i)) {
+            auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                    nullable_column.get_nested_column());
+            PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
+            for (size_t i = 0; i < batch_size; ++i) {
+                if (!nullable_column.is_null_at(i) && column.get_data()[i] >= 0) {
                     values.push_back(column.get_data()[i]);
                 }
             }
             this->data(place).value.add_many(values.data(), values.size());
         } else {
-            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-            this->data(place).value.add_many(column.get_data().data(), column.size());
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto* data = column.get_data().data();
+            // Keep the allocation-free batch path for nonnegative input.
+            if (std::all_of(data, data + batch_size, [](auto value) { return value >= 0; })) {
+                this->data(place).value.add_many(data, batch_size);
+            } else {
+                PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
+                for (size_t i = 0; i < batch_size; ++i) {
+                    if (data[i] >= 0) {
+                        values.push_back(data[i]);
+                    }
+                }
+                this->data(place).value.add_many(values.data(), values.size());
+            }
         }
     }
 
@@ -116,7 +135,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).value);
     }
 
@@ -153,6 +172,13 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnBitmap&>(column);
+        this->data(place).value = col.get_data()[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -164,6 +190,8 @@ public:
             this->data(place).value |= data[i];
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena&,

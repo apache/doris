@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachTe
 import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachTextOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Stack;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
@@ -169,6 +170,10 @@ public interface TableGeneratingFunctionVisitor<R, C> {
 
     default R visitPosExplodeOuter(PosExplodeOuter posExplodeOuter, C context) {
         return visitTableGeneratingFunction(posExplodeOuter, context);
+    }
+
+    default R visitStack(Stack stack, C context) {
+        return visitTableGeneratingFunction(stack, context);
     }
 
     default R visitUnnest(Unnest unnest, C context) {

@@ -21,6 +21,7 @@
 
 #include "core/block/materialize_block.h"
 #include "exec/common/hash_table/hash_table_set_build.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
@@ -67,7 +68,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
@@ -80,7 +81,8 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
     if (in_block->rows() != 0) {
         if (local_state._mutable_block.empty()) {
             auto tmp_build_block = *(in_block->create_same_struct_block(0, false));
-            local_state._mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+            local_state._mutable_block =
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         {
@@ -285,7 +287,8 @@ size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state,
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_child_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_child_exprs, state, _child->operator_row_desc_after_projection()));
     return VExpr::open(_child_exprs, state);
 }
 

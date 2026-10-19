@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -76,9 +76,13 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(scan.getOperativeSlots())
-                .add(rowId).build();
+        ImmutableList.Builder<Slot> output = ImmutableList.builder();
+        for (Slot slot : scan.getOutput()) {
+            if (!lazySlots.contains(slot)) {
+                output.add(slot);
+            }
+        }
+        return output.add(rowId).build();
     }
 
     public PhysicalOlapScan getScan() {

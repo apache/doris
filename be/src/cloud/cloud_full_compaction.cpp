@@ -113,7 +113,7 @@ Status CloudFullCompaction::request_global_lock() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
+            cloud_tablet()->last_sync_rowsets_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
@@ -128,7 +128,7 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
-        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_full_compaction();
+        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_full_compaction_unlocked();
     }
     if (auto st = check_version_continuity(_input_rowsets); !st.ok()) {
         DCHECK(false) << st;

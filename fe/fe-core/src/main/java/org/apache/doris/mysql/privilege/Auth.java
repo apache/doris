@@ -24,6 +24,8 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -44,6 +46,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -79,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -100,6 +104,8 @@ public class Auth implements Writable {
     // unknown user does not have any privilege, this is just to be compatible with old version.
     public static final String UNKNOWN_USER = "unknown";
     public static final String DEFAULT_CATALOG = InternalCatalog.INTERNAL_CATALOG_NAME;
+    // Placeholder shown in mysql.user for password-derived columns, so no secret material leaks.
+    private static final String PASSWORD_MASK = "***";
 
     // There is no concurrency control logic inside roleManager,userManager,userRoleManage and rpropertyMgr,
     // and it is completely managed by Auth.
@@ -223,13 +229,33 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean requiresCertificateAuth(UserIdentity userIdentity) {
+        return userIdentity != null && userIdentity.hasSanRequirement();
+    }
+
+    public boolean shouldSkipPasswordVerificationAfterCertAuth(UserIdentity userIdentity) {
+        return requiresCertificateAuth(userIdentity) && Config.tls_cert_based_auth_ignore_password
+                && !isAuthenticationBound(userIdentity);
+    }
+
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
+        if (getAuthenticationBinding(remoteUser, remoteHost) != null) {
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost, "YES");
+        }
         // Check the LDAP password when the user exists in the LDAP service.
         if (ldapManager.doesUserExist(remoteUser)) {
             if (!ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser)) {
                 throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                         Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
+            }
+            if (getAuthenticationBinding(remoteUser, remoteHost) != null) {
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                        remoteUser + "@" + remoteHost, "YES");
+            }
+            // an LDAP-accepted credential still does not open a Doris account under ACCOUNT_LOCK
+            if (currentUser != null && !currentUser.isEmpty()) {
+                checkAccountLocked(currentUser.get(0));
             }
         } else {
             readLock();
@@ -238,6 +264,35 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
+        }
+    }
+
+    /**
+     * MySQL-compatible ACCOUNT_LOCK, enforced at authentication for every authenticator: a locked
+     * Doris account is refused whichever path (local password, LDAP, integration, plugin) accepted the
+     * credential. Not a session check -- sessions already authenticated are untouched.
+     */
+    public void checkAccountLocked(UserIdentity userIdentity) throws AuthenticationException {
+        passwdPolicyManager.checkAccountLocked(userIdentity);
+    }
+
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPlainPasswordForUserIdentity(userIdentity, remotePasswd, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -288,8 +343,109 @@ public class Auth implements Writable {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
+    /** Return only the first host match; a failed match must never fall through to another host. */
+    public User getAuthenticationBinding(String remoteUser, String remoteHost) {
+        readLock();
+        try {
+            List<UserIdentity> candidates = userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            User user = userManager.getAuthenticationUser(userManager.getUserByUserIdentity(candidates.get(0)));
+            if (!user.isAuthenticationBound()) {
+                return null;
+            }
+            // Authentication performs external IO after the lock is released. Snapshot the binding.
+            User snapshot = new User();
+            snapshot.setUserIdentity(user.getDomainUserIdentity());
+            snapshot.setAuthenticationBinding(user.getAuthIntegration(), user.getAuthIdentity());
+            return snapshot;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isAuthenticationBound(UserIdentity identity) {
+        readLock();
+        try {
+            User user = userManager.getUserByUserIdentity(identity);
+            return user != null && userManager.getAuthenticationUser(user).isAuthenticationBound();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /** Snapshot one exact account and its policy rows before SHOW CREATE renders them. */
+    public Pair<User, List<List<String>>> getUserForShowCreate(UserIdentity identity) throws AnalysisException {
+        readLock();
+        try {
+            User user = userManager.getUserByUserIdentity(identity);
+            if (user == null || user.isSetByDomainResolver()) {
+                throw new AnalysisException(String.format("User: %s does not exist", identity));
+            }
+            // DDL replaces the stored UserIdentity when TLS requirements change. Copy the
+            // mutable User fields while Auth's lock excludes binding, lock and comment updates.
+            User snapshot = new User();
+            snapshot.setUserIdentity(user.getUserIdentity());
+            snapshot.setAuthenticationBinding(user.getAuthIntegration(), user.getAuthIdentity());
+            snapshot.setComment(user.getComment());
+            return Pair.of(snapshot, passwdPolicyManager.getPolicyInfo(identity));
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<UserIdentity> getUsersBoundToIntegration(String integrationName) {
+        readLock();
+        try {
+            List<UserIdentity> identities = new ArrayList<>();
+            for (List<User> users : userManager.getNameToUsers().values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver() && integrationName.equals(user.getAuthIntegration())) {
+                        identities.add(user.getUserIdentity());
+                    }
+                }
+            }
+            identities.sort(java.util.Comparator.comparing(UserIdentity::toString));
+            return identities;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private String normalizeAuthenticationBinding(UserIdentity identity, String integrationName,
+            String rawIdentity, PasswordOptions options) throws DdlException {
+        if (identity.isRootUser() || ADMIN_USER.equals(identity.getQualifiedUser())) {
+            throw new DdlException("Can not bind root or admin to an authentication integration");
+        }
+        if (options.hasPasswordPolicy()) {
+            throw new DdlException("Password policies are not supported for authentication-bound users");
+        }
+        AuthenticationIntegrationMeta meta = Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegration(integrationName);
+        if (meta == null) {
+            throw new DdlException("Authentication integration " + integrationName + " does not exist");
+        }
+        try {
+            return Env.getCurrentEnv().getAuthenticationIntegrationRuntime().normalizeBoundIdentity(meta, rawIdentity);
+        } catch (org.apache.doris.authentication.AuthenticationException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    private byte[] newBoundPassword() {
+        // No caller receives the generated secret. Older FEs still see a nonempty password hash.
+        byte[] secret = new byte[32];
+        new java.security.SecureRandom().nextBytes(secret);
+        return MysqlPassword.makeScrambledPassword(java.util.Base64.getEncoder().encodeToString(secret));
+    }
+
     public boolean doesUserExist(String remoteUser, String remoteHost) {
         return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
+    }
+
+    public List<UserIdentity> getCandidateUserIdentities(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
     // ==== Global ====
@@ -494,15 +650,25 @@ public class Auth implements Writable {
     }
 
     public void createUser(CreateUserInfo info) throws DdlException {
-        createUserInternal(info.getUserIdent(), info.getRole(),
-                info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
-                info.getComment(), info.getUserId(), false);
+        AuthenticationIntegrationMgr integrations = Env.getCurrentEnv().getAuthenticationIntegrationMgr();
+        integrations.readLock();
+        try {
+            String integration = info.getAuthIntegration();
+            String identity = integration == null ? null : normalizeAuthenticationBinding(info.getUserIdent(),
+                    integration, info.getAuthIdentity(), info.getPasswordOptions());
+            createUserInternal(info.getUserIdent(), info.getRole(),
+                    integration == null ? info.getPassword() : newBoundPassword(), info.isIfNotExist(),
+                    info.getPasswordOptions(), info.getComment(), info.getUserId(), false, integration, identity);
+        } finally {
+            integrations.readUnlock();
+        }
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
-                    privInfo.getPasswordOptions(), privInfo.getComment(), privInfo.getUserId(), true);
+                    privInfo.getPasswordOptions(), privInfo.getComment(), privInfo.getUserId(), true,
+                    privInfo.getAuthIntegration(), privInfo.getAuthIdentity());
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
@@ -511,6 +677,13 @@ public class Auth implements Writable {
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
             boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId, boolean isReplay)
             throws DdlException {
+        createUserInternal(userIdent, roleName, password, ignoreIfExists, passwordOptions, comment, userId,
+                isReplay, null, null);
+    }
+
+    private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
+            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId, boolean isReplay,
+            String authIntegration, String authIdentity) throws DdlException {
         writeLock();
         try {
             // check if role exist
@@ -531,17 +704,22 @@ public class Auth implements Writable {
                 throw new DdlException("User " + userIdent + " already exist");
             }
 
+            if (!isReplay && authIntegration != null) {
+                userManager.checkDomainAuthenticationBinding(userIdent);
+            }
+
             // create user
             try {
                 // we should not throw AnalysisException at here,so transfer it
                 User user = userManager.createUser(userIdent, password, null, false, comment);
+                user.setAuthenticationBinding(authIntegration, authIdentity);
                 if (Strings.isNullOrEmpty(user.getUserId())) {
                     user.setUserId(userId);
                 }
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
-            if (password != null) {
+            if (password != null && authIntegration == null) {
                 // save password to password history
                 passwdPolicyManager.updatePassword(userIdent, password);
             }
@@ -554,13 +732,16 @@ public class Auth implements Writable {
             }
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
+            MetricRepo.updateUserConnectionMaxMetric(this, userIdent.getQualifiedUser(),
+                    propertyMgr.getMaxConn(userIdent.getQualifiedUser()));
 
             // 5. update password policy
-            passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
+            passwdPolicyManager.updatePolicy(userIdent, authIntegration == null ? password : null, passwordOptions);
 
             if (!isReplay) {
                 PrivInfo privInfo = new PrivInfo(userIdent, null, password,
                         roleName, passwordOptions, comment, userId);
+                privInfo.setAuthenticationBinding(authIntegration, authIdentity);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -608,6 +789,7 @@ public class Auth implements Writable {
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
                 propertyMgr.dropUser(userIdent);
+                MetricRepo.removeUserConnectionMaxMetric(this, userIdent.getQualifiedUser());
             }
 
             if (!isReplay) {
@@ -875,12 +1057,10 @@ public class Auth implements Writable {
 
     // revoke table
     public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
-        if (command.getTablePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
-            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
-                    command.getTablePattern(), privs, command.getColPrivileges(),
-                    true /* err on non exist */, false /* is replay */);
-        }
+        PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+        revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                command.getTablePattern(), privs, command.getColPrivileges(),
+                true /* err on non exist */, false /* is replay */);
     }
 
     public void replayRevoke(PrivInfo info) {
@@ -999,7 +1179,7 @@ public class Auth implements Writable {
     public void replaySetPassword(PrivInfo info) {
         try {
             setPasswordInternal(info.getUserIdent(), info.getPasswd(), null, true /* err on non exist */,
-                    false /* set by resolver */, true);
+                    false /* set by resolver */, true, true, info.getAuthIntegration(), info.getAuthIdentity());
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1007,23 +1187,48 @@ public class Auth implements Writable {
 
     public void setPasswordInternal(UserIdentity userIdent, byte[] password, UserIdentity domainUserIdent,
             boolean errOnNonExist, boolean setByResolver, boolean isReplay) throws DdlException {
+        setPasswordInternal(userIdent, password, domainUserIdent, errOnNonExist, setByResolver, isReplay,
+                false, null, null);
+    }
+
+    private void setPasswordInternal(UserIdentity userIdent, byte[] password, UserIdentity domainUserIdent,
+            boolean errOnNonExist, boolean setByResolver, boolean isReplay, boolean replaceBinding,
+            String authIntegration, String authIdentity) throws DdlException {
         Preconditions.checkArgument(!setByResolver || domainUserIdent != null, setByResolver + ", " + domainUserIdent);
         writeLock();
         try {
-            if (!isReplay) {
+            User user = userManager.getUserByUserIdentity(userIdent);
+            if (!isReplay && !replaceBinding && user != null && user.isAuthenticationBound()) {
+                throw new DdlException("SET PASSWORD is not supported for authentication-bound users; "
+                        + "use ALTER USER ... IDENTIFIED BY");
+            }
+            if (!isReplay && authIntegration != null) {
+                userManager.checkDomainAuthenticationBinding(userIdent);
+            }
+            if (!isReplay && authIntegration == null) {
                 if (!passwdPolicyManager.checkPasswordHistory(userIdent, password)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CREDENTIALS_CONTRADICT_TO_HISTORY,
                             userIdent.getQualifiedUser(), userIdent.getHost());
                 }
             }
             userManager.setPassword(userIdent, password, errOnNonExist);
-            if (password != null) {
+            if (replaceBinding && user != null) {
+                user.setAuthenticationBinding(authIntegration, authIdentity);
+            }
+            if (authIntegration != null) {
+                passwdPolicyManager.clearPasswordPolicy(userIdent);
+            }
+            if (password != null && authIntegration == null) {
                 // save password to password history
                 passwdPolicyManager.updatePassword(userIdent, password);
+            }
+            if (userIdent.isDomain() && user != null) {
+                userManager.refreshAuthenticationBinding(userIdent);
             }
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, null, password, null, null);
+                info.setAuthenticationBinding(authIntegration, authIdentity);
                 Env.getCurrentEnv().getEditLog().logSetPassword(info);
             }
         } finally {
@@ -1161,6 +1366,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             propertyMgr.updateUserProperty(user, properties, isReplay);
+            MetricRepo.updateUserConnectionMaxMetric(this, user, propertyMgr.getMaxConn(user));
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
@@ -1181,6 +1387,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<String, Long> getMaxConnForAllUsers() {
+        readLock();
+        try {
+            return propertyMgr.getMaxConnForAllUsers();
         } finally {
             readUnlock();
         }
@@ -1357,10 +1572,11 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
-        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSanRequirementSql())
                 ? FeConstants.null_string
-                : userIdent.getSan();
-        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
+                : userIdent.getSanRequirementSql();
+        if (!isAuthenticationBound(userIdent) && isLdapAuthEnabled()
+                && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
@@ -1368,6 +1584,7 @@ public class Auth implements Writable {
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== RequireSan ==============
             userAuthInfo.add(requireSan);
+            userAuthInfo.add("");
             // ============== Roles ==============
             userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
                     ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1378,13 +1595,15 @@ public class Auth implements Writable {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
                 // ============== Password ==============
-                userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                userAuthInfo.add(user.hasPassword() && !user.isAuthenticationBound() ? "Yes" : "No");
                 // ============== RequireSan ==============
                 userAuthInfo.add(requireSan);
+                userAuthInfo.add(Strings.nullToEmpty(user.getAuthIntegration()));
                 // ============== Roles ==============
                 userAuthInfo.add(Joiner.on(",").join(userRoleManager
                         .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1699,8 +1918,9 @@ public class Auth implements Writable {
             scramble = MysqlPassword.checkPassword(initialRootPassword);
         } catch (AnalysisException e) {
             // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
-            LOG.warn("initial_root_password [{}] is not valid 2-staged SHA-1 encrypted, ignore it",
-                    initialRootPassword);
+            // Do not echo the configured value: this branch is reached precisely when it is not a
+            // 2-staged SHA-1 hash, which usually means a plaintext password was configured.
+            LOG.warn("initial_root_password is not valid 2-staged SHA-1 encrypted, ignore it");
             return;
         }
         UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
@@ -1879,8 +2099,18 @@ public class Auth implements Writable {
     }
 
     public void alterUser(AlterUserInfo info) throws DdlException {
-        alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
-                null, info.getPasswordOptions(), info.getComment(), false);
+        AuthenticationIntegrationMgr integrations = Env.getCurrentEnv().getAuthenticationIntegrationMgr();
+        integrations.readLock();
+        try {
+            String integration = info.getAuthIntegration();
+            String identity = integration == null ? null : normalizeAuthenticationBinding(info.getUserIdent(),
+                    integration, info.getAuthIdentity(), info.getPasswordOptions());
+            byte[] password = integration == null ? info.getPassword() : newBoundPassword();
+            alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), password, null,
+                    info.getPasswordOptions(), info.getComment(), false, integration, identity);
+        } finally {
+            integrations.readUnlock();
+        }
     }
 
     public void replayAlterUser(AlterUserOperationLog log) {
@@ -1895,6 +2125,12 @@ public class Auth implements Writable {
     private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                    String role, PasswordOptions passwordOptions, String comment,
                                    boolean isReplay) throws DdlException {
+        alterUserInternal(ifExists, opType, userIdent, password, role, passwordOptions, comment, isReplay, null, null);
+    }
+
+    private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
+            String role, PasswordOptions passwordOptions, String comment, boolean isReplay,
+            String authIntegration, String authIdentity) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1905,13 +2141,27 @@ public class Auth implements Writable {
             }
             switch (opType) {
                 case SET_PASSWORD:
-                    setPasswordInternal(userIdent, password, null, false, false, isReplay);
+                    setPasswordInternal(userIdent, password, null, false, false, isReplay, true,
+                            authIntegration, authIdentity);
+                    if (!isReplay && authIntegration != null && ConnectContext.get() != null) {
+                        ConnectContext.get().getState().setOk(0, 1,
+                                "Local password policies and password history cleared");
+                    }
                     break;
                 case SET_ROLE:
                     setRoleToUser(userIdent, role);
                     break;
                 case SET_PASSWORD_POLICY:
+                    if (!isReplay && isAuthenticationBound(userIdent)) {
+                        throw new DdlException("Password policies are not supported for authentication-bound users");
+                    }
                     passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
+                    break;
+                case LOCK_ACCOUNT:
+                    // MySQL-compatible ALTER USER ... ACCOUNT_LOCK: refuses the account's own logins
+                    // from now on (persisted + journaled). Not a session check: existing sessions are
+                    // unaffected, as in MySQL.
+                    passwdPolicyManager.lockUser(userIdent);
                     break;
                 case UNLOCK_ACCOUNT:
                     passwdPolicyManager.unlockUser(userIdent);
@@ -1924,6 +2174,10 @@ public class Auth implements Writable {
                     break;
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
+            }
+            if (userIdent.isDomain() && (opType == AlterUserOpType.LOCK_ACCOUNT
+                    || opType == AlterUserOpType.UNLOCK_ACCOUNT)) {
+                userManager.refreshAuthenticationBinding(userIdent);
             }
             if (opType != AlterUserOpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
@@ -1955,6 +2209,9 @@ public class Auth implements Writable {
             throw new DdlException("user: " + userIdent + " does not exist");
         }
         user.setUserIdentity(userIdent);
+        if (userIdent.isDomain()) {
+            userManager.refreshAuthenticationBinding(userIdent);
+        }
     }
 
     private void modifyComment(UserIdentity userIdent, String comment) throws DdlException {
@@ -2051,7 +2308,12 @@ public class Auth implements Writable {
     // ====== END CLOUD ======
 
     // for mysql.user table
-    public List<List<String>> getAllUserInfo() {
+    public List<List<String>> getAllUserInfo(UserIdentity currentUser) {
+        // Only role administrators (ADMIN_PRIV or GRANT_PRIV) may see every account. A
+        // non-privileged user may only see their own account, so that mysql.user does not
+        // leak the cluster's account list and privilege topology to arbitrary users.
+        boolean canSeeAll = currentUser != null
+                && Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.GRANT);
         List<List<String>> userInfos = Lists.newArrayList();
         readLock();
         try {
@@ -2059,8 +2321,18 @@ public class Auth implements Writable {
             for (List<User> users : nameToUsers.values()) {
                 for (User user : users) {
                     if (!user.isSetByDomainResolver()) {
-                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
                         UserIdentity userIdent = user.getUserIdentity();
+                        // A non-privileged caller may only see its own account. user@hostA and
+                        // user@hostB are distinct accounts with independent privileges, so match the
+                        // exact identity (name and host) rather than the name alone; otherwise another
+                        // same-named account's host and privilege state would leak. The caller identity
+                        // carried here is ConnectContext.currentUserIdentity, i.e. the account
+                        // definition that authentication resolved to (a domain account resolves back to
+                        // its user@['domain'] identity), so this still matches the caller's own row.
+                        if (!canSeeAll && (currentUser == null || !userIdent.equals(currentUser))) {
+                            continue;
+                        }
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
                         userInfo.set(0, userIdent.getHost());
                         userInfo.set(1, userIdent.getQualifiedUser());
                         for (int i = 2; i <= 13; i++) {
@@ -2133,6 +2405,14 @@ public class Auth implements Writable {
                                 userInfo.set(24 + i, passWordPolicyInfo.get(i).get(1));
                             }
                         }
+                        // Never expose password-derived material through mysql.user. The
+                        // authentication_string hash and the password_policy.history_passwords
+                        // digests are always masked, for every caller and even when empty, so no
+                        // secret material (or its presence/absence) leaks.
+                        userInfo.set(22, Strings.nullToEmpty(user.getAuthIntegration()));
+                        userInfo.set(23, user.isAuthenticationBound()
+                                ? Strings.nullToEmpty(user.getAuthIdentity()) : PASSWORD_MASK);
+                        userInfo.set(27, PASSWORD_MASK);
                         userInfos.add(userInfo);
                     }
                 }

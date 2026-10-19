@@ -54,7 +54,6 @@
 
 namespace doris {
 class DeleteHandler;
-class StorageField;
 class TAlterInvertedIndexReq;
 class TAlterTabletReqV2;
 class TExpr;
@@ -83,6 +82,12 @@ public:
     void set_compatible_version(int32_t version) noexcept { _fe_compatible_version = version; }
 
     bool has_where() const { return _where_expr != nullptr; }
+
+    // Returns DataQualityError if any non-null value in `column` is longer than the declared
+    // length in bytes of `new_column` when it is CHAR/VARCHAR.
+    static Status check_string_length_within_schema(const ColumnPtr& column,
+                                                    const TabletColumn& new_column,
+                                                    const std::string& column_name);
 
 private:
     static Status _check_cast_valid(ColumnPtr ref_column, ColumnPtr new_column);

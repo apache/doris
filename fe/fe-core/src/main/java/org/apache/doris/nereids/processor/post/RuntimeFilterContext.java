@@ -90,6 +90,14 @@ public class RuntimeFilterContext {
         return limits;
     }
 
+    /** Generate pruning metadata once, while the runtime filter still owns its Nereids target scan. */
+    public void generateRuntimeFilterPruneMetadata(RuntimeFilter filter) {
+        RuntimeFilterPruneClassifier.Classification classification =
+                RuntimeFilterPruneClassifier.classify(filter, sessionVariable);
+        filter.setPruningMetadata(
+                classification.canPruneBuckets(), classification.getPartitionMonotonicity());
+    }
+
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
         Preconditions.checkArgument(filter.getTargetSlot().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
@@ -129,6 +137,35 @@ public class RuntimeFilterContext {
         List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
         if (filters != null) {
             targetExprIdToFilter.get(targetId).remove(rf);
+        }
+        prunedRF.add(rf);
+    }
+
+    /**
+     * Fully remove a runtime filter: remove all its targets, clean up from builder node,
+     * targetExprIdToFilter, and joinToTargetExprId maps.
+     */
+    public void removeRuntimeFilter(RuntimeFilter rf) {
+        // Remove from each target scan
+        for (int i = 0; i < rf.getTargetScans().size(); i++) {
+            rf.getTargetScans().get(i).removeAppliedRuntimeFilter(rf);
+        }
+        // Remove from targetExprIdToFilter
+        for (Slot slot : rf.getTargetSlots()) {
+            List<RuntimeFilter> filters = targetExprIdToFilter.get(slot.getExprId());
+            if (filters != null) {
+                filters.remove(rf);
+            }
+        }
+        // Remove from builder node
+        rf.getBuilderNode().getRuntimeFilters().remove(rf);
+        // Remove from joinToTargetExprId: remove target ExprIds that only belonged to this RF
+        for (Slot slot : rf.getTargetSlots()) {
+            for (Map.Entry<Plan, List<ExprId>> entry : joinToTargetExprId.entrySet()) {
+                if (entry.getKey().equals(rf.getBuilderNode())) {
+                    entry.getValue().remove(slot.getExprId());
+                }
+            }
         }
         prunedRF.add(rf);
     }

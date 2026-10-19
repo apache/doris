@@ -62,7 +62,7 @@ struct SimplifiedScanTask {
 class ScannerSplitRunner : public SplitRunner {
 public:
     ScannerSplitRunner(std::string name, std::function<bool()> scan_func)
-            : _name(std::move(name)), _scan_func(scan_func), _started(false) {}
+            : _name(std::move(name)), _scan_func(std::move(scan_func)), _started(false) {}
 
     Status init() override { return Status::OK(); }
 
@@ -138,7 +138,11 @@ public:
 protected:
     int _min_active_scan_threads;
 
-private:
+    // Execute one admitted task for both scheduler implementations. The return value is consumed
+    // by TaskExecutor to distinguish terminal EOS/error tasks from scanners that remain runnable.
+    static bool execute_scan_task(const std::shared_ptr<ScannerContext>& ctx,
+                                  const std::shared_ptr<ScanTask>& scan_task);
+
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
 
@@ -164,7 +168,9 @@ public:
     }
 
     void stop() override {
-        _is_stop.store(true);
+        if (_is_stop.exchange(true)) {
+            return;
+        }
         _scan_thread_pool->shutdown();
         _scan_thread_pool->wait();
     }
@@ -238,12 +244,13 @@ public:
                               std::unique_lock<std::mutex>& transfer_lock) override;
 
 private:
+    void _run_context(std::shared_ptr<ScannerContext> scanner_ctx);
+
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
     std::string _workload_group;
-    std::shared_mutex _lock;
 };
 
 class TaskExecutorSimplifiedScanScheduler final : public ScannerScheduler {
@@ -264,7 +271,9 @@ public:
     }
 
     void stop() override {
-        _is_stop.store(true);
+        if (_is_stop.exchange(true)) {
+            return;
+        }
         _task_executor->stop();
         _task_executor->wait();
     }
@@ -292,13 +301,28 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) override {
         if (!_is_stop) {
+            if (scan_task.scanner_context == nullptr) {
+                return Status::InternalError<false>("scanner pool {} got null scanner context.",
+                                                    _sched_name);
+            }
+            if (scan_task.scan_task == nullptr) {
+                return Status::InternalError<false>("scanner pool {} got null scan task.",
+                                                    _sched_name);
+            }
+            auto task_handle = scan_task.scanner_context->task_handle();
+            if (task_handle == nullptr) {
+                return Status::InternalError<false>(
+                        "scanner pool {} got null task handle, scan task first schedule: {}, "
+                        "scanner context: {}",
+                        _sched_name, scan_task.scan_task->is_first_schedule,
+                        scan_task.scanner_context->debug_string());
+            }
             std::shared_ptr<SplitRunner> split_runner;
             if (scan_task.scan_task->is_first_schedule) {
                 split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
                                                                     scan_task.scan_func);
                 RETURN_IF_ERROR(split_runner->init());
-                auto result = _task_executor->enqueue_splits(
-                        scan_task.scanner_context->task_handle(), false, {split_runner});
+                auto result = _task_executor->enqueue_splits(task_handle, false, {split_runner});
                 if (!result.has_value()) {
                     LOG(WARNING) << "enqueue_splits failed: " << result.error();
                     return result.error();
@@ -309,8 +333,7 @@ public:
                 if (split_runner == nullptr) {
                     return Status::OK();
                 }
-                RETURN_IF_ERROR(_task_executor->re_enqueue_split(
-                        scan_task.scanner_context->task_handle(), false, split_runner));
+                RETURN_IF_ERROR(_task_executor->re_enqueue_split(task_handle, false, split_runner));
             }
             scan_task.scan_task->split_runner = split_runner;
             return Status::OK();
@@ -333,10 +356,14 @@ public:
                             : std::max(48, CpuInfo::num_cores() * 2),
                     std::chrono::milliseconds(100), std::nullopt));
 
-            auto wrapped_scan_func = [this, task_handle, scan_func = scan_task.scan_func]() {
+            std::weak_ptr<TaskExecutor> task_executor = _task_executor;
+            auto wrapped_scan_func = [task_executor, task_handle,
+                                      scan_func = scan_task.scan_func]() {
                 bool result = scan_func();
                 if (result) {
-                    static_cast<void>(_task_executor->remove_task(task_handle));
+                    if (auto executor = task_executor.lock()) {
+                        static_cast<void>(executor->remove_task(task_handle));
+                    }
                 }
                 return result;
             };

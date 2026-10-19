@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
@@ -43,16 +49,19 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -64,6 +73,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -95,6 +105,123 @@ class RequestPropertyDeriverTest {
     @BeforeEach
     public void setUp() {
         Mockito.when(jobContext.getRequiredProperties()).thenReturn(PhysicalProperties.ANY);
+    }
+
+    // #66112: enable_strict_consistency_dml is an OPTIONAL consistency knob for UPDATE, but the SQL MERGE
+    // cardinality rule ("a target row matched by more than one source row is an error") is mandatory. BE can
+    // only detect the duplicates when the plan keeps the sink's required distribution, so turning the knob off
+    // must NOT relax a MERGE to PhysicalProperties.ANY. Both polarities are pinned: with the knob off, an
+    // UPDATE still relaxes (otherwise the knob would be dead) and a MERGE still requires.
+    @Test
+    void testExternalRowLevelMergeSinkKeepsMergeDistributionWhenStrictConsistencyDmlIsOff() {
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.GATHER)),
+                requestChildrenPropertiesForMergeSink(true, false),
+                "a SQL MERGE must keep the sink's required distribution even with strict-consistency DML off");
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.ANY)),
+                requestChildrenPropertiesForMergeSink(false, false),
+                "an UPDATE has no cardinality rule, so strict-consistency DML off still relaxes it to ANY");
+    }
+
+    private List<List<PhysicalProperties>> requestChildrenPropertiesForMergeSink(
+            boolean requireMergeCardinalityCheck, boolean enableStrictConsistencyDml) {
+        ConnectContext ctx = new ConnectContext();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableStrictConsistencyDml = enableStrictConsistencyDml;
+        ctx.setSessionVariable(sessionVariable);
+
+        PhysicalExternalRowLevelMergeSink<GroupPlan> sink = new PhysicalExternalRowLevelMergeSink<>(
+                Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                ImmutableList.<Column>of(), ImmutableList.of(), requireMergeCardinalityCheck,
+                Optional.empty(), logicalProperties, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(sink);
+        new Group(null, groupExpression, null);
+
+        return new RequestPropertyDeriver(ctx, jobContext).getRequestChildrenPropertyList(groupExpression);
+    }
+
+    // The connector sink's required physical properties carry a writer-correctness contract: the MaxCompute
+    // Storage API closes a partition writer as soon as a different partition value appears, so a
+    // dynamic-partition write must be hash-distributed and locally sorted by the partition columns.
+    // enable_strict_consistency_dml is an optional replica-consistency knob (and is forced off in cloud
+    // mode), so it may relax only the generic SINK_RANDOM_PARTITIONED preference -- never the connector's
+    // own contract. Both polarities are pinned so a future "unify the gates" change cannot silently drop
+    // the connector's distribution + local sort.
+    @Test
+    void testConnectorTableSinkKeepsWriterContractWhenStrictConsistencyDmlIsOff() {
+        PhysicalConnectorTableSink<Plan> dynamicPartitionSink = testConnectorSink(true);
+        PhysicalProperties dynamicPartitionWrite = dynamicPartitionSink.getRequirePhysicalProperties();
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(dynamicPartitionWrite)),
+                requestChildrenPropertiesForConnectorSink(dynamicPartitionSink, false),
+                "a dynamic-partition connector write must keep its distribution + local sort even with "
+                        + "strict-consistency DML off");
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(dynamicPartitionWrite)),
+                requestChildrenPropertiesForConnectorSink(dynamicPartitionSink, true),
+                "strict-consistency DML on must not change the connector's writer contract");
+
+        PhysicalConnectorTableSink<Plan> parallelSink = testConnectorSink(false);
+        PhysicalProperties parallelWrite = parallelSink.getRequirePhysicalProperties();
+        Assertions.assertEquals(PhysicalProperties.SINK_RANDOM_PARTITIONED, parallelWrite,
+                "a non-partitioned parallel write falls back to the generic random preference");
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.ANY)),
+                requestChildrenPropertiesForConnectorSink(parallelSink, false),
+                "with strict-consistency DML off only the generic random parallel-write preference relaxes");
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(parallelWrite)),
+                requestChildrenPropertiesForConnectorSink(parallelSink, true),
+                "with strict-consistency DML on the generic random parallel-write preference is kept");
+    }
+
+    private List<List<PhysicalProperties>> requestChildrenPropertiesForConnectorSink(
+            PhysicalConnectorTableSink<Plan> sink, boolean enableStrictConsistencyDml) {
+        ConnectContext ctx = new ConnectContext();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableStrictConsistencyDml = enableStrictConsistencyDml;
+        ctx.setSessionVariable(sessionVariable);
+
+        GroupExpression groupExpression = new GroupExpression(sink);
+        new Group(null, groupExpression, null);
+
+        return new RequestPropertyDeriver(ctx, jobContext).getRequestChildrenPropertyList(groupExpression);
+    }
+
+    /**
+     * A MaxCompute-like connector sink: a non-empty partition column list makes the write a
+     * dynamic-partition write (partition hash + local sort), an empty one keeps the plain parallel write.
+     * Built through the public constructor (a real connector is still mocked out) so the resulting plan can
+     * be wrapped in a {@link GroupExpression}.
+     */
+    private static PhysicalConnectorTableSink<Plan> testConnectorSink(boolean dynamicPartition) {
+        Column dataColumn = new Column("data", PrimitiveType.INT);
+        Column partColumn = new Column("part", PrimitiveType.INT);
+        List<Column> fullSchema = ImmutableList.of(dataColumn, partColumn);
+        List<Column> partitionColumns = dynamicPartition ? ImmutableList.of(partColumn) : ImmutableList.of();
+
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        ConnectorWritePlanContext writePlanContext = Mockito.mock(ConnectorWritePlanContext.class);
+        Mockito.when(writePlanContext.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(writePlanContext.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(writePlanContext.requiresPartitionHashWrite()).thenReturn(false);
+        Mockito.when(writePlanContext.getDistribution()).thenReturn(Optional.empty());
+        Mockito.when(table.resolveWritePlanContext()).thenReturn(writePlanContext);
+        Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);
+        Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+
+        Plan child = Mockito.mock(Plan.class);
+        Mockito.when(child.getOutput()).thenReturn(ImmutableList.of(
+                new SlotReference("data", IntegerType.INSTANCE),
+                new SlotReference("part", IntegerType.INSTANCE)));
+        Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
+        Mockito.when(child.depth()).thenReturn(1);
+
+        return new PhysicalConnectorTableSink<>(
+                Mockito.mock(ExternalDatabase.class), table, fullSchema, partitionColumns, fullSchema,
+                ImmutableList.of(), Optional.empty(),
+                new LogicalProperties(child::getOutput, () -> DataTrait.EMPTY_TRAIT), false, child);
     }
 
     @Test
@@ -165,7 +292,7 @@ class RequestPropertyDeriverTest {
                     new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, leftPlan, rightPlan);
             Group leftGroup = Mockito.mock(Group.class);
             Group rightGroup = Mockito.mock(Group.class);
-            org.apache.doris.statistics.Statistics stats = Mockito.mock(org.apache.doris.statistics.Statistics.class);
+            org.apache.doris.statistics.model.Statistics stats = Mockito.mock(org.apache.doris.statistics.model.Statistics.class);
             Mockito.when(stats.computeSize(Mockito.anyList())).thenReturn(1D);
             Mockito.when(stats.getRowCount()).thenReturn(1D);
             Mockito.when(leftGroup.getStatistics()).thenReturn(stats);
@@ -372,8 +499,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyDisabled() {
         // Create ConnectContext with aggShuffleUseParentKey = false
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = false;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
@@ -411,8 +539,9 @@ class RequestPropertyDeriverTest {
     @Test
     void testAggregateWithAggShuffleUseParentKeyEnabled() {
         // Create ConnectContext with aggShuffleUseParentKey = true (default value)
-        ConnectContext testConnectContext = new ConnectContext();
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
 
         SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
         SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
@@ -427,7 +556,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(aggregate) {
             @Override
-            public org.apache.doris.statistics.Statistics childStatistics(int idx) {
+            public org.apache.doris.statistics.model.Statistics childStatistics(int idx) {
                 return null;
             }
         };
@@ -451,24 +580,5 @@ class RequestPropertyDeriverTest {
         PhysicalProperties aggProp = PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE);
         Assertions.assertTrue(actual.contains(ImmutableList.of(aggProp)) && actual.contains(ImmutableList.of(parentProp)));
-    }
-
-    @Test
-    void testBucketedHashAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalBucketedHashAggregate<GroupPlan> aggregate = new PhysicalBucketedHashAggregate<>(
-                Lists.newArrayList(key),
-                Lists.newArrayList(key),
-                logicalProperties,
-                groupPlan
-        );
-        GroupExpression groupExpression = new GroupExpression(aggregate);
-        new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
-        List<List<PhysicalProperties>> actual
-                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-        List<List<PhysicalProperties>> expected = Lists.newArrayList();
-        expected.add(Lists.newArrayList(PhysicalProperties.ANY));
-        Assertions.assertEquals(expected, actual);
     }
 }

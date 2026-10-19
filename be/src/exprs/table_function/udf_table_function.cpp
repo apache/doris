@@ -31,11 +31,10 @@
 #include "exprs/vexpr_context.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
-const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
-const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
@@ -60,23 +59,23 @@ Status UDFTableFunction::open() {
                                                     &local_location));
         ctor_params.__set_location(local_location);
     }
-    RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
-
     Jni::LocalArray ctor_params_bytes;
     RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
 
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
-                                                     &_jni_ctx->executor_ctor_id));
+    // A table function runs the scalar executor: the parameters serialized above carry the flag
+    // that turns its return type into an array, so there is no table-function factory of its own.
+    RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(env, Jni::plugin::JAVA_UDF_SCALAR,
+                                                             ctor_params_bytes, &_jni_ctx->executor,
+                                                             &_jni_ctx->executor_cl));
 
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
-                                                     &_jni_ctx->executor_evaluate_id));
-
+    // close before evaluate: the executor object exists from create_udf_executor() on, so a
+    // failure here has to be able to close it, and JniContext::close() can only do that once
+    // this id is bound.
     RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
                                                      &_jni_ctx->executor_close_id));
 
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.new_object(env, _jni_ctx->executor_ctor_id)
-                            .with_arg(ctor_params_bytes)
-                            .call(&_jni_ctx->executor));
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
+                                                     &_jni_ctx->executor_evaluate_id));
 
     _jni_ctx->open_successes = true;
     return Status::OK();
@@ -123,10 +122,12 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                             .with_arg(output_map)
                             .call(&output_address));
     RETURN_IF_ERROR(JniDataBridge::fill_block(block, {_result_column_idx}, output_address));
+    _array_result_column =
+            IColumn::mutate(std::move(block->get_by_position(_result_column_idx).column));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",
-                                    block->get_by_position(_result_column_idx).column->get_name());
+                                    _array_result_column->get_name());
     }
     return Status::OK();
 }
@@ -159,9 +160,9 @@ void UDFTableFunction::get_same_many_values(MutableColumnPtr& column, int length
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto nullmap_column = nullable_column->get_null_map_column_ptr();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
+            nullmap_column->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
@@ -178,8 +179,7 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);

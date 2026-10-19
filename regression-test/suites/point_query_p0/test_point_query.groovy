@@ -29,6 +29,7 @@ import java.sql.ResultSet
 import java.util.concurrent.CopyOnWriteArrayList
 
 suite("test_point_query") {
+    def variantV2Function = "parse_to_variant"
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
@@ -64,7 +65,7 @@ suite("test_point_query") {
 
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
-            connect(user, password, url_without_prep) {
+            connectToDoris(user, password, url_without_prep) {
                 // set to false to invalid cache correcly
                 sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
@@ -138,7 +139,7 @@ suite("test_point_query") {
             sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38", 0, 90696620686827832.374, [0], null) """
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
-            def result1 = connect(user, password, prepare_url) {
+            def result1 = connectToDoris(user, password, prepare_url) {
                 def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)
@@ -238,7 +239,7 @@ suite("test_point_query") {
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
-            def result2 = connect(user, password, context.config.jdbcUrl) {
+            def result2 = connectToDoris(user, password, context.config.jdbcUrl) {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
@@ -274,9 +275,110 @@ suite("test_point_query") {
             }
         }
 
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_renamed"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_replace"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_swap"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_string_key"
+        sql "DROP TABLE IF EXISTS ${realDb}.tbl_point_query_meta_change_string_key_renamed"
+        def create_meta_change_table = { tbl ->
+            sql """
+                CREATE TABLE ${tbl} (
+                    `k` int NOT NULL,
+                    `v` varchar(30) NULL
+                ) ENGINE=OLAP
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(`k`) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "light_schema_change" = "true",
+                    "store_row_column" = "true"
+                )
+            """
+        }
+        def create_string_key_meta_change_table = { tbl ->
+            sql """
+                CREATE TABLE ${tbl} (
+                    `k` varchar(30) NOT NULL,
+                    `v` varchar(30) NULL
+                ) ENGINE=OLAP
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(`k`) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "light_schema_change" = "true",
+                    "store_row_column" = "true"
+                )
+            """
+        }
+        def get_prepared_value = { stmt, key ->
+            stmt.setInt(1, key)
+            try (ResultSet rs = stmt.executeQuery()) {
+                assertTrue(rs.next())
+                def value = rs.getString(1)
+                assertFalse(rs.next())
+                return value
+            }
+        }
+        def get_prepared_string_key_value = { stmt, key ->
+            stmt.setString(1, key)
+            try (ResultSet rs = stmt.executeQuery()) {
+                assertTrue(rs.next())
+                def value = rs.getString(1)
+                assertFalse(rs.next())
+                return value
+            }
+        }
+        create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+        sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'origin')"
+        connectToDoris(user, password, prepare_url) {
+            def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change where k = ?"
+            assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals('origin', get_prepared_value(stmt, 1))
+            assertEquals('origin', get_prepared_value(stmt, 1))
+
+            nprep_sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change RENAME tbl_point_query_meta_change_renamed"
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'renamed')"
+            assertEquals('renamed', get_prepared_value(stmt, 1))
+
+            sql "DROP TABLE ${realDb}.tbl_point_query_meta_change"
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'recreated')"
+            assertEquals('recreated', get_prepared_value(stmt, 1))
+
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change_replace")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_replace VALUES (1, 'replaced')"
+            sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change REPLACE WITH TABLE tbl_point_query_meta_change_replace PROPERTIES('swap' = 'false')"
+            assertEquals('replaced', get_prepared_value(stmt, 1))
+
+            create_meta_change_table("${realDb}.tbl_point_query_meta_change_swap")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_swap VALUES (1, 'swapped')"
+            sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change REPLACE WITH TABLE tbl_point_query_meta_change_swap PROPERTIES('swap' = 'true')"
+            assertEquals('swapped', get_prepared_value(stmt, 1))
+            stmt.close()
+        }
+
+        create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
+        sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_origin')"
+        connectToDoris(user, password, prepare_url) {
+            def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change_string_key where k = ?"
+            assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals('string_origin', get_prepared_string_key_value(stmt, 'key1'))
+
+            nprep_sql "ALTER TABLE ${realDb}.tbl_point_query_meta_change_string_key RENAME tbl_point_query_meta_change_string_key_renamed"
+            create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
+            sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_renamed')"
+            assertEquals('string_renamed', get_prepared_string_key_value(stmt, 'key1'))
+            assertEquals('string_renamed', get_prepared_string_key_value(stmt, 'key1'))
+            stmt.close()
+        }
+
         sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "true")"""
         try {
-            connect(user, password, prepare_url) {
+            connectToDoris(user, password, prepare_url) {
                 def lightweightStmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${realDb}.tbl_point_query0 where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(lightweightStmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 lightweightStmt.setInt(1, 1231)
@@ -352,7 +454,7 @@ suite("test_point_query") {
             INDEX col2 (`col2`) USING INVERTED )
         ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
         DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
     """
     explain {
         sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
@@ -402,7 +504,7 @@ suite("test_point_query") {
         );
     """
     sql "insert into test_partial_prepared_statement values ('user_guid', 'feature', 'sk','feature_value', '2021-01-01 00:00:00')"
-    def result2 = connect(user, password, prepare_url) {
+    def result2 = connectToDoris(user, password, prepare_url) {
         def partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = ? "
         assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         partial_prepared_stmt.setString(1, "feature")
@@ -435,7 +537,7 @@ suite("test_point_query") {
         partial_prepared_stmt.setString(2, "feature")
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
-        
+
         sql "set skip_delete_sign=false"
         trigger_and_wait_compaction("regression_test_point_query_p0.table_3821461", "full")
         partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
@@ -507,7 +609,7 @@ suite("test_point_query") {
     );
     """
     sql """
-        INSERT INTO test_with_variant VALUES(1, '{"k1":"v1", "k2": 200}');
+        INSERT INTO test_with_variant VALUES(1, ${variantV2Function}('{"k1":"v1", "k2": 200}'));
     """
     qt_sql "select col2['k1'] from test_with_variant where col1=1"
 

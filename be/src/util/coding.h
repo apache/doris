@@ -16,8 +16,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/extended_types.h"
 #include "exec/common/endian.h"
-#include "storage/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -69,6 +69,21 @@ inline uint64_t decode_fixed64_le(const uint8_t* buf) {
     uint64_t res;
     memcpy(&res, buf, sizeof(res));
     return to_endian<std::endian::little>(res);
+}
+
+inline void decode_fixed64_le_array(uint64_t* dst, const void* src, size_t n) {
+    if (n == 0) {
+        return;
+    }
+    if constexpr (std::endian::native == std::endian::little) {
+        memcpy(dst, src, sizeof(uint64_t) * n);
+    } else {
+        const auto* ptr = reinterpret_cast<const uint8_t*>(src);
+        for (size_t i = 0; i < n; ++i) {
+            dst[i] = decode_fixed64_le(ptr);
+            ptr += sizeof(uint64_t);
+        }
+    }
 }
 
 inline uint128_t decode_fixed128_le(const uint8_t* buf) {

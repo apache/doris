@@ -20,75 +20,57 @@ package org.apache.doris.connector.jdbc.client;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.net.URL;
+import java.util.UUID;
 
 /**
- * Unit tests for the ClassLoader reference counting mechanism in
- * {@link JdbcConnectorClient}.
+ * Unit tests for the driver-classloader keep-alive cache in {@link JdbcConnectorClient}.
+ *
+ * <p>The cache holds exactly one classloader per distinct driver URL and never evicts it, so that
+ * repeated catalog create/close/recreate cycles for the same driver reuse a single classloader
+ * instead of building (and DriverManager-pinning) a fresh one each time. Reintroducing per-close
+ * eviction reopened the Metaspace leak behind external-regression OOM 986696, so these tests exist
+ * to lock the keep-alive semantics in place.
  */
 class JdbcConnectorClientClassLoaderTest {
 
-    @Test
-    void testRefCountedClassLoaderStartsAtOne() {
-        JdbcConnectorClient.RefCountedClassLoader entry =
-                new JdbcConnectorClient.RefCountedClassLoader(getClass().getClassLoader());
-        Assertions.assertEquals(1, entry.refCount.get(),
-                "Initial ref count should be 1");
+    private static URL uniqueDriverUrl() throws Exception {
+        return new URL("file:///tmp/doris-test-driver-" + UUID.randomUUID() + ".jar");
     }
 
     @Test
-    void testRefCountedClassLoaderIncrementDecrement() {
-        JdbcConnectorClient.RefCountedClassLoader entry =
-                new JdbcConnectorClient.RefCountedClassLoader(getClass().getClassLoader());
-        entry.refCount.incrementAndGet();
-        Assertions.assertEquals(2, entry.refCount.get(),
-                "Ref count should be 2 after increment");
-        entry.refCount.decrementAndGet();
-        Assertions.assertEquals(1, entry.refCount.get(),
-                "Ref count should be 1 after decrement");
-        entry.refCount.decrementAndGet();
-        Assertions.assertEquals(0, entry.refCount.get(),
-                "Ref count should be 0 after second decrement");
+    void sameDriverUrlReturnsSameCachedLoader() throws Exception {
+        URL url = uniqueDriverUrl();
+        ClassLoader first = JdbcConnectorClient.getOrCreateDriverClassLoader(url);
+        ClassLoader second = JdbcConnectorClient.getOrCreateDriverClassLoader(url);
+        Assertions.assertSame(first, second,
+                "The same driver URL must resolve to the one cached classloader");
     }
 
     @Test
-    void testRefCountedClassLoaderStoresLoader() {
-        ClassLoader loader = getClass().getClassLoader();
-        JdbcConnectorClient.RefCountedClassLoader entry =
-                new JdbcConnectorClient.RefCountedClassLoader(loader);
-        Assertions.assertSame(loader, entry.loader,
-                "Loader reference must be the one passed to constructor");
+    void distinctDriverUrlsGetDistinctLoaders() throws Exception {
+        ClassLoader a = JdbcConnectorClient.getOrCreateDriverClassLoader(uniqueDriverUrl());
+        ClassLoader b = JdbcConnectorClient.getOrCreateDriverClassLoader(uniqueDriverUrl());
+        Assertions.assertNotSame(a, b,
+                "Different driver URLs must get their own classloaders");
     }
 
     @Test
-    void testConcurrentRefCountOperations() throws InterruptedException {
-        JdbcConnectorClient.RefCountedClassLoader entry =
-                new JdbcConnectorClient.RefCountedClassLoader(getClass().getClassLoader());
-        AtomicInteger errors = new AtomicInteger(0);
-
-        int threadCount = 20;
-        Thread[] threads = new Thread[threadCount];
-        // Each thread increments, then decrements — net effect is zero
-        for (int i = 0; i < threadCount; i++) {
-            threads[i] = new Thread(() -> {
-                try {
-                    entry.refCount.incrementAndGet();
-                    Thread.yield();
-                    entry.refCount.decrementAndGet();
-                } catch (Exception e) {
-                    errors.incrementAndGet();
-                }
-            });
+    void churningSameDriverUrlReusesOneLoaderNoMetaspaceLeak() throws Exception {
+        URL url = uniqueDriverUrl();
+        int before = JdbcConnectorClient.classLoaderCacheSize();
+        // Simulate many CREATE CATALOG -> DROP CATALOG -> CREATE CATALOG cycles for the same driver:
+        // each cycle looks the driver classloader up again. Keep-alive means the cache (and thus the
+        // number of live, DriverManager-pinned driver classloaders) grows by exactly one, not one per
+        // cycle -- which is the whole point of the fix.
+        ClassLoader firstLoader = JdbcConnectorClient.getOrCreateDriverClassLoader(url);
+        for (int i = 0; i < 20; i++) {
+            ClassLoader loader = JdbcConnectorClient.getOrCreateDriverClassLoader(url);
+            Assertions.assertSame(firstLoader, loader,
+                    "Every cycle for the same driver URL must reuse the first classloader");
         }
-        for (Thread t : threads) {
-            t.start();
-        }
-        for (Thread t : threads) {
-            t.join();
-        }
-
-        Assertions.assertEquals(0, errors.get(), "No thread errors expected");
-        Assertions.assertEquals(1, entry.refCount.get(),
-                "Ref count should return to 1 after concurrent inc/dec");
+        int after = JdbcConnectorClient.classLoaderCacheSize();
+        Assertions.assertEquals(before + 1, after,
+                "20 create/recreate cycles for one driver URL must add exactly one cached classloader");
     }
 }

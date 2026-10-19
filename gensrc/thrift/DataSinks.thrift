@@ -46,6 +46,7 @@ enum TDataSinkType {
     MAXCOMPUTE_TABLE_SINK = 18,
     ICEBERG_DELETE_SINK = 19,
     ICEBERG_MERGE_SINK = 20,
+    PAIMON_TABLE_SINK = 21,
 }
 
 enum TResultSinkType {
@@ -63,6 +64,11 @@ enum TParquetCompressionType {
     LZO = 5,
     BZ2 = 6,
     UNCOMPRESSED = 7,
+    // Hadoop-framed (deprecated Parquet "LZ4") codec. Distinct from LZ4 above, which maps to
+    // Arrow LZ4_RAW. Used by the Iceberg/Hive Parquet writers so the output stays readable by
+    // engines that support only the Hadoop-framed LZ4 codec (e.g. Trino), matching what
+    // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`.
+    LZ4_HADOOP = 8,
 }
 
 enum TParquetVersion {
@@ -154,6 +160,12 @@ struct TResultFileSinkOptions {
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+
+    // Zero-pad the per-file index in the output file name to this many digits
+    // (e.g. my_prefix_{fragment_instance_id}_00000.csv). 0 or unset means no
+    // padding, preserving the historical name format. Used to make rollover
+    // files sort lexicographically (so _00011 sorts after _00002).
+    23: optional i32 file_name_padding
 }
 
 struct TMemoryScratchSink {
@@ -211,7 +223,7 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
-// [deprecated] two phase read is replaced by topn lazy materialize. TFetchOption is not used.
+// [deprecated] Two-phase read is replaced by TopN lazy materialization.
 struct TFetchOption {
     1: optional bool use_two_phase_fetch;
     // Nodes in this cluster, used for second phase fetch
@@ -225,7 +237,10 @@ struct TFetchOption {
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
+    // [deprecated] Two-phase read is replaced by TopN lazy materialization.
     3: optional TFetchOption fetch_option;
+    // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
+    4: optional bool enable_arrow_type_metadata = false;
 }
 
 struct TResultFileSink {
@@ -305,6 +320,15 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+
+    // When true, FE should assign each sink a receiver bucket_be_id/load_tablet_idx pair for
+    // random distribution partitions. Sinks routed to the same receiver BE for the same
+    // partition share one ordered tablet sequence. BE then derives the bucket sequence owned by
+    // bucket_be_id from the location info and rotates within that sequence once per-tablet write
+    // volume exceeds the threshold (default 200 MB). This flag is set regardless of whether the
+    // initial partition list is empty, so auto-partition tables whose first partitions arrive at
+    // runtime still enter the correct mode from the start.
+    25: optional bool enable_adaptive_random_bucket
 }
 
 struct THiveLocationParams {
@@ -370,6 +394,9 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    13: optional bool supports_deferred_azure_multipart
+    // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
+    14: optional string hive_parquet_time_zone
 }
 
 enum TUpdateMode {
@@ -473,6 +500,16 @@ struct TIcebergTableSink {
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
+    // Iceberg field ids of the FLOAT/DOUBLE fields whose NaN count would survive the table's metrics policy
+    // (effective mode != none). Counting a NaN is an extra pass over the data -- unlike the other statistics,
+    // which the parquet footer already carries -- so BE must not pay it for a field FE would then drop.
+    // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
+    // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
+    20: optional list<i32> nan_count_field_ids;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -519,6 +556,18 @@ struct TIcebergMergeSink {
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    14: optional bool collect_column_stats;
+    // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
+    15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
+    // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
+    17: optional bool has_variant_schema;
+    // Same contract as TIcebergTableSink.nan_count_field_ids, computed against the MERGE schema. The
+    // replacement data files UPDATE / SQL MERGE write go through the same iceberg parquet writer, so
+    // without this they would report no NaN counts and stay unprunable even when NaN-free.
+    18: optional list<i32> nan_count_field_ids;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
@@ -571,7 +620,13 @@ struct TTVFTableSink {
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE
     14: optional TTVFWriterType writer_type   // NATIVE or JNI
-    15: optional string writer_class          // Java class name (required when writer_type=JNI)
+    // "<plugin>:<factory>", e.g. "java-writer:local-file" (required when writer_type=JNI). Not a
+    // Java class name: a plugin's classes are private to its own classloader, so BE addresses a
+    // writer by the plugin directory it is deployed in and the factory name within it.
+    15: optional string writer_class
+    // Zero-pad the per-file index in the output file name to this many digits.
+    // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
+    16: optional i32 file_name_padding
 }
 
 struct TMCCommitData {
@@ -604,6 +659,31 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
+enum TPaimonWriteBackendType {
+    JNI = 0,
+    FFI = 1,
+}
+
+enum TPaimonWriteMode {
+    APPEND = 0,
+    OVERWRITE = 1,
+    CHANGELOG = 2,
+}
+
+struct TPaimonCommitMessage {
+    1: optional binary payload          // Paimon native CommitMessageSerializer bytes (DPCM-framed)
+}
+
+struct TPaimonTableSink {
+    1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
+    2: optional map<string, string> hadoop_config
+    3: optional list<string> column_names
+    4: optional TPaimonWriteBackendType backend_type
+    5: optional TPaimonWriteMode write_mode
+    6: optional i64 transaction_id
+    7: optional string commit_user
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -624,4 +704,5 @@ struct TDataSink {
   18: optional TMaxComputeTableSink max_compute_table_sink
   19: optional TIcebergDeleteSink iceberg_delete_sink
   20: optional TIcebergMergeSink iceberg_merge_sink
+  21: optional TPaimonTableSink paimon_table_sink
 }

@@ -6,7 +6,7 @@
 -- !uncorrelate_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[x IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[AND[test_subquery_nullable_t2.x IS NULL,NULL] AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -25,7 +25,7 @@ PhysicalResultSink
 -- !correlate_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[any_value(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[AND[any_value(x) IS NULL,NULL] AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_subquery_nullable_t1.b = test_subquery_nullable_t2.y)) otherCondition=()
 --------PhysicalProject[test_subquery_nullable_t1.a, test_subquery_nullable_t1.b]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -43,7 +43,7 @@ PhysicalResultSink
 -- !uncorrelate_top_nullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -61,7 +61,7 @@ PhysicalResultSink
 -- !correlate_top_nullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_subquery_nullable_t1.b = test_subquery_nullable_t2.y)) otherCondition=()
 --------PhysicalProject[test_subquery_nullable_t1.a, test_subquery_nullable_t1.b]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -79,7 +79,7 @@ PhysicalResultSink
 -- !uncorrelate_top_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[FALSE AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[FALSE AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -98,7 +98,7 @@ PhysicalResultSink
 -- !correlate_top_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[FALSE AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[FALSE AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------PhysicalOlapScan[test_subquery_nullable_t1]
 
 -- !uncorrelate_notop_notnullable_agg_scalar_subquery --
@@ -108,7 +108,7 @@ PhysicalResultSink
 -- !uncorrelate_notop_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[count(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[AND[count(x) IS NULL,NULL] AS `x > 10 and x < 1`, cte1.a AS `a`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
@@ -127,14 +127,14 @@ PhysicalResultSink
 -- !correlate_notop_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[any_value(count(x)) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`, assert_true(OR[(count(*) <= 1),count(*) IS NULL], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`, assert_true(OR[(count(*) <= 1),count(*) IS NULL], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`]
+----PhysicalProject[AND[any_value(count(x)) IS NULL,NULL] AS `x > 10 and x < 1`, assert_true(OR[(count(*) <= 1),count(*) IS NULL], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`, assert_true(OR[(count(*) <= 1),count(*) IS NULL], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`, cte1.a AS `a`]
 ------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((expr_(cast(a as BIGINT) + cast(b as BIGINT)) = cast(x as BIGINT))) otherCondition=()
---------PhysicalProject[(cast(a as BIGINT) + cast(b as BIGINT)) AS `expr_(cast(a as BIGINT) + cast(b as BIGINT))`, test_subquery_nullable_t1.a]
+--------PhysicalProject[(cast(test_subquery_nullable_t1.a as BIGINT) + cast(test_subquery_nullable_t1.b as BIGINT)) AS `expr_(cast(a as BIGINT) + cast(b as BIGINT))`, test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[cast(x as BIGINT) AS `cast(x as BIGINT)`, count(x)]
+--------------PhysicalProject[cast(test_subquery_nullable_t2.x as BIGINT) AS `cast(x as BIGINT)`, count(x)]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalProject[test_subquery_nullable_t2.x]
 --------------------filter((test_subquery_nullable_t2.x > 1000))

@@ -28,6 +28,8 @@
 #include <type_traits>
 
 #include "core/column/column_complex.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
@@ -42,9 +44,6 @@ class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
-class ColumnStr;
-using ColumnString = ColumnStr<UInt32>;
 
 template <PrimitiveType T>
 struct AggOrthBitmapBaseData {
@@ -52,6 +51,7 @@ public:
     using ColVecData =
             std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
                                typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
+    static constexpr bool has_key_columns = true;
 
     void reset() {
         bitmap = {};
@@ -131,7 +131,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
                                                       : result);
     }
@@ -150,6 +150,12 @@ public:
     void merge(const AggIntersectCount& rhs) {
         if (rhs.first_init) {
             return;
+        }
+        if (!AggOrthBitmapBaseData<T>::first_init) {
+            if (UNLIKELY(!AggOrthBitmapBaseData<T>::bitmap.has_same_keys(rhs.bitmap))) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "intersect_count aggregate states have incompatible filter values");
+            }
         }
         AggOrthBitmapBaseData<T>::bitmap.merge(rhs.bitmap);
         AggOrthBitmapBaseData<T>::first_init = false;
@@ -171,7 +177,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
@@ -208,7 +214,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -223,6 +229,8 @@ public:
     using ColVecData =
             std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
                                typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
+    static constexpr bool has_key_columns = true;
+    static constexpr bool requires_non_null_formula = true;
 
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col =
@@ -281,7 +289,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(!result.empty() ? result
                                                        : this->bitmap_expr_cal.bitmap_calculate());
     }
@@ -321,7 +329,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result
                                               : this->bitmap_expr_cal.bitmap_calculate_count());
     }
@@ -337,6 +345,7 @@ private:
 
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
+    static constexpr bool has_key_columns = false;
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
     // Here no need doing anything, so only given an function declaration
@@ -357,7 +366,7 @@ struct OrthBitmapUnionCountData {
     void read(BufferReadable& buf) { buf.read_binary(result); }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 
@@ -387,12 +396,38 @@ public:
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
 
+    void check_nullable_input_columns(const IColumn** columns) const {
+        if constexpr (requires { Impl::requires_non_null_formula; }) {
+            // The formula is constant, so its first value represents the entire input block.
+            const auto* formula = check_and_get_column<ColumnNullable>(*columns[2]);
+            if (formula != nullptr && !formula->empty() && formula->is_null_at(0)) {
+                throw Exception(Status::InvalidArgument("The third argument of {} must not be null",
+                                                        get_name()));
+            }
+        }
+    }
+
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnBitmap>(columns[0]);
+        if constexpr (Impl::has_key_columns) {
+            if (UNLIKELY(_argument_size < 2)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} input type check failed: expected at least 2 "
+                        "arguments, but got {}",
+                        get_name(), _argument_size));
+            }
+            for (int i = 1; i < _argument_size; ++i) {
+                this->template check_argument_column_type<typename Impl::ColVecData>(columns[i]);
+            }
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

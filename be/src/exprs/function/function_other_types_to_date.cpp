@@ -23,6 +23,7 @@
 #include <climits>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -142,31 +143,29 @@ struct StrToDate {
         // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
         // which decided by FE. we directly use block column's type which decided by FE.
         if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
-            res = ColumnDateV2::create(input_rows_count);
+            auto res_column = ColumnDateV2::create(input_rows_count);
             if (col_const[1]) {
-                execute_impl_const_right<TYPE_DATEV2>(
-                        context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                execute_impl_const_right<TYPE_DATEV2>(context, ldata, loffsets,
+                                                      specific_char_column->get_data_at(0),
+                                                      result_null_map, res_column->get_data());
             } else {
-                execute_impl<TYPE_DATEV2>(
-                        context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                execute_impl<TYPE_DATEV2>(context, ldata, loffsets, rdata, roffsets,
+                                          result_null_map, res_column->get_data());
             }
+            res = std::move(res_column);
         } else {
             DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2);
 
-            res = ColumnDateTimeV2::create(input_rows_count);
+            auto res_column = ColumnDateTimeV2::create(input_rows_count);
             if (col_const[1]) {
-                execute_impl_const_right<TYPE_DATETIMEV2>(
-                        context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                execute_impl_const_right<TYPE_DATETIMEV2>(context, ldata, loffsets,
+                                                          specific_char_column->get_data_at(0),
+                                                          result_null_map, res_column->get_data());
             } else {
-                execute_impl<TYPE_DATETIMEV2>(
-                        context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                execute_impl<TYPE_DATETIMEV2>(context, ldata, loffsets, rdata, roffsets,
+                                              result_null_map, res_column->get_data());
             }
+            res = std::move(res_column);
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -292,17 +291,13 @@ struct MakeDateImpl {
         const auto* year_col = assert_cast<const ColumnInt32*>(argument_columns[0].get());
         const auto* dayofyear_col = assert_cast<const ColumnInt32*>(argument_columns[1].get());
 
-        ColumnPtr res_column;
-
-        res_column = ColumnDateV2::create(input_rows_count);
+        auto res_column = ColumnDateV2::create(input_rows_count);
         if (col_const[1]) {
-            execute_impl_right_const(
-                    year_col->get_data(), dayofyear_col->get_element(0), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            execute_impl_right_const(year_col->get_data(), dayofyear_col->get_element(0),
+                                     result_null_map, res_column->get_data());
         } else {
-            execute_impl(
-                    year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            execute_impl(year_col->get_data(), dayofyear_col->get_data(), result_null_map,
+                         res_column->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -451,19 +446,20 @@ private:
     }
 };
 
-struct DateTruncState {
-    using Callback_function =
-            std::function<void(const ColumnPtr&, ColumnPtr& res, size_t, const cctz::time_zone&)>;
-    Callback_function callback_function;
-    cctz::time_zone timezone;
-};
-
 template <PrimitiveType PType, bool DateArgIsFirst>
 struct DateTrunc {
     static constexpr auto name = "date_trunc";
     using DateType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
+
+    struct State {
+        using CallbackFunction = std::function<void(const ColumnPtr&, ColumnType&, size_t,
+                                                    const cctz::time_zone&, bool)>;
+        CallbackFunction callback_function;
+        cctz::time_zone timezone;
+        bool clamp_to_timestamp_ns_min = false;
+    };
 
     static bool is_variadic() { return true; }
 
@@ -482,43 +478,52 @@ struct DateTrunc {
     }
 
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
+        // The time unit is a constant, but a constant expression such as an arithmetic one is not
+        // evaluated in open. Then the state is created from the first row in execute.
         if (!context->is_col_constant(DateArgIsFirst ? 1 : 0)) {
-            return Status::InvalidArgument(
-                    "date_trunc function of time unit argument must be constant.");
+            return Status::OK();
         }
-        const auto& data_str =
-                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr->get_data_at(0);
+        const auto& unit_column = context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr;
+        // The nullable wrapper returns NULL without calling execute when the constant unit is NULL.
+        if (unit_column->is_null_at(0)) {
+            return Status::OK();
+        }
+        return create_state(context, unit_column->get_data_at(0));
+    }
+
+    static Status create_state(FunctionContext* context, const StringRef& data_str) {
         std::string lower_str(data_str.data, data_str.size);
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
-        std::shared_ptr<DateTruncState> state = std::make_shared<DateTruncState>();
+        std::shared_ptr<State> state = std::make_shared<State>();
         state->timezone = context->state()->timezone_obj();
-        if (std::strncmp("year", lower_str.data(), 4) == 0) {
+        state->clamp_to_timestamp_ns_min = context->is_auto_partition_boundary_context();
+        if (lower_str == "year") {
             state->callback_function = &execute_impl_right_const<TimeUnit::YEAR>;
-        } else if (std::strncmp("quarter", lower_str.data(), 7) == 0) {
+        } else if (lower_str == "quarter") {
             state->callback_function = &execute_impl_right_const<TimeUnit::QUARTER>;
-        } else if (std::strncmp("month", lower_str.data(), 5) == 0) {
+        } else if (lower_str == "month") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MONTH>;
-        } else if (std::strncmp("week", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "week") {
             state->callback_function = &execute_impl_right_const<TimeUnit::WEEK>;
-        } else if (std::strncmp("day", lower_str.data(), 3) == 0) {
+        } else if (lower_str == "day") {
             state->callback_function = &execute_impl_right_const<TimeUnit::DAY>;
-        } else if (std::strncmp("hour", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "hour") {
             state->callback_function = &execute_impl_right_const<TimeUnit::HOUR>;
-        } else if (std::strncmp("minute", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "minute") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MINUTE>;
-        } else if (std::strncmp("second", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "second") {
             state->callback_function = &execute_impl_right_const<TimeUnit::SECOND>;
         } else {
             return Status::RuntimeError(
                     "Illegal second argument column of function date_trunc. now only support "
                     "[second,minute,hour,day,week,month,quarter,year]");
         }
-        context->set_function_state(scope, state);
+        context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, state);
         return Status::OK();
     }
 
@@ -528,25 +533,38 @@ struct DateTrunc {
 
         const auto& datetime_column = block.get_by_position(arguments[DateArgIsFirst ? 0 : 1])
                                               .column->convert_to_full_column_if_const();
-        ColumnPtr res = ColumnType::create(input_rows_count);
-        auto* state = reinterpret_cast<DateTruncState*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        DCHECK(state != nullptr);
-        state->callback_function(datetime_column, res, input_rows_count, state->timezone);
+        auto res = ColumnType::create(input_rows_count);
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, std::move(res));
+            return Status::OK();
+        }
+        if (context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL) ==
+            nullptr) {
+            RETURN_IF_ERROR(
+                    create_state(context, block.get_by_position(arguments[DateArgIsFirst ? 1 : 0])
+                                                  .column->get_data_at(0)));
+        }
+        auto* state = reinterpret_cast<State*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        state->callback_function(datetime_column, *res, input_rows_count, state->timezone,
+                                 state->clamp_to_timestamp_ns_min);
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
 
 private:
     template <TimeUnit Unit>
-    static void execute_impl_right_const(const ColumnPtr& datetime_column, ColumnPtr& result_column,
-                                         size_t input_rows_count, const cctz::time_zone& timezone) {
+    static void execute_impl_right_const(const ColumnPtr& datetime_column,
+                                         ColumnType& result_column, size_t input_rows_count,
+                                         const cctz::time_zone& timezone,
+                                         bool clamp_to_timestamp_ns_min) {
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
+        auto& res = result_column.get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = data[i];
-            // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
-            // then we can use default implementation for nulls with no worry of invalid nested value.
+            // TimestampTz truncation is evaluated in the session time zone. Other date values use
+            // their civil representation directly; nano values may additionally fail when the
+            // truncated result is outside the signed epoch-nanosecond range.
             if constexpr (PType == TYPE_TIMESTAMPTZ) {
                 DateV2Value<DateTimeV2ValueType> local_dt;
                 dt.convert_utc_to_local(timezone, local_dt);
@@ -559,7 +577,17 @@ private:
                     dt.convert_local_to_utc(timezone, local_dt);
                 }
             } else {
-                dt.template datetime_trunc<Unit>();
+                if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                    if (!dt.template datetime_trunc<Unit>()) {
+                        if (clamp_to_timestamp_ns_min) {
+                            dt = DateValueType(std::numeric_limits<int64_t>::min());
+                        } else {
+                            throw_out_of_bound_one_date<DateValueType>("date_trunc", data[i]);
+                        }
+                    }
+                } else {
+                    dt.template datetime_trunc<Unit>();
+                }
             }
             res[i] = dt;
         }
@@ -609,15 +637,15 @@ public:
 
         ColumnPtr res_column;
         if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
-            res_column = ColumnDate::create(input_rows_count);
-            _execute<VecDateTimeValue>(
-                    input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
+            auto column_date = ColumnDate::create(input_rows_count);
+            _execute<VecDateTimeValue>(input_rows_count, data_col->get_data(), result_null_map,
+                                       column_date->get_data());
+            res_column = std::move(column_date);
         } else {
-            res_column = ColumnDateV2::create(input_rows_count);
-            _execute<DateV2Value<DateV2ValueType>>(
-                    input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            auto column_datev2 = ColumnDateV2::create(input_rows_count);
+            _execute<DateV2Value<DateV2ValueType>>(input_rows_count, data_col->get_data(),
+                                                   result_null_map, column_datev2->get_data());
+            res_column = std::move(column_datev2);
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -700,15 +728,18 @@ template <typename DateType, bool NewVersion = false>
 struct UnixTimeStampDateImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 
-    using ResultDataType =
+    using ResultDataType = std::conditional_t<
+            std::is_same_v<DateType, DataTypeTimeStampNs>, DataTypeDecimal128,
             std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, DataTypeDecimal64,
-                               std::conditional_t<NewVersion, DataTypeInt64, DataTypeInt32>>;
-    using ResultColumnType =
+                               std::conditional_t<NewVersion, DataTypeInt64, DataTypeInt32>>>;
+    using ResultColumnType = std::conditional_t<
+            std::is_same_v<DateType, DataTypeTimeStampNs>, ColumnDecimal128V3,
             std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, ColumnDecimal64,
-                               std::conditional_t<NewVersion, ColumnInt64, ColumnInt32>>;
+                               std::conditional_t<NewVersion, ColumnInt64, ColumnInt32>>>;
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2> ||
+                      std::is_same_v<DateType, DataTypeTimeStampNs>) {
             UInt32 scale = arguments[0].type->get_scale();
             return std::make_shared<ResultDataType>(12 + scale, scale);
         } else {
@@ -716,6 +747,9 @@ struct UnixTimeStampDateImpl {
         }
     }
 
+    // The compile-time branches keep the four date storage representations type-safe and avoid
+    // runtime type dispatch in this hot path.
+    // NOLINTNEXTLINE(readability-function-size)
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
@@ -752,7 +786,7 @@ struct UnixTimeStampDateImpl {
                 col_result_data[i] = trim_timestamp(timestamp, NewVersion);
             }
             block.replace_by_position(result, std::move(col_result));
-        } else { // DatetimeV2
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
             const auto* col_source = assert_cast<const ColumnDateTimeV2*>(col.get());
             UInt32 scale = block.get_by_position(arguments[0]).type->get_scale();
             auto col_result = ColumnDecimal64::create(input_rows_count, scale);
@@ -771,6 +805,30 @@ struct UnixTimeStampDateImpl {
                         Decimal64::from_int_frac(
                                 sec, ms / static_cast<int64_t>(std::pow(10, 6 - scale)), scale)
                                 .value;
+            }
+            block.replace_by_position(result, std::move(col_result));
+        } else {
+            const auto* col_source = assert_cast<const ColumnTimeStampNs*>(col.get());
+            UInt32 scale = block.get_by_position(arguments[0]).type->get_scale();
+            auto col_result = ColumnDecimal128V3::create(input_rows_count, scale);
+            auto& col_result_data = col_result->get_data();
+            col_result->resize(input_rows_count);
+            const Int128 scale_multiplier = common::exp10_i128(scale);
+
+            for (int i = 0; i < input_rows_count; i++) {
+                const auto& value = col_source->get_data()[i];
+                auto datetime = value.to_datetime();
+                int64_t timestamp = 0;
+                datetime.unix_timestamp(&timestamp, context->state()->timezone_obj());
+                const int64_t original_timestamp = timestamp;
+                timestamp = trim_timestamp(timestamp, NewVersion);
+                if (timestamp == 0 && original_timestamp != 0) {
+                    col_result_data[i] = Decimal128V3(0);
+                    continue;
+                }
+                const Int128 fraction = value.nanosecond() / common::exp10_i64(9 - scale);
+                col_result_data[i] =
+                        Decimal128V3(static_cast<Int128>(timestamp) * scale_multiplier + fraction);
             }
             block.replace_by_position(result, std::move(col_result));
         }
@@ -945,17 +1003,25 @@ struct Sec {
     static constexpr auto name = "second_timestamp";
     static constexpr Int64 ratio = 1;
 };
-template <typename Impl>
+template <typename Impl, PrimitiveType PType>
 class DateTimeToTimestamp : public IFunction {
 public:
+    static_assert(PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMP_NS);
     using ReturnType = Int64;
     static constexpr Int64 ratio_to_micro = (1000 * 1000) / Impl::ratio;
     static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<DateTimeToTimestamp<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<DateTimeToTimestamp<Impl, PType>>(); }
 
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return {std::make_shared<DataTypeTimeStampNs>()};
+        }
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments[0].type->is_nullable()) {
@@ -967,6 +1033,23 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            const auto& column_data = assert_cast<const ColumnTimeStampNs&>(*arg_col);
+            auto res_col = ColumnInt64::create();
+            auto& res_data = res_col->get_data();
+            res_data.resize_fill(input_rows_count, 0);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const auto& source = column_data.get_data()[i];
+                auto dt = source.to_datetime();
+                int64_t timestamp {0};
+                dt.unix_timestamp(&timestamp, context->state()->timezone_obj());
+                timestamp = timestamp * Impl::ratio + source.microsecond() / ratio_to_micro;
+                res_data[i] = timestamp;
+            }
+            block.replace_by_position(result, std::move(res_col));
+            return Status::OK();
+        }
+
         const auto& column_data = assert_cast<const ColumnDateTimeV2&>(*arg_col);
         auto res_col = ColumnInt64::create();
         auto& res_data = res_col->get_data();
@@ -1053,10 +1136,8 @@ struct LastDayImpl {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         auto data_col = assert_cast<const ColumnType*>(argument_column.get());
         auto res_column = ResultColumnType::create(input_rows_count);
-        execute_straight(
-                input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
-                result_null_map);
+        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data(),
+                         result_null_map);
 
         if (is_nullable) {
             block.replace_by_position(result,
@@ -1081,12 +1162,17 @@ struct LastDayImpl {
             if (!ts_value.is_valid_date()) {
                 throw_out_of_bound_one_date<DateValueType>("last_day", cur_data);
             }
-            int day = get_last_month_day(ts_value.year(), ts_value.month());
-            // day is definitely legal
-            if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                const auto civil_value = ts_value.to_date();
+                const int day = get_last_month_day(civil_value.year(), civil_value.month());
+                res_data[i].unchecked_set_time(civil_value.year(), civil_value.month(), day, 0, 0,
+                                               0, 0);
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                const int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = ts_value;
-            } else { // datetimev2
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                const int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
@@ -1128,10 +1214,8 @@ struct ToMondayImpl {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         auto data_col = assert_cast<const ColumnType*>(argument_column.get());
         auto res_column = ResultColumnType::create(input_rows_count);
-        execute_straight(
-                input_rows_count, data_col->get_data(),
-                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
-                result_null_map);
+        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data(),
+                         result_null_map);
 
         if (is_nullable) {
             block.replace_by_position(result,
@@ -1162,20 +1246,17 @@ struct ToMondayImpl {
                     res_data[i] = ts_value;
                     continue;
                 }
-
-                // day_of_week, from 1(Mon) to 7(Sun)
                 int day_of_week = ts_value.weekday() + 1;
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
                 res_data[i] = ts_value;
-            } else { // datetimev2
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
                     ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
                     continue;
                 }
-                // day_of_week, from 1(Mon) to 7(Sun)
                 int day_of_week = ts_value.weekday() + 1;
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
@@ -1183,6 +1264,18 @@ struct ToMondayImpl {
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
                                             0, 0);
                 DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
+            } else if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                const int64_t daynr = ts_value.daynr();
+                if (daynr >= TimeStampNsValue::UNIX_EPOCH_DAYNR &&
+                    daynr <= TimeStampNsValue::UNIX_EPOCH_DAYNR + 3) {
+                    res_data[i].unchecked_set_time(1970, 1, 1, 0, 0, 0, 0);
+                    continue;
+                }
+                int day_of_week = ts_value.weekday() + 1;
+                int gap_of_monday = day_of_week - 1;
+                if (!res_data[i].get_date_from_daynr(daynr - gap_of_monday)) {
+                    throw_out_of_bound_one_date<DateValueType>("to_monday", cur_data);
+                }
             }
         }
     }
@@ -1233,9 +1326,11 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (std::is_same_v<Impl, DateTrunc<TYPE_DATEV2, true>> ||
                       std::is_same_v<Impl, DateTrunc<TYPE_DATETIMEV2, true>> ||
+                      std::is_same_v<Impl, DateTrunc<TYPE_TIMESTAMP_NS, true>> ||
                       std::is_same_v<Impl, DateTrunc<TYPE_TIMESTAMPTZ, true>> ||
                       std::is_same_v<Impl, DateTrunc<TYPE_DATEV2, false>> ||
                       std::is_same_v<Impl, DateTrunc<TYPE_DATETIMEV2, false>> ||
+                      std::is_same_v<Impl, DateTrunc<TYPE_TIMESTAMP_NS, false>> ||
                       std::is_same_v<Impl, DateTrunc<TYPE_TIMESTAMPTZ, false>>) {
             return Impl::open(context, scope);
         } else {
@@ -1483,12 +1578,16 @@ using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 
 using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<TYPE_DATEV2, true>>;
 using FunctionDateTruncDatetimeV2 = FunctionOtherTypesToDateType<DateTrunc<TYPE_DATETIMEV2, true>>;
+using FunctionDateTruncTimestampNs =
+        FunctionOtherTypesToDateType<DateTrunc<TYPE_TIMESTAMP_NS, true>>;
 using FunctionDateTruncTimestamptz =
         FunctionOtherTypesToDateType<DateTrunc<TYPE_TIMESTAMPTZ, true>>;
 using FunctionDateTruncDateV2WithCommonOrder =
         FunctionOtherTypesToDateType<DateTrunc<TYPE_DATEV2, false>>;
 using FunctionDateTruncDatetimeV2WithCommonOrder =
         FunctionOtherTypesToDateType<DateTrunc<TYPE_DATETIMEV2, false>>;
+using FunctionDateTruncTimestampNsWithCommonOrder =
+        FunctionOtherTypesToDateType<DateTrunc<TYPE_TIMESTAMP_NS, false>>;
 using FunctionDateTruncTimestamptzWithCommonOrder =
         FunctionOtherTypesToDateType<DateTrunc<TYPE_TIMESTAMPTZ, false>>;
 using FunctionFromIso8601DateV2 = FunctionOtherTypesToDateType<FromIso8601DateV2>;
@@ -1501,9 +1600,11 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetimeV2>();
+    factory.register_function<FunctionDateTruncTimestampNs>();
     factory.register_function<FunctionDateTruncTimestamptz>();
     factory.register_function<FunctionDateTruncDateV2WithCommonOrder>();
     factory.register_function<FunctionDateTruncDatetimeV2WithCommonOrder>();
+    factory.register_function<FunctionDateTruncTimestampNsWithCommonOrder>();
     factory.register_function<FunctionDateTruncTimestamptzWithCommonOrder>();
     factory.register_function<FunctionFromIso8601DateV2>();
 
@@ -1512,6 +1613,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTime>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeTimeStampNs>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl<>>>();
     factory.register_function<FunctionUnixTimestampNew<UnixTimeStampImpl<true>>>();
     factory.register_function<
@@ -1522,16 +1624,23 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
             FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDateTime, true>>>();
     factory.register_function<
             FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDateTimeV2, true>>>();
+    factory.register_function<
+            FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeTimeStampNs, true>>>();
     factory.register_function<FunctionUnixTimestampNew<UnixTimeStampStrImpl<true>>>();
 
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, TYPE_DATEV2>>();
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, TYPE_DATETIMEV2>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, TYPE_TIMESTAMP_NS>>();
     factory.register_function<FunctionDateOrDateTimeToDate<ToMondayImpl, TYPE_DATEV2>>();
     factory.register_function<FunctionDateOrDateTimeToDate<ToMondayImpl, TYPE_DATETIMEV2>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<ToMondayImpl, TYPE_TIMESTAMP_NS>>();
 
-    factory.register_function<DateTimeToTimestamp<MicroSec>>();
-    factory.register_function<DateTimeToTimestamp<MilliSec>>();
-    factory.register_function<DateTimeToTimestamp<Sec>>();
+    factory.register_function<DateTimeToTimestamp<MicroSec, TYPE_DATETIMEV2>>();
+    factory.register_function<DateTimeToTimestamp<MilliSec, TYPE_DATETIMEV2>>();
+    factory.register_function<DateTimeToTimestamp<Sec, TYPE_DATETIMEV2>>();
+    factory.register_function<DateTimeToTimestamp<MicroSec, TYPE_TIMESTAMP_NS>>();
+    factory.register_function<DateTimeToTimestamp<MilliSec, TYPE_TIMESTAMP_NS>>();
+    factory.register_function<DateTimeToTimestamp<Sec, TYPE_TIMESTAMP_NS>>();
 }
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

@@ -21,7 +21,55 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
-file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
+file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
+    agent/*.cpp
+    ai/*.cpp
+    cloud/*.cpp
+    common/*.cpp
+    core/*.cpp
+    exec/*.cpp
+    exprs/*.cpp
+    format/*.cpp
+    format_v2/*.cpp
+    gutil/*.cpp
+    io/*.cpp
+    load/*.cpp
+    olap/*.cpp
+    runtime/*.cpp
+    service/*.cpp
+    storage/*.cpp
+    testutil/*.cpp
+    udf/*.cpp
+    tools/*.cpp
+    util/*.cpp
+    vec/*.cpp
+)
+
+set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
+list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})
+
+if (NOT OS_MACOSX)
+    add_library(phdr_cache_test_dso SHARED ${PHDR_CACHE_TEST_DSO_SOURCE})
+    set_target_properties(phdr_cache_test_dso PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BUILD_DIR}/test"
+    )
+endif()
+
+if (ENABLE_TDE)
+    file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TDE_UT_FILES})
+endif()
+
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
+
+if (ENABLE_VARIANT_NESTED_GROUP)
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${VARIANT_NESTED_GROUP_UT_FILES})
+endif()
 
 # Remove all cpp files from vector search (ANN index) subdirectory
 # Since cpp files in vector search subdirs use header files from faiss.
@@ -29,12 +77,6 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 # So vector_search cpp files are compiled in a separate library using different compile options.
 file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
-
-# Lance reader tests require Rust static library (BUILD_RUST_READERS=ON)
-if (NOT BUILD_RUST_READERS)
-    file(GLOB_RECURSE LANCE_TEST_FILES CONFIGURE_DEPENDS format/lance/*.cpp)
-    list(REMOVE_ITEM UT_FILES ${LANCE_TEST_FILES})
-endif()
 
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
@@ -45,28 +87,6 @@ if (OS_MACOSX)
 endif()
 
 list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
-
-# todo: need fix those ut
-list(REMOVE_ITEM UT_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
-)
 
 message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
@@ -115,10 +135,28 @@ include_directories(
 add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
+if (TARGET phdr_cache_test_dso)
+    add_dependencies(doris_be_test phdr_cache_test_dso)
+endif()
 
+# run-be-ut.sh resets DORIS_HOME to the test binary dir before launching the
+# tests, so the real-IPADIC dictionary test can't find the repo dictionary via
+# DORIS_HOME.
+target_compile_definitions(doris_be_test PRIVATE
+    KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
+# -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
+# propagates no usage requirements. Link ann_index explicitly: it exports the faiss include
+# directories PUBLIC, and the test TUs that include faiss headers (function_array_distance.h and
+# what includes it) need them.
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
-        -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+        -Wl,-force_load,$<TARGET_FILE:vector_search_test>
+        ann_index)
+    # $<TARGET_FILE:...> inside a link flag does not create a target-level
+    # dependency, so parallel ninja could link doris_be_test before the
+    # archive exists.
+    add_dependencies(doris_be_test vector_search_test)
 else()
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
         -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)

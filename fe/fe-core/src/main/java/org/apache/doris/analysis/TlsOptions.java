@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.auth.certificate.SanEntryCodec;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 
@@ -30,7 +31,7 @@ import java.util.List;
  * <ul>
  *   <li>Only REQUIRE NONE and REQUIRE SAN 'xxx' are fully supported</li>
  *   <li>Multi-option combinations (SAN AND CIPHER AND ...) are parsed but rejected in analyze()</li>
- *   <li>SAN matching is simple string comparison</li>
+ *   <li>SAN matching uses normalized entry-level containment</li>
  * </ul>
  *
  * <p>Semantics:
@@ -159,8 +160,15 @@ public class TlsOptions {
                     + "are not supported in current version");
         }
 
-        if (san != null && san.isEmpty()) {
-            throw new AnalysisException("SAN value cannot be empty");
+        if (san != null) {
+            if (san.trim().isEmpty()) {
+                throw new AnalysisException("SAN value cannot be empty");
+            }
+            try {
+                san = SanEntryCodec.toSqlString(SanEntryCodec.parseAndNormalize(san));
+            } catch (IllegalArgumentException e) {
+                throw new AnalysisException(e.getMessage());
+            }
         }
     }
 

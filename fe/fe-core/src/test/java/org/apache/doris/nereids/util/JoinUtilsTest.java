@@ -22,10 +22,14 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,6 +43,43 @@ import java.util.Collections;
 import java.util.List;
 
 public class JoinUtilsTest {
+
+    @Test
+    public void testVolatileEqualPredicateIsNotHashCondition() {
+        SlotReference leftKey = new SlotReference(new ExprId(1), "c1",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+        SlotReference rightKey = new SlotReference(new ExprId(2), "c2",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+        EqualTo equalTo = new EqualTo(leftKey, new Add(rightKey, new Random()));
+
+        JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey));
+
+        Assertions.assertTrue(equalTo.containsVolatileExpression());
+        Assertions.assertFalse(checker.isHashJoinCondition(equalTo));
+        Assertions.assertTrue(JoinUtils.extractExpressionForHashTable(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey), Lists.newArrayList(equalTo)).first.isEmpty());
+    }
+
+    @Test
+    public void testTimestampNsAndDateTimeV2EqualPredicateIsNotHashCondition() {
+        SlotReference leftKey = new SlotReference(new ExprId(1), "ts",
+                TimeStampNsType.INSTANCE, false, Lists.newArrayList());
+        SlotReference rightKey = new SlotReference(new ExprId(2), "dt",
+                DateTimeV2Type.MAX, false, Lists.newArrayList());
+        EqualTo equalTo = new EqualTo(leftKey, rightKey);
+
+        JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey));
+
+        Assertions.assertFalse(checker.isHashJoinCondition(equalTo));
+        Assertions.assertTrue(JoinUtils.extractExpressionForHashTable(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey),
+                Lists.newArrayList(equalTo)).first.isEmpty());
+        Assertions.assertEquals(Lists.newArrayList(equalTo), JoinUtils.extractExpressionForHashTable(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey),
+                Lists.newArrayList(equalTo)).second);
+    }
 
     @Test
     public void testCouldColocateJoinForSameTable() {

@@ -73,11 +73,14 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
-                           .column->convert_to_full_column_if_const();
-        num = num->is_nullable()
-                      ? assert_cast<const ColumnNullable*>(num.get())->get_nested_column_ptr()
-                      : num;
+        const auto num_column = block.get_by_position(arguments[FunctionType::param_num_idx])
+                                        .column->convert_to_full_column_if_const();
+        auto num = num_column;
+        const NullMap* num_null_map = nullptr;
+        if (const auto* nullable_num = check_and_get_column<ColumnNullable>(*num)) {
+            num_null_map = &nullable_num->get_null_map_data();
+            num = nullable_num->get_nested_column_ptr();
+        }
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
                              .column->convert_to_full_column_if_const();
         auto offsets_col = ColumnOffset64::create();
@@ -88,6 +91,10 @@ public:
         array_sizes.reserve(input_rows_count);
         // The array size will never gt int max value.
         for (int i = 0; i < input_rows_count; ++i) {
+            if (num_null_map && (*num_null_map)[i]) {
+                offsets.push_back(offset);
+                continue;
+            }
             auto array_size = num->get_int(i);
             if (UNLIKELY(array_size < 0) || UNLIKELY(array_size > max_array_size_as_field)) {
                 return Status::InvalidArgument("Array size should in range(0, {}) in function: {}",
@@ -99,7 +106,7 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        clone->assume_mutable()->insert_indices_from(*value, array_sizes.data(),
+        clone->assert_mutable()->insert_indices_from(*value, array_sizes.data(),
                                                      array_sizes.data() + offset);
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -57,6 +58,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                 logicalLimit(logicalAggregate())
                         .when(limit -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && !Utils.addOverflows(limit.getLimit(), limit.getOffset())
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
@@ -73,6 +75,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                 logicalLimit(logicalProject(logicalAggregate()))
                         .when(limit -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && !Utils.addOverflows(limit.getLimit(), limit.getOffset())
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
@@ -93,6 +96,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                 logicalTopN(logicalAggregate())
                         .when(topn -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {
@@ -115,6 +119,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                 logicalTopN(logicalProject(logicalAggregate()))
                         .when(topn -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {

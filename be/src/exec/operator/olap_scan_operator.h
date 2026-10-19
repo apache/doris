@@ -19,17 +19,24 @@
 
 #include <stdint.h>
 
+#include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
+#include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
 class OlapScanner;
+class QueryCacheRuntime;
+struct QueryCacheInstanceDecision;
 } // namespace doris
 
 namespace doris {
@@ -72,7 +79,10 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
+    Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
+
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
@@ -82,11 +92,8 @@ private:
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::ACCEPTABLE;
     }
-    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
@@ -94,6 +101,7 @@ private:
                        ? PushDownType::ACCEPTABLE
                        : PushDownType::UNACCEPTABLE;
     }
+
     PushDownType _should_push_down_in_predicate() const override {
         return PushDownType::ACCEPTABLE;
     }
@@ -101,11 +109,18 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const VExprSPtr& expr) override;
+
+    enum class ExprStorageFilterCheckMode { HAS_SEGMENT_EVALUABLE_EXPR, HAS_NON_KEY_SLOT };
+    bool _check_expr_storage_filter(const VExprSPtr& expr, ExprStorageFilterCheckMode mode);
 
     bool _storage_no_merge() override;
 
     bool _read_mor_as_dup();
+    // True for MIN_DELTA / DETAIL binlog scans, which read through BlockReader's merge (op
+    // synthesis + BEFORE/AFTER split) and thus must keep predicates above the reader. Returns bool
+    // to avoid leaking the thrift binlog-scan-type enum into this header.
+    bool _is_binlog_merge_scan() const;
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -120,9 +135,16 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
     Status _build_key_ranges_and_filters();
 
+    bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
+                                             int32_t bucket_num) const;
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    bool _has_rf_bucket_prune_metadata = false;
+    RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
@@ -137,11 +159,18 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
+    snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_tso_prune_timer = nullptr;
+    RuntimeProfile::Counter* _rowsets_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _segments_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _tablets_pruned_by_tso_counter = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;
@@ -162,6 +191,17 @@ private:
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
+    // Number of whole segments skipped by expression ZoneMap evaluation.
+    RuntimeProfile::Counter* _expr_zonemap_filtered_segment_counter = nullptr;
+    // Number of pages skipped by expression ZoneMap evaluation after page index ranges are built.
+    RuntimeProfile::Counter* _expr_zonemap_filtered_page_counter = nullptr;
+    // Number of expression ZoneMap evaluations that reached the evaluator but could not use the
+    // current ZoneMap context, such as missing slot/page ZoneMap or unusable range statistics.
+    RuntimeProfile::Counter* _expr_zonemap_unusable_counter = nullptr;
+    // Number of IN-predicate ZoneMap evaluations that used per-value point checks.
+    RuntimeProfile::Counter* _in_zonemap_point_check_counter = nullptr;
+    // Number of IN-predicate ZoneMap evaluations that fell back to min/max range overlap only.
+    RuntimeProfile::Counter* _in_zonemap_range_only_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -205,6 +245,7 @@ private:
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _lazy_read_pruned_timer = nullptr;
 
     // total pages read
     // used by segment v2
@@ -219,6 +260,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_lookup_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_insert_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
@@ -228,6 +271,11 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
+    // Approximate (gram) index: rows pruned / candidate rows left for expression re-verification.
+    RuntimeProfile::Counter* _gram_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_candidate_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_gate_gave_up_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 
@@ -235,6 +283,8 @@ private:
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
     RuntimeProfile::Counter* _ann_topn_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_range_cache_hit_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
     RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;
@@ -260,6 +310,10 @@ private:
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
     RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_by_small_candidate_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_small_candidate_rows = nullptr;
+    RuntimeProfile::Counter* _ann_range_fallback_by_small_candidate_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_range_fallback_small_candidate_rows = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -271,7 +325,6 @@ private:
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
-    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
@@ -288,7 +341,7 @@ private:
     RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_segment_prefetchers_timer = nullptr;
 
@@ -319,31 +372,45 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
+    // The per-instance query cache decision shared with the cache source
+    // operator of the same fragment. Null when the query cache is disabled.
+    // HIT: leave _scan_ranges empty so nothing is scanned; INCREMENTAL: scan
+    // only the pre-captured delta read sources in (cached, current] version.
+    std::shared_ptr<QueryCacheInstanceDecision> _query_cache_decision;
+
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
-    std::map<SlotId, size_t> _slot_id_to_index_in_block;
-    // this map is needed for scanner opening.
-    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
+
+    // ---- Runtime-filter partition pruning ----
+    // Attaches this per-instance pruner to the shared parse result owned by
+    // OlapScanOperatorX (parsed once in OperatorX::prepare()). Cheap: pointer
+    // assignment plus a counter set, no parsing work.
+    void _attach_partition_boundaries();
+
+    RuntimeProfile::Counter* _tablets_pruned_by_rf_counter = nullptr;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
-                      const TQueryCacheParam& cache_param);
+                      const TQueryCacheParam& cache_param,
+                      std::shared_ptr<QueryCacheRuntime> query_cache_runtime = nullptr);
 
-    int get_column_id(const std::string& col_name) const override {
-        if (!_tablet_schema) {
-            return -1;
-        }
-        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
-        return _tablet_schema->field_index(column.unique_id());
-    }
+    Status prepare(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    // Shared with the cache source operator of the same fragment so both
+    // consume the same per-instance cache decision (see QueryCacheRuntime).
+    // Null when the query cache is disabled.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<OlapScanLocalState>;
+extern template class ScanLocalState<OlapScanLocalState>;
 
 } // namespace doris

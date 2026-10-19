@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_column_name", "variant_type"){
+suite("regression_test_variant_column_name", "p0"){
+    def variantV2Function = "parse_to_variant"
     def table_name = "var_column_name"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -24,49 +25,58 @@ suite("regression_test_variant_column_name", "variant_type"){
             v variant
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
-    """ 
+    """
 
-    sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}'))"""
     qt_sql """select v['中文'], v['\\\u4E2C\\\u6587'] from ${table_name}"""
     // sql """insert into ${table_name} values (2, '{}')"""
     sql "truncate table ${table_name}"
-    sql """insert into ${table_name} values (3, '{"": ""}')"""
-    qt_sql """select cast(v[''] as text) from ${table_name} order by k"""
-    sql """insert into ${table_name} values (4, '{"!@#^&*()": "11111"}')"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"": ""}'))"""
+    qt_empty_key_empty_string """
+        select k, v[''] is null, length(cast(v[''] as text))
+        from ${table_name}
+        order by k
+    """
+    sql """insert into ${table_name} values (4, ${variantV2Function}('{"!@#^&*()": "11111"}'))"""
     qt_sql """select cast(v["!@#^&*()"] as string) from ${table_name} order by k"""
-    sql """insert into ${table_name} values (5, '{"123": "456", "789": "012"}')"""
+    sql """insert into ${table_name} values (5, ${variantV2Function}('{"123": "456", "789": "012"}'))"""
     qt_sql """select cast(v["123"] as string) from ${table_name} order by k"""
     // sql """insert into ${table_name} values (6, '{"\\n123": "t123", "\\\"123": "123"}')"""
-    sql """insert into ${table_name} values (7, '{"AA": "UPPER CASE", "aa": "lower case"}')"""
+    sql """insert into ${table_name} values (7, ${variantV2Function}('{"AA": "UPPER CASE", "aa": "lower case"}'))"""
     qt_sql """select cast(v["AA"] as string), cast(v["aa"] as string) from ${table_name} order by k"""
 
     sql "alter table var_column_name rename column v Tags;  "
-    sql """insert into var_column_name values (1, '{"tag_key1" : 123456}')"""
-    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
-    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
-    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
-    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
+    sql """insert into var_column_name values (1, ${variantV2Function}('{"tag_key1" : 123456}'))"""
+    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"
+    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"
+    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"
+    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"
 
     // empty key
-    sql """insert into var_column_name values (7, '{"": "UPPER CASE"}')"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": "UPPER CASE"}'))"""
     sql """
-        insert into var_column_name values (7, '{"":16,"OpenCapStatus":0,"AccStatus":1,"AccTimeSum":481,"LowVoltage":0,"TowedStatus":0,"EncryptLng":117.23572361077638,"deviceId":"A1100614808888"}')
+        insert into var_column_name values (7, ${variantV2Function}('{"":16,"OpenCapStatus":0,"AccStatus":1,"AccTimeSum":481,"LowVoltage":0,"TowedStatus":0,"EncryptLng":117.23572361077638,"deviceId":"A1100614808888"}'))
     """
-    sql """insert into var_column_name values (7, '{"": ""}')"""
-    sql """insert into var_column_name values (7, '{"": "dkdkdkdkdkd"}')"""
-    sql """insert into var_column_name values (7, '{"": "xmxxmmmmmm"}')"""
-    sql """insert into var_column_name values (7, '{"": "ooaoaaaaaaa"}')"""
-    sql """insert into var_column_name values (7, '{"": 1234566}')"""
-    sql """insert into var_column_name values (7, '{"": 8888888}')"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": ""}'))"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": "dkdkdkdkdkd"}'))"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": "xmxxmmmmmm"}'))"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": "ooaoaaaaaaa"}'))"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": 1234566}'))"""
+    sql """insert into var_column_name values (7, ${variantV2Function}('{"": 8888888}'))"""
 
-    qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
+    qt_empty_key_order """
+        select k, cast(Tags[''] as text), Tags[''] is null
+        from var_column_name
+        order by cast(Tags[''] as string), k
+    """
 
     // name with `.`
+    // A dotted key and a nested key collide when the value is stored and fail the write.
     sql "truncate table var_column_name"
     test {
-        sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+        sql """insert into var_column_name values (7, ${variantV2Function}('{"a.b": "UPPER CASE", "a" : {"b" : 123}}'))"""
         exception "may contains duplicated entry"
     }
     for (int i = 0; i < 7; i++) {
@@ -77,11 +87,9 @@ suite("regression_test_variant_column_name", "variant_type"){
     qt_sql_cnt_3 "select count(Tags['a']['b']) from var_column_name"
     qt_sql_cnt_4 "select count(Tags['a']['c']) from var_column_name"
 
-    try {
-        sql """insert into var_column_name values (7, '{"": "UPPER CASE", "": "lower case"}')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${table_name} failed: """ + ex)
-        assertTrue(ex.toString().contains("may contains duplicated entry"));
+    test {
+        sql """insert into var_column_name values (7, ${variantV2Function}('{"": "UPPER CASE", "": "lower case"}'))"""
+        exception "Duplicate Variant object key"
     }
 
     // test key length larger than 255 bytes
@@ -90,7 +98,7 @@ suite("regression_test_variant_column_name", "variant_type"){
         key += "a"
     }
     test {
-        sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
-        exception "Key length exceeds maximum allowed size of 255 bytes."
+        sql """insert into var_column_name values (8, ${variantV2Function}('{"${key}": "test"}'))"""
+        exception "Variant JSON object key length 257 exceeds maximum 255 bytes"
     }
 }

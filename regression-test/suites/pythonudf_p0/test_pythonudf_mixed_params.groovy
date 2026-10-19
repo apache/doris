@@ -238,20 +238,20 @@ def py_vec_add_prefix(categories: pd.Series, prefix: str) -> pd.Series:
         // ==================== Test 6: pd.Series + scalar int ====================
         log.info("=== Test 6: pd.Series + scalar int ===")
         
-        sql """ DROP FUNCTION IF EXISTS py_vec_add_int(INT, INT); """
+        sql """ DROP FUNCTION IF EXISTS py_vec_add_int_inline(INT, INT); """
         sql """
-        CREATE FUNCTION py_vec_add_int(INT, INT) 
+        CREATE FUNCTION py_vec_add_int_inline(INT, INT) 
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
-            "symbol" = "py_vec_add_int",
+            "symbol" = "py_vec_add_int_inline",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
         )
         AS \$\$
 import pandas as pd
 
-def py_vec_add_int(quantities: pd.Series, bonus: int) -> pd.Series:
+def py_vec_add_int_inline(quantities: pd.Series, bonus: int) -> pd.Series:
     # quantities: pd.Series (vectorized int column)
     # bonus: int (scalar constant)
     return quantities + bonus
@@ -262,7 +262,7 @@ def py_vec_add_int(quantities: pd.Series, bonus: int) -> pd.Series:
         SELECT 
             id,
             quantity,
-            py_vec_add_int(quantity, 10) AS quantity_with_bonus
+            py_vec_add_int_inline(quantity, 10) AS quantity_with_bonus
         FROM test_mixed_params_table
         ORDER BY id
         LIMIT 5;
@@ -433,7 +433,7 @@ def py_vec_multi_scalar(prices: pd.Series, tax: float, discount: float, fee: flo
         sql """ DROP FUNCTION IF EXISTS py_vec_apply_discount(DOUBLE, DOUBLE); """
         sql """ DROP FUNCTION IF EXISTS py_vec_complex_calc(DOUBLE, INT, DOUBLE, DOUBLE); """
         sql """ DROP FUNCTION IF EXISTS py_vec_add_prefix(STRING, STRING); """
-        sql """ DROP FUNCTION IF EXISTS py_vec_add_int(INT, INT); """
+        sql """ DROP FUNCTION IF EXISTS py_vec_add_int_inline(INT, INT); """
         sql """ DROP FUNCTION IF EXISTS py_vec_conditional_discount(DOUBLE, DOUBLE, DOUBLE); """
         sql """ DROP FUNCTION IF EXISTS py_vec_scale_and_add(DOUBLE, DOUBLE, INT); """
         sql """ DROP FUNCTION IF EXISTS py_vec_alternating(DOUBLE, DOUBLE, INT, INT); """

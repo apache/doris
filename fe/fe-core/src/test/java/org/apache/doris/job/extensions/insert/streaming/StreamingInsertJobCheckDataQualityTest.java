@@ -17,13 +17,17 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -72,9 +76,9 @@ public class StreamingInsertJobCheckDataQualityTest {
     public void testNormalBatchWithinWindow() throws Exception {
         StreamingInsertJob job = newJob(0.10, 60_000L);
         invokeCheckDataQuality(job, 1000, 50);
-        Assert.assertEquals(1000L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
-        Assert.assertEquals(50L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
-        Assert.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+        Assertions.assertEquals(1000L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(50L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
+        Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
     }
 
     @Test
@@ -90,8 +94,12 @@ public class StreamingInsertJobCheckDataQualityTest {
         } catch (JobException e) {
             thrown = e;
         }
-        Assert.assertNotNull("expected pause when combined ratio exceeds threshold", thrown);
-        Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+        Assertions.assertNotNull(thrown, "expected pause when combined ratio exceeds threshold");
+        Assertions.assertTrue(thrown.getMessage().contains("load.max_filter_ratio"));
+        Assertions.assertTrue(thrown.getMessage().contains("RESUME JOB"));
+        Assertions.assertEquals(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
+                new FailureReason(thrown.getMessage()).getCode());
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
     }
 
     // Bug reproducer: expired window with large clean data used to dilute a bad batch.
@@ -109,9 +117,8 @@ public class StreamingInsertJobCheckDataQualityTest {
         } catch (JobException e) {
             thrown = e;
         }
-        Assert.assertNotNull("expected pause — bad batch (ratio=0.30) should not be diluted by expired window",
-                thrown);
-        Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+        Assertions.assertNotNull(thrown, "expected pause — bad batch (ratio=0.30) should not be diluted by expired window");
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
     }
 
     @Test
@@ -124,9 +131,9 @@ public class StreamingInsertJobCheckDataQualityTest {
 
         invokeCheckDataQuality(job, 100, 5);
 
-        Assert.assertEquals(100L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
-        Assert.assertEquals(5L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
-        Assert.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > oldStartTime);
+        Assertions.assertEquals(100L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(5L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
+        Assertions.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > oldStartTime);
     }
 
     @Test
@@ -139,9 +146,61 @@ public class StreamingInsertJobCheckDataQualityTest {
 
         invokeCheckDataQuality(job, 0, 0);
 
-        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
-        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
-        Assert.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > oldStartTime);
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
+        Assertions.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > oldStartTime);
+    }
+
+    private static StreamingInsertJob jobWithProperties(String maxIntervalSec) {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        Map<String, String> props = new HashMap<>();
+        props.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, maxIntervalSec);
+        Deencapsulation.setField(job, "properties", props);
+        Deencapsulation.setField(job, "jobProperties", new StreamingJobProperties(props));
+
+        JobExecutionConfiguration cfg = new JobExecutionConfiguration();
+        cfg.setTimerDefinition(new TimerDefinition());
+        Deencapsulation.setField(job, "jobConfig", cfg);
+        return job;
+    }
+
+    @Test
+    public void testRecomputeDerivedFieldsRebuildsSampleWindowMs() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        Deencapsulation.setField(job, "sampleWindowMs", 0L);
+        Deencapsulation.setField(job, "sampleStartTime", 0L);
+
+        Deencapsulation.invoke(job, "recomputeDerivedFields");
+
+        Assertions.assertEquals(100_000L, (long) Deencapsulation.getField(job, "sampleWindowMs"));
+        Assertions.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > 0L);
+    }
+
+    @Test
+    public void testModifyPropertiesInternalRefreshesDerivedFields() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        JobExecutionConfiguration cfg = (JobExecutionConfiguration) Deencapsulation.getField(job, "jobConfig");
+        cfg.getTimerDefinition().setInterval(10L);
+        Deencapsulation.setField(job, "sampleWindowMs", 100_000L);
+
+        Map<String, String> alter = new HashMap<>();
+        alter.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, "30");
+        Deencapsulation.invoke(job, "modifyPropertiesInternal", alter);
+
+        Assertions.assertEquals(300_000L, (long) Deencapsulation.getField(job, "sampleWindowMs"));
+        Assertions.assertEquals(30L, cfg.getTimerDefinition().getInterval().longValue());
+    }
+
+    @Test
+    public void testRecomputeDerivedFieldsResetsSampleCounters() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        Deencapsulation.setField(job, "sampleWindowScannedRows", 1000L);
+        Deencapsulation.setField(job, "sampleWindowFilteredRows", 100L);
+
+        Deencapsulation.invoke(job, "recomputeDerivedFields");
+
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
     }
 
     @Test
@@ -151,8 +210,8 @@ public class StreamingInsertJobCheckDataQualityTest {
 
         invokeCheckDataQuality(job, 100, 50);
 
-        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
-        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
-        Assert.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
+        Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
     }
 }

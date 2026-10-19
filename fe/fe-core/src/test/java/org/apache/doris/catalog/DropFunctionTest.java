@@ -20,89 +20,78 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.DorisAssert;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
+public class DropFunctionTest extends TestWithFeService {
 
-public class DropFunctionTest {
-
-    private static String runningDir = "fe/mocked/DropFunctionTest/" + UUID.randomUUID().toString() + "/";
-    private static ConnectContext connectContext;
-    private static DorisAssert dorisAssert;
-
-    @BeforeClass
-    public static void setup() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-    }
-
-    @AfterClass
-    public static void teardown() {
-        File file = new File("fe/mocked/DropFunctionTest/");
-        file.delete();
     }
 
     @Test
     public void testDropGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // 1. create database db1
-        String sql = "create database db1;";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
+        createDatabaseWithSql("create database db1;");
 
         String createFuncStr
                 = "create global alias function id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
         createFunction(createFuncStr, ctx);
 
         List<Function> functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
-        Assert.assertEquals(1, functions.size());
+        Assertions.assertEquals(1, functions.size());
         // drop global function
         String dropFuncStr = "drop global function id_masking(bigint)";
 
         dropFunction(dropFuncStr, ctx);
 
         functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
-        Assert.assertEquals(0, functions.size());
+        Assertions.assertEquals(0, functions.size());
     }
 
-    private void createFunction(String sql, ConnectContext connectContext) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        connectContext.setStatementContext(new StatementContext());
-        if (parsed instanceof CreateFunctionCommand) {
-            ((CreateFunctionCommand) parsed).run(connectContext, stmtExecutor);
+    @Test
+    public void testDropIfExistsMissingFunctionDoesNotSubmitCacheCleanup() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        try (MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor =
+                     Mockito.mockStatic(AgentTaskExecutor.class)) {
+            dropFunction("drop global function if exists missing_function(bigint)", ctx);
+
+            mockedAgentTaskExecutor.verifyNoInteractions();
         }
     }
 
-    private void dropFunction(String sql, ConnectContext connectContext) throws Exception {
+    private void createFunction(String sql, ConnectContext ctx) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        connectContext.setStatementContext(new StatementContext());
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        ctx.setStatementContext(new StatementContext());
+        if (parsed instanceof CreateFunctionCommand) {
+            ((CreateFunctionCommand) parsed).run(ctx, stmtExecutor);
+        }
+    }
+
+    private void dropFunction(String sql, ConnectContext ctx) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        ctx.setStatementContext(new StatementContext());
         if (parsed instanceof DropFunctionCommand) {
-            ((DropFunctionCommand) parsed).run(connectContext, stmtExecutor);
+            ((DropFunctionCommand) parsed).run(ctx, stmtExecutor);
         }
     }
 }

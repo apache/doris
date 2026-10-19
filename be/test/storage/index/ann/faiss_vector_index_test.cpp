@@ -25,6 +25,7 @@
 #include <barrier>
 #include <chrono>
 #include <cstddef>
+#include <future>
 #include <limits>
 #include <memory>
 #include <random>
@@ -407,10 +408,14 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
         IndexSearchResult doris_results;
         std::ignore = doris_index->ann_topn_search(query_vec, top_k, search_params, doris_results);
 
-        // Search in native Faiss index
+        // Search in native Faiss index using the same efSearch that Doris applies:
+        // ann_topn_search clamps to max(ef_search, k), so native must match.
         std::vector<float> native_distances(top_k, -1);
         std::vector<faiss::idx_t> native_indices(top_k, -1);
-        native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data());
+        faiss::SearchParametersHNSW native_params;
+        native_params.efSearch = std::max(search_params.ef_search, top_k);
+        native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data(),
+                             &native_params);
         size_t cnt = std::count_if(native_indices.begin(), native_indices.end(),
                                    [](faiss::idx_t idx) { return idx != -1; });
         for (size_t i = 0; i < cnt; ++i) {
@@ -1461,6 +1466,81 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     EXPECT_GT(result.ivf_on_disk_cache_miss_cnt, 0);
 }
 
+// Searching WITHOUT a list cache has to read, not recurse.
+//
+// faiss documents RandomAccessReader::borrow()'s default as "allocates a buffer
+// and calls read_at()", and CachedRandomAccessReader::read_at() is implemented by
+// calling borrow(). Falling back to the base borrow() when
+// AnnIndexIVFListCache::instance() is null is therefore unbounded mutual
+// recursion. Every other IVF-on-disk test above installs the cache first, which
+// is exactly why nothing has ever hit it.
+//
+// exec_env_init installs the cache unconditionally at BE startup, so a running BE
+// does not reach this today. It is a trap for any unit test that does not know to
+// install one -- it does not fail, it never returns -- and for any change that
+// makes the cache optional.
+//
+// The search runs on a worker with a deadline because before the fix it does not
+// return at all: called inline it would hang the whole suite instead of failing
+// this one case. Everything the worker touches is shared-owned so a hung thread
+// cannot outlive its arguments.
+TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
+    ASSERT_EQ(AnnIndexIVFListCache::instance(), nullptr)
+            << "this case is about the no-cache path, but something installed a cache";
+
+    auto builder = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = 32;
+    params.ivf_nlist = 4;
+    params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    params.index_type = FaissBuildParameter::IndexType::IVF_ON_DISK;
+    builder->build(params);
+
+    const int num_vectors = 200;
+    std::vector<float> vectors;
+    vectors.reserve(static_cast<size_t>(num_vectors) * params.dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto tmp = vector_search_utils::generate_random_vector(params.dim);
+        vectors.insert(vectors.end(), tmp.begin(), tmp.end());
+    }
+    ASSERT_TRUE(builder->train(num_vectors, vectors.data()).ok());
+    ASSERT_TRUE(builder->add(num_vectors, vectors.data()).ok());
+
+    auto dir = std::make_shared<lucene::store::RAMDirectory>();
+    ASSERT_TRUE(builder->save(dir.get()).ok());
+
+    auto index = std::make_shared<FaissVectorIndex>();
+    index->set_type(AnnIndexType::IVF_ON_DISK);
+    index->set_ivfdata_cache_key_prefix("ut_no_list_cache");
+    ASSERT_TRUE(index->load(dir.get()).ok());
+
+    auto query_vec = std::make_shared<std::vector<float>>(
+            vector_search_utils::generate_random_vector(params.dim));
+    auto roaring = std::make_shared<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) {
+        roaring->add(i);
+    }
+    auto result = std::make_shared<IndexSearchResult>();
+
+    auto done = std::make_shared<std::promise<Status>>();
+    auto ready = done->get_future();
+    std::thread worker([index, dir, query_vec, roaring, result, done, num_vectors] {
+        IVFSearchParameters search_params;
+        search_params.nprobe = 4;
+        search_params.roaring = roaring.get();
+        search_params.rows_of_segment = num_vectors;
+        done->set_value(index->ann_topn_search(query_vec->data(), 10, search_params, *result));
+    });
+    const bool returned = ready.wait_for(std::chrono::seconds(60)) == std::future_status::ready;
+    if (!returned) {
+        worker.detach();
+        FAIL() << "the search never returned: borrow() recurses when there is no list cache";
+    }
+    worker.join();
+    ASSERT_TRUE(ready.get().ok());
+    EXPECT_GT(result->roaring->cardinality(), 0U);
+}
+
 // All threads share a single FaissVectorIndex (and thus a single
 // CachedRandomAccessReader with its _io_mutex).  On the first round
 // (cold cache) threads contend on the same _io_mutex; the first thread
@@ -1537,6 +1617,110 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
 
     EXPECT_GT(total_hits, 0) << "Expected cache hits from stampede double-check path";
     EXPECT_GT(total_misses, 0) << "Expected cache misses from first-thread disk reads";
+}
+
+// NprobeClampedToNlist (name kept for history): after the fix nprobe only gets a
+// lower-bound guard. FAISS asserts nprobe > 0, so nprobe < 1 (e.g. 0) throws
+// "nprobe > 0 failed". The upper bound is intentionally NOT clamped: FAISS caps
+// nprobe at the index's real nlist internally, and _params.ivf_nlist is unreliable
+// after load() (stays at the default 1024). With nlist=4 this test cannot expose the
+// stale-nlist upper-bound bug (that needs nlist>1024); it covers the lower-bound
+// guard and that a huge nprobe is handled safely by FAISS.
+TEST_F(VectorSearchTest, NprobeClampedToNlist) {
+    const int dim = 32;
+    const int nlist = 4;
+    const int num_vectors = 200;
+
+    auto index = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = dim;
+    params.ivf_nlist = nlist;
+    params.index_type = FaissBuildParameter::IndexType::IVF;
+    params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    index->build(params);
+
+    std::vector<float> vecs;
+    vecs.reserve(num_vectors * dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto v = vector_search_utils::generate_random_vector(dim);
+        vecs.insert(vecs.end(), v.begin(), v.end());
+    }
+    ASSERT_TRUE(index->train(num_vectors, vecs.data()).ok());
+    ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
+
+    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    auto loaded = std::make_unique<FaissVectorIndex>();
+    loaded->set_type(AnnIndexType::IVF);
+    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) roaring->add(i);
+
+    auto query = vector_search_utils::generate_random_vector(dim);
+    IndexSearchResult result;
+
+    // nprobe far above nlist: FAISS caps it at the real nlist on its own, so this
+    // is safe with no upper-bound clamp at all. Regression guard for results.
+    IVFSearchParameters search_params;
+    search_params.roaring = roaring.get();
+    search_params.rows_of_segment = num_vectors;
+    search_params.nprobe = 9999;
+    EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result).ok())
+            << "nprobe > nlist is safe (FAISS caps at nlist) and must return results";
+
+    // nprobe = 0 — THIS is the real bug: FAISS asserts nprobe > 0, so without the
+    // lower-bound clamp this would throw "nprobe > 0 failed".
+    IndexSearchResult result2;
+    search_params.nprobe = 0;
+    EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result2).ok())
+            << "nprobe = 0 should succeed after clamping to 1";
+}
+
+// efSearch < k silently returns fewer results; after fix efSearch is
+// boosted to max(ef_search, k) so we always get k valid results.
+TEST_F(VectorSearchTest, EfSearchLinkedToK) {
+    const int dim = 16;
+    const int num_vectors = 200;
+    const int k = 50;
+
+    auto index = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = dim;
+    params.max_degree = 16;
+    params.ef_construction = 64;
+    params.index_type = FaissBuildParameter::IndexType::HNSW;
+    index->build(params);
+
+    std::vector<float> vecs;
+    vecs.reserve(num_vectors * dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto v = vector_search_utils::generate_random_vector(dim);
+        vecs.insert(vecs.end(), v.begin(), v.end());
+    }
+    // HNSW does not need explicit train
+    ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
+
+    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    auto loaded = std::make_unique<FaissVectorIndex>();
+    loaded->set_type(AnnIndexType::HNSW);
+    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) roaring->add(i);
+
+    auto query = vector_search_utils::generate_random_vector(dim);
+    IndexSearchResult result;
+
+    HNSWSearchParameters search_params;
+    search_params.roaring = roaring.get();
+    search_params.rows_of_segment = num_vectors;
+    // ef_search deliberately set below k; after fix should be raised to k
+    search_params.ef_search = 1;
+
+    ASSERT_TRUE(loaded->ann_topn_search(query.data(), k, search_params, result).ok());
+    // With the fix, efSearch = max(1, k) = k, so all k results must be valid (no -1 labels)
+    EXPECT_EQ(static_cast<int>(result.roaring->cardinality()), k)
+            << "efSearch boosted to max(ef_search, k): should return exactly k results";
 }
 
 } // namespace doris

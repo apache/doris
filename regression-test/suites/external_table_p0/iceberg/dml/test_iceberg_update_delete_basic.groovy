@@ -62,7 +62,10 @@ suite("test_iceberg_update_delete_basic", "p0,external,iceberg,external_docker,e
             ) ENGINE=iceberg
             PROPERTIES (
                 "format-version" = "2",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
 
@@ -110,7 +113,10 @@ suite("test_iceberg_update_delete_basic", "p0,external,iceberg,external_docker,e
             PARTITION BY LIST (DAY(dt)) ()
             PROPERTIES (
                 "format-version" = "2",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
 

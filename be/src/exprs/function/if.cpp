@@ -72,14 +72,13 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
+    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
@@ -240,7 +239,7 @@ public:
             return Status::OK();
         }
 
-        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
@@ -361,19 +360,23 @@ public:
             // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
             Block temporary_block;
             temporary_block.insert(arg_cond);
-            auto then_nested_null_map =
-                    (then_type_is_nullable && !then_column_is_const_nullable)
-                            ? then_is_nullable->get_null_map_column_ptr()
-                            : DataTypeUInt8().create_column_const_with_default_value(
-                                      input_rows_count);
+            ColumnPtr then_nested_null_map;
+            if (then_type_is_nullable && !then_column_is_const_nullable) {
+                then_nested_null_map = then_is_nullable->get_null_map_column_ptr();
+            } else {
+                then_nested_null_map =
+                        DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+            }
             temporary_block.insert({then_nested_null_map, std::make_shared<DataTypeUInt8>(),
                                     "then_column_null_map"});
 
-            auto else_nested_null_map =
-                    (else_type_is_nullable && !else_column_is_const_nullable)
-                            ? else_is_nullable->get_null_map_column_ptr()
-                            : DataTypeUInt8().create_column_const_with_default_value(
-                                      input_rows_count);
+            ColumnPtr else_nested_null_map;
+            if (else_type_is_nullable && !else_column_is_const_nullable) {
+                else_nested_null_map = else_is_nullable->get_null_map_column_ptr();
+            } else {
+                else_nested_null_map =
+                        DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+            }
             temporary_block.insert({else_nested_null_map, std::make_shared<DataTypeUInt8>(),
                                     "else_column_null_map"});
             temporary_block.insert(
@@ -427,17 +430,22 @@ public:
             DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
                    PrimitiveType::TYPE_BOOLEAN);
 
-            // update nested column by null map
+            // Treat NULL as false. The nested column may be shared with other columns of the
+            // block (e.g. NULLIF wraps its first argument as the nested column), so build a
+            // new condition column instead of mutating the nested column in place.
+            const auto rows = nullable->size();
             const auto* __restrict null_map = nullable->get_null_map_data().data();
-            auto* __restrict nested_bool_data =
-                    ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
-            auto rows = nullable->size();
+            const auto* __restrict nested_bool_data =
+                    assert_cast<const ColumnUInt8&>(nullable->get_nested_column())
+                            .get_data()
+                            .data();
+            auto cond_column = ColumnUInt8::create(rows);
+            auto* __restrict cond_data = cond_column->get_data().data();
             for (size_t i = 0; i < rows; i++) {
-                nested_bool_data[i] &= !null_map[i];
+                cond_data[i] = nested_bool_data[i] & !null_map[i];
             }
             auto column_size = block.columns();
-            block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
-                          arg_cond.name});
+            block.insert({std::move(cond_column), remove_nullable(arg_cond.type), arg_cond.name});
 
             handled = true;
             return _execute_impl_internal(context, block, {column_size, arguments[1], arguments[2]},

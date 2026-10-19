@@ -21,6 +21,7 @@ import jsonpickle
 import logging
 import os
 import pwd
+import re
 import socket
 import subprocess
 import sys
@@ -145,24 +146,46 @@ def is_container_running(container):
 
 # return all doris containers when cluster_names is empty
 def get_doris_containers(cluster_names):
-    if cluster_names:
-        if type(cluster_names) == type(""):
-            filter_names = "{}{}-*".format(DORIS_PREFIX, cluster_names)
-        else:
-            filter_names = "|".join([
-                "{}{}-*".format(DORIS_PREFIX, name) for name in cluster_names
-            ])
+    import cluster
+    if isinstance(cluster_names, str):
+        requested_names = {cluster_names} if cluster_names else set()
     else:
-        filter_names = "{}*".format(DORIS_PREFIX)
+        requested_names = set(cluster_names or [])
+
+    # Docker's name filter matches substrings, so anchor the complete service
+    # name before the SDK inspects each matching container. Otherwise a lookup
+    # for "test_vcg" also inspects "test_vcg_warmup..." containers.
+    name_pattern = ("|".join(re.escape(name) for name in sorted(requested_names))
+                    if requested_names else ".+")
+    node_pattern = "|".join(re.escape(node_type)
+                            for node_type in cluster.Node.TYPE_ALL)
+    filter_names = r"^/{}({})-({})-[0-9]+$".format(
+        re.escape(DORIS_PREFIX), name_pattern, node_pattern)
 
     clusters = {}
     client = docker.client.from_env()
-    containers = client.containers.list(filters={"name": filter_names})
+    max_list_attempts = 3
+    for attempt in range(1, max_list_attempts + 1):
+        try:
+            # A container may be removed between Docker's list and inspect.
+            containers = client.containers.list(filters={"name": filter_names},
+                                                ignore_removed=True)
+            break
+        except docker.errors.NotFound as err:
+            if attempt == max_list_attempts:
+                raise
+            LOG.warning(
+                "Docker returned 404 while listing Doris containers; "
+                "retrying enumeration (%d/%d): %s",
+                attempt,
+                max_list_attempts,
+                err,
+            )
     for container in containers:
         cluster_name, _, _ = parse_service_name(container.name)
         if not cluster_name:
             continue
-        if cluster_names and cluster_name not in cluster_names:
+        if requested_names and cluster_name not in requested_names:
             continue
         if cluster_name not in clusters:
             clusters[cluster_name] = []
@@ -227,8 +250,8 @@ def detect_docker_compose_cmd():
     Priority:
     1. DORIS_DOCKER_COMPOSE_CMD env override
        e.g. "docker compose" or "docker-compose" or "/path/to/docker-compose"
-    2. docker compose v2
-    3. docker-compose v1 / wrapper
+    2. the first compose client that can talk to the current daemon
+       (prefer docker compose v2, then docker-compose v1 / wrapper)
     """
     def _command_available(cmd):
         try:
@@ -242,26 +265,44 @@ def detect_docker_compose_cmd():
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
 
+    def _compose_usable(cmd):
+        if not _command_available(cmd + ["version"]):
+            return False
+        try:
+            # `ls` talks to the daemon and catches API-version mismatches that
+            # `version` alone misses on mixed docker/compose installations.
+            subprocess.run(
+                cmd + ["ls"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+        except FileNotFoundError:
+            return False
+
     override = os.environ.get("DORIS_DOCKER_COMPOSE_CMD")
     if override:
         cmd = shlex.split(override)
-        if not _command_available(cmd + ["version"]):
+        if not _compose_usable(cmd):
             raise RuntimeError(
                 "DORIS_DOCKER_COMPOSE_CMD is set but not usable: {}".format(override)
             )
         return cmd
 
-    # Prefer Compose v2.
-    if _command_available(["docker", "compose", "version"]):
+    # Prefer Compose v2 when it can talk to the daemon.
+    if _compose_usable(["docker", "compose"]):
         return ["docker", "compose"]
 
-    # Fallback for old machines.
-    if _command_available(["docker-compose", "version"]):
+    # Fallback for old machines or environments with a newer standalone client.
+    if _compose_usable(["docker-compose"]):
         return ["docker-compose"]
 
     raise RuntimeError(
-        "Neither 'docker compose' nor 'docker-compose' is available. "
-        "Please install Docker Compose v2 plugin or legacy docker-compose."
+        "Neither 'docker compose' nor 'docker-compose' is usable with the current "
+        "Docker daemon. Please install a compatible Docker Compose client."
     )
 
 

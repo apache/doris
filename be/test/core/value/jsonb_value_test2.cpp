@@ -23,6 +23,7 @@
 #include "core/block/block.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "gtest/gtest_pred_impl.h"
@@ -73,7 +74,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb, "jsonb_column");
+    ColumnWithTypeAndName argument(input->assert_mutable(), dataTypeJsonb, "jsonb_column");
     Block block;
     block.insert(argument);
 
@@ -115,7 +116,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    ColumnWithTypeAndName argument1(nullable_col->assume_mutable(), nullable_dataTypeJsonb,
+    ColumnWithTypeAndName argument1(nullable_col->assert_mutable(), nullable_dataTypeJsonb,
                                     "jsonb_column_null");
     block.clear();
     block.insert(argument1);
@@ -175,7 +176,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb, "jsonb_column");
+    ColumnWithTypeAndName argument(input->assert_mutable(), dataTypeJsonb, "jsonb_column");
     Block block;
     block.insert(argument);
 
@@ -224,7 +225,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    ColumnWithTypeAndName argument1(nullable_col->assume_mutable(), nullable_dataTypeJsonb,
+    ColumnWithTypeAndName argument1(nullable_col->assert_mutable(), nullable_dataTypeJsonb,
                                     "jsonb_column_null");
     block.clear();
     block.insert(argument1);

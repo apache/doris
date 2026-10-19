@@ -23,6 +23,7 @@ suite("query_cache_with_rec_cte_test", "rec_cte") {
         sql "set enable_fallback_to_original_planner=false"
         sql "set enable_sql_cache=false"
         sql "set enable_query_cache=true"
+        sql "set parallel_pipeline_task_num=2"
     }
 
     def assertHasCache = { String sqlStr ->

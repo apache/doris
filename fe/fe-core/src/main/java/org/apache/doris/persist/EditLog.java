@@ -60,13 +60,13 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -100,16 +100,16 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.NewPartitionLoadedEvent;
-import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.UpdateRowsEvent;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.NewPartitionLoadedEvent;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.analysis.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.tso.TSOTimestamp;
+import org.apache.doris.tso.TSOServiceState;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -174,7 +174,8 @@ public class EditLog {
     private EditLogOutputStream editStream = null;
 
     private long txId = 0;
-
+    // This best-effort timer starts when EditLog is created and resets after every roll.
+    private volatile long lastEditLogRollTimeMs = System.currentTimeMillis();
 
     private AtomicLong numTransactions = new AtomicLong(0);
     private AtomicLong totalTimeTransactions = new AtomicLong(0);
@@ -270,9 +271,10 @@ public class EditLog {
 
         txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
@@ -831,6 +833,11 @@ public class EditLog {
                     Env.getCurrentEnv().replayCreateFunction(function);
                     break;
                 }
+                case OperationType.OP_ADD_FUNCTIONS: {
+                    final CreateFunctionInfo info = (CreateFunctionInfo) journal.getData();
+                    Env.getCurrentEnv().replayCreateFunctions(info);
+                    break;
+                }
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
@@ -998,6 +1005,12 @@ public class EditLog {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
                     env.getBinlogManager().addModifyTableProperty(log, logId);
+                    break;
+                }
+                case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                    TableStreamCleanupInfo info =
+                            (TableStreamCleanupInfo) journal.getData();
+                    env.replayTableStreamCleanup(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
@@ -1480,7 +1493,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
-                    env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
+                    env.getTSOService().replayWindowEndTSO((TSOServiceState) journal.getData());
                     break;
                 }
                 default: {
@@ -1544,6 +1557,7 @@ public class EditLog {
      */
     public void rollEditLog() {
         journal.rollJournal();
+        lastEditLogRollTimeMs = System.currentTimeMillis();
     }
 
     // NOTICE: No guarantee atomicity of entries
@@ -1672,14 +1686,21 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
 
         return logId;
+    }
+
+    private boolean exceedEditLogRollInterval() {
+        return Config.isCloudMode() && Config.cloud_edit_log_roll_interval_second > 0
+                && System.currentTimeMillis() - lastEditLogRollTimeMs
+                        >= TimeUnit.SECONDS.toMillis(Config.cloud_edit_log_roll_interval_second);
     }
 
     /**
@@ -1926,7 +1947,7 @@ public class EditLog {
         logEdit(OperationType.OP_TIMESTAMP, stamp);
     }
 
-    public void logTSOTimestampWindowEnd(TSOTimestamp windowEnd) {
+    public void logTSOTimestampWindowEnd(TSOServiceState windowEnd) {
         logEdit(OperationType.OP_TSO_TIMESTAMP_WINDOW_END, windowEnd);
     }
 
@@ -2129,6 +2150,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddFunctions(List<Function> functions) {
+        logEdit(OperationType.OP_ADD_FUNCTIONS, new CreateFunctionInfo(functions));
+    }
+
     public void logAddGlobalFunction(Function function) {
         logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
     }
@@ -2168,6 +2193,10 @@ public class EditLog {
 
     public void logUpdateJob(AbstractJob job) {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
+    }
+
+    public void logUpdateJob(String serializedJob) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, out -> Text.writeString(out, serializedJob));
     }
 
     public void logDeleteJob(AbstractJob job) {
@@ -2283,6 +2312,10 @@ public class EditLog {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 
+    public EditLogItem logTableStreamCleanup(TableStreamCleanupInfo info) {
+        return submitEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
+    }
+
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         return logModifyTableProperty(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
@@ -2393,10 +2426,6 @@ public class EditLog {
 
     public void logDropRoleMapping(DropRoleMappingOperationLog log) {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
-    }
-
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
     public void logCreatePolicy(Policy policy) {

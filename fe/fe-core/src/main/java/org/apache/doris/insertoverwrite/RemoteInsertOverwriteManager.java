@@ -57,10 +57,23 @@ public class RemoteInsertOverwriteManager implements AbstractInsertOverwriteMana
     }
 
     @Override
-    public void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException {
+    public void taskGroupSuccess(long groupId, OlapTable targetTable, boolean forceDropPartition) throws DdlException {
         catalog.getFeServiceClient()
                 .taskGroupSuccess(InternalCatalog.INTERNAL_CATALOG_NAME,
-                        targetTable.getDatabase().getFullName(), targetTable.getName(), groupId);
+                        targetTable.getDatabase().getFullName(), targetTable.getName(), groupId, forceDropPartition);
+    }
+
+    @Override
+    public void replacePartitionsOfTaskGroup(long groupId, OlapTable targetTable, boolean forceDropPartition)
+            throws DdlException {
+        // The owning frontend runs the replacement and the bookkeeping behind this one call, so the caller
+        // does not hold its lock across them; finishTaskGroup has nothing left to do here.
+        taskGroupSuccess(groupId, targetTable, forceDropPartition);
+    }
+
+    @Override
+    public void finishTaskGroup(long groupId) {
+        // Finished on the owning frontend, which the replacement call reached.
     }
 
     @Override

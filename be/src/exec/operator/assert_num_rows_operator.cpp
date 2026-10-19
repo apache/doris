@@ -91,7 +91,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bo
                 auto& type = block->get_by_position(i).type;
                 type = make_nullable(type);
                 column = type->create_column();
-                column->assume_mutable()->insert_default();
+                column->assert_mutable()->insert_default();
             }
             assert_res = true;
         }

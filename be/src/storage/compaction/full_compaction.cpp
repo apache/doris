@@ -169,7 +169,7 @@ Status FullCompaction::modify_rowsets() {
     } else {
         DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.before.block", DBUG_BLOCK);
         std::lock_guard<std::mutex> rowset_update_wlock(tablet()->get_rowset_update_lock());
-        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::lock_guard meta_wlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
         DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.sleep", { sleep(5); })
         tablet()->save_meta();

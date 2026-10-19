@@ -25,8 +25,8 @@
 
 #include "common/be_mock_util.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/inverted_index_parser.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -63,14 +63,14 @@ public:
     }
 
     MOCK_FUNCTION Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                               const void* query_value, InvertedIndexQueryType query_type,
+                               const Field& query_value, InvertedIndexQueryType query_type,
                                std::shared_ptr<roaring::Roaring>& bit_map,
                                const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         return Status::OK();
     }
 
     MOCK_FUNCTION Status try_query(const IndexQueryContextPtr& context,
-                                   const std::string& column_name, const void* query_value,
+                                   const std::string& column_name, const Field& query_value,
                                    InvertedIndexQueryType query_type, size_t* count) override {
         return Status::OK();
     }
@@ -394,6 +394,49 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTes
                                                              &index_meta));
     EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
             InvertedIndexQueryType::LESS_THAN_QUERY, &index_meta));
+}
+
+TEST_F(IndexReaderHelperTest, NormalizerOnlyPhraseAndScoringNeedNoPositions) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(2);
+    index_pb.set_index_name("normalized");
+    index_pb.add_col_unique_id(1);
+    (*index_pb.mutable_properties())[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "lowercase";
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    auto reader = std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::FULLTEXT,
+                                                            index_meta.properties());
+    EXPECT_EQ(get_parser_phrase_support_string_from_properties(index_meta.properties()),
+              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+    EXPECT_TRUE(IndexReaderHelper::is_support_phrase(reader));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                            &index_meta));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_ANY, &index_meta));
+
+    auto explicit_disabled = index_meta.properties();
+    explicit_disabled[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    auto disabled_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, explicit_disabled);
+    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(disabled_reader));
+
+    auto builtin_alias = index_meta.properties();
+    builtin_alias[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "LowerCase";
+    auto alias_reader = std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::FULLTEXT,
+                                                                  builtin_alias);
+    EXPECT_TRUE(IndexReaderHelper::is_support_phrase(alias_reader));
+
+    TabletIndexPB custom_pb = index_pb;
+    (*custom_pb.mutable_properties())[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "split_norm";
+    TabletIndex custom_meta;
+    custom_meta.init_from_pb(custom_pb);
+    auto custom_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, custom_meta.properties());
+    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(custom_reader));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_ANY_QUERY, &custom_meta));
 }
 
 TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {

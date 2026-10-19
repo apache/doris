@@ -188,7 +188,8 @@ public class TabletStatMgr extends MasterDaemon {
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex index
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             List<Tablet> tablets = index.getTablets();
@@ -242,10 +243,14 @@ public class TabletStatMgr extends MasterDaemon {
                                     tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
                                     tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
 
-                                    if (replica.getBinlogSize() > tabletBinlogSize) {
-                                        tabletBinlogSize = replica.getBinlogSize();
+                                    // Binlog is now an independent index. Its data is counted in table data size
+                                    // for quota, and also tracked separately as binlog size.
+                                    if (index.isRowBinlog()) {
+                                        if (replica.getDataSize() > tabletBinlogSize) {
+                                            tabletBinlogSize = replica.getDataSize();
+                                        }
+                                        tableTotalBinlogSize += replica.getDataSize();
                                     }
-                                    tableTotalBinlogSize += replica.getBinlogSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -262,8 +267,10 @@ public class TabletStatMgr extends MasterDaemon {
                                 if (tabletRowCount == Long.MAX_VALUE) {
                                     tabletRowCount = 0L;
                                 }
-                                tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
+                                if (!index.isRowBinlog()) {
+                                    tableRowCount += tabletRowCount;
+                                }
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
 
@@ -382,7 +389,14 @@ public class TabletStatMgr extends MasterDaemon {
         if (result.isSetTabletStatList()) {
             for (TTabletStat stat : result.getTabletStatList()) {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
-                    Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    Replica replica;
+                    try {
+                        replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    } catch (IllegalStateException e) {
+                        LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
+                                stat.getTabletId(), beId, e.getMessage());
+                        continue;
+                    }
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());
@@ -397,11 +411,6 @@ public class TabletStatMgr extends MasterDaemon {
                         // Older version BE doesn't set visible version. Set it to max for compatibility.
                         replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
                                 : Long.MAX_VALUE);
-
-                        if (stat.isSetBinlogSize()) {
-                            replica.setBinlogSize(stat.getBinlogSize());
-                            replica.setBinlogFileNum(stat.getBinlogFileNum());
-                        }
                     }
                 }
             }
@@ -411,7 +420,14 @@ public class TabletStatMgr extends MasterDaemon {
                     // the replica is obsolete, ignore it.
                     continue;
                 }
-                Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
+                Replica replica;
+                try {
+                    replica = invertedIndex.getReplica(entry.getKey(), beId);
+                } catch (IllegalStateException e) {
+                    LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
+                            entry.getKey(), beId, e.getMessage());
+                    continue;
+                }
                 if (replica == null) {
                     // replica may be deleted from catalog, ignore it.
                     continue;

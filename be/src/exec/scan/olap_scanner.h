@@ -18,11 +18,12 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -43,14 +44,25 @@
 namespace doris {
 
 struct OlapScanRange;
-class FunctionFilter;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
+#ifndef NDEBUG
+struct OlapReaderStatistics;
+#endif
+
+namespace io {
+struct FileCacheStatistics;
+struct IOContext;
+} // namespace io
 
 class Block;
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats);
 
 class OlapScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(OlapScanner);
@@ -63,8 +75,15 @@ public:
         BaseTabletSPtr tablet;
         int64_t version;
         TabletReadSource read_source;
+        io::FileCacheStatistics initial_file_cache_stats;
         int64_t limit;
         bool aggregation;
+        bool read_row_binlog = false;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
+        std::optional<int64_t> start_tso;
+        std::optional<int64_t> end_tso;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -77,6 +96,10 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
+    bool is_pruned_by_runtime_filter() const override;
+
+    void release_unopened_resources() override;
+
     void update_realtime_counters() override;
 
 protected:
@@ -85,39 +108,31 @@ protected:
 
 private:
     Status _init_tablet_reader_params(
-            const phmap::flat_hash_map<int, SlotDescriptor*>& slot_id_to_slot_desc,
             const std::vector<OlapScanRange*>& key_ranges,
             const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    predicates,
-            const std::vector<FunctionFilter>& function_filters);
+                    predicates);
 
-    [[nodiscard]] Status _init_return_columns();
+    [[nodiscard]] Status _init_tso_predicates();
+    [[nodiscard]] Status _init_read_schema();
     [[nodiscard]] Status _init_variant_columns();
+#ifndef NDEBUG
+    Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
+#endif
 
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
-
-    int64_t _bytes_read_from_local = 0;
-    int64_t _bytes_read_from_remote = 0;
+    std::optional<int64_t> _start_tso;
+    std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
 
 public:
-    std::vector<ColumnId> _return_columns;
-
-    std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-
-    // This three fields are copied from OlapScanLocalState.
-    std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
-    std::map<SlotId, size_t> _slot_id_to_index_in_block;
-    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
+    io::FileCacheStatistics _initial_file_cache_stats;
 
     // ColumnId of virtual column to its expr context
     std::map<ColumnId, VExprContextSPtr> _virtual_column_exprs;
-    // ColumnId of virtual column to its index in block
-    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
-    // The idx of vir_col in block to its data type.
-    std::map<size_t, DataTypePtr> _vir_col_idx_to_type;
     std::shared_ptr<ScoreRuntime> _score_runtime;
 
     std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;

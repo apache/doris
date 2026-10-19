@@ -48,15 +48,13 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
      * Constructor with analyzer parameter.
      * @param children child expressions
      * @param symbol the match operator symbol
-     * @param analyzer the analyzer name (will be normalized to lowercase)
+     * @param analyzer the analyzer name, retaining the exact spelling of legacy policies
      */
     public Match(List<Expression> children, String symbol, String analyzer) {
         super(children, symbol);
-        // Normalize analyzer name to lowercase for case-insensitive matching
         this.analyzer = Optional.ofNullable(analyzer)
                 .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(String::toLowerCase);
+                .filter(s -> !s.isEmpty());
     }
 
     /**
@@ -112,6 +110,12 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
     @Override
     public String computeToSql() {
         return "(" + left().toSql() + " " + symbol + " " + right().toSql()
+                + analyzerSqlFragment() + ")";
+    }
+
+    @Override
+    public String shapeInfo() {
+        return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo()
                 + analyzerSqlFragment() + ")";
     }
 

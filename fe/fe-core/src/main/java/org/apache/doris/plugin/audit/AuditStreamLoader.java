@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.qe.GlobalVariable;
 
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,34 +33,44 @@ import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPOutputStream;
+import javax.net.ssl.HttpsURLConnection;
 
 public class AuditStreamLoader {
     private static final Logger LOG = LogManager.getLogger(AuditStreamLoader.class);
-    private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
-    private String hostPort;
+    private static final String COMPRESS_TYPE = "gz";
     private String db;
     private String auditLogTbl;
     private String auditLogLoadUrlStr;
     private String feIdentity;
 
     public AuditStreamLoader() {
-        this.hostPort = "127.0.0.1:" + Config.http_port;
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
-        this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
+        String scheme = Config.enable_https ? "https" : "http";
+        String hostPort = "127.0.0.1:" + HttpURLUtil.getHttpPort();
+        this.auditLogLoadUrlStr = scheme + "://" + hostPort + "/api/" + db + "/" + auditLogTbl + "/_stream_load?";
         // currently, FE identity is FE's IP:port, so we replace the "." and ":" to make it suitable for label
         this.feIdentity = Env.getCurrentEnv().getSelfNode().getIdent().replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
-    private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
+    private static HttpURLConnection getConnection(
+            String urlStr, String label, String clusterToken) throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        if (conn instanceof HttpsURLConnection && Config.enable_https) {
+            HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
+            httpsConn.setSSLSocketFactory(InternalHttpsUtils.getSslContext().getSocketFactory());
+            httpsConn.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+        }
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);
@@ -65,6 +78,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        conn.addRequestProperty("compress_type", COMPRESS_TYPE);
         conn.setConnectTimeout(HTTP_TIMEOUT_MS);
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
@@ -88,6 +102,7 @@ public class AuditStreamLoader {
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
+        sb.append("-H \"").append("compress_type\":").append("\"").append(COMPRESS_TYPE).append("\" \\\n  ");
         sb.append("-H \"").append("columns\":")
                 .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")) + "\" \\\n  ");
@@ -116,6 +131,12 @@ public class AuditStreamLoader {
         return response.toString();
     }
 
+    private static void writeCompressedBody(OutputStream outputStream, StringBuilder payload) throws IOException {
+        try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(new BufferedOutputStream(outputStream))) {
+            gzipOutputStream.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
         String label = genLabel();
 
@@ -138,9 +159,7 @@ public class AuditStreamLoader {
             // build request and send to new be location
             beConn = getConnection(location, label, clusterToken);
             // send data to be
-            try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
-                bos.write(sb.toString().getBytes());
-            }
+            writeCompressedBody(beConn.getOutputStream(), sb);
 
             // get respond
             status = beConn.getResponseCode();

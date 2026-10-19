@@ -18,6 +18,7 @@
 #include "exec/operator/exchange_source_operator.h"
 
 #include <fmt/core.h>
+#include <gen_cpp/Partitions_types.h>
 
 #include <cstdint>
 #include <memory>
@@ -32,6 +33,33 @@
 #include "util/defer_op.h"
 
 namespace doris {
+namespace {
+
+std::string partition_type_to_string(TPartitionType::type partition_type) {
+    auto it = _TPartitionType_VALUES_TO_NAMES.find(partition_type);
+    if (it == _TPartitionType_VALUES_TO_NAMES.end()) {
+        return fmt::format("UNKNOWN({})", partition_type);
+    }
+    return it->second;
+}
+
+void append_limited_instance_set(fmt::memory_buffer& buffer, const std::set<int>& instance_set) {
+    int count = 0;
+    for (int instance_idx : instance_set) {
+        if (count > 0) {
+            fmt::format_to(buffer, ",");
+        }
+        if (count >= 16) {
+            fmt::format_to(buffer, "...");
+            break;
+        }
+        fmt::format_to(buffer, "{}", instance_idx);
+        ++count;
+    }
+}
+
+} // namespace
+
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
@@ -48,8 +76,14 @@ ExchangeLocalState::~ExchangeLocalState() {
 
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, recvr: ({})", Base::debug_string(indentation_level),
-                   stream_recvr->debug_string());
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    const bool is_bucket_shuffle_orphan = p.is_bucket_shuffle_orphan_instance(local_task_idx);
+    const int effective_num_senders = is_bucket_shuffle_orphan ? 0 : p.num_senders();
+    fmt::format_to(debug_string_buffer,
+                   "{}, Source State: (local_task_idx = {}, effective_num_senders = {}, "
+                   "is_bucket_shuffle_orphan = {}), recvr: ({})",
+                   Base::debug_string(indentation_level), local_task_idx, effective_num_senders,
+                   is_bucket_shuffle_orphan, stream_recvr->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -57,16 +91,31 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}",
                    OperatorX<ExchangeLocalState>::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Info: (_num_senders = {}, _is_merging = {})",
-                   _num_senders, _is_merging);
+    fmt::format_to(debug_string_buffer,
+                   ", Info: (_num_senders = {}, _is_merging = {}, _partition_type = {}, "
+                   "_has_bucket_dest_instances = {}, _bucket_dest_instances_count = {}, "
+                   "_bucket_dest_instances = [",
+                   _num_senders, _is_merging, partition_type_to_string(_partition_type),
+                   _has_bucket_dest_instances, _bucket_dest_instances.size());
+    append_limited_instance_set(debug_string_buffer, _bucket_dest_instances);
+    fmt::format_to(debug_string_buffer, "])");
     return fmt::to_string(debug_string_buffer);
 }
 
 void ExchangeLocalState::create_stream_recvr(RuntimeState* state) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    int num_senders = p.num_senders();
+    const bool is_bucket_shuffle_orphan = p.is_bucket_shuffle_orphan_instance(local_task_idx);
+    if (is_bucket_shuffle_orphan) {
+        // Bucket-routed senders open one channel per destination entry (one per bucket),
+        // so an instance owning no bucket never gets a channel — and never gets EOS.
+        // Start its receiver with zero senders so it reports EOS immediately instead of
+        // blocking forever (K-of-N destination spread).
+        num_senders = 0;
+    }
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
-            p.num_senders(), custom_profile(), p.is_merging(),
+            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(), num_senders,
+            custom_profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
 }
@@ -75,6 +124,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    local_task_idx = info.task_idx;
     create_stream_recvr(state);
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
@@ -146,7 +196,7 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ExchangeSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer is_eos([&]() {
         if (*eos) {

@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.Lists;
@@ -63,6 +63,11 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                // getColumns treats schema/table as LIKE patterns; drop rows pulled in via `_`/`%`.
+                if (!remoteDbName.equals(rs.getString("TABLE_SCHEM"))
+                        || !remoteTableName.equals(rs.getString("TABLE_NAME"))) {
+                    continue;
+                }
                 int dataType = rs.getInt("DATA_TYPE");
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
@@ -81,14 +86,14 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                         }
                     } catch (SQLException ex) {
                         LOG.warn("Failed to get array dimensions for column {}: {}",
-                                columnName, Util.getRootCauseMessage(ex));
+                                columnName, jdbcDiagnosticMessage(ex));
                     } finally {
                         close(arrayRs, null);
                         if (pstmt != null) {
                             try {
                                 pstmt.close();
                             } catch (SQLException ex) {
-                                LOG.warn("Failed to close prepared statement: {}", Util.getRootCauseMessage(ex));
+                                LOG.warn("Failed to close prepared statement: {}", jdbcDiagnosticMessage(ex));
                             }
                         }
                     }
@@ -96,8 +101,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 tableSchema.add(new JdbcFieldSchema(rs, arrayDimensions));
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -131,6 +136,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.FLOAT;
             case "float8":
                 return Type.DOUBLE;
+            case "uuid":
+                return Type.UUID;
             case "bpchar":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "timestamp": {
@@ -142,12 +149,15 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "timestamptz": {
+                // Range conversion can create NULL even when PostgreSQL declares the source NOT NULL.
+                // Propagate that possibility to planner slots and the JNI column's null map.
+                fieldSchema.setAllowNull(true);
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // Never discard the instant semantics declared by PostgreSQL timestamptz.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();
@@ -176,15 +186,13 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "macaddr8":
             case "varbit":
-            case "uuid":
             case "xml":
             case "hstore":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();
             case "bytea": // https://www.postgresql.org/docs/12/datatype-binary.html#DATATYPE-BINARY-TABLE
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default: {
                 if (fieldSchema.getDataType() == Types.ARRAY && pgType.startsWith("_")) {
                     return convertArrayType(fieldSchema);

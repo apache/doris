@@ -17,11 +17,17 @@
 
 #pragma once
 
+#include <butil/iobuf.h>
+
 #include <mutex>
 
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
+
+namespace butil {
+class IOBuf;
+}
 
 namespace doris::io {
 
@@ -43,6 +49,13 @@ struct FileWriterMapKeyHash {
     }
 };
 
+struct MemBlock {
+    std::shared_ptr<char[]> addr;
+    butil::IOBuf payload;
+    size_t size {0};
+    bool use_iobuf {false};
+};
+
 // The interface is for organizing datas in disk
 class FileCacheStorage {
 public:
@@ -52,18 +65,24 @@ public:
     virtual Status init(BlockFileCache* _mgr) = 0;
     // append datas into block
     virtual Status append(const FileCacheKey& key, const Slice& value) = 0;
+    virtual Status appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) = 0;
+    virtual Status append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) = 0;
     // finalize the block
     virtual Status finalize(const FileCacheKey& key, const size_t size) = 0;
     // read the block
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
+    // read the block and append bytes into iobuf
+    virtual Status read_to_iobuf(const FileCacheKey& key, size_t value_offset, size_t bytes_req,
+                                 butil::IOBuf* out, size_t* bytes_read) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
     // change the block meta
     virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                         const size_t size) = 0;
-    // use when lazy load cache
-    virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
-                                               std::lock_guard<std::mutex>& cache_lock) {}
+    // Restore a file while lazy loading, with its hash absent from the cache.
+    virtual void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                                    int64_t tablet_id,
+                                                    std::lock_guard<std::mutex>& cache_lock) {}
     // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
     virtual FileCacheStorageType get_type() = 0;

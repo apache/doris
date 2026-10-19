@@ -51,7 +51,7 @@ suite("test_vertical_compaction_agg_state") {
         AGGREGATE  KEY(`user_id`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
-        PROPERTIES ( "replication_num" = "1" );
+        PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -62,7 +62,7 @@ suite("test_vertical_compaction_agg_state") {
             ('a',collect_set_state('aa'))
             """
 
-        qt_select_default """ SELECT user_id,collect_set_merge(agg_user_id) FROM ${tableName} t group by user_id ORDER BY user_id;"""
+        qt_select_default """ SELECT user_id,array_sort(collect_set_merge(agg_user_id)) FROM ${tableName} t group by user_id ORDER BY user_id;"""
 
         sql """ INSERT INTO ${tableName} VALUES
              ('b',collect_set_state('b'))

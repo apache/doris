@@ -59,9 +59,12 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_max does not support complex types: " + toSql());
+        DataType argType = getArgument(0).getDataType();
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!ArrayFunctionUtils.isSupportedByArrayMinMaxFunctions(itemType)) {
+                throw new AnalysisException("array_max does not support element type " + itemType.toSql());
+            }
         }
     }
 

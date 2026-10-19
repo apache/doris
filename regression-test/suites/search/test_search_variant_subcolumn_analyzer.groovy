@@ -29,10 +29,11 @@
  * the index_properties via TSearchFieldBinding to BE.
  */
 suite("test_search_variant_subcolumn_analyzer", "p0") {
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_subcolumn_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     // Pin doc_mode to false to prevent CI flakiness from fuzzy testing.
     // When default_variant_enable_doc_mode=true (randomly set by fuzzy testing),
@@ -66,12 +67,12 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
 
     // Insert test data
     sql """INSERT INTO ${tableName} VALUES
-        (1, '{"string_8": "admin only"}'),
-        (2, '{"string_8": "user access"}'),
-        (3, '{"string_8": "admin access granted"}'),
-        (4, '{"string_1": "hello world"}'),
-        (5, '{"string_8": "readonly user"}'),
-        (6, '{"number_1": 42}')
+        (1, ${variantV2Function}('{"string_8": "admin only"}')),
+        (2, ${variantV2Function}('{"string_8": "user access"}')),
+        (3, ${variantV2Function}('{"string_8": "admin access granted"}')),
+        (4, ${variantV2Function}('{"string_1": "hello world"}')),
+        (5, ${variantV2Function}('{"string_8": "readonly user"}')),
+        (6, ${variantV2Function}('{"number_1": 42}'))
     """
 
     // Wait for data to be flushed and indexes built
@@ -82,49 +83,49 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
     // "admin" should match "admin only" and "admin access granted" because the unicode
     // parser tokenizes them into ["admin", "only"] and ["admin", "access", "granted"]
     qt_search_variant_analyzer_basic """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('admin', '{"default_field":"data.string_8","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 2: Verify MATCH also works (as a baseline)
     qt_match_variant_baseline """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE data['string_8'] MATCH_ANY 'admin'
         ORDER BY id
     """
 
     // Test 3: Multi-term search should also work with tokenization
     qt_search_variant_analyzer_multi """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('admin access', '{"default_field":"data.string_8","mode":"lucene","default_operator":"AND"}')
         ORDER BY id
     """
 
     // Test 4: Search on a different subcolumn matching the same field_pattern
     qt_search_variant_analyzer_other_field """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('hello', '{"default_field":"data.string_1","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 5: Search with field-qualified syntax on variant subcolumn
     qt_search_variant_analyzer_field_syntax """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('data.string_8:user', '{"mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 6: Verify lowercase is applied (search for "ADMIN" should match "admin only")
     qt_search_variant_analyzer_lowercase """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('ADMIN', '{"default_field":"data.string_8","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 7: Phrase search on variant subcolumn with analyzer
     qt_search_variant_analyzer_phrase """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('"admin only"', '{"default_field":"data.string_8","mode":"lucene"}')
         ORDER BY id
     """
@@ -159,9 +160,9 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
     """
 
     sql """INSERT INTO ${tableName2} VALUES
-        (1, '{"name": "admin only"}'),
-        (2, '{"name": "user access"}'),
-        (3, '{"name": "admin access granted"}')
+        (1, ${variantV2Function}('{"name": "admin only"}')),
+        (2, ${variantV2Function}('{"name": "user access"}')),
+        (3, ${variantV2Function}('{"name": "admin access granted"}'))
     """
 
     sql "sync"
@@ -169,7 +170,7 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
 
     // Test 8: search() on variant subcolumn with named field_pattern (direct match)
     qt_search_variant_direct_index """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName2}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName2}
         WHERE search('admin', '{"default_field":"data.name","mode":"lucene"}')
         ORDER BY id
     """

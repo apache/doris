@@ -60,6 +60,11 @@ public abstract class StringRegexPredicate extends ScalarFunction
     }
 
     @Override
+    public String shapeInfo() {
+        return '(' + left().shapeInfo() + ' ' + getName() + ' ' + right().shapeInfo() + ')';
+    }
+
+    @Override
     public String toString() {
         return "(" + left() + " " + getName() + " " + right() + ")";
     }

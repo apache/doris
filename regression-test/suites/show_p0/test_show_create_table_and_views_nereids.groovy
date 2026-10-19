@@ -50,6 +50,76 @@ suite("test_show_create_table_and_views_nereids", "show") {
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
 
+    String expectedReplicaAllocation = null
+    if (!isCloudMode()) {
+        expectedReplicaAllocation = getFeConfig('force_olap_table_replication_allocation')?.trim()
+        if (!expectedReplicaAllocation) {
+            def forcedReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+            expectedReplicaAllocation = "tag.location.default: ${forcedReplicaNum > 0 ? forcedReplicaNum : 1}"
+        }
+    }
+    def replicaAllocationToMap = { String allocation ->
+        allocation.split(',').collectEntries { String entry ->
+            def parts = entry.trim().split(/\s*:\s*/, 2)
+            assertEquals(2, parts.length, "Invalid replica allocation: ${allocation}")
+            [(parts[0]): parts[1].toInteger()]
+        }
+    }
+    String initialCreateTable = null
+    def checkShowCreateTable = { String qualifiedName, String expectedTable ->
+        def result = sql_return_maparray "SHOW CREATE TABLE ${qualifiedName}"
+        assertEquals(1, result.size())
+        assertEquals(expectedTable, result[0]["Table"].toString())
+        def createTable = result[0]["Create Table"].toString()
+        def tablePrefix = "CREATE TABLE `${expectedTable}`"
+        assertTrue(createTable.startsWith(tablePrefix), "SHOW CREATE TABLE ${qualifiedName} returned: ${createTable}")
+        // SHOW CREATE uses double-quoted index comments and escapes an embedded double quote.
+        [
+            "`user_id` largeint NOT NULL",
+            "`good_id` largeint NOT NULL",
+            "`cost` bigint SUM NULL DEFAULT \"0\"",
+            "INDEX index_user_id (`user_id`) USING INVERTED COMMENT \"test index comment\"",
+            "INDEX index_good_id (`good_id`) USING INVERTED COMMENT \"test index\\\" comment\"",
+            "AGGREGATE KEY(`user_id`, `good_id`)",
+            "PARTITION BY RANGE(`good_id`)",
+            'PARTITION p1 VALUES [("-170141183460469231731687303715884105728"), ("100"))',
+            'PARTITION p2 VALUES [("100"), ("200"))',
+            'PARTITION p3 VALUES [("200"), ("300"))',
+            'PARTITION p4 VALUES [("300"), ("400"))',
+            'PARTITION p5 VALUES [("400"), ("500"))',
+            'PARTITION p6 VALUES [("500"), ("600"))',
+            'PARTITION p7 VALUES [("600"), (MAXVALUE)))',
+            "DISTRIBUTED BY HASH(`user_id`) BUCKETS 2",
+            "\"storage_format\" = \"V2\""
+        ].each {
+            assertTrue(createTable.contains(it), "SHOW CREATE TABLE ${qualifiedName} should contain ${it}, actual: ${createTable}")
+        }
+        if (isCloudMode()) {
+            def ttl = (createTable =~ /"file_cache_ttl_seconds"\s*=\s*"(\d+)"/)
+            assertTrue(ttl.find(),
+                    "SHOW CREATE TABLE ${qualifiedName} has no file cache TTL: ${createTable}")
+            assertEquals(0L, ttl.group(1).toLong(),
+                    "SHOW CREATE TABLE ${qualifiedName} has the wrong file cache TTL")
+        } else {
+            def replicaAllocation = (createTable =~ /"replication_allocation" = "([^"]+)"/)
+            assertTrue(replicaAllocation.find(),
+                    "SHOW CREATE TABLE ${qualifiedName} has no replica allocation: ${createTable}")
+            assertEquals(replicaAllocationToMap(expectedReplicaAllocation),
+                    replicaAllocationToMap(replicaAllocation.group(1)),
+                    "SHOW CREATE TABLE ${qualifiedName} has the wrong replica allocation")
+        }
+
+        // The original golden checked the entire DDL at all four checkpoints. Compare the full
+        // output after normalizing only the table name, so rollup and LIKE cannot silently drift.
+        def normalizedCreateTable = "CREATE TABLE `<table>`" + createTable.substring(tablePrefix.length())
+        if (initialCreateTable == null) {
+            initialCreateTable = normalizedCreateTable
+        } else {
+            assertEquals(initialCreateTable, normalizedCreateTable,
+                    "SHOW CREATE TABLE ${qualifiedName} differs from the original table")
+        }
+    }
+
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 
@@ -99,7 +169,7 @@ suite("test_show_create_table_and_views_nereids", "show") {
         (2, 200, 1111),
         (23, 900, 1)"""
 
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    checkShowCreateTable("${dbName}.${tableName}", tableName)
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
     sql "drop view if exists ${dbName}.${viewName};"
@@ -132,15 +202,15 @@ suite("test_show_create_table_and_views_nereids", "show") {
     }
 
     qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    checkShowCreateTable("${dbName}.${tableName}", tableName)
 
     // create like
     sql "CREATE TABLE ${dbName}.${likeName} LIKE ${dbName}.${tableName}"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}"
+    checkShowCreateTable("${dbName}.${likeName}", likeName)
 
     // create like with rollup
     sql "CREATE TABLE ${dbName}.${likeName}_with_rollup LIKE ${dbName}.${tableName} WITH ROLLUP"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+    checkShowCreateTable("${dbName}.${likeName}_with_rollup", "${likeName}_with_rollup")
 
     sql "DROP TABLE IF EXISTS ${dbName}.${likeName}_with_rollup FORCE"
     sql "DROP TABLE ${dbName}.${likeName} FORCE"
@@ -148,4 +218,3 @@ suite("test_show_create_table_and_views_nereids", "show") {
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
 }
-

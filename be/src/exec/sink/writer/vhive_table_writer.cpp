@@ -447,7 +447,7 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
     auto [item, size] = column->get_data_at(position);
     switch (type_desc->get_primitive_type()) {
     case TYPE_BOOLEAN: {
-        Field field = check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
+        Field field = assert_cast<const ColumnUInt8*>(column.get())->operator[](position);
         return std::to_string(field.get<TYPE_BOOLEAN>());
     }
     case TYPE_TINYINT: {

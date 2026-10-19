@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("ibmdb2.md", "p0,external,db2,external_docker,external_docker_db2") {
+suite("ibmdb2.md", "p2,external,db2,external_docker,external_docker_db2") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "db2_catalog_md";

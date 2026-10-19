@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
@@ -44,8 +45,6 @@ import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
-    public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
-
     private final MonitoredReentrantReadWriteLock readWriteLock;
     private long lastUpdateTimestamp;
     private long nextPartitionId;
@@ -159,7 +158,8 @@ public class TablePartitionValues {
         Preconditions.checkState(partitionValues.size() == types.size());
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
-                    partitionValues.stream().map(p -> new PartitionValue(p, HIVE_DEFAULT_PARTITION.equals(p)))
+                    partitionValues.stream()
+                            .map(p -> new PartitionValue(p, ConnectorPartitionValues.NULL_PARTITION_NAME.equals(p)))
                             .collect(Collectors.toList()), types, false);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {

@@ -30,7 +30,8 @@ suite("test_complex_types", "p0,external") {
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hive.parquet.time-zone' = 'Asia/Shanghai'
         );"""
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
@@ -38,7 +39,7 @@ suite("test_complex_types", "p0,external") {
         
         sql """ use multi_catalog """
 
-        qt_null_struct_element """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 
@@ -54,7 +55,7 @@ suite("test_complex_types", "p0,external") {
 
         // qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
-        qt_null_struct_element_orc """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at_orc """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select_orc """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 

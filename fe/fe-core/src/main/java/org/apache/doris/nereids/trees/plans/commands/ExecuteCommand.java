@@ -17,16 +17,24 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -37,7 +45,14 @@ import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -45,6 +60,8 @@ import java.util.stream.Collectors;
  * Prepared Statement
  */
 public class ExecuteCommand extends Command {
+    private static final Logger LOG = LogManager.getLogger(ExecuteCommand.class);
+
     private final String stmtName;
     private final PrepareCommand prepareCommand;
     private final StatementContext statementContext;
@@ -67,34 +84,84 @@ public class ExecuteCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        StatementContext statementContext = ctx.getStatementContext();
-        statementContext.setPrepareStage(false);
-        statementContext.setIsInsert(false);
         PreparedStatementContext preparedStmtCtx = ctx.getPreparedStementContext(stmtName);
         if (null == preparedStmtCtx) {
             throw new AnalysisException(
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
+        // Allocate a fresh StatementContext per EXECUTE so the per-statement state accumulated by
+        // prior executions (bound tables, CTE maps, statistics, snapshots, ...) is released
+        // promptly instead of living as long as the connection, which can OOM long-lived
+        // connections. The necessary cross-execution state (placeholder bindings, comparison
+        // slots, id generator positions, short-circuit flags) is carried over to the new context.
+        StatementContext statementContext = preparedStmtCtx.nextStatementContext();
+        statementContext.setPrepareStage(false);
+        statementContext.setIsInsert(false);
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        List<LogicalPlan> relationRoots = new ArrayList<>();
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            relationRoots.add(((InsertIntoTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
+            relationRoots.add(((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof UpdateCommand) {
+            relationRoots.add(((UpdateCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromUsingCommand) {
+            relationRoots.add(((DeleteFromUsingCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromCommand) {
+            relationRoots.add(((DeleteFromCommand) logicalPlan).logicalQuery);
+        } else if (logicalPlan instanceof MergeIntoCommand) {
+            relationRoots.addAll(((MergeIntoCommand) logicalPlan).getRelationRoots());
+        } else if (!(logicalPlan instanceof Command)) {
+            relationRoots.add(logicalPlan);
+        }
+        // Commands hide their retained query trees from normal plan traversal. Reset every exposed
+        // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
+        for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
+            LogicalPlan relationRoot = relationRoots.get(rootIndex);
+            for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
+                    UnboundRelation.class::isInstance)) {
+                TableScanParams scanParams = relation.getScanParams();
+                if (scanParams != null) {
+                    scanParams.resetResolvedMapParams();
+                }
+            }
+            for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
+                for (Expression expression : plan.getExpressions()) {
+                    for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
+                            SubqueryExpr.class::isInstance)) {
+                        // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
+                        // commands need this explicit edge to clear nested relation-local snapshot state.
+                        relationRoots.add(subquery.getQueryPlan());
+                    }
+                }
+            }
+        }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
         }
         if (logicalPlan instanceof InsertIntoTableCommand
                 || logicalPlan instanceof InsertOverwriteTableCommand
                 || logicalPlan instanceof UpdateCommand) {
-            ctx.getStatementContext().setIsInsert(true);
+            statementContext.setIsInsert(true);
         }
-        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
-                logicalPlan, executor.getContext().getStatementContext());
+        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(logicalPlan, statementContext);
+        executor.setStatementContext(statementContext);
         executor.setParsedStmt(planAdapter);
-        // If it's not a short circuit query or schema version is different(indicates schema changed) or
-        // has nondeterministic functions in statement, then need to do reanalyze and plan
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()
-                && preparedStmtCtx.shortCircuitQueryContext.isPresent()
-                && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
-                == preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion && !executor.getContext()
-                .getStatementContext().hasNondeterministic()) {
+        boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
+        boolean shortCircuitContextReusable = hasShortCircuitContext
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
+        // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
+        // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
+        if (statementContext.isShortCircuitQuery()
+                && hasShortCircuitContext
+                && shortCircuitContextReusable
+                && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
@@ -110,15 +177,115 @@ public class ExecuteCommand extends Command {
             }
         }
         // execute real statement
-        preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
-        statementContext.setShortCircuitQueryContext(null);
-        executor.execute();
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
-            // cache short-circuit plan
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(
-                    new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
-            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+        if (statementContext.isShortCircuitQuery() && hasShortCircuitContext && !shortCircuitContextReusable) {
+            statementContext = refreshPreparedPlan(preparedStmtCtx, executor, prepareCommand, statementContext);
+        } else {
+            statementContext.setShortCircuitQueryContext(null);
         }
+        // Drop the previously cached short-circuit context: either it was reusable and returned
+        // early above, has just been refreshed here, or is stale and we are about to re-plan.
+        preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+        executor.execute();
+        StatementContext executedStatementContext = executor.getContext().getStatementContext();
+        ShortCircuitQueryContext shortCircuitQueryContext =
+                executedStatementContext.getShortCircuitQueryContext();
+        if (shortCircuitQueryContext != null) {
+            Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
+            // Publish the exact context used by this execution so its topology generation stays
+            // bound to the cached partition pruner in the same planner scan node.
+            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
+        }
+    }
+
+    private StatementContext refreshPreparedPlan(PreparedStatementContext preparedStmtCtx, StmtExecutor executor,
+            PrepareCommand currentCommand, StatementContext currentStatementContext) {
+        Map<PlaceholderId, Expression> boundPlaceholderValues = new HashMap<>(
+                currentStatementContext.getIdToPlaceholderRealExpr());
+        StatementContext originalStatementContext = executor.getContext().getStatementContext();
+        StatementBase originalParsedStmt = executor.getParsedStmt();
+        PrepareCommand originalCommand = preparedStmtCtx.command;
+        StatementContext originalPreparedStatementContext = preparedStmtCtx.getStatementContext();
+        boolean refreshed = false;
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("refresh prepared statement plan for short-circuit query, stmtName={}",
+                        currentCommand.getName());
+            }
+            List<StatementBase> reparsedStatements = new NereidsParser().parseSQL(
+                    currentCommand.getOriginalStmt().originStmt, executor.getContext().getSessionVariable());
+            if (reparsedStatements.size() <= currentCommand.getOriginalStmt().idx) {
+                throw new AnalysisException("Nereids parse failed. Parser get " + reparsedStatements.size()
+                        + " statements, but we need at least " + (currentCommand.getOriginalStmt().idx + 1)
+                        + " statements.");
+            }
+            StatementBase reparsedStmt = reparsedStatements.get(currentCommand.getOriginalStmt().idx);
+            if (!(reparsedStmt instanceof LogicalPlanAdapter)) {
+                throw new AnalysisException("Prepared statement must be parsed as LogicalPlanAdapter, but get "
+                        + reparsedStmt.getClass().getName());
+            }
+
+            LogicalPlanAdapter reparsedAdapter = (LogicalPlanAdapter) reparsedStmt;
+            StatementContext reparsedStatementContext = reparsedAdapter.getStatementContext();
+            List<Placeholder> reparsedPlaceholders = reparsedStatementContext.getPlaceholders();
+            List<Placeholder> currentPlaceholders = currentCommand.getPlaceholders();
+            if (reparsedPlaceholders.size() != currentPlaceholders.size()) {
+                throw new AnalysisException("Prepared statement placeholder count changed after reparse, old: "
+                        + currentPlaceholders.size() + ", new: " + reparsedPlaceholders.size());
+            }
+
+            reparsedStatementContext.setConnectContext(executor.getContext());
+            reparsedStatementContext.setOriginStatement(currentCommand.getOriginalStmt());
+            reparsedStatementContext.getIdToPlaceholderRealExpr().clear();
+
+            List<Placeholder> refreshedPlaceholders = new ArrayList<>(reparsedPlaceholders.size());
+            for (int i = 0; i < reparsedPlaceholders.size(); i++) {
+                Placeholder oldPlaceholder = currentPlaceholders.get(i);
+                Placeholder refreshedPlaceholder = withMysqlType(reparsedPlaceholders.get(i), oldPlaceholder);
+                refreshedPlaceholders.add(refreshedPlaceholder);
+
+                Expression boundValue = boundPlaceholderValues.get(oldPlaceholder.getPlaceholderId());
+                if (boundValue != null) {
+                    reparsedStatementContext.getIdToPlaceholderRealExpr().put(
+                            refreshedPlaceholder.getPlaceholderId(), boundValue);
+                }
+            }
+            reparsedStatementContext.setPlaceholders(refreshedPlaceholders);
+
+            executor.setStatementContext(reparsedStatementContext);
+            executor.setParsedStmt(reparsedAdapter);
+            PrepareCommand refreshedCommand = new PrepareCommand(currentCommand.getName(),
+                    reparsedAdapter.getLogicalPlan(), refreshedPlaceholders, currentCommand.getOriginalStmt());
+            preparedStmtCtx.command = refreshedCommand;
+            preparedStmtCtx.setStatementContext(reparsedStatementContext);
+            refreshed = true;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("refreshed prepared statement plan for short-circuit query, stmtName={}",
+                        currentCommand.getName());
+            }
+            return reparsedStatementContext;
+        } finally {
+            if (!refreshed) {
+                executor.setStatementContext(originalStatementContext);
+                executor.setParsedStmt(originalParsedStmt);
+                preparedStmtCtx.command = originalCommand;
+                preparedStmtCtx.setStatementContext(originalPreparedStatementContext);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("rollback prepared statement plan refresh for short-circuit query, stmtName={}",
+                            currentCommand.getName());
+                }
+            }
+        }
+    }
+
+    private Placeholder withMysqlType(Placeholder refreshedPlaceholder, Placeholder oldPlaceholder) {
+        if (!oldPlaceholder.hasMysqlColType()) {
+            return refreshedPlaceholder;
+        }
+        int mysqlTypeCode = oldPlaceholder.getMysqlTypeCode() & MysqlColType.MYSQL_CODE_MASK;
+        if (oldPlaceholder.isUnsigned()) {
+            mysqlTypeCode |= MysqlColType.UNSIGNED_MASK;
+        }
+        return refreshedPlaceholder.withNewMysqlColType(mysqlTypeCode);
     }
 
     /**

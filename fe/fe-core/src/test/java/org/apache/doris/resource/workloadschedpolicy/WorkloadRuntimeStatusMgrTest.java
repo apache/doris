@@ -17,16 +17,25 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Unit test for WorkloadRuntimeStatusMgr.
@@ -37,7 +46,7 @@ public class WorkloadRuntimeStatusMgrTest {
 
     private WorkloadRuntimeStatusMgr mgr;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mgr = new WorkloadRuntimeStatusMgr();
     }
@@ -56,12 +65,12 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(params);
 
         Map<String, TQueryStatistics> merged = getMergedSnapshot();
-        Assert.assertEquals(1, merged.size());
+        Assertions.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
-        Assert.assertNotNull(result);
-        Assert.assertEquals(10, result.getTotalTasksNum());
-        Assert.assertEquals(3, result.getFinishedTasksNum());
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(10, result.getTotalTasksNum());
+        Assertions.assertEquals(3, result.getFinishedTasksNum());
     }
 
     // ---- Merge: multiple BEs, same query (summing across BEs) ----
@@ -75,11 +84,11 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(8, 5)));
 
         Map<String, TQueryStatistics> merged = getMergedSnapshot();
-        Assert.assertEquals(1, merged.size());
+        Assertions.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
-        Assert.assertEquals(18, result.getTotalTasksNum());
-        Assert.assertEquals(8, result.getFinishedTasksNum());
+        Assertions.assertEquals(18, result.getTotalTasksNum());
+        Assertions.assertEquals(8, result.getFinishedTasksNum());
     }
 
     // ---- Merge: multiple BEs, multiple queries remain independent ----
@@ -90,12 +99,12 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10001L, "q2", buildStats(20, 15)));
 
         Map<String, TQueryStatistics> merged = getMergedSnapshot();
-        Assert.assertEquals(2, merged.size());
+        Assertions.assertEquals(2, merged.size());
 
-        Assert.assertEquals(10, merged.get("q1").getTotalTasksNum());
-        Assert.assertEquals(2, merged.get("q1").getFinishedTasksNum());
-        Assert.assertEquals(20, merged.get("q2").getTotalTasksNum());
-        Assert.assertEquals(15, merged.get("q2").getFinishedTasksNum());
+        Assertions.assertEquals(10, merged.get("q1").getTotalTasksNum());
+        Assertions.assertEquals(2, merged.get("q1").getFinishedTasksNum());
+        Assertions.assertEquals(20, merged.get("q2").getTotalTasksNum());
+        Assertions.assertEquals(15, merged.get("q2").getFinishedTasksNum());
     }
 
     // ---- isSet flag: unset fields should not override previous values ----
@@ -117,8 +126,8 @@ public class WorkloadRuntimeStatusMgrTest {
         TQueryStatistics result = merged.get("q1");
 
         // BE2 didn't set total/finished, so original values from BE1 should be preserved
-        Assert.assertEquals(10, result.getTotalTasksNum());
-        Assert.assertEquals(3, result.getFinishedTasksNum());
+        Assertions.assertEquals(10, result.getTotalTasksNum());
+        Assertions.assertEquals(3, result.getFinishedTasksNum());
     }
 
     // ---- Zero-reporting BE should not interfere ----
@@ -134,8 +143,8 @@ public class WorkloadRuntimeStatusMgrTest {
         TQueryStatistics result = merged.get("q1");
 
         // total=10, finished=4 (from BE1); BE2's (0,0) is additive → still (10,4)
-        Assert.assertEquals(10, result.getTotalTasksNum());
-        Assert.assertEquals(4, result.getFinishedTasksNum());
+        Assertions.assertEquals(10, result.getTotalTasksNum());
+        Assertions.assertEquals(4, result.getFinishedTasksNum());
     }
 
     // ---- getQueryStatistics returns per-BE map ----
@@ -146,11 +155,11 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(3, 1)));
 
         Map<Long, TQueryStatisticsResult> perBe = mgr.getQueryStatistics("q1");
-        Assert.assertEquals(2, perBe.size());
-        Assert.assertTrue(perBe.containsKey(10001L));
-        Assert.assertTrue(perBe.containsKey(10002L));
-        Assert.assertEquals(5, perBe.get(10001L).getStatistics().getTotalTasksNum());
-        Assert.assertEquals(3, perBe.get(10002L).getStatistics().getTotalTasksNum());
+        Assertions.assertEquals(2, perBe.size());
+        Assertions.assertTrue(perBe.containsKey(10001L));
+        Assertions.assertTrue(perBe.containsKey(10002L));
+        Assertions.assertEquals(5, perBe.get(10001L).getStatistics().getTotalTasksNum());
+        Assertions.assertEquals(3, perBe.get(10002L).getStatistics().getTotalTasksNum());
     }
 
     // ---- Non-existent query returns empty map ----
@@ -158,7 +167,7 @@ public class WorkloadRuntimeStatusMgrTest {
     @Test
     public void testGetQueryStatisticsNonExistent() {
         Map<Long, TQueryStatisticsResult> perBe = mgr.getQueryStatistics("non-existent-query");
-        Assert.assertTrue(perBe.isEmpty());
+        Assertions.assertTrue(perBe.isEmpty());
     }
 
     // ---- updateBeQueryStats with missing fields ----
@@ -168,7 +177,7 @@ public class WorkloadRuntimeStatusMgrTest {
         TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
         // backend_id not set, updateBeQueryStats should log a warning and return early
         mgr.updateBeQueryStats(params);
-        Assert.assertTrue(getMergedSnapshot().isEmpty());
+        Assertions.assertTrue(getMergedSnapshot().isEmpty());
     }
 
     // ---- updateBeQueryStats with missing query stats map ----
@@ -179,7 +188,7 @@ public class WorkloadRuntimeStatusMgrTest {
         params.setBackendId(10001L);
         // query_statistics_result_map not set → should return early
         mgr.updateBeQueryStats(params);
-        Assert.assertTrue(getMergedSnapshot().isEmpty());
+        Assertions.assertTrue(getMergedSnapshot().isEmpty());
     }
 
     // ---- isSet flag: verifying Thrift setter behavior inline ----
@@ -192,20 +201,18 @@ public class WorkloadRuntimeStatusMgrTest {
 
         TQueryStatistics viaSetter = new TQueryStatistics();
         viaSetter.setTotalTasksNum(5);
-        Assert.assertTrue("setTotalTasksNum via setter must set __isset flag",
-                viaSetter.isSetTotalTasksNum());
+        Assertions.assertTrue(viaSetter.isSetTotalTasksNum(), "setTotalTasksNum via setter must set __isset flag");
 
         TQueryStatistics viaField = new TQueryStatistics();
         viaField.total_tasks_num = 5;  // direct field assignment
-        Assert.assertFalse("direct field assignment must NOT set __isset flag",
-                viaField.isSetTotalTasksNum());
+        Assertions.assertFalse(viaField.isSetTotalTasksNum(), "direct field assignment must NOT set __isset flag");
 
         // Same for finished_tasks_num
         viaSetter.setFinishedTasksNum(3);
-        Assert.assertTrue(viaSetter.isSetFinishedTasksNum());
+        Assertions.assertTrue(viaSetter.isSetFinishedTasksNum());
 
         viaField.finished_tasks_num = 3;
-        Assert.assertFalse(viaField.isSetFinishedTasksNum());
+        Assertions.assertFalse(viaField.isSetFinishedTasksNum());
     }
 
     // ---- Merge without any progress fields ----
@@ -222,8 +229,8 @@ public class WorkloadRuntimeStatusMgrTest {
         TQueryStatistics result = merged.get("q1");
 
         // Fields should still be 0 and isSet should be false
-        Assert.assertEquals(0, result.getTotalTasksNum());
-        Assert.assertEquals(0, result.getFinishedTasksNum());
+        Assertions.assertEquals(0, result.getTotalTasksNum());
+        Assertions.assertEquals(0, result.getFinishedTasksNum());
     }
 
     // ---- Merge: three BEs combined ----
@@ -235,25 +242,148 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10003L, "q1", buildStats(5, 0)));
 
         Map<String, TQueryStatistics> merged = getMergedSnapshot();
-        Assert.assertEquals(1, merged.size());
+        Assertions.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
         // total = 4 + 3 + 5 = 12, finished = 1 + 3 + 0 = 4
-        Assert.assertEquals(12, result.getTotalTasksNum());
-        Assert.assertEquals(4, result.getFinishedTasksNum());
+        Assertions.assertEquals(12, result.getTotalTasksNum());
+        Assertions.assertEquals(4, result.getFinishedTasksNum());
     }
 
     @Test
     public void testSnapshotReadRequiresRebuild() {
         mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(6, 2)));
         // Newly reported data is not visible to sync readers before snapshot rebuild.
-        Assert.assertTrue(mgr.getQueryStatisticsMap().isEmpty());
+        Assertions.assertTrue(mgr.getQueryStatisticsMap().isEmpty());
 
         // Rebuild snapshot and verify the new data becomes visible.
         Map<String, TQueryStatistics> merged = getMergedSnapshot();
-        Assert.assertEquals(1, merged.size());
-        Assert.assertEquals(6, merged.get("q1").getTotalTasksNum());
-        Assert.assertEquals(2, merged.get("q1").getFinishedTasksNum());
+        Assertions.assertEquals(1, merged.size());
+        Assertions.assertEquals(6, merged.get("q1").getTotalTasksNum());
+        Assertions.assertEquals(2, merged.get("q1").getFinishedTasksNum());
+    }
+
+    @Test
+    public void testExternalDmlAuditWaitsForEveryBackendFinalSnapshot() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            Deencapsulation.invoke(mgr, "submitFinishQueryToAudit", event,
+                    Set.of(10001L, 10002L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(10, 3), true));
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), false));
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertTrue(events.isEmpty(), "external DML audit must wait for every participating BE");
+
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), true));
+            events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertEquals(1, events.size());
+            Assertions.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testExternalDmlAuditUsesBoundedFallback() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        int originalReportTimeout = Config.be_report_query_statistics_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            Config.be_report_query_statistics_timeout_ms = 30;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event, Set.of(10001L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 40;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertEquals(1, events.size());
+            Assertions.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+            Config.be_report_query_statistics_timeout_ms = originalReportTimeout;
+        }
+    }
+
+    @Test
+    public void testExternalDmlAuditUsesFinalCumulativeStatistics() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event, Set.of(10001L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            TQueryStatistics finalStatistics = buildStats(10, 10);
+            finalStatistics.setScanRows(100);
+            finalStatistics.setScanBytes(110);
+            finalStatistics.setScanBytesFromLocalStorage(120);
+            finalStatistics.setScanBytesFromRemoteStorage(130);
+            finalStatistics.setCpuMs(20);
+            finalStatistics.setMaxPeakMemoryBytes(30);
+            mgr.updateBeQueryStats(buildParams(10001L, "q1", finalStatistics, true));
+
+            Env env = Mockito.mock(Env.class);
+            AuditEventProcessor processor = Mockito.mock(AuditEventProcessor.class);
+            Mockito.when(env.getAuditEventProcessor()).thenReturn(processor);
+            Mockito.when(processor.handleAuditEvent(event)).thenReturn(true);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+                Deencapsulation.invoke(mgr, "runAfterCatalogReady");
+            }
+
+            Mockito.verify(processor).handleAuditEvent(event);
+            Assertions.assertEquals(100, event.scanRows);
+            Assertions.assertEquals(110, event.scanBytes);
+            Assertions.assertEquals(120, event.scanBytesFromLocalStorage);
+            Assertions.assertEquals(130, event.scanBytesFromRemoteStorage);
+            Assertions.assertEquals(20, event.cpuTimeMs);
+            Assertions.assertEquals(30, event.peakMemoryBytes);
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testRegularAuditKeepsExistingTimeoutBehavior() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event);
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertEquals(1, events.size());
+            Assertions.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testAuditScanDoesNotAssumeWallClockInsertionOrder() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent futureHead = new AuditEvent.AuditEventBuilder().setQueryId("future").build();
+            AuditEvent dueEvent = new AuditEvent.AuditEventBuilder().setQueryId("due").build();
+            mgr.submitFinishQueryToAudit(futureHead);
+            mgr.submitFinishQueryToAudit(dueEvent);
+            futureHead.pushToAuditLogQueueTime = System.currentTimeMillis() + 1000;
+            dueEvent.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+
+            Assertions.assertEquals(1, events.size());
+            Assertions.assertSame(dueEvent, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
     }
 
     // ---- helper methods ----
@@ -266,8 +396,14 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     private TReportWorkloadRuntimeStatusParams buildParams(long beId, String queryId, TQueryStatistics stats) {
+        return buildParams(beId, queryId, stats, false);
+    }
+
+    private TReportWorkloadRuntimeStatusParams buildParams(long beId, String queryId,
+            TQueryStatistics stats, boolean queryFinished) {
         TQueryStatisticsResult result = new TQueryStatisticsResult();
         result.setStatistics(stats);
+        result.setQueryFinished(queryFinished);
 
         TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
         params.setBackendId(beId);

@@ -43,17 +43,21 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <vector>
 
 #include "cloud/cloud_backend_service.h"
 #include "cloud/config.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
 #include "util/concurrency_stats.h"
-#include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
@@ -69,20 +73,24 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
-#include "service/brpc_service.h"
 #include "service/http_service.h"
+#include "service/server/be_server_starter_factory.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/string_util.h"
+#include "util/thread.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -102,12 +110,19 @@ void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         k_doris_exit = true;
     }
+    // SIGQUIT deliberately does nothing here; see init_signals().
 }
 
 int install_signal(int signo, void (*handler)(int)) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handler;
+    // Restartable syscalls stay restartable. It matters most for SIGQUIT: unlike the two
+    // shutdown signals, that one is sent to a HEALTHY BE - `kill -3` is the operator's habit
+    // for asking a running process for a thread dump, and since the handler now produces
+    // nothing they send it again. Without SA_RESTART each of those turns whatever syscall the
+    // receiving thread happened to be in into EINTR, in the middle of normal serving.
+    sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);
     auto ret = sigaction(signo, &sa, nullptr);
     if (ret != 0) {
@@ -124,6 +139,23 @@ void init_signals() {
         exit(-1);
     }
     ret = install_signal(SIGTERM, signal_handler);
+    if (ret < 0) {
+        exit(-1);
+    }
+    // SIGQUIT is taken over even though the BE does nothing with it, because its default
+    // action is not "nothing": it terminates the process and dumps core. `kill -3 <pid>` is
+    // what an operator reaches for to get a thread dump out of a process that looks stuck,
+    // and until the JVM started running with -Xrs it got one - the JVM installed a handler
+    // for this signal along with the shutdown ones. -Xrs stops it from doing that (see
+    // JvmLauncher::_build_options), which would leave SIGQUIT at SIG_DFL and turn that
+    // habitual command into a crash. Handling it and ignoring it is the pre-change
+    // behaviour minus the thread dump; jcmd and jstack, which attach rather than signal,
+    // are how to get one now.
+    //
+    // Installed with a handler rather than SIG_IGN so that the disposition is inheritable
+    // by nothing and visible to JvmLauncher's BeOwnedSignalGuard, which saves and restores
+    // it around any VM creation it does not control.
+    ret = install_signal(SIGQUIT, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
@@ -314,6 +346,29 @@ struct Checker {
 #endif
         ;
 
+// A startup failure that happens after ExecEnv::init() has run must terminate the
+// process the same way normal shutdown does (see the _exit(0) at the end of main):
+// in the default mode we _exit() immediately, skipping global destructors and the
+// LeakSanitizer atexit check. Init-time singletons (e.g. the internal workload
+// group's task scheduler) intentionally live for the whole process lifetime, so
+// running the leak check on this abnormal-exit path reports them as false-positive
+// leaks. enable_graceful_exit_check is honored so memleak-check mode still runs LSAN.
+[[noreturn]] static void exit_on_startup_failure() {
+    if (!doris::config::enable_graceful_exit_check) {
+        google::FlushLogFiles(google::GLOG_INFO);
+        _exit(1);
+    }
+
+    // exit() starts destroying function-local statics while background threads are still
+    // running. Tear down ExecEnv first so StorageEngine workers are stopped and joined before
+    // they can race with those destructors.
+    if (doris::ExecEnv::ready()) {
+        doris::ExecEnv::GetInstance()->destroy();
+    }
+    google::FlushLogFiles(google::GLOG_INFO);
+    exit(1);
+}
+
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
@@ -385,6 +440,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
+
+    doris::init_be_version_metrics();
 
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -489,19 +546,12 @@ int main(int argc, char** argv) {
         exit(-1);
     }
     // add logger for thrift internal
-    apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
+    apache::thrift::TOutput::instance().setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-    if (doris::config::enable_java_support) {
-        // Init jni
-        status = doris::Jni::Util::Init();
-        if (!status.ok()) {
-            LOG(WARNING) << "Failed to initialize JNI: " << status;
-            exit(1);
-        } else {
-            LOG(INFO) << "Doris backend JNI is initialized.";
-        }
-    }
+    // No JVM is started here on purpose. It is created by the first Java feature that asks
+    // for it - a JNI table format, a Java UDF, an hdfs access - and a BE that uses none of
+    // them runs without one. See Jni::JvmLauncher.
 
     if (doris::config::enable_python_udf_support) {
         if (std::string python_udf_root_path =
@@ -567,8 +617,15 @@ int main(int argc, char** argv) {
         LOG(INFO) << doris::PythonVersionManager::instance().to_string();
     }
 
-    // Doris own signal handler must be register after jvm is init.
-    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // SIGINT and SIGTERM are how the BE is asked to shut down, and the handler installed
+    // here does nothing but raise the flag the loop at the end of main() waits on, so the
+    // shutdown stays orderly. SIGQUIT is claimed here as well, so that it does nothing at
+    // all rather than killing the BE with a core dump. A JVM would rather turn the first
+    // two into a Java Shutdown.exit() and answer the third with a thread dump, and it
+    // installs handlers of its own for all three when it starts. The JVM used to be created
+    // a few lines above this call, which is what left these handlers on top; now that it is
+    // created on demand, Jni::JvmLauncher::_bootstrap() is what puts them back once the JVM
+    // has had its way with them.
     // https://www.oracle.com/java/technologies/javase/signals.html
     doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
@@ -585,10 +642,18 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
-    // will work only after additional call of this function.
-    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
-    // updatePHDRCache();
+    // Doris-patched GNU libunwind reads PHDR metadata from our lock-free snapshot instead of
+    // entering glibc dl_iterate_phdr while jemalloc profiling or signal-context unwinding may
+    // already be involved in loader-lock-sensitive code. Configure libunwind before daemon threads
+    // start so all later heap-profile and stack-trace unwinds use the same lock-safe policy.
+    configureLibunwindPHDRCache();
+    updatePHDRCache();
+    LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index = doris::SymbolIndex::instance();
+    LOG(INFO) << "SymbolIndex preloaded: objects=" << symbol_index->objects().size()
+              << " symbols=" << symbol_index->symbols().size();
+#endif
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
@@ -598,7 +663,7 @@ int main(int argc, char** argv) {
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
-        return 0;
+        exit_on_startup_failure();
     }
 
     // Start concurrency stats manager
@@ -607,63 +672,93 @@ int main(int argc, char** argv) {
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
     // 1. thrift server with be_port
-    std::unique_ptr<doris::ThriftServer> be_server;
     std::shared_ptr<doris::BaseBackendService> service;
+    std::unique_ptr<doris::server::IServerStarter> backend_thrift_starter;
+    std::unique_ptr<doris::server::IServerStarter> brpc_starter;
+    std::unique_ptr<doris::server::IServerStarter> http_starter;
+    std::unique_ptr<doris::server::IServerStarter> heartbeat_thrift_starter;
+    std::unique_ptr<doris::server::IServerStarter> flight_starter;
+    bool backend_thrift_started = false;
+    bool brpc_started = false;
+    bool http_started = false;
+    bool heartbeat_thrift_started = false;
+    bool flight_started = false;
+    auto stop_and_join_server = [](std::unique_ptr<doris::server::IServerStarter>& starter,
+                                   bool started) {
+        if (starter != nullptr) {
+            if (started) {
+                starter->stop();
+            }
+            starter->join();
+        }
+    };
     std::function<void(Status&, std::string_view)> stop_work_if_error = [&](Status& status,
                                                                             std::string_view msg) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
-            exit(-1);
+            if (doris::config::enable_graceful_exit_check) {
+                stop_and_join_server(flight_starter, flight_started);
+                stop_and_join_server(heartbeat_thrift_starter, heartbeat_thrift_started);
+                stop_and_join_server(http_starter, http_started);
+                stop_and_join_server(backend_thrift_starter, backend_thrift_started);
+                stop_and_join_server(brpc_starter, brpc_started);
+                service.reset();
+            }
+            exit_on_startup_failure();
         }
     };
 
     if (doris::config::is_cloud_mode()) {
         service = std::make_shared<doris::CloudBackendService>(
                 exec_env->storage_engine().to_cloud(), exec_env);
-        EXIT_IF_ERROR(doris::CloudBackendService::create_service(
-                exec_env->storage_engine().to_cloud(), exec_env, doris::config::be_port, &be_server,
-                std::dynamic_pointer_cast<doris::CloudBackendService>(service)));
     } else {
         service = std::make_shared<doris::BackendService>(exec_env->storage_engine().to_local(),
                                                           exec_env);
-        EXIT_IF_ERROR(doris::BackendService::create_service(
-                exec_env->storage_engine().to_local(), exec_env, doris::config::be_port, &be_server,
-                std::dynamic_pointer_cast<doris::BackendService>(service)));
     }
 
-    status = be_server->start();
+    status = doris::server::create_backend_thrift_starter(exec_env, doris::config::be_port, service,
+                                                          &backend_thrift_starter);
+    stop_work_if_error(status, "Failed to create BE server, exiting");
+    status = backend_thrift_starter->start();
+    backend_thrift_started = status.ok();
     stop_work_if_error(status, "Doris BE server did not start correctly, exiting");
 
-    // 2. bprc service
-    std::unique_ptr<doris::BRpcService> brpc_service =
-            std::make_unique<doris::BRpcService>(exec_env);
-    status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
+    // 2. brpc service
+    status = doris::server::create_brpc_starter(exec_env, doris::config::brpc_port,
+                                                doris::config::brpc_num_threads, &brpc_starter);
+    stop_work_if_error(status, "Failed to create BRPC service, exiting");
+    status = brpc_starter->start();
+    brpc_started = status.ok();
     stop_work_if_error(status, "BRPC service did not start correctly, exiting");
 
     // 3. http service
-    std::unique_ptr<doris::HttpService> http_service = std::make_unique<doris::HttpService>(
-            exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
-    status = http_service->start();
+    status =
+            doris::server::create_http_starter(exec_env, doris::config::webserver_port,
+                                               doris::config::webserver_num_workers, &http_starter);
+    stop_work_if_error(status, "Failed to create BE HTTP service, exiting");
+    status = http_starter->start();
+    http_started = status.ok();
     stop_work_if_error(status, "Doris Be http service did not start correctly, exiting");
 
     // 4. heart beat server
     doris::ClusterInfo* cluster_info = exec_env->cluster_info();
-    std::unique_ptr<doris::ThriftServer> heartbeat_thrift_server;
-    doris::Status heartbeat_status = doris::create_heartbeat_server(
-            exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
-            doris::config::heartbeat_service_thread_count, cluster_info);
+    status = doris::server::create_heartbeat_thrift_starter(
+            exec_env, doris::config::heartbeat_service_port,
+            doris::config::heartbeat_service_thread_count, cluster_info, &heartbeat_thrift_starter);
+    stop_work_if_error(status, "Heartbeat services did not start correctly, exiting");
 
-    stop_work_if_error(heartbeat_status, "Heartbeat services did not start correctly, exiting");
-
-    status = heartbeat_thrift_server->start();
+    status = heartbeat_thrift_starter->start();
+    heartbeat_thrift_started = status.ok();
     stop_work_if_error(status, "Doris BE HeartBeat Service did not start correctly, exiting: " +
                                        status.to_string());
 
     // 5. arrow flight service
-    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
-            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
-    status = flight_server->init(doris::config::arrow_flight_sql_port);
+    status = doris::server::create_flight_starter(doris::config::arrow_flight_sql_port,
+                                                  &flight_starter);
+    stop_work_if_error(status, "Failed to create Arrow Flight service, exiting");
+    status = flight_starter->start();
+    flight_started = status.ok();
     stop_work_if_error(
             status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
@@ -674,6 +769,41 @@ int main(int argc, char** argv) {
     exec_env->storage_engine().notify_listeners();
 
     doris::k_is_server_ready = true;
+
+    // 7. load the deployed Java plugins, once the BE is otherwise serving.
+    //
+    // On its own thread and non-fatal on purpose: the point is that a plugin broken by a bad
+    // deployment shows up in the log now instead of inside the first user query that needs
+    // it, and a plugin that cannot load must not hold up or take down everything else. When
+    // no plugin is deployed this starts no JVM and returns immediately.
+    //
+    // Joined on the way out rather than detached, so that a stop arriving while plugins are
+    // still loading waits for them instead of running the global destructors underneath a
+    // thread that is inside the JVM. Warming up is bounded - one JVM start plus one pass over
+    // the plugin directory - and the Java side of it is a single call, so there is nothing to
+    // interrupt halfway.
+    std::shared_ptr<doris::Thread> plugin_warmup_thread;
+    if (doris::config::enable_java_support && doris::config::java_plugin_warmup) {
+        EXIT_IF_ERROR(doris::Thread::create(
+                "Jni", "java_plugin_warmup",
+                []() {
+                    // Named background thread with a thread context of its own: everything it
+                    // allocates would otherwise be orphan memory, and the try/catch is what
+                    // keeps a directory that becomes unreadable mid-iteration from reaching
+                    // std::terminate (directory_iterator::operator++ throws).
+                    SCOPED_INIT_THREAD_CONTEXT();
+                    try {
+                        if (Status status = doris::Jni::PluginRegistry::warmup(); !status.ok()) {
+                            LOG(WARNING) << "failed to warm up Java plugins: " << status;
+                        }
+                    } catch (const std::exception& e) {
+                        LOG(WARNING) << "failed to warm up Java plugins: " << e.what();
+                    } catch (...) {
+                        LOG(WARNING) << "failed to warm up Java plugins: unknown exception";
+                    }
+                },
+                &plugin_warmup_thread));
+    }
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
@@ -698,24 +828,47 @@ int main(int argc, char** argv) {
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;
     }
+    // Before anything is torn down: the warmup thread may still be inside the JVM, and it
+    // reaches BE state that the destructors below free. The fast path above does not need
+    // this - _exit() runs no destructor at all.
+    if (plugin_warmup_thread != nullptr) {
+        plugin_warmup_thread->join();
+        LOG(INFO) << "Java plugin warmup stopped";
+    }
     daemon.stop();
-    flight_server.reset();
+    flight_starter->stop();
+    flight_starter->join();
     LOG(INFO) << "Flight server stopped.";
-    heartbeat_thrift_server->stop();
-    heartbeat_thrift_server.reset(nullptr);
+    heartbeat_thrift_starter->stop();
+    heartbeat_thrift_starter->join();
     LOG(INFO) << "Heartbeat server stopped";
+    // The stream load recorder manager writes its audit records through this BE's own http
+    // service, so it has to be stopped while that service is still up. Otherwise an audit
+    // load that is in flight here can never be answered, and it blocks the join() done by
+    // SAFE_STOP(_stream_load_recorder_manager) in ExecEnv::destroy() for up to the stream
+    // load timeout, which is longer than the grace period of stop_be.sh --grace.
+    if (auto* recorder_manager = exec_env->stream_load_recorder_manager();
+        recorder_manager != nullptr) {
+        recorder_manager->stop();
+    }
     // TODO(zhiqiang): http_service
-    http_service->stop();
-    http_service.reset(nullptr);
+    http_starter->stop();
+    http_starter->join();
     LOG(INFO) << "Http service stopped";
-    be_server->stop();
-    be_server.reset(nullptr);
+    backend_thrift_starter->stop();
+    backend_thrift_starter->join();
     LOG(INFO) << "Be server stopped";
-    brpc_service.reset(nullptr);
+    brpc_starter->stop();
+    brpc_starter->join();
     LOG(INFO) << "Brpc service stopped";
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
+    // Everything above should have released the resource context of every query and load. One
+    // that is still alive is held either by a thread that has not finished or by a reference
+    // that is never released; LeakSanitizer reports the latter after main() returns, but cannot
+    // tell which task it belonged to, so name the task here.
+    doris::ResourceContext::log_live_contexts();
     LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }

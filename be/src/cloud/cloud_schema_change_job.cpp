@@ -33,11 +33,12 @@
 #include "common/status.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -106,7 +107,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
     SyncOptions options;
-    options.query_version = request.alter_version;
+    // The SC boundary (V1) must be calculated from the latest visible rowsets of the base
+    // tablet. Do not cap this sync by request.alter_version, which may be stale across retries.
     RETURN_IF_ERROR(_base_tablet->sync_rowsets(options));
     // ATTN: Only convert rowsets of version larger than 1, MUST let the new tablet cache have rowset [0-1]
     _output_cumulative_point = _base_tablet->cumulative_layer_point();
@@ -207,7 +209,11 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         }
     }
 
-    if (request.alter_version > 1) {
+    // Use the registered alter_version returned by meta-service instead of the original FE task
+    // version. The task can be created when FE still sees version 1, but by the time BE starts
+    // the schema change new data may already have been published and start_tablet_job can advance
+    // alter_version. In that case we still need to capture historical rowsets in [2, alter_version].
+    if (start_resp.alter_version() > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
                                                          &rs_splits,
@@ -232,14 +238,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
-    // Create a new tablet schema, should merge with dropped columns in light weight schema change
+    // Build the visible base schema. Historical delete columns are resolved by DeleteHandler.
     _base_tablet_schema = std::make_shared<TabletSchema>();
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
     _new_tablet_schema = _new_tablet->tablet_schema();
 
-    std::vector<ColumnId> return_columns;
-    return_columns.resize(_base_tablet_schema->num_columns());
-    std::iota(return_columns.begin(), return_columns.end(), 0);
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
+    RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
+                                                         /*merge_by_sequence_mapping=*/false,
+                                                         /*map_row_binlog_columns=*/false));
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -247,21 +254,20 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     for (auto& split : rs_splits) {
         auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
         if (rs_meta->has_delete_predicate()) {
-            _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
-                                        start_resp.alter_version()));
+    std::vector<TabletColumn> dropped_columns;
+    RETURN_IF_ERROR(delete_handler.init(delete_predicates, start_resp.alter_version(), read_schema,
+                                        &dropped_columns));
+    read_schema->append_dropped_columns(std::move(dropped_columns));
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
     reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-    reader_context.tablet_schema = _base_tablet_schema;
     reader_context.need_ordered_result = true;
     reader_context.delete_handler = &delete_handler;
-    reader_context.return_columns = &return_columns;
-    reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+    reader_context.read_schema = read_schema;
     reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
@@ -269,11 +275,11 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     std::vector<uint32_t> cluster_key_idxes;
     if (!_base_tablet_schema->cluster_key_uids().empty()) {
         for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
-            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+            cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
         }
         reader_context.read_orderby_key_columns = &cluster_key_idxes;
         reader_context.is_unique = false;
-        reader_context.sequence_id_idx = -1;
+        reader_context.use_sequence_column_for_merge_order = false;
     }
 
     for (auto& split : rs_splits) {
@@ -385,12 +391,23 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.txn_expiration = _expiration;
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
-        context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        const auto input_segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        // Cloud schema change rewrites remote rowsets, so the input group layout is no longer
+        // applicable. Fall back to the conservative overlap state without assuming that the
+        // rewritten segments are globally ordered.
+        context.segments_overlap = input_segments_overlap == NONOVERLAPPING_WITHIN_GROUP
+                                           ? OVERLAPPING
+                                           : input_segments_overlap;
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
         context.job_id = _job_id;
         context.write_file_cache = sc_params.output_to_file_cache;
+        // Schema change output belongs to the new tablet, so it must carry the tablet TTL
+        // like the load and compaction output does. Otherwise it is cached in the
+        // NORMAL/INDEX queues here, while every warm-up path downloads it into the TTL
+        // queue on the destination cluster.
+        context.file_cache_expiration_time = _new_tablet->file_cache_ttl_expiration_time();
         context.tablet = _new_tablet;
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
@@ -398,7 +415,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
         bool vertical = false;
         if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
             // see VBaseSchemaChangeWithSorting::_external_sorting
@@ -550,29 +566,12 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // Mirror MS behavior: delete rowsets in [2, alter_version] before adding
-        // SC output rowsets to avoid stale compaction rowsets remaining visible.
-        {
-            int64_t alter_ver = sc_job->alter_version();
-            std::vector<RowsetSharedPtr> to_delete;
-            for (auto& [v, rs] : _new_tablet->rowset_map()) {
-                if (v.first >= 2 && v.second <= alter_ver) {
-                    to_delete.push_back(rs);
-                }
-            }
-            if (!to_delete.empty()) {
-                LOG_INFO(
-                        "schema change: delete {} local rowsets in [2, {}] before adding SC "
-                        "output, tablet_id={}, versions=[{}]",
-                        to_delete.size(), alter_ver, _new_tablet->tablet_id(),
-                        fmt::join(to_delete | std::views::transform([](const auto& rs) {
-                                      return rs->version().to_string();
-                                  }),
-                                  ", "));
-                _new_tablet->delete_rowsets_for_schema_change(to_delete, wlock);
-            }
-        }
-        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
+        _new_tablet->replace_rowsets_with_schema_change_output(
+                _output_rowsets, sc_job->alter_version(), wlock, "commit", true);
+        // Ensure the real new tablet has a continuous local version graph before it becomes
+        // visible. Later RUNNING-tablet delete bitmap sync depends on capturing all old versions.
+        RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().fill_version_holes(
+                _new_tablet.get(), _new_tablet->max_version_unlocked(), wlock));
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -592,6 +591,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             .tag("alter_version", alter_version);
     RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
+    // The temporary tablet must build its version graph only from active rowsets. Stale
+    // rowsets copied from the real tablet are not present in its active rowset map.
+    tmp_meta->clear_stale_rs_metas();
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     // Keep only version [0-1] rowset, other rowsets will be added in _output_rowsets
     auto& rs_metas = tmp_meta->all_mutable_rs_metas();
@@ -615,6 +617,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 
     // step 1, process incremental rowset without delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock wlock(tmp_tablet->get_header_lock());
+        tmp_tablet->replace_rowsets_with_schema_change_output(_output_rowsets, alter_version, wlock,
+                                                              "delete_bitmap_without_lock", false);
+    }
     int64_t max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets without lock, version: " << start_calc_delete_bitmap_version
@@ -624,10 +631,6 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                 {start_calc_delete_bitmap_version, max_version}, CaptureRowsetOps {}));
         DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
                         DBUG_BLOCK);
-        {
-            std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
-        }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
@@ -640,6 +643,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock wlock(tmp_tablet->get_header_lock());
+        tmp_tablet->replace_rowsets_with_schema_change_output(_output_rowsets, alter_version, wlock,
+                                                              "delete_bitmap_with_lock", false);
+    }
     int64_t new_max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets with lock, version: " << max_version + 1 << "-"
@@ -647,10 +655,6 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     if (new_max_version > max_version) {
         auto ret = DORIS_TRY(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {max_version + 1, new_max_version}, CaptureRowsetOps {}));
-        {
-            std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
-        }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }

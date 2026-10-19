@@ -35,12 +35,14 @@ services:
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
       - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
       - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
-      - ./data/input/jars/paimon-s3-1.3.1.jar:/opt/spark/jars/paimon-s3-1.3.1.jar
-      - ./data/input/jars/paimon-spark-4.0-1.3.1.jar:/opt/spark/jars/paimon-spark-4.0-1.3.1.jar
+      - ./data/input/jars/paimon-s3-1.4.2.jar:/opt/spark/jars/paimon-s3-1.4.2.jar
+      - ./data/input/jars/paimon-spark-4.0_2.13-1.4.2.jar:/opt/spark/jars/paimon-spark-4.0_2.13-1.4.2.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+    ports:
+      - ${SPARK_THRIFT_PORT}:10000
     entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     user: root
     networks:
@@ -52,7 +54,7 @@ services:
       retries: 120
 
   postgres:
-    image: postgis/postgis:14-3.3
+    image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
     container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456
@@ -99,8 +101,64 @@ services:
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
 
+  # Dedicated, mandatory fixture for the server-planning regression suite. Keep the
+  # existing Spark/Postgres baseline on its released REST fixture.
+  rest-scan-planning:
+    # Content pinned by digest: upstream main b0df3ca01d61b2f7ae7143ac660c6b16e33b6e46,
+    # built 2026-04-29 before the 1.11.0 release; same pin as apache/iceberg-go.
+    # Replace after CI maintainers publish a verified 1.11.0 build to doristhirdpartydocker.
+    image: apache/iceberg-rest-fixture:latest@sha256:db8de90b5b7693d4ac334c336f91d9bbe320d7b19f4f514d26de84cdfbcbfe8d
+    container_name: doris--iceberg-rest-scan-planning
+    ports:
+      - ${ICEBERG_SCAN_PLANNING_REST_PORT:-18182}:8181
+    depends_on:
+      scan-planning-init:
+        condition: service_completed_successfully
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: password
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://scan-planning/wh/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    networks:
+      - doris--iceberg
+
+  scan-planning-init:
+    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    container_name: doris--iceberg-scan-planning-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./scripts/scan-planning:/fixtures:ro
+    entrypoint: ["/bin/sh", "/fixtures/init-storage.sh"]
+    networks:
+      - doris--iceberg
+
+  trino:
+    image: trinodb/trino:482
+    container_name: doris--iceberg-trino
+    # JDBC regressions connect from FE/BE outside this Compose network.
+    ports:
+      - ${TRINO_JDBC_PORT:-8080}:8080
+    depends_on:
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD", "trino", "--server", "http://localhost:8080", "--execute", "SELECT 1"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -126,7 +184,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin

@@ -42,7 +42,7 @@ suite ("test_varchar_schema_change") {
                     `c2` VARCHAR(20),
                     `c3` VARCHAR(5) DEFAULT '0'
                 ) DISTRIBUTED BY HASH(c0) BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" )
+                PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "light_schema_change" = "true" )
             """
 
         sql """ insert into ${tableName} values

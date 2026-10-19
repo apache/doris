@@ -17,9 +17,9 @@
 
 suite("test_search_dsl_syntax", "p0") {
     def tableName = "search_dsl_test_table"
-    
+
     sql "DROP TABLE IF EXISTS ${tableName}"
-    
+
     // Create test table with comprehensive inverted indexes
     sql """
         CREATE TABLE ${tableName} (
@@ -47,7 +47,7 @@ suite("test_search_dsl_syntax", "p0") {
             "replication_allocation" = "tag.location.default: 1"
         )
     """
-    
+
     // Insert comprehensive test data for DSL testing
     def testData = [
         [1, "Machine Learning Introduction", "Basic concepts of machine learning and artificial intelligence", "Technology", "machine-learning, AI, tutorial", "John Doe", "published", 1, "2023-01-15", "2023-01-15 10:30:00", 4.5],
@@ -73,7 +73,7 @@ suite("test_search_dsl_syntax", "p0") {
         [19, "Warning message content", "This is a warning message for testing", "Message", "warning, message", "System", "published", 1, "2023-11-09", "2023-11-09 10:00:00", 3.5],
         [20, "Regular article without msg", "This is a regular article without any message content", "Article", "article, regular", "Author", "published", 1, "2023-11-10", "2023-11-10 10:00:00", 4.0]
     ]
-    
+
     for (def row : testData) {
         def title = row[1] == null ? "NULL" : "'${row[1]}'"
         def content = row[2] == null ? "NULL" : "'${row[2]}'"
@@ -83,43 +83,43 @@ suite("test_search_dsl_syntax", "p0") {
         def status = row[6] == null ? "NULL" : "'${row[6]}'"
         sql """INSERT INTO ${tableName} VALUES (${row[0]}, ${title}, ${content}, ${category}, ${tags}, ${author}, ${status}, ${row[7]}, '${row[8]}', '${row[9]}', ${row[10]})"""
     }
-    
+
     // Wait for index building
     Thread.sleep(5000)
-    
+
     // DSL Syntax Test 1: Simple term queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"
+
     // DSL Syntax Test 2: Phrase queries with quotes
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"')"
+
     // DSL Syntax Test 3: Wildcard queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:*Learning') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:*Learning') ORDER BY id"
+
     // DSL Syntax Test 4: Prefix queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Data*')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Data*')"
+
     // DSL Syntax Test 5: Regular expression queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/')"
+
     // DSL Syntax Test 6: Boolean AND operator
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('category:Technology AND tags:AI') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('category:Technology AND tags:AI') ORDER BY id"
+
     // DSL Syntax Test 7: Boolean OR operator
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('category:Programming OR category:Science') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('category:Programming OR category:Science') ORDER BY id"
+
     // DSL Syntax Test 8: Boolean NOT operator
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName} WHERE search('status:published AND NOT category:Technology')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName} WHERE search('status:published AND NOT category:Technology')"
+
     // DSL Syntax Test 9: Parentheses for grouping
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('(category:Technology OR category:AI) AND status:published') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('(category:Technology OR category:AI) AND status:published') ORDER BY id"
+
     // DSL Syntax Test 10: Complex nested queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('(title:Learning OR title:Development) AND (status:published OR status:review)') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('(title:Learning OR title:Development) AND (status:published OR status:review)') ORDER BY id"
+
     // DSL Syntax Test 11: Range queries (if supported)
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('priority:[1 TO 2]') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('priority:[1 TO 2]') ORDER BY id"
         // This may or may not work depending on implementation
     } catch (Exception e) {
         // Range queries might not be implemented yet
@@ -128,7 +128,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // DSL Syntax Test 12: List queries with IN operator (if supported)
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('status:IN(published draft)') "
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('status:IN(published draft)') "
                "ORDER BY id"
         // This may or may not work depending on implementation
     } catch (Exception e) {
@@ -137,34 +137,34 @@ suite("test_search_dsl_syntax", "p0") {
     }
 
     // DSL Syntax Test 13: ANY queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:ANY(AI python)') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:ANY(AI python)') ORDER BY id"
 
     // DSL Syntax Test 14: ALL queries
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
 
     // DSL Syntax Test 15: Field names with quotes
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('\"content\":programming') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('\"content\":programming') ORDER BY id"
 
     // DSL Syntax Test 16: Case insensitive field names
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('CONTENT:programming') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('CONTENT:programming') ORDER BY id"
 
     // DSL Syntax Test 17: Multiple terms in same field
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('content:machine AND content:learning') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('content:machine AND content:learning') ORDER BY id"
 
     // DSL Syntax Test 18: Hyphenated terms in tags
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:machine-learning') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('tags:machine-learning') ORDER BY id"
 
     // DSL Syntax Test 19: Special characters in search terms
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('author:\"John Doe\"') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('author:\"John Doe\"') ORDER BY id"
 
     // DSL Syntax Test 20: Multiple field search with complex boolean logic
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('(title:Learning AND category:Technology) OR (title:Development AND category:Web)') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('(title:Learning AND category:Technology) OR (title:Development AND category:Web)') ORDER BY id"
 
     // Error handling tests for invalid DSL syntax
 
     // Error Test 1: Unclosed parentheses
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('(title:Machine') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('(title:Machine') ORDER BY id"
         assertTrue(false, "Expected exception for unclosed parentheses")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -172,7 +172,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Error Test 2: Missing field name
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search(':value') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search(':value') ORDER BY id"
         assertTrue(false, "Expected exception for missing field name")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -180,7 +180,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Error Test 3: Missing value
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('field:') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('field:') ORDER BY id"
         assertTrue(false, "Expected exception for missing value")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -188,7 +188,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Error Test 4: Invalid boolean operator
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Machine XOR category:Technology') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Machine XOR category:Technology') ORDER BY id"
         assertTrue(false, "Expected exception for invalid boolean operator")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -196,7 +196,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Error Test 5: Unclosed quotes
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:\"Machine Learning') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:\"Machine Learning') ORDER BY id"
         assertTrue(false, "Expected exception for unclosed quotes")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -204,7 +204,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Error Test 6: Invalid regular expression
     //try {
-    //    sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:/[invalid/') ORDER BY id"
+    //    sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:/[invalid/') ORDER BY id"
     //    assertTrue(false, "Expected exception for invalid regex")
     //} catch (Exception e) {
     //    assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
@@ -214,7 +214,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Edge Case Test 1: Empty search string
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('') ORDER BY id"
         // Should handle empty string gracefully
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("only inverted index queries are supported") || e.getMessage().contains("Invalid"))
@@ -223,7 +223,7 @@ suite("test_search_dsl_syntax", "p0") {
     // Edge Case Test 2: Very long search string
     def longTerm = "a" * 1000
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:${longTerm}') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:${longTerm}') ORDER BY id"
         // Should handle long strings gracefully
     } catch (Exception e) {
         // Acceptable if implementation has length limits
@@ -232,7 +232,7 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Edge Case Test 3: Unicode characters
     try {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:测试') ORDER BY id"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:测试') ORDER BY id"
         // Should handle Unicode gracefully
     } catch (Exception e) {
         logger.info("Unicode search error: " + e.getMessage())
@@ -241,75 +241,75 @@ suite("test_search_dsl_syntax", "p0") {
     // NOT search functionality tests
 
     // NOT Search Test 1: Basic NOT search for content field
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') ORDER BY id"
 
     // NOT Search Test 2: NOT search with specific field
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Message') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Message') ORDER BY id"
 
     // NOT Search Test 3: NOT search with multiple terms
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:message AND category:Message') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:message AND category:Message') ORDER BY id"
 
     // NOT Search Test 4: NOT search with complex boolean logic
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('(content:msg OR title:Message) AND status:published') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('(content:msg OR title:Message) AND status:published') ORDER BY id"
 
     // NOT Search Test 5: NOT search with wildcard
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:*msg*') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:*msg*') ORDER BY id"
 
     // NOT Search Test 6: NOT search with phrase
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:\"success message\"') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:\"success message\"') ORDER BY id"
 
     // Null value handling tests
 
     // Null Test 1: Search on field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE search('content:null') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName} WHERE search('content:null') ORDER BY id"
 
     // Null Test 2: Search on null field should return no results
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:null') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:null') ORDER BY id"
 
     // Null Test 3: NOT search on field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:null') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:null') ORDER BY id"
 
     // Null Test 4: Search on category field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE search('category:Test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, category FROM ${tableName} WHERE search('category:Test') ORDER BY id"
 
     // Null Test 5: NOT search on category field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') ORDER BY id"
 
     // Null Test 6: Search on tags field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE search('tags:test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, tags FROM ${tableName} WHERE search('tags:test') ORDER BY id"
 
     // Null Test 7: NOT search on tags field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') ORDER BY id"
 
     // Null Test 8: Search on author field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE search('author:Test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, author FROM ${tableName} WHERE search('author:Test') ORDER BY id"
 
     // Null Test 9: NOT search on author field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') ORDER BY id"
 
     // Null Test 10: Search on status field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE search('status:draft') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, status FROM ${tableName} WHERE search('status:draft') ORDER BY id"
 
     // Null Test 11: NOT search on status field with null values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') ORDER BY id"
 
     // Combined NOT search and null handling tests
 
     // Combined Test 1: NOT search with null content handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') AND content IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') AND content IS NOT NULL ORDER BY id"
 
     // Combined Test 2: NOT search with null title handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Test') AND title IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Test') AND title IS NOT NULL ORDER BY id"
 
     // Combined Test 3: NOT search with null category handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') AND category IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') AND category IS NOT NULL ORDER BY id"
 
     // Combined Test 4: NOT search with null tags handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') AND tags IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') AND tags IS NOT NULL ORDER BY id"
 
     // Combined Test 5: NOT search with null author handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') AND author IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') AND author IS NOT NULL ORDER BY id"
 
     // Combined Test 6: NOT search with null status handling
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') AND status IS NOT NULL ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') AND status IS NOT NULL ORDER BY id"
 }

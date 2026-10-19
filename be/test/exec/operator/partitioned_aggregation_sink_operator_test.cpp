@@ -43,6 +43,32 @@ protected:
     PartitionedAggregationTestHelper _helper;
 };
 
+namespace {
+
+constexpr auto CANCEL_REASON = "partitioned aggregation sink cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+} // namespace
+
+TEST_F(PartitionedAggregationSinkOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_sink_local_state(_helper.runtime_state.get(),
+                                                        sink_operator.get(), shared_state);
+    ASSERT_NE(local_state, nullptr);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(sink_operator->revoke_memory(_helper.runtime_state.get()));
+}
+
 TEST_F(PartitionedAggregationSinkOperatorTest, Init) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     ASSERT_TRUE(source_operator != nullptr);

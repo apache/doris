@@ -77,7 +77,10 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
             ) ENGINE=iceberg
             PROPERTIES (
                 "format-version" = "1",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
         sql """INSERT INTO ${v1TableName} VALUES (1, 'A')"""
@@ -93,6 +96,30 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         }
         sql """drop table if exists ${v1TableName}"""
 
+        // 1. Error handling for copy-on-write tables
+        String cowTableName = "${tableName}_cow_${format}"
+        sql """drop table if exists ${cowTableName}"""
+        sql """
+            CREATE TABLE ${cowTableName} (
+                id INT,
+                name STRING
+            ) ENGINE=iceberg
+            PROPERTIES (
+                "format-version" = "2",
+                "write.format.default" = "${format}",
+                "write.merge.mode" = "copy-on-write"
+            )
+        """
+        test {
+            sql """
+                MERGE INTO ${cowTableName} t
+                USING (SELECT 1 as id, 'B' as name) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET name = s.name
+            """
+            exception "Doris does not support MERGE INTO on Iceberg copy-on-write tables"
+        }
+
         String formatTableName = "${tableName}_${format}"
 
         sql """drop table if exists ${formatTableName}"""
@@ -104,7 +131,10 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
             ) ENGINE=iceberg
             PROPERTIES (
                 "format-version" = "2",
-                "write.format.default" = "${format}"
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
             )
         """
 
@@ -115,7 +145,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
             (3, 'Charlie', 35)
         """
 
-        // 1. Matched-Only
+        // 2. Matched-Only
         def q_matched_only = "qt_${format}_matched_only"
         "${q_matched_only}" """
             MERGE INTO ${formatTableName} t
@@ -128,7 +158,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_m1 = "order_qt_${format}_check_m1"
         "${q_check_m1}" """SELECT * FROM ${formatTableName}"""
 
-        // 2. Not-Matched-Only
+        // 3. Not-Matched-Only
         def q_not_matched_only = "qt_${format}_not_matched_only"
         "${q_not_matched_only}" """
             MERGE INTO ${formatTableName} t
@@ -141,7 +171,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_m2 = "order_qt_${format}_check_m2"
         "${q_check_m2}" """SELECT * FROM ${formatTableName}"""
 
-        // 3. Multiple MATCHED WHEN clauses
+        // 4. Multiple MATCHED WHEN clauses
         def q_multi_when = "qt_${format}_multi_when"
         "${q_multi_when}" """
             MERGE INTO ${formatTableName} t
@@ -157,7 +187,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_m3 = "order_qt_${format}_check_m3"
         "${q_check_m3}" """SELECT * FROM ${formatTableName}"""
 
-        // 4. Schema Evolution test with MERGE INTO
+        // 5. Schema Evolution test with MERGE INTO
         sql """ALTER TABLE ${formatTableName} ADD COLUMN c_new INT"""
         def q_schema_ev_merge = "qt_${format}_schema_ev_merge"
         "${q_schema_ev_merge}" """
@@ -174,7 +204,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_m4 = "order_qt_${format}_check_m4"
         "${q_check_m4}" """SELECT * FROM ${formatTableName}"""
 
-        // 5. Subqueries
+        // 6. Subqueries
         def q_subquery_upd = "qt_${format}_subquery_upd"
         "${q_subquery_upd}" """
             MERGE INTO ${formatTableName} t
@@ -192,7 +222,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_subqueries = "order_qt_${format}_check_subqueries"
         "${q_check_subqueries}" """SELECT * FROM ${formatTableName}"""
 
-        // 6. Complex Expressions
+        // 7. Complex Expressions
         def q_expr_upd = "qt_${format}_expr_upd"
         "${q_expr_upd}" """
             MERGE INTO ${formatTableName} t
@@ -203,7 +233,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_expr = "order_qt_${format}_check_expr"
         "${q_check_expr}" """SELECT * FROM ${formatTableName}"""
 
-        // 7. Schema Evolution part 2 (Drop column)
+        // 8. Schema Evolution part 2 (Drop column)
         sql """ALTER TABLE ${formatTableName} DROP COLUMN age"""
         def q_schema_ev_upd2 = "qt_${format}_schema_ev_upd2"
         "${q_schema_ev_upd2}" """
@@ -215,7 +245,7 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_schema2 = "order_qt_${format}_schema_ev_check2"
         "${q_check_schema2}" """SELECT * FROM ${formatTableName}"""
 
-        // 8. Concurrent Conflict Detection (Best Effort)
+        // 9. Concurrent Conflict Detection (Best Effort)
         sql """INSERT INTO ${formatTableName} (id, name, c_new) VALUES (6, 'Frank', 100)"""
         def future1 = thread {
             try {

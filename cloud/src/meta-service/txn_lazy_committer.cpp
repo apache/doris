@@ -213,7 +213,7 @@ void convert_tmp_rowsets(
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         std::map<int64_t, TabletIndexPB>& tablet_ids, bool is_versioned_write,
         bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr,
-        bool defer_deleting_pending_delete_bitmaps) {
+        bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -390,6 +390,8 @@ void convert_tmp_rowsets(
         tmp_rowset_pb.set_start_version(version);
         tmp_rowset_pb.set_end_version(version);
         tmp_rowset_pb.set_visible_ts_ms(rowsets_visible_ts_ms);
+        tmp_rowset_pb.mutable_commit_tso()->set_start_tso(commit_tso);
+        tmp_rowset_pb.mutable_commit_tso()->set_end_tso(commit_tso);
 
         rowset_val.clear();
         if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {
@@ -633,14 +635,20 @@ TxnLazyCommitTask::TxnLazyCommitTask(const std::string& instance_id, int64_t txn
     DCHECK(txn_id > 0);
 }
 
+void TxnLazyCommitTask::finish(MetaServiceCode code, std::string msg) {
+    {
+        std::unique_lock lock(mutex_);
+        finished_ = true;
+        code_ = code;
+        msg_ = std::move(msg);
+    }
+    cond_.notify_all();
+}
+
 void TxnLazyCommitTask::commit() {
     StopWatch sw;
     DORIS_CLOUD_DEFER {
-        {
-            std::unique_lock lock(mutex_);
-            this->finished_ = true;
-        }
-        this->cond_.notify_all();
+        finish(code_, msg_);
         g_bvar_txn_lazy_committer_committing_duration << sw.elapsed_us();
     };
 
@@ -727,10 +735,10 @@ void TxnLazyCommitTask::commit() {
                         fmt::format("txn_{}_parallel_commit", txn_id_));
                 for (int64_t partition_id : partition_ids) {
                     executor.add([&, partition_id, this]() {
-                        return commit_partition(db_id, partition_id,
-                                                partition_to_tmp_rowset_metas.at(partition_id),
-                                                is_versioned_read, is_versioned_write,
-                                                defer_deleting_pending_delete_bitmaps);
+                        return commit_partition(
+                                db_id, partition_id, partition_to_tmp_rowset_metas.at(partition_id),
+                                is_versioned_read, is_versioned_write,
+                                defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
                     });
                 }
                 bool finished = false;
@@ -752,7 +760,7 @@ void TxnLazyCommitTask::commit() {
                     std::tie(code_, msg_) = commit_partition(
                             db_id, partition_id, partition_to_tmp_rowset_metas[partition_id],
                             is_versioned_read, is_versioned_write,
-                            defer_deleting_pending_delete_bitmaps);
+                            defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
                     if (code_ != MetaServiceCode::OK) break;
                 }
             }
@@ -771,8 +779,8 @@ void TxnLazyCommitTask::commit() {
 std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
         int64_t db_id, int64_t partition_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
-        bool is_versioned_read, bool is_versioned_write,
-        bool defer_deleting_pending_delete_bitmaps) {
+        bool is_versioned_read, bool is_versioned_write, bool defer_deleting_pending_delete_bitmaps,
+        int64_t commit_tso) {
     std::stringstream ss;
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
                                  txn_lazy_committer_->resource_manager().get());
@@ -846,7 +854,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
                             sub_partition_tmp_rowset_metas, tablet_ids, is_versioned_write,
                             is_versioned_read, versionstamp,
                             txn_lazy_committer_->resource_manager().get(),
-                            defer_deleting_pending_delete_bitmaps);
+                            defer_deleting_pending_delete_bitmaps, commit_tso);
         if (code != MetaServiceCode::OK) {
             return {code, msg};
         }
@@ -965,6 +973,25 @@ TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv,
     parallel_commit_pool_->start();
 }
 
+TxnLazyCommitter::~TxnLazyCommitter() {
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        stopped_ = true;
+    }
+
+    if (worker_pool_ != nullptr) {
+        worker_pool_->stop();
+    }
+    if (parallel_commit_pool_ != nullptr) {
+        parallel_commit_pool_->stop();
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        running_tasks_.clear();
+    }
+}
+
 /**
  * @brief Submit a lazy commit txn task
  * 
@@ -978,6 +1005,12 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
     std::shared_ptr<TxnLazyCommitTask> task;
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        if (stopped_) {
+            task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "txn lazy committer is stopped");
+            return task;
+        }
+
         auto iter = running_tasks_.find(txn_id);
         if (iter != running_tasks_.end()) {
             return iter->second;
@@ -986,13 +1019,17 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
         task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
         running_tasks_.emplace(txn_id, task);
         g_bvar_txn_lazy_committer_submitted << 1;
-    }
 
-    worker_pool_->submit([task]() {
-        task->commit();
-        task->txn_lazy_committer_->remove(task->txn_id_);
-        g_bvar_txn_lazy_committer_finished << 1;
-    });
+        int ret = worker_pool_->submit([task]() {
+            task->commit();
+            task->txn_lazy_committer_->remove(task->txn_id_);
+            g_bvar_txn_lazy_committer_finished << 1;
+        });
+        if (ret != 0) {
+            running_tasks_.erase(txn_id);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "failed to submit txn lazy commit task");
+        }
+    }
     DCHECK(task != nullptr);
     return task;
 }

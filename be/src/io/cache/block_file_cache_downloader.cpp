@@ -20,9 +20,6 @@
 
 #include "io/cache/block_file_cache_downloader.h"
 
-#include <bthread/bthread.h>
-#include <bthread/countdown_event.h>
-#include <bthread/unstable.h>
 #include <bvar/bvar.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
@@ -33,7 +30,6 @@
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
-#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -293,8 +289,20 @@ void FileCacheBlockDownloader::download_file_cache_block(
 }
 
 void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& meta) {
-    LOG(INFO) << "download_segment_file: start, path=" << meta.path << ", offset=" << meta.offset
-              << ", download_size=" << meta.download_size << ", file_size=" << meta.file_size;
+    VLOG_DEBUG << "download_segment_file: start, path=" << meta.path << ", offset=" << meta.offset
+               << ", download_size=" << meta.download_size << ", file_size=" << meta.file_size;
+    DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file.skip_warmup", {
+        if (meta.ctx.is_warmup) {
+            LOG(INFO) << "download_segment_file: skip warmup download by debug point, path="
+                      << meta.path << ", offset=" << meta.offset
+                      << ", download_size=" << meta.download_size;
+            if (meta.download_done) {
+                meta.download_done(Status::OK());
+            }
+            return;
+        }
+    });
+
     FileReaderSPtr file_reader;
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
@@ -302,6 +310,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             .cache_base_path {},
             .file_size = meta.file_size,
             .tablet_id = meta.tablet_id,
+            .storage_resource_id = meta.file_system->id(),
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
     if (!st.ok()) {
@@ -319,13 +328,17 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     size_t task_num = (download_size + one_single_task_size - 1) / one_single_task_size;
 
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
+    IOContext download_ctx = meta.ctx;
+    download_ctx.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
 
     DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file_sleep", {
-        auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
-        LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
-                  << sleep_time;
-        sleep(sleep_time);
+        if (meta.ctx.is_warmup) {
+            auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
+            LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
+                      << sleep_time;
+            sleep(sleep_time);
+        }
     });
 
     size_t task_offset = 0;
@@ -341,7 +354,9 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
-        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
+        TEST_SYNC_POINT_CALLBACK("FileCacheBlockDownloader::download_segment_file:before_read",
+                                 &download_ctx);
+        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &download_ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {

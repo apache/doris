@@ -75,10 +75,9 @@ PROPERTIES (
 "is_being_synced" = "false",
 "storage_medium" = "hdd",
 "storage_format" = "V2",
-"inverted_index_storage_format" = "V1",
+"inverted_index_storage_format" = "V2",
 "light_schema_change" = "true",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );
@@ -143,25 +142,36 @@ PROPERTIES (
 "is_being_synced" = "false",
 "storage_medium" = "hdd",
 "storage_format" = "V2",
-"inverted_index_storage_format" = "V1",
+"inverted_index_storage_format" = "V2",
 "light_schema_change" = "true",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );
     """
 
-    test {
-        sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+    // The overwrite must fail because the source rows fall into a partition that does not exist
+    // in fail_tag and enable_auto_create_when_overwrite is false. With multiple parallel sink
+    // instances, equivalent errors can race to be reported. Accept each expected failure while
+    // still requiring the statement to fail.
+    def checkOverwriteFail = { result, exception, startTime, endTime ->
+        assertTrue(exception != null && (
+                exception.getMessage().contains('Cannot found origin partitions')
+                || exception.getMessage().contains('no partition for this tuple')
+                || exception.getMessage().contains('Insert has filtered data in strict mode')),
+            "expect insert-overwrite auto-detect to fail, "
+                + "but got result=${result}, exception=${exception?.getMessage()}")
     }
     test {
         sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+        check checkOverwriteFail
     }
     test {
         sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+        check checkOverwriteFail
+    }
+    test {
+        sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
+        check checkOverwriteFail
     }
 }

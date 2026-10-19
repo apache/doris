@@ -30,17 +30,16 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_id_generator.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/test_segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -218,15 +217,19 @@ public:
                 fs, index_path_prefix, rowset_id.to_string(), segment_id,
                 InvertedIndexStorageFormatPB::V2, std::move(idx_file_writer));
 
-        SegmentWriterOptions opts;
-        TestSegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr, opts,
-                                 index_file_writer.get());
+        VerticalSegmentWriterOptions opts;
+        TestVerticalSegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr,
+                                         opts, index_file_writer.get());
         st = writer.init();
         EXPECT_TRUE(st.ok());
 
         // Write rows
         RowCursor row;
-        auto olap_st = row.init(schema, schema->num_columns());
+        OlapTuple tuple;
+        for (size_t i = 0; i < schema->num_columns(); ++i) {
+            tuple.add_null();
+        }
+        auto olap_st = row.init(schema, tuple);
         EXPECT_EQ(Status::OK(), olap_st);
 
         // Write one row: (1, "hello")
@@ -239,11 +242,13 @@ public:
         }
 
         uint64_t file_size, index_size;
-        st = writer.finalize(&file_size, &index_size);
+        st = writer.finalize_columns(&index_size);
+        EXPECT_TRUE(st.ok());
+        st = writer.finalize_footer(&file_size);
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
 
-        // Close the index file writer (it was already written by SegmentWriter during finalize)
+        // Close the index file writer (it was already written by VerticalSegmentWriter during finalize)
         st = index_file_writer->begin_close();
         EXPECT_TRUE(st.ok()) << st;
         st = index_file_writer->finish_close();
@@ -317,8 +322,7 @@ TEST_F(SegmentCorruptionTest, TestFsSetInCorruptionRetryPath) {
     const TabletIndex* idx_meta = indexes[0];
 
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<IndexIterator> iter;
     // This call triggers _open_index_file_reader() -> uses _fs
     // If _fs is nullptr (bug not fixed), this will crash
@@ -389,8 +393,7 @@ TEST_F(SegmentCorruptionTest, TestFooterCorruptionTriggersRetry) {
 
     // Verify that _fs was correctly set through the retry path
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
 
     auto indexes = schema->inverted_indexs(schema->column(1));
     ASSERT_FALSE(indexes.empty());
@@ -426,8 +429,7 @@ TEST_F(SegmentCorruptionTest, TestFsSetInNormalPath) {
     const TabletIndex* idx_meta = indexes[0];
 
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<IndexIterator> iter;
     st = segment->new_index_iterator(schema->column(1), idx_meta, read_options, &iter);
     // If we reach here without crash, _fs was correctly set

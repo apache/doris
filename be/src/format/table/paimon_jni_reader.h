@@ -47,6 +47,8 @@ class PaimonJniReader : public JniReader {
 public:
     static const std::string PAIMON_OPTION_PREFIX;
     static const std::string HADOOP_OPTION_PREFIX;
+    static const std::string DORIS_ENABLE_JNI_IO_MANAGER;
+    static const std::string DORIS_JNI_IO_MANAGER_TMP_DIR;
     PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                     RuntimeProfile* profile, const TFileRangeDesc& range,
                     const TFileScanRangeParams* range_params);

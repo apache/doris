@@ -38,7 +38,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
              );
         """
 
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         sql """ insert into $tableName values('a', 'zhang san', 'address1', NULL) """
         sql """ insert into $tableName values('a', 'zhang si', 'address2', '2022-10-20') """
@@ -74,7 +74,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
         qt_sql17 """ select * from $tableName where c_name match_all 'zhang si' and c_date < '2022-11-20' order by c_custkey """
         qt_sql18 """ select * from $tableName where c_name match_all 'zhang yi' order by c_custkey """
         qt_sql19 """ select * from $tableName where c_name match_all 'zhang yi' and c_date is not null order by c_custkey """
-        
+
         qt_sql20 """ select * from $tableName where c_name match_all 'li yi' order by c_custkey """
         qt_sql21 """ select * from $tableName where c_name match_all 'li yi' and (c_date < '2022-11-20' or c_date >= '2022-12-11') order by c_custkey """
 
@@ -141,7 +141,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
         qt_sql38 """ select * from $tableName where c_name match_all 'zhang si' and c_int < 0 order by c_custkey """
         qt_sql39 """ select * from $tableName where c_name match_all 'zhang yi' order by c_custkey """
         qt_sql40 """ select * from $tableName where c_name match_all 'zhang yi' and c_int > 100 order by c_custkey """
-        
+
         qt_sql41 """ select * from $tableName where c_name match_all 'li yi' order by c_custkey """
         qt_sql42 """ select * from $tableName where c_name match_all 'li yi' and c_int < 0 order by c_custkey """
         qt_sql43 """ select * from $tableName where c_name match_all 'li yi' and (c_int < 0 or c_int is null) order by c_custkey """

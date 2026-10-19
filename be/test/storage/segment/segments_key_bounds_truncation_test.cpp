@@ -33,11 +33,12 @@
 #include "storage/iterator/block_reader.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 namespace doris {
 static std::string kSegmentDir = "./ut_dir/segments_key_bounds_truncation_test";
@@ -181,13 +182,14 @@ public:
         std::vector<Block> ret;
         int const_value = 999;
         for (const auto& segment_rows : data) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (const auto& row : segment_rows) {
                 columns[0]->insert_data(row.data(), row.size());
                 columns[1]->insert_data(reinterpret_cast<const char*>(&const_value),
                                         sizeof(const_value));
             }
+            block.set_columns(std::move(columns));
             ret.emplace_back(std::move(block));
         }
         return ret;
@@ -658,6 +660,13 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
 
 TEST_F(SegmentsKeyBoundsTruncationTest, OrderedCompactionTest) {
     auto tablet_schema = create_schema(100);
+    Defer restore_config([saved_enable = config::enable_ordered_data_compaction,
+                          saved_min_size = config::ordered_data_compaction_min_segment_size] {
+        // Otherwise a one-byte minimum segment size leaks into every later suite and sends its
+        // compactions down the ordered link-file path instead of a real merge.
+        config::enable_ordered_data_compaction = saved_enable;
+        config::ordered_data_compaction_min_segment_size = saved_min_size;
+    });
     config::enable_ordered_data_compaction = true;
     config::ordered_data_compaction_min_segment_size = 1;
 

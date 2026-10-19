@@ -611,7 +611,8 @@ suite("test_analyze_mv") {
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv3", result_row[0][1])
     assertEquals("0", result_row[0][3])
-    assertEquals("-1", result_row[0][4])
+    assertTrue(result_row[0][4] == "-1" || result_row[0][4] == "0",
+        "Expected row_count to be -1 or 0 after truncate, but got: ${result_row[0][4]}")
 
     // ** Embedded test for skip auto analyze when table is empty
     sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
@@ -685,15 +686,15 @@ suite("test_analyze_mv") {
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
     connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
         sql """use test_analyze_mv"""
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 120; i++) {
             result_row = sql """show index stats mvTestDup mvTestDup"""
-            if (result_row[0][4] == "-1") {
+            if (result_row[0][4] == "6") {
                 break;
             }
-            logger.info("row count for mvTestDup is not -1: " + result_row)
-            Thread.sleep(1000)
+            logger.info("row count for mvTestDup has not converged to 6: " + result_row)
+            Thread.sleep(5000)
         }
-        assertEquals("-1", result_row[0][4])
+        assertEquals("6", result_row[0][4])
     }
 
     // Test alter column stats

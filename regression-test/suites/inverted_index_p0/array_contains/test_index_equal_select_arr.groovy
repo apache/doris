@@ -20,8 +20,7 @@ suite("test_index_equal_select_arr", "array_contains_inverted_index"){
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def indexTbName1 = "index_equal_select_arr"
 
@@ -67,7 +66,7 @@ suite("test_index_equal_select_arr", "array_contains_inverted_index"){
         sql """select * from ${indexTbName1} where array_contains(name, '') order by name"""
         exception("errCode = 2")
     }
-    
+
     qt_sql "select * from ${indexTbName1} where array_contains(grade, '') order by name"
     qt_sql "select * from ${indexTbName1} where array_contains(studentInfo, '') order by name"
     qt_sql "select * from ${indexTbName1} where array_contains(tearchComment, '') order by name"
@@ -81,7 +80,7 @@ suite("test_index_equal_select_arr", "array_contains_inverted_index"){
     qt_sql "select * from ${indexTbName1} where array_contains(selfComment, 'learn makes me happy') order by name"
     qt_sql "select * from ${indexTbName1} where array_contains(tearchComment, 'A quiet little boy') order by name"
     qt_sql "select * from ${indexTbName1} where array_contains(fatherName, 'zhang yi') order by name"
-    
+
     // case1.2 test index colume not equal
     qt_sql "select * from ${indexTbName1} where !array_contains(age, 10) order by name"
     qt_sql "select * from ${indexTbName1} where !array_contains(grade, 'grade 5') order by name"
@@ -89,7 +88,7 @@ suite("test_index_equal_select_arr", "array_contains_inverted_index"){
     qt_sql "select * from ${indexTbName1} where !array_contains(selfComment, 'learn makes me happy') order by name"
     qt_sql "select * from ${indexTbName1} where !array_contains(tearchComment, 'A quiet little boy') order by name"
     qt_sql "select * from ${indexTbName1} where !array_contains(fatherName, 'zhang yi') order by name"
-    
+
     // case1.3 test index colume and normal colume mix select
     // case1.3.0 default(simple) index and normal colume mix select
     // case 1.3.1 none index and normal colume mix select

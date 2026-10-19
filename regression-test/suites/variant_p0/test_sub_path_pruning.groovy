@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_sub_path_pruning", "variant_type"){
+suite("test_sub_path_pruning", "variant_type"){
 
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10000 """
     sql """ set default_variant_sparse_hash_shard_count = 0 """
@@ -27,15 +28,15 @@ suite("variant_sub_path_pruning", "variant_type"){
     sql """
         CREATE TABLE `pruning_test` (
           `id` INT NULL,
-          `dt` VARIANT NULL
-        ) 
+          `dt` VARIANT<properties("variant_max_subcolumns_count" = "0")> NULL
+        )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id)
         PROPERTIES("replication_num"="1")
     """
 
     sql """
-        insert into pruning_test values(1, '{"a":{"b":{"c":{"d":{"e":11}}},"c":{"d":{"e":12}},"d":{"e":13},"e":14},"b":{"c":{"d":{"e":21}},"d":{"e":22},"e":23},"c":{"d":{"e":31},"e":32},"d":{"e":4},"e":5}')
+        insert into pruning_test values(1, ${variantV2Function}('{"a":{"b":{"c":{"d":{"e":11}}},"c":{"d":{"e":12}},"d":{"e":13},"e":14},"b":{"c":{"d":{"e":21}},"d":{"e":22},"e":23},"c":{"d":{"e":31},"e":32},"d":{"e":4},"e":5}'))
     """
 
     sql "sync"
@@ -90,7 +91,7 @@ suite("variant_sub_path_pruning", "variant_type"){
     order_qt_sql """select id, dt['a'] as c1 from pruning_test where dt['e'] > 1;"""
     order_qt_sql """select id, dt['a'] as c1, dt['e'] as c2 from pruning_test where dt['e'] > 1;"""
     order_qt_sql """select id, dt['a'] as c1, dt['e'] as c2 from pruning_test where dt['d']['e'] > 1;"""
-    order_qt_sql """select id, c1, c2 from (select id, dt['a'] as c1, dt['e'] as c2 from pruning_test)tmp where c2 > 1;"""
+    order_qt_sql """select id, c1, c2 from (select id, dt['a'] as c1, dt['e'] as c2 from pruning_test)tmp where cast(c2 as int) > 1;"""
 
 
     // cte
@@ -144,7 +145,7 @@ suite("variant_sub_path_pruning", "variant_type"){
 
     // two children
     order_qt_sql """
-        select  /*+SET_VAR(batch_size=50,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=2,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=false,parallel_scan_max_scanners_count=16,parallel_scan_min_rows_per_scanner=128,enable_fold_constant_by_be=false,enable_rewrite_element_at_to_slot=true,runtime_filter_type=2,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=true,enable_local_exchange=false,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=false,enable_two_phase_read_opt=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */ dt['a'] as c1 from pruning_test union all select dt['a'] as c1 from pruning_test;
+        select  /*+SET_VAR(batch_size=50,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=2,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=false,parallel_scan_max_scanners_count=16,parallel_scan_min_rows_per_scanner=128,enable_fold_constant_by_be=false,enable_rewrite_element_at_to_slot=true,runtime_filter_type=2,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_segment_limit_pushdown=true,enable_local_exchange=false,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=false,enable_two_phase_read_opt=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */ dt['a'] as c1 from pruning_test union all select dt['a'] as c1 from pruning_test;
         """
     order_qt_sql """select c1['a'] from (select dt as c1 from pruning_test union all select dt as c1 from pruning_test) v1;"""
     order_qt_sql """select c1['b'] from (select dt['a'] as c1 from pruning_test union all select dt['a'] as c1 from pruning_test) v1;"""
@@ -166,20 +167,20 @@ suite("variant_sub_path_pruning", "variant_type"){
     order_qt_sql """select c1['c']['d'] from (select dt['a']['b'] as c1 from pruning_test union all select dt['a'] as c1 from pruning_test union all select dt as c1 from pruning_test) v1;"""
 
     // one table + one const list
-    order_qt_sql """select id, cast(c1['a'] as text) from (select cast('{"a":1}' as variant) as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100;"""
-    order_qt_sql """select c1['a'] from (select id, c1 from (select cast('{"a":1}' as variant) as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
-    order_qt_sql """select c2['b'] from (select id, cast(c1['a'] as text) as c2 from (select cast('{"a":{"b":1}}' as variant) as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select id, cast(c1['a'] as text) from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100;"""
+    order_qt_sql """select c1['a'] from (select id, c1 from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select c2 from (select id, ${variantV2Function}(cast(c1['a']['b'] as text)) as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
     // order_qt_sql """select c2['a']['b'] from (select id, c1 as c2 from (select cast('1' as variant) as c1, 0 as id union all select dt as c1, id from pruning_test) tmp order by id limit 100) tmp;"""
-    order_qt_sql """select id, cast(c1['c'] as text) from (select cast('{"c":1}' as variant) as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by 1, 2 limit 100;"""
-    order_qt_sql """select c1['c'] from (select id, c1 from (select cast('{"c":1}' as variant) as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
-    order_qt_sql """select  cast(c2['d'] as text)  from (select id, c1['a'] as c2 from (select cast('{"c":{"d":1}}' as variant) as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select id, cast(c1['c'] as text) from (select ${variantV2Function}('{"c":1}') as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by 1, 2 limit 100;"""
+    order_qt_sql """select c1['c'] from (select id, c1 from (select ${variantV2Function}('{"c":1}') as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select nullif(cast(c2['d'] as text), '') from (select id, c1['a'] as c2 from (select ${variantV2Function}('{"c":{"d":1}}') as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by id limit 100) tmp order by id;"""
     // order_qt_sql """select c2['c']['d'] from (select id, c1 as c2 from (select cast('{"c":{"d":1}}' as variant) as c1, 0 as id union all select dt['a']['b'] as c1, id from pruning_test) tmp order by id limit 100) tmp;"""
 
     // two const list
-    order_qt_sql """select id, cast(c1['a'] as text) from (select cast('{"a":1}' as variant) as c1, 0 as id union all select cast('{"a":1}' as variant) as c1, 2 as id) tmp order by id limit 100;"""
-    order_qt_sql """select c1['a'] from (select id, c1 from (select cast('{"a":1}' as variant) as c1, 0 as id union all select cast('{"a":1}' as variant) as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
-    order_qt_sql """select cast(c2['b'] as text) from (select id, c1['a'] as c2 from (select cast('{"a":{"b":1}}' as variant) as c1, 0 as id union all select cast('{"a":{"b":1}}' as variant) as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
-    order_qt_sql """select c2['a']['b'] from (select id, c1 as c2 from (select cast('{"a":{"b":1}}' as variant) as c1, 0 as id union all select cast('{"a":{"b":1}}' as variant) as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select id, cast(c1['a'] as text) from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select ${variantV2Function}('{"a":1}') as c1, 2 as id) tmp order by id limit 100;"""
+    order_qt_sql """select c1['a'] from (select id, c1 from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select ${variantV2Function}('{"a":1}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
+    order_qt_sql """select cast(c2['b'] as text) from (select id, c1['a'] as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select ${variantV2Function}('{"a":{"b":1}}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
+    order_qt_const_nested_subpath """select c2['a']['b'] = 1 from (select id, c1 as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select ${variantV2Function}('{"a":{"b":1}}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
 
 
     // join
@@ -211,16 +212,16 @@ suite("variant_sub_path_pruning", "variant_type"){
     // variant in project / one row relation
 
     // variant in project
-    order_qt_sql """select c1['a'] from (select id, cast('{"a":1}' as variant) as c1 from pruning_test order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select id, cast('{"a":1, "b":2}' as variant) as c1 from pruning_test order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] from (select id, cast('{"b":{"a":1}}' as variant)["b"] as c1 from pruning_test order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select id, cast('{"b":{"a":1, "b":2}}' as variant)["b"] as c1 from pruning_test order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] from (select id, ${variantV2Function}('{"a":1}') as c1 from pruning_test order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select id, ${variantV2Function}('{"a":1, "b":2}') as c1 from pruning_test order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] from (select id, ${variantV2Function}('{"b":{"a":1}}')["b"] as c1 from pruning_test order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select id, ${variantV2Function}('{"b":{"a":1, "b":2}}')["b"] as c1 from pruning_test order by id limit 100) tmp;"""
 
     // varaint in one row relation
-    order_qt_sql """select c1['a'] from (select 0 as id, cast('{"a":1}' as variant) as c1 order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 0 as id, cast('{"a":1, "b":2}' as variant) as c1 order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] from (select  0 as id, cast('{"b":{"a":1}}' as variant)["b"] as c1 order by id limit 100) tmp;"""
-    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 0 as id, cast('{"b":{"a":1, "b":2}}' as variant)["b"] as c1 order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] from (select 0 as id, ${variantV2Function}('{"a":1}') as c1 order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 0 as id, ${variantV2Function}('{"a":1, "b":2}') as c1 order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] from (select  0 as id, ${variantV2Function}('{"b":{"a":1}}')["b"] as c1 order by id limit 100) tmp;"""
+    order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 0 as id, ${variantV2Function}('{"b":{"a":1, "b":2}}')["b"] as c1 order by id limit 100) tmp;"""
 
     order_qt_sql_no_dead_loop """
       select

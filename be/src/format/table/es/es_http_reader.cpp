@@ -147,11 +147,8 @@ Status EsHttpReader::_do_get_next_block(Block* block, size_t* read_rows, bool* e
         return Status::OK();
     }
 
-    auto column_size = _tuple_desc->slots().size();
-    std::vector<MutableColumnPtr> columns(column_size);
-    for (size_t i = 0; i < column_size; i++) {
-        columns[i] = block->get_by_position(i).column->assume_mutable();
-    }
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
 
     size_t rows_before = columns[0]->size();
     const int batch_size = _state->batch_size();

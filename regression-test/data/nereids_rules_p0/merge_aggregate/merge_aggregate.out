@@ -302,3 +302,8 @@ PhysicalResultSink
 8	5	5
 9	3	3
 
+-- !duplicate_alias_distinct_result --
+1	1	3
+2	2	3
+3	3	0
+

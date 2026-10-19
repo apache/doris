@@ -36,8 +36,8 @@ suite("test_expr_in_null", "p0"){
         insert into ${indexTblName} values (3, '192.168.1.3');
     """
 
-    
-    sql """ set enable_common_expr_pushdown = true """
+
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_inverted_index_query = true """
 
     qt_sql """

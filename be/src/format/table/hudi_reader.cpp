@@ -29,8 +29,9 @@ namespace doris {
 Status HudiParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
     // Get parquet file metadata schema (file already opened by init_reader)
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
@@ -58,8 +59,9 @@ Status HudiParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 Status HudiOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
     // Get ORC file type (file already opened by init_reader)
     const orc::Type* orc_type_ptr = nullptr;
     RETURN_IF_ERROR(get_file_type(&orc_type_ptr));

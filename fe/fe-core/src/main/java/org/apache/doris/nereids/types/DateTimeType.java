@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import java.time.DateTimeException;
@@ -43,6 +44,15 @@ public class DateTimeType extends DateLikeType {
 
     private DateTimeType(boolean shouldConversion) {
         this.shouldConversion = shouldConversion;
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // BE converts DATETIME to YYYYMMDDHHMMSS for numeric targets. This 14-digit integer fits
+        // in BIGINT and remains exact in DOUBLE because it is below 2^53.
+        return target instanceof DateTimeType || target instanceof DateTimeV2Type
+                || target instanceof BigIntType || target instanceof LargeIntType
+                || target instanceof DoubleType || target instanceof CharacterType;
     }
 
     @Override

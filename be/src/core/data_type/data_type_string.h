@@ -55,10 +55,6 @@ public:
     }
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRING;
-    }
-
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -83,11 +79,7 @@ public:
     };
     bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
     int len() const { return _len; }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        if (_primitive_type == TYPE_CHAR || _primitive_type == TYPE_VARCHAR) {
-            scalar_type->set_len(_len);
-        }
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         IDataType::to_thrift(thrift_type, node);

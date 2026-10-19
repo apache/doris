@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "common/util.h"
 
@@ -47,6 +48,11 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri);
 HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* ctrl);
 
 HttpResponse process_http_encode_key(const brpc::URI& uri);
+
+// The order is unspecified. These lists let callers verify that tooling covers every registered
+// key type without duplicating the registry itself.
+std::vector<std::string_view> get_supported_http_key_types();
+std::vector<std::string_view> get_supported_http_versioned_key_types();
 
 /// Return the query value or an empty string if not exists.
 inline static std::string_view http_query(const brpc::URI& uri, const char* name) {
@@ -70,8 +76,10 @@ inline static HttpResponse http_json_reply_message(const MetaServiceResponseStat
 
 inline static HttpResponse http_text_reply(MetaServiceCode code, const std::string& msg,
                                            const std::string& body) {
-    auto [status_code, _] = convert_ms_code_to_http_code(code);
-    return {status_code, msg, body};
+    auto [status_code, status_msg] = convert_ms_code_to_http_code(code);
+    std::string response_msg =
+            code == MetaServiceCode::OK && msg.empty() ? std::string(status_msg) : msg;
+    return {.status_code = status_code, .msg = std::move(response_msg), .body = body};
 }
 
 inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& status,

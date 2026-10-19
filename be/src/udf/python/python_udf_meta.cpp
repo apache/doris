@@ -19,6 +19,7 @@
 
 #include <arrow/util/base64.h>
 #include <fmt/core.h>
+#include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
@@ -33,9 +34,10 @@ namespace doris {
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
     arrow::SchemaBuilder builder;
+    const DorisArrowSchemaConvertor schema_convertor(timezone);
     for (size_t i = 0; i < types.size(); ++i) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(types[i], &arrow_type, timezone));
+        RETURN_IF_ERROR(schema_convertor.convert_to_arrow_type(types[i], &arrow_type));
         std::shared_ptr<arrow::Field> field = std::make_shared<arrow::Field>(
                 "arg" + std::to_string(i), arrow_type, types[i]->is_nullable());
         RETURN_DORIS_STATUS_IF_ERROR(builder.AddField(field));
@@ -55,6 +57,7 @@ Status PythonUDFMeta::serialize_arrow_schema(const std::shared_ptr<arrow::Schema
     json format:
     {
         "name": "xxx",
+        "id": 123,
         "symbol": "xxx",
         "location": "xxx",
         "udf_load_type": 0 or 1,
@@ -71,6 +74,7 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     doc.SetObject();
     auto& allocator = doc.GetAllocator();
     doc.AddMember("name", rapidjson::Value().SetString(name.c_str(), allocator), allocator);
+    doc.AddMember("id", rapidjson::Value().SetInt64(id), allocator);
     doc.AddMember("symbol", rapidjson::Value().SetString(symbol.c_str(), allocator), allocator);
     doc.AddMember("location", rapidjson::Value().SetString(location.c_str(), allocator), allocator);
     doc.AddMember("udf_load_type", rapidjson::Value().SetInt(static_cast<int>(type)), allocator);

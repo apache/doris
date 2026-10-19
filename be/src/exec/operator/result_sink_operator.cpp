@@ -24,7 +24,6 @@
 
 #include "common/config.h"
 #include "exec/operator/operator.h"
-#include "exec/rowid_fetcher.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
@@ -40,7 +39,6 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _fetch_row_id_timer = ADD_TIMER(custom_profile(), "FetchRowIdTime");
     _write_data_timer = ADD_TIMER(custom_profile(), "WriteDataTime");
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), timer_name, 1);
@@ -56,8 +54,8 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     } else {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
-                                                            state->timezone()));
+            RETURN_IF_ERROR(p._arrow_schema_convertor->get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema));
         }
         VLOG_DEBUG << "create sender in INIT with instance id " << fragment_instance_id;
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
@@ -101,12 +99,13 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
+          _enable_arrow_type_metadata(sink.__isset.enable_arrow_type_metadata &&
+                                      sink.enable_arrow_type_metadata),
           _result_sink_buffer_size_rows(_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL
                                                 ? config::arrow_flight_result_sink_buffer_size_rows
                                                 : RESULT_SINK_BUFFER_SIZE),
           _row_desc(row_desc),
-          _t_output_expr(t_output_expr),
-          _fetch_option(sink.fetch_option) {
+          _t_output_expr(t_output_expr) {
     _name = "ResultSink";
 }
 
@@ -118,11 +117,22 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
 
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
+        // Capability negotiation selects one immutable policy for schema fetches and batches.
+        if (_enable_arrow_type_metadata) {
+            _arrow_schema_convertor =
+                    std::make_shared<ArrowFlightSchemaConvertor>(state->timezone());
+        } else {
+            _arrow_schema_convertor =
+                    std::make_shared<LegacyArrowFlightSchemaConvertor>(state->timezone());
+        }
+    }
+
     if (state->query_options().enable_parallel_result_sink) {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
-                                                            state->timezone()));
+            RETURN_IF_ERROR(_arrow_schema_convertor->get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema));
         }
         VLOG_DEBUG << "create sender in prepare with query id " << state->query_id();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
@@ -132,37 +142,14 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
+Status ResultSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
-    if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
-        SCOPED_TIMER(local_state._fetch_row_id_timer);
-        RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
-    }
     {
         SCOPED_TIMER(local_state._write_data_timer);
         RETURN_IF_ERROR(local_state._writer->write(state, *block));
     }
-    if (_fetch_option.use_two_phase_fetch) {
-        // Block structure may be changed by calling _second_phase_fetch_data().
-        // So we should clear block in case of unmatched columns
-        block->clear();
-    }
-    return Status::OK();
-}
-
-Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state, Block* final_block) {
-    auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
-    CHECK(row_id_col.name == BeConsts::ROWID_COL);
-    auto* tuple_desc = _row_desc.tuple_descriptors()[0];
-    FetchOption fetch_option;
-    fetch_option.desc = tuple_desc;
-    fetch_option.t_fetch_opt = _fetch_option;
-    fetch_option.runtime_state = state;
-    RowIDFetcher id_fetcher(fetch_option);
-    RETURN_IF_ERROR(id_fetcher.init());
-    RETURN_IF_ERROR(id_fetcher.fetch(row_id_col.column, final_block));
     return Status::OK();
 }
 

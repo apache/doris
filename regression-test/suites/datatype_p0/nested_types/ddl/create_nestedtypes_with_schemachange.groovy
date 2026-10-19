@@ -16,11 +16,13 @@
 // under the License.
 
 suite("create_nestedtypes_with_schemachange", "p0") {
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     def create_nested_table_and_schema_change = {testTablex, nested_type, column_name, error ->
         // create basic type
         sql "set default_variant_max_subcolumns_count = 0"
         sql "set default_variant_enable_typed_paths_to_sparse = false"
-        sql "set default_variant_max_sparse_column_statistics_size = 0"
+        sql "set default_variant_max_sparse_column_statistics_size = 1"
         sql "set default_variant_sparse_hash_shard_count = 0"
         sql "set default_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS $testTablex"
@@ -88,9 +90,10 @@ suite("create_nestedtypes_with_schemachange", "p0") {
                   'light_schema_change' = 'true', 'disable_auto_compaction'='true'
                 ); """
         // insert data
-        sql """ INSERT INTO $testTablex VALUES (1, 2, array(1, 2), map(1, 2), named_struct('f1', 1), '{"a": [1,2,3]}')"""
+        sql """ INSERT INTO $testTablex VALUES (1, 2, array(1, 2), map(1, 2), named_struct('f1', 1), ${variantV2Function}('{"a": [1,2,3]}'))"""
         // select
-        qt_sql_before "select * from $testTablex"
+        qt_sql_before """select col0, col2, col3, col4, col5, cast(col6 as json)
+            from $testTablex"""
 
         if (notNull2Null) {
             sql "ALTER TABLE $testTablex MODIFY COLUMN $column_name $nested_type NULL"
@@ -107,7 +110,8 @@ suite("create_nestedtypes_with_schemachange", "p0") {
         }
         // desc table
         qt_master_sql "DESC $testTablex"
-        qt_sql_after "select * from $testTablex"
+        qt_sql_after """select col0, col2, col3, col4, col5, cast(col6 as json)
+            from $testTablex"""
     }
 
     // array

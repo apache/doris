@@ -22,7 +22,9 @@
 #include <cstddef>
 #include <string>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/types.h"
 #include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -127,14 +129,13 @@ Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
         } else {
             std::string ipv6_str = IPv6Value::to_string(col_data[i]);
             RETURN_IF_ERROR(checkArrowStatus(
                     string_builder.Append(ipv6_str.c_str(),
                                           cast_set<int, size_t, false>(ipv6_str.size())),
-                    column.get_name(), array_builder->type()->name()));
+                    column, *array_builder));
         }
     }
     return Status::OK();
@@ -143,6 +144,9 @@ Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const Nul
 Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();

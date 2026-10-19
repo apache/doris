@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -29,8 +31,10 @@ import java.util.List;
  * this rule aims to merge consecutive topN
  * <p>
  * topN - child topN
- * If child topN orderby list is prefix subList of topN =>
- * topN with limit = min(topN.limit, childTopN.limit), offset = topN.offset + childTopN.offset
+ * If one TopN orderby list is a prefix of the other =>
+ * merged TopN uses the longer orderby list, with
+ * topN with limit = min(topN.limit, max(childTopN.limit - topN.offset, 0)),
+ *         offset = topN.offset + childTopN.offset
  */
 public class MergeTopNs extends OneRewriteRuleFactory {
     @Override
@@ -40,16 +44,32 @@ public class MergeTopNs extends OneRewriteRuleFactory {
                     LogicalTopN<Plan> childTopN = topN.child();
                     List<OrderKey> orderKeys = topN.getOrderKeys();
                     List<OrderKey> childOrderKeys = childTopN.getOrderKeys();
-                    if (!orderKeys.subList(0, childOrderKeys.size()).equals(childOrderKeys)) {
-                        return null;
+                    int shortKeyLength = Math.min(orderKeys.size(), childOrderKeys.size());
+                    if (orderKeys.size() < childOrderKeys.size()) {
+                        if (!childOrderKeys.subList(0, shortKeyLength).equals(orderKeys)) {
+                            return null;
+                        }
+                        topN = topN.withOrderKeys(childOrderKeys);
+                    } else {
+                        if (!orderKeys.subList(0, childOrderKeys.size()).equals(childOrderKeys)) {
+                            return null;
+                        }
                     }
                     long offset = topN.getOffset();
                     long limit = topN.getLimit();
                     long childOffset = childTopN.getOffset();
                     long childLimit = childTopN.getLimit();
+                    if (Utils.addOverflows(offset, childOffset)) {
+                        throw new AnalysisException(
+                                "offset overflows long range when merging TopNs: " + offset + " + " + childOffset);
+                    }
                     long newOffset = offset + childOffset;
-                    // choose min limit
-                    long newLimit = Math.min(limit, childLimit);
+                    // The parent's offset is applied on top of the child's output, so only
+                    // (childLimit - offset) of the child's rows survive. Clamp the merged limit
+                    // by that remaining count; otherwise rows beyond the child's limit leak through
+                    // when the parent has a non-zero offset (DORIS-26301). Same semantics as
+                    // MergeLimits.mergeLimit for consecutive limits.
+                    long newLimit = Math.min(limit, Math.max(childLimit - offset, 0));
                     return topN.withLimitChild(newLimit, newOffset, childTopN.child());
                 }).toRule(RuleType.MERGE_TOP_N);
     }

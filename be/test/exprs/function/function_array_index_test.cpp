@@ -221,4 +221,29 @@ TEST(function_array_index_test, array_position) {
     }
 }
 
+TEST(function_array_index_test, const_arguments) {
+    TestArray vec = {Int32(1), Null(), Int32(3), Int32(1)};
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_ARRAY}, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
+        DataSet data_set = {{{vec, Int32(1)}, UInt8(1)}};
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>("array_contains", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT,
+                                    Consted {PrimitiveType::TYPE_INT}};
+        DataSet data_set = {{{vec, Null()}, Int64(2)}};
+        static_cast<void>(
+                check_function<DataTypeInt64, true>("array_position", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_ARRAY}, PrimitiveType::TYPE_INT,
+                                    Consted {PrimitiveType::TYPE_INT}};
+        DataSet data_set = {{{vec, Int32(1)}, Int64(2)}};
+        static_cast<void>(check_function<DataTypeInt64, true>("countequal", input_types, data_set));
+    }
+}
+
 } // namespace doris

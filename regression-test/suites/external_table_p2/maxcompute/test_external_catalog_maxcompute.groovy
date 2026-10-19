@@ -341,7 +341,8 @@ suite("test_external_catalog_maxcompute", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "test_connection" = "true"
             );
         """
 
@@ -379,7 +380,8 @@ suite("test_external_catalog_maxcompute", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "test_connection" = "true"
             );
         """
         sql """ switch `${mc_catalog_name}`; """

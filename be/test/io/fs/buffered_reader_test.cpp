@@ -22,13 +22,17 @@
 #include <gtest/gtest-test-part.h>
 #include <limits.h>
 
+#include <atomic>
 #include <memory>
 #include <ostream>
+#include <thread>
 
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "util/countdown_latch.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
@@ -102,7 +106,7 @@ public:
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                        const io::IOContext* io_ctx) override {
+                        const io::IOContext* /*io_ctx*/) override {
         if (offset >= _size) {
             *bytes_read = 0;
             return Status::OK();
@@ -118,6 +122,52 @@ private:
     size_t _size;
     bool _closed = false;
     io::Path _path = "/tmp/mock";
+};
+
+class BlockingFileReader : public io::FileReader {
+public:
+    BlockingFileReader(size_t size, CountDownLatch* read_started, CountDownLatch* continue_read,
+                       std::atomic<bool>* destroyed)
+            : _size(size),
+              _read_started(read_started),
+              _continue_read(continue_read),
+              _destroyed(destroyed) {}
+
+    ~BlockingFileReader() override { _destroyed->store(true); }
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+
+    const io::Path& path() const override { return _path; }
+
+    size_t size() const override { return _size; }
+
+    bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* /*io_ctx*/) override {
+        _read_started->count_down();
+        _continue_read->wait();
+        if (offset >= _size) {
+            *bytes_read = 0;
+            return Status::OK();
+        }
+        *bytes_read = std::min(_size - offset, result.size);
+        return Status::TimedOut("injected prefetch timeout");
+    }
+
+private:
+    size_t _size;
+    CountDownLatch* _read_started;
+    CountDownLatch* _continue_read;
+    std::atomic<bool>* _destroyed;
+    bool _closed = false;
+    io::Path _path = "/tmp/blocking";
 };
 
 class TestingRangeCacheFileReader : public io::FileReader {
@@ -300,6 +350,39 @@ TEST_F(BufferedReaderTest, test_miss) {
     EXPECT_TRUE(st.ok());
     EXPECT_STREQ("bdfhjlnprt", std::string((char*)buf, 10).c_str());
     EXPECT_EQ(45, bytes_read);
+}
+
+TEST_F(BufferedReaderTest, prefetch_task_keeps_reader_alive_after_close_timeout) {
+    const auto saved_timeout_ms = config::buffered_reader_read_timeout_ms;
+    config::buffered_reader_read_timeout_ms = 50;
+
+    CountDownLatch read_started(1);
+    CountDownLatch continue_read(1);
+    std::atomic<bool> reader_destroyed = false;
+    auto inner_reader = std::make_shared<BlockingFileReader>(1024, &read_started, &continue_read,
+                                                             &reader_destroyed);
+    auto weak_reader = std::weak_ptr<io::FileReader>(inner_reader);
+    {
+        io::PrefetchBufferedReader reader(nullptr, std::move(inner_reader),
+                                          io::PrefetchRange(0, 1024));
+        uint8_t buf[1];
+        size_t bytes_read = 0;
+        Status st = reader.read_at(0, Slice {buf, 1}, &bytes_read);
+        EXPECT_TRUE(st.is<ErrorCode::TIMEOUT>());
+        EXPECT_TRUE(read_started.wait_for(std::chrono::seconds(1)));
+        EXPECT_FALSE(reader_destroyed.load());
+    }
+    EXPECT_FALSE(reader_destroyed.load());
+    EXPECT_FALSE(weak_reader.expired());
+
+    continue_read.count_down();
+    for (int i = 0; i < 100 && !reader_destroyed.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(reader_destroyed.load());
+    EXPECT_TRUE(weak_reader.expired());
+
+    config::buffered_reader_read_timeout_ms = saved_timeout_ms;
 }
 
 TEST_F(BufferedReaderTest, test_read_amplify) {

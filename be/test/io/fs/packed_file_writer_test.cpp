@@ -172,6 +172,25 @@ TEST_F(PackedFileWriterTest, SwitchToDirectWrite) {
     EXPECT_GT(inner_writer_ptr->append_calls(), 0);
 }
 
+TEST_F(PackedFileWriterTest, SwitchToDirectWriteReleasesBufferedMemory) {
+    Path file_path("switch_file_release_buffer");
+    auto* inner_writer_ptr = _inner_writer.get();
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+
+    const size_t default_capacity = std::string().capacity();
+    std::string small_data(80, 'a');
+    Slice small_slice(small_data);
+    ASSERT_TRUE(writer.appendv(&small_slice, 1).ok());
+    EXPECT_GT(writer.buffer_capacity_for_test(), default_capacity);
+
+    std::string large_data(30, 'b');
+    Slice large_slice(large_data);
+    ASSERT_TRUE(writer.appendv(&large_slice, 1).ok());
+
+    EXPECT_GT(inner_writer_ptr->append_calls(), 0);
+    EXPECT_LE(writer.buffer_capacity_for_test(), default_capacity);
+}
+
 TEST_F(PackedFileWriterTest, CloseAsync) {
     Path file_path("async_file");
     PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
@@ -254,6 +273,29 @@ TEST_F(PackedFileWriterTest, EmptyAppend) {
     Status st = writer.appendv(&slice, 1);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(writer.bytes_appended(), 0);
+}
+
+TEST_F(PackedFileWriterTest, GetPackedSliceLocationThroughFileWriterInterface) {
+    // Callers only hold a FileWriter, which may be a wrapper around PackedFileWriter,
+    // so the location must be reachable through the virtual interface.
+    MockFileWriterForMerge plain_writer("plain_file");
+    ASSERT_TRUE(plain_writer.close(false).ok());
+    FileWriter* plain = &plain_writer;
+    PackedSliceLocation location;
+    location.packed_file_path = "stale";
+    ASSERT_TRUE(plain->get_packed_slice_location(&location).ok());
+    EXPECT_TRUE(location.packed_file_path.empty());
+
+    PackedFileWriter packed_writer(std::move(_inner_writer), Path("large_file"), _append_info);
+    FileWriter* writer = &packed_writer;
+    std::string data(150, 'x');
+    ASSERT_TRUE(writer->append(Slice(data)).ok());
+    ASSERT_TRUE(writer->close(false).ok());
+    ASSERT_EQ(writer->state(), FileWriter::State::CLOSED);
+
+    location.packed_file_path = "stale";
+    ASSERT_TRUE(writer->get_packed_slice_location(&location).ok());
+    EXPECT_TRUE(location.packed_file_path.empty());
 }
 
 } // namespace doris::io

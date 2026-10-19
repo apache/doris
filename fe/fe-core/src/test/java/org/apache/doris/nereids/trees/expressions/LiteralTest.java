@@ -17,27 +17,40 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.proto.Types.PGenericType;
 import org.apache.doris.proto.Types.PGenericType.TypeId;
 import org.apache.doris.proto.Types.PValues;
 
+import com.google.common.collect.ImmutableList;
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 
 class LiteralTest {
@@ -58,13 +71,99 @@ class LiteralTest {
     }
 
     @Test
+    public void testGetResultExpressionTimeStampNs() {
+        assertTimeStampNsResult(Long.MIN_VALUE, "1677-09-21 00:12:43.145224192");
+        assertTimeStampNsResult(123456800L, "1970-01-01 00:00:00.123456800");
+        assertTimeStampNsResult(-10L, "1969-12-31 23:59:59.999999990");
+        assertTimeStampNsResult(-1L, "1969-12-31 23:59:59.999999999");
+        assertTimeStampNsResult(Long.MAX_VALUE, "2262-04-11 23:47:16.854775807");
+    }
+
+    @Test
+    public void testGetResultExpressionNullableTimeStampNs() {
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.INT64).build())
+                .addInt64Value(-1L)
+                .addInt64Value(0L)
+                .setHasNull(true)
+                .addNullMap(false)
+                .addNullMap(true)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(TimeStampNsType.INSTANCE, values);
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("1969-12-31 23:59:59.999999999", result.get(0).getStringValue());
+        Assertions.assertInstanceOf(NullLiteral.class, result.get(1));
+    }
+
+    @Test
+    public void testGetResultExpressionNestedTimeStampNs() {
+        TimeStampNsType nanoType = TimeStampNsType.INSTANCE;
+        PGenericType int64Type = PGenericType.newBuilder().setId(TypeId.INT64).build();
+        PValues nanoValues = PValues.newBuilder()
+                .setType(int64Type)
+                .addInt64Value(-1L)
+                .addInt64Value(123456789L)
+                .build();
+        PValues arrayValues = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.LIST).build())
+                .addChildElement(nanoValues)
+                .addChildOffset(2)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(ArrayType.of(nanoType), arrayValues);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertTrue(result.get(0) instanceof ArrayLiteral);
+        List<Literal> items = ((ArrayLiteral) result.get(0)).getValue();
+        Assertions.assertEquals("1969-12-31 23:59:59.999999999",
+                ((TimeStampNsLiteral) items.get(0)).getStringValue());
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                ((TimeStampNsLiteral) items.get(1)).getStringValue());
+    }
+
+    @Test
+    public void testGetResultExpressionDateTimeV2AlongsideTimeStampNs() {
+        long packedDateTime = (2024L << 46) | (1L << 42) | (2L << 37)
+                | (3L << 32) | (4L << 26) | (5L << 20) | 123456L;
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.UINT64).build())
+                .addUint64Value(packedDateTime)
+                .addUint64Value(0)
+                .setHasNull(true)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(DateTimeV2Type.of(6), values);
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("2024-01-02 03:04:05.123456", result.get(0).getStringValue());
+        Assertions.assertInstanceOf(NullLiteral.class, result.get(1));
+    }
+
+    private void assertTimeStampNsResult(long epochNanos, String expected) {
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.INT64).build())
+                .addInt64Value(epochNanos)
+                .build();
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(TimeStampNsType.INSTANCE, values);
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, result.get(0));
+        TimeStampNsLiteral literal = (TimeStampNsLiteral) result.get(0);
+        Assertions.assertSame(TimeStampNsType.INSTANCE, literal.getDataType());
+        Assertions.assertEquals(expected, literal.getStringValue());
+    }
+
+    @Test
     public void testGetResultExpressionArrayInt() {
         int num = 10;
         Integer[] elementsArray = new Integer[num];
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType arrayType = ArrayType.of(IntegerType.INSTANCE, true);
+        DataType arrayType = ArrayType.of(IntegerType.INSTANCE);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -94,8 +193,8 @@ class LiteralTest {
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE, true);
-        DataType outArrayType = ArrayType.of(nestedArrayType, true);
+        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE);
+        DataType outArrayType = ArrayType.of(nestedArrayType);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -134,8 +233,8 @@ class LiteralTest {
         for (int i = 0; i < elementsArray.length; ++i) {
             elementsArray[i] = i;
         }
-        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE, true);
-        DataType outArrayType = ArrayType.of(nestedArrayType, true);
+        DataType nestedArrayType = ArrayType.of(IntegerType.INSTANCE);
+        DataType outArrayType = ArrayType.of(nestedArrayType);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -182,7 +281,7 @@ class LiteralTest {
             elementsArray[i] = i;
             nullMap[i] = (i % 2 == 1);
         }
-        DataType arrayType = ArrayType.of(IntegerType.INSTANCE, true);
+        DataType arrayType = ArrayType.of(IntegerType.INSTANCE);
         PGenericType.Builder childTypeBuilder = PGenericType.newBuilder();
         childTypeBuilder.setId(TypeId.INT32);
         PGenericType.Builder typeBuilder = PGenericType.newBuilder();
@@ -306,5 +405,104 @@ class LiteralTest {
         Assertions.assertTrue(resultExpression.get(0).isLiteral());
         // STRUCT('col1':[0, 2, 4, 6, 8],'col2':['str1', 'str3', 'str5', 'str7', 'str9'])
         System.out.println(resultExpression.get(0).toString());
+    }
+
+    @Test
+    public void testGetResultExpressionStringKeepsItsBytes() {
+        // BE sends the bytes of a string result as they are. Valid UTF-8, including a NUL byte, a supplementary
+        // character (U+1F600) and U+FFFD itself, folds to a literal with the same bytes.
+        List<String> hexes = ImmutableList.of("", "61", "C3A9", "610062", "F09F9880", "EFBFBD");
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(StringType.INSTANCE, stringValues(hexes));
+        Assertions.assertEquals(hexes, stringLeaves(result));
+    }
+
+    @Test
+    public void testGetResultExpressionLeavesInvalidUtf8Unfolded() {
+        // A FE string literal cannot hold these bytes: 0xFF (unhex('FF')), a truncated sequence, an overlong NUL
+        // and a UTF-16 surrogate. Decoding them would give U+FFFD, so neither the string nor an array, a map or
+        // a struct holding it is folded, and BE evaluates the expression.
+        for (String invalid : ImmutableList.of("FF", "61FF", "C3", "C080", "EDA080")) {
+            for (Pair<DataType, PValues> result : stringResults(invalid)) {
+                Assertions.assertEquals(ImmutableList.of(), org.apache.doris.nereids.rules.expression.rules
+                        .FoldConstantRuleOnBE.getResultExpression(result.first, result.second),
+                        invalid + " in " + result.first);
+            }
+        }
+        // The same results fold when the bytes are valid UTF-8, here 'é' (C3A9).
+        for (Pair<DataType, PValues> result : stringResults("C3A9")) {
+            Assertions.assertEquals(ImmutableList.of("61", "C3A9"), stringLeaves(org.apache.doris.nereids.rules
+                    .expression.rules.FoldConstantRuleOnBE.getResultExpression(result.first, result.second)),
+                    result.first.toString());
+        }
+    }
+
+    // Results of each shape that hold the strings 'a' and the bytes of secondHex, laid out as BE writes them.
+    private static List<Pair<DataType, PValues>> stringResults(String secondHex) {
+        PValues strings = stringValues(ImmutableList.of("61", secondHex));
+        PValues ints = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.INT32).build())
+                .addInt32Value(1)
+                .addInt32Value(2)
+                .build();
+        PValues array = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.LIST).build())
+                .addChildElement(strings)
+                .addChildOffset(2)
+                .build();
+        PValues stringKeyMap = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.MAP).build())
+                .addChildElement(strings)
+                .addChildElement(ints)
+                .addChildOffset(2)
+                .build();
+        PValues stringValueMap = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.MAP).build())
+                .addChildElement(ints)
+                .addChildElement(strings)
+                .addChildOffset(2)
+                .build();
+        PValues struct = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.STRUCT).build())
+                .addChildElement(ints)
+                .addChildElement(strings)
+                .build();
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("i", IntegerType.INSTANCE, true, ""),
+                new StructField("s", StringType.INSTANCE, true, "")));
+        return ImmutableList.of(
+                Pair.of(StringType.INSTANCE, strings),
+                Pair.of(VarcharType.createVarcharType(10), strings),
+                Pair.of(CharType.createCharType(10), strings),
+                Pair.of(ArrayType.of(StringType.INSTANCE), array),
+                Pair.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), stringKeyMap),
+                Pair.of(MapType.of(IntegerType.INSTANCE, StringType.INSTANCE), stringValueMap),
+                Pair.of(structType, struct));
+    }
+
+    private static PValues stringValues(List<String> hexes) {
+        PValues.Builder builder = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.STRING).build());
+        hexes.forEach(hex -> builder.addStringValueBytes(ByteString.copyFrom(HexFormat.of().parseHex(hex))));
+        return builder.build();
+    }
+
+    // The UTF-8 bytes, in hex, of the string literals in the results, in the order the results hold them.
+    private static List<String> stringLeaves(List<? extends Literal> literals) {
+        List<String> leaves = new ArrayList<>();
+        for (Literal literal : literals) {
+            if (literal instanceof StringLiteral) {
+                leaves.add(HexFormat.of().withUpperCase()
+                        .formatHex(((StringLiteral) literal).getValue().getBytes(StandardCharsets.UTF_8)));
+            } else if (literal instanceof ArrayLiteral) {
+                leaves.addAll(stringLeaves(((ArrayLiteral) literal).getValue()));
+            } else if (literal instanceof StructLiteral) {
+                leaves.addAll(stringLeaves(((StructLiteral) literal).getValue()));
+            } else if (literal instanceof MapLiteral) {
+                ((MapLiteral) literal).getValue().forEach((key, value) ->
+                        leaves.addAll(stringLeaves(ImmutableList.of(key, value))));
+            }
+        }
+        return leaves;
     }
 }

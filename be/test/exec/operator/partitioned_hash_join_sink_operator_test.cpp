@@ -60,6 +60,32 @@ protected:
     PartitionedHashJoinTestHelper _helper;
 };
 
+namespace {
+
+constexpr auto CANCEL_REASON = "partitioned hash join sink cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+} // namespace
+
+TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto* local_state = _helper.create_sink_local_state(_helper.runtime_state.get(),
+                                                        sink_operator.get(), shared_state);
+    ASSERT_NE(local_state, nullptr);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(sink_operator->revoke_memory(_helper.runtime_state.get()));
+}
+
 TEST_F(PartitionedHashJoinSinkOperatorTest, Init) {
     TPlanNode tnode = _helper.create_test_plan_node();
     const DescriptorTbl& desc_tbl = _helper.runtime_state->desc_tbl();
@@ -304,19 +330,20 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {1});
     child->_row_descriptor = row_desc;
-    EXPECT_EQ(child->row_desc().num_slots(), 1);
+    EXPECT_EQ(child->operator_row_desc_after_projection().num_slots(), 1);
 
     const auto& tnode = sink_operator->_tnode;
     // prepare and set partitioner
     auto partitioner = std::make_unique<SpillPartitionerType>(sink_operator->_partition_count);
     auto status = partitioner->init({tnode.hash_join_node.eq_join_conjuncts[0].right});
     ASSERT_TRUE(status.ok()) << "Init partitioner failed: " << status.to_string();
-    status = partitioner->prepare(_helper.runtime_state.get(), sink_operator->_child->row_desc());
+    status = partitioner->prepare(_helper.runtime_state.get(),
+                                  sink_operator->_child->operator_row_desc_after_projection());
     ASSERT_TRUE(status.ok()) << "Prepare partitioner failed: " << status.to_string();
     sink_state->_partitioner = std::move(partitioner);
     sink_state->_shared_state->_is_spilled = false;
 
-    DCHECK_GE(sink_operator->_child->row_desc().get_column_id(1), 0);
+    DCHECK_GE(sink_operator->_child->operator_row_desc_after_projection().get_column_id(1), 0);
 
     for (uint32_t i = 0; i != sink_operator->_partition_count; ++i) {
         auto& spilling_file = sink_state->_shared_state->_spilled_build_groups[i];
@@ -388,7 +415,8 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemoryMultipleCycles) {
     auto partitioner = std::make_unique<SpillPartitionerType>(sink_operator->_partition_count);
     auto status = partitioner->init({tnode.hash_join_node.eq_join_conjuncts[0].right});
     ASSERT_TRUE(status.ok());
-    status = partitioner->prepare(_helper.runtime_state.get(), sink_operator->_child->row_desc());
+    status = partitioner->prepare(_helper.runtime_state.get(),
+                                  sink_operator->_child->operator_row_desc_after_projection());
     ASSERT_TRUE(status.ok());
     sink_state->_partitioner = std::move(partitioner);
     sink_state->_shared_state->_is_spilled = false;

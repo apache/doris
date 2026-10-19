@@ -39,11 +39,7 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::ACCEPTABLE;
-    }
-
-    bool _should_push_down_common_expr() override { return true; }
+    bool _should_push_down_common_expr(const VExprSPtr&) override { return true; }
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
@@ -88,7 +84,13 @@ public:
         _output_blocks.push_back(std::move(block));
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    // Mirrors the constructor of ScanOperatorX: the shared counter starts at the SQL LIMIT.
+    void set_limit_for_test(int64_t limit) {
+        _limit = limit;
+        _shared_scan_limit.store(limit, std::memory_order_relaxed);
+    }
+
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         if (_output_blocks.empty()) {
             *eos = true;
             return Status::OK();
@@ -106,5 +108,10 @@ public:
 private:
     std::list<Block> _output_blocks;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<MockScanLocalState>;
+extern template class ScanLocalState<MockScanLocalState>;
+
 } // namespace doris
 #endif

@@ -49,7 +49,7 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/field.h"
+#include "storage/index/index_writer.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -77,6 +77,15 @@ static StorageEngine* engine_ref = nullptr;
 class OrderedDataCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        _saved_enable_ordered_data_compaction = config::enable_ordered_data_compaction;
+        _saved_ordered_data_compaction_min_segment_size =
+                config::ordered_data_compaction_min_segment_size;
+        _saved_segments_key_bounds_truncation_threshold =
+                config::segments_key_bounds_truncation_threshold;
+        config::enable_ordered_data_compaction = true;
+        config::ordered_data_compaction_min_segment_size = 10;
+        config::segments_key_bounds_truncation_threshold = -1;
+
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
@@ -103,15 +112,23 @@ protected:
         _data_dir = std::make_unique<DataDir>(*engine_ref, absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
-        config::enable_ordered_data_compaction = true;
-        config::ordered_data_compaction_min_segment_size = 10;
-        config::segments_key_bounds_truncation_threshold = -1;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        // Otherwise the relaxed minimum segment size leaks into every later suite and sends its
+        // compactions down the ordered link-file path instead of a real merge.
+        config::enable_ordered_data_compaction = _saved_enable_ordered_data_compaction;
+        config::ordered_data_compaction_min_segment_size =
+                _saved_ordered_data_compaction_min_segment_size;
+        config::segments_key_bounds_truncation_threshold =
+                _saved_segments_key_bounds_truncation_threshold;
     }
+
+    bool _saved_enable_ordered_data_compaction = true;
+    int32_t _saved_ordered_data_compaction_min_segment_size = 0;
+    int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -304,8 +321,8 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
                 int32_t c2 = std::get<1>(rowset_data[i][rid]);
@@ -318,6 +335,7 @@ protected:
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -450,19 +468,6 @@ protected:
         }
     }
 
-    void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
-        block->clear();
-        Schema schema(tablet_schema);
-        const auto& column_ids = schema.column_ids();
-        for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-            auto column_desc = schema.column(column_ids[i]);
-            auto data_type = Schema::get_data_type_ptr(*column_desc);
-            EXPECT_TRUE(data_type != nullptr);
-            auto column = data_type->create_column();
-            block->insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
-        }
-    }
-
 private:
     const std::string kTestDir = "/ut_dir/ordered_compaction_test";
     const std::string tmp_dir = "./ut_dir/ordered_compaction_test/tmp";
@@ -504,10 +509,15 @@ TEST_F(OrderedDataCompactionTest, test_01) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    std::vector<uint32_t> return_columns = {0, 1};
-    reader_context.return_columns = &return_columns;
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
+    reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
@@ -517,7 +527,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     Status s = Status::OK();
     do {
-        block_create(tablet_schema, &output_block);
+        output_block = read_schema->create_read_block();
         s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
@@ -573,8 +583,8 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
 
         uint32_t num_rows = 0;
         for (int j = 0; j < input_data[i].size(); ++j) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < input_data[i][j].size(); ++rid) {
                 int32_t c1 = std::get<0>(input_data[i][j][rid]);
                 int32_t c2 = std::get<1>(input_data[i][j][rid]);
@@ -587,6 +597,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();

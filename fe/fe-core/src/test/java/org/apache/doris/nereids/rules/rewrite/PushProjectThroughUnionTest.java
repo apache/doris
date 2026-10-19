@@ -27,8 +27,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -105,6 +109,76 @@ public class PushProjectThroughUnionTest {
                                 + row + ", col=" + col + ", id=" + cid);
             }
         }
+    }
+
+    @Test
+    public void testCastProjectPushThroughUnionByQualifierAndSafety() {
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Alias castProject = new Alias(new ExprId(100),
+                new Cast(unionOutput, BigIntType.INSTANCE), "n");
+        ImmutableList<NamedExpression> projects = ImmutableList.of(castProject);
+
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(projects, unionAll));
+
+        LogicalUnion unionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(projects, unionDistinct));
+
+        SlotReference dateTimeOutput = new SlotReference(new ExprId(11), "dt",
+                DateTimeType.INSTANCE, true, ImmutableList.of());
+        Alias unsafeCastProject = new Alias(new ExprId(101),
+                new Cast(dateTimeOutput, DateType.INSTANCE), "d");
+        ImmutableList<NamedExpression> unsafeProjects = ImmutableList.of(unsafeCastProject);
+
+        LogicalUnion unionAllWithUnsafeCast = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(dateTimeOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(unsafeProjects, unionAllWithUnsafeCast));
+
+        LogicalUnion unionDistinctWithUnsafeCast = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(dateTimeOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(unsafeProjects, unionDistinctWithUnsafeCast));
+
+        SlotReference arrayOutput = new SlotReference(new ExprId(12), "a",
+                ArrayType.of(StringType.INSTANCE), true, ImmutableList.of());
+        Alias arrayToStringProject = new Alias(new ExprId(102),
+                new Cast(arrayOutput, StringType.INSTANCE), "s");
+        ImmutableList<NamedExpression> arrayProjects = ImmutableList.of(arrayToStringProject);
+        LogicalUnion arrayUnionAll = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(arrayOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(arrayProjects, arrayUnionAll));
+
+        // ARRAY text serialization is ambiguous: ARRAY('a", "b') and ARRAY('a', 'b') both
+        // produce ["a", "b"]. Pushing this cast below DISTINCT would collapse two input rows.
+        LogicalUnion arrayUnionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(arrayOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(arrayProjects, arrayUnionDistinct));
+    }
+
+    @Test
+    public void testDistinctProjectRequiresAllOutputSlotsExactlyOnce() {
+        SlotReference firstOutput = new SlotReference(new ExprId(10), "a",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference secondOutput = new SlotReference(new ExprId(11), "b",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        ImmutableList<NamedExpression> outputs = ImmutableList.of(firstOutput, secondOutput);
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL,
+                outputs, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        LogicalUnion unionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                outputs, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+
+        ImmutableList<NamedExpression> duplicateProjects = ImmutableList.of(
+                new Alias(new ExprId(100), new Cast(firstOutput, BigIntType.INSTANCE), "a1"),
+                new Alias(new ExprId(101), new Cast(firstOutput, BigIntType.INSTANCE), "a2"));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(duplicateProjects, unionAll));
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(duplicateProjects, unionDistinct));
+
+        ImmutableList<NamedExpression> permutationProjects = ImmutableList.of(
+                new Alias(new ExprId(102), new Cast(secondOutput, BigIntType.INSTANCE), "b"),
+                new Alias(new ExprId(103), new Cast(firstOutput, BigIntType.INSTANCE), "a"));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(permutationProjects, unionDistinct));
     }
 
     private LogicalUnion findUnion(Plan p) {

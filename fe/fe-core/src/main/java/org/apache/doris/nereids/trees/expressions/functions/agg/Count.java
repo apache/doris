@@ -37,7 +37,8 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -92,11 +93,27 @@ public class Count extends NotNullableAggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (distinct && (argument.getDataType().isComplexType()
-                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
-                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
+            if (distinct) {
+                checkDistinctArgument(argument, this);
             }
         }
+    }
+
+    static void checkDistinctArgument(Expression argument, Expression function) {
+        DataType argumentType = argument.getDataType();
+        if (isUnsupportedDistinctArgument(argumentType)) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
+        return argumentType.isComplexType()
+                || argumentType.isObjectType()
+                || argumentType.isJsonType();
+    }
+
+    private static void throwDistinctArgumentException(Expression function) {
+        throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
     }
 
     public boolean isStar() {
@@ -171,7 +188,8 @@ public class Count extends NotNullableAggregateFunction
         if (this.isDistinct()) {
             return new BitmapUnionCount(param);
         } else {
-            return new Sum(param);
+            // sum0, not sum: count returns 0 on empty input while sum returns NULL
+            return new Sum0(param);
         }
     }
 

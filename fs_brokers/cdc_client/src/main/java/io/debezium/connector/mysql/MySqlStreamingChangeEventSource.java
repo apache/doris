@@ -84,12 +84,20 @@ import java.util.function.Predicate;
 import static io.debezium.util.Strings.isNullOrEmpty;
 
 /**
- * Copied from FlinkCDC project(3.5.0).
+ * Copied from FlinkCDC project(3.6.0).
  *
- * <p>Line 924 : change Log Level info to debug.
+ * <p>Line 940 : change Log Level info to debug.
+ *
+ * <p>Line 420 : exclude OceanBase heartbeat events from restart event counting.
+ *
+ * <p>Line 245 : use the Debezium progress heartbeat for the MySQL protocol heartbeat, capped by
+ * the keepalive-safe interval.
  */
 public class MySqlStreamingChangeEventSource
         implements StreamingChangeEventSource<MySqlPartition, MySqlOffsetContext> {
+
+    public static final String EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT =
+            "doris.cdc.exclude.heartbeat.from.event.count";
 
     private static final Logger LOGGER =
             LoggerFactory.getLogger(MySqlStreamingChangeEventSource.class);
@@ -103,6 +111,7 @@ public class MySqlStreamingChangeEventSource
     private final Clock clock;
     private final EventProcessingFailureHandlingMode eventDeserializationFailureHandlingMode;
     private final EventProcessingFailureHandlingMode inconsistentSchemaHandlingMode;
+    private final boolean excludeHeartbeatFromEventCount;
 
     private int startingRowNumber = 0;
     private long initialEventsToSkip = 0L;
@@ -226,17 +235,19 @@ public class MySqlStreamingChangeEventSource
             }
         }
         Configuration configuration = connectorConfig.getConfig();
+        excludeHeartbeatFromEventCount =
+                configuration.getBoolean(EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT, false);
         client.setKeepAlive(configuration.getBoolean(MySqlConnectorConfig.KEEP_ALIVE));
         final long keepAliveInterval =
                 configuration.getLong(MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS);
         client.setKeepAliveInterval(keepAliveInterval);
-        // Considering heartbeatInterval should be less than keepAliveInterval, we use the
-        // heartbeatIntervalFactor
-        // multiply by keepAliveInterval and set the result value to heartbeatInterval.The default
-        // value of heartbeatIntervalFactor
-        // is 0.8, and we believe the left time (0.2 * keepAliveInterval) is enough to process the
-        // packet received from the MySQL server.
-        client.setHeartbeatInterval((long) (keepAliveInterval * heartbeatIntervalFactor));
+        final long maxHeartbeatInterval =
+                (long) (keepAliveInterval * heartbeatIntervalFactor);
+        final long heartbeatInterval = connectorConfig.getHeartbeatInterval().toMillis();
+        client.setHeartbeatInterval(
+                heartbeatInterval > 0
+                        ? Math.min(heartbeatInterval, maxHeartbeatInterval)
+                        : maxHeartbeatInterval);
 
         boolean filterDmlEventsByGtidSource =
                 configuration.getBoolean(MySqlConnectorConfig.GTID_SOURCE_FILTER_DML_EVENTS);
@@ -408,7 +419,10 @@ public class MySqlStreamingChangeEventSource
             eventDispatcher.dispatchHeartbeatEvent(partition, offsetContext);
 
             // Capture that we've completed another event ...
-            offsetContext.completeEvent();
+            // OceanBase heartbeat events must not participate in restart event counting.
+            if (shouldCompleteEvent(excludeHeartbeatFromEventCount, eventType)) {
+                offsetContext.completeEvent();
+            }
 
             // update last offset used for logging
             lastOffset = offsetContext.getOffset();
@@ -519,6 +533,11 @@ public class MySqlStreamingChangeEventSource
         } else {
             LOGGER.error("Server incident: {}", event);
         }
+    }
+
+    static boolean shouldCompleteEvent(
+            boolean excludeHeartbeatFromEventCount, EventType eventType) {
+        return !excludeHeartbeatFromEventCount || eventType != EventType.HEARTBEAT;
     }
 
     /**
@@ -937,11 +956,18 @@ public class MySqlStreamingChangeEventSource
             int count = 0;
             int numRows = rows.size();
             if (startingRowNumber < numRows) {
-                for (int row = startingRowNumber; row != numRows; ++row) {
-                    offsetContext.setRowNumber(row, numRows);
-                    offsetContext.event(tableId, eventTimestamp);
-                    changeEmitter.emit(tableId, rows.get(row));
-                    count++;
+                // Use iterator to avoid O(n²) complexity when rows is a LinkedList
+                // (mysql-binlog-connector-java uses LinkedList in WriteRowsEventDataDeserializer
+                // and DeleteRowsEventDataDeserializer)
+                int rowIndex = 0;
+                for (U rowData : rows) {
+                    if (rowIndex >= startingRowNumber) {
+                        offsetContext.setRowNumber(rowIndex, numRows);
+                        offsetContext.event(tableId, eventTimestamp);
+                        changeEmitter.emit(tableId, rowData);
+                        count++;
+                    }
+                    rowIndex++;
                 }
                 if (LOGGER.isDebugEnabled()) {
                     if (startingRowNumber != 0) {
@@ -1273,8 +1299,8 @@ public class MySqlStreamingChangeEventSource
 
                     keyManagers = kmf.getKeyManagers();
                 } catch (KeyStoreException
-                         | NoSuchAlgorithmException
-                         | UnrecoverableKeyException e) {
+                        | NoSuchAlgorithmException
+                        | UnrecoverableKeyException e) {
                     throw new DebeziumException("Could not load keystore", e);
                 }
             }
@@ -1288,23 +1314,23 @@ public class MySqlStreamingChangeEventSource
                 if (ks == null && (sslMode == SSLMode.PREFERRED || sslMode == SSLMode.REQUIRED)) {
                     trustManagers =
                             new TrustManager[] {
-                                    new X509TrustManager() {
+                                new X509TrustManager() {
 
-                                        @Override
-                                        public void checkClientTrusted(
-                                                X509Certificate[] x509Certificates, String s)
-                                                throws CertificateException {}
+                                    @Override
+                                    public void checkClientTrusted(
+                                            X509Certificate[] x509Certificates, String s)
+                                            throws CertificateException {}
 
-                                        @Override
-                                        public void checkServerTrusted(
-                                                X509Certificate[] x509Certificates, String s)
-                                                throws CertificateException {}
+                                    @Override
+                                    public void checkServerTrusted(
+                                            X509Certificate[] x509Certificates, String s)
+                                            throws CertificateException {}
 
-                                        @Override
-                                        public X509Certificate[] getAcceptedIssuers() {
-                                            return new X509Certificate[0];
-                                        }
+                                    @Override
+                                    public X509Certificate[] getAcceptedIssuers() {
+                                        return new X509Certificate[0];
                                     }
+                                }
                             };
                 } else {
                     TrustManagerFactory tmf =
@@ -1402,7 +1428,6 @@ public class MySqlStreamingChangeEventSource
         GtidSet mergedGtidSet;
 
         if (connectorConfig.gtidNewChannelPosition() == GtidNewChannelPosition.EARLIEST) {
-            final GtidSet knownGtidSet = filteredGtidSet;
             LOGGER.info("Using first available positions for new GTID channels");
             final GtidSet relevantAvailableServerGtidSet =
                     (gtidSourceFilter != null)
@@ -1422,14 +1447,16 @@ public class MySqlStreamingChangeEventSource
             // recorded offset in the checkpoint, and the available GTID for other MySQL instances
             // should be completed.
             mergedGtidSet =
-                    GtidUtils.fixRestoredGtidSet(
-                            GtidUtils.mergeGtidSetInto(
-                                    relevantAvailableServerGtidSet.retainAll(
-                                            uuid -> knownGtidSet.forServerWithId(uuid) != null),
-                                    purgedServerGtid),
-                            filteredGtidSet);
+                    GtidUtils.fixOldChannelsGtidSet(
+                            relevantAvailableServerGtidSet, purgedServerGtid, filteredGtidSet);
         } else {
-            mergedGtidSet = availableServerGtidSet.with(filteredGtidSet);
+            LOGGER.info("Using latest positions for new GTID channels");
+            mergedGtidSet =
+                    GtidUtils.computeLatestModeGtidSet(
+                            availableServerGtidSet,
+                            purgedServerGtid,
+                            filteredGtidSet,
+                            gtidSourceFilter);
         }
 
         LOGGER.info("Final merged GTID set to use when connecting to MySQL: {}", mergedGtidSet);

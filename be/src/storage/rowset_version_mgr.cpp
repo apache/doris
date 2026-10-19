@@ -39,6 +39,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "runtime/cluster_info.h"
 #include "service/backend_options.h"
 #include "service/internal_service.h"
 #include "storage/olap_common.h"
@@ -139,7 +140,7 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
 
             rowsets.push_back(std::move(ret.value()));
         }
-        if (keys_type() == KeysType::UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+        if (need_read_delete_bitmap()) {
             result.delete_bitmap = _tablet_meta->delete_bitmap_ptr();
         }
         return result;
@@ -402,9 +403,9 @@ Result<CaptureRowsetResult> BaseTablet::_remote_capture_rowsets(
     cntl->tablet_id = tablet_id();
     cntl->req_addrs = std::move(be_addresses);
     cntl->version_range = version_range;
-    bool is_mow = keys_type() == KeysType::UNIQUE_KEYS && enable_unique_key_merge_on_write();
+    bool need_delete_bitmap = need_read_delete_bitmap();
     CaptureRowsetResult result;
-    if (is_mow) {
+    if (need_delete_bitmap) {
         result.delete_bitmap =
                 std::make_unique<DeleteBitmap>(_tablet_meta->delete_bitmap().snapshot());
         DeleteBitmapPB delete_bitmap_keys;
@@ -439,7 +440,7 @@ Result<CaptureRowsetResult> BaseTablet::_remote_capture_rowsets(
         }
         result.rowsets.push_back(std::move(rs));
     }
-    if (is_mow) {
+    if (need_delete_bitmap) {
         DCHECK_NE(result.delete_bitmap, nullptr);
         result.delete_bitmap->merge(*remote_meta.delete_bitmap);
     }

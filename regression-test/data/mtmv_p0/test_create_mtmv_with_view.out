@@ -28,3 +28,8 @@ NOT_REFRESH
 1	1
 2	2
 
+-- !after_trigger_table_complete --
+1	1
+2	2
+3	3
+

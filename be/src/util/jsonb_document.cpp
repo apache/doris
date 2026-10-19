@@ -52,6 +52,11 @@ Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
     }
 
     const auto* val = (const JsonbValue*)doc_ptr->payload_;
+    // Keep this check lightweight. This API is used by JSONB scalar/table functions on every row,
+    // so recursively validating object/array payloads here would add an O(document size) scan before
+    // the real operation and can regress large JSONB queries. External INSERT/LOAD paths build JSONB
+    // through JsonBinaryValue/JsonbWriter before storage; any untrusted raw binary boundary should
+    // add explicit deep validation there instead of changing this hot-path helper.
     if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
         size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
@@ -95,8 +100,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
             switch (path.get_leg_from_leg_vector(i)->type) {
             case MEMBER_CODE: {
                 if (LIKELY(pval->type == JsonbType::T_Object)) {
-                    if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                        *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                    if (path.get_leg_from_leg_vector(i)->is_wildcard) {
                         is_wildcard = true;
                         for (const auto& it : *pval->unpack<ObjectVal>()) {
                             results.emplace_back(it.value());
@@ -115,8 +119,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                 continue;
             }
             case ARRAY_CODE: {
-                if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
-                    *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                if (path.get_leg_from_leg_vector(i)->is_wildcard) {
                     if (LIKELY(pval->type == JsonbType::T_Array)) {
                         is_wildcard = true;
                         for (const auto& it : *pval->unpack<ArrayVal>()) {

@@ -89,9 +89,6 @@ private:
     size_t _part_max_sub_block_size = 0;
     std::string _part_meta;
 
-    // ── Cumulative state ──
-    int64_t _total_written_bytes = 0;
-    size_t _total_parts = 0;
     bool _closed = false;
 
     // ── Counters ──

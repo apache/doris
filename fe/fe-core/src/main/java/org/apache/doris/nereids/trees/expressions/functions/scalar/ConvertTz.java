@@ -18,23 +18,33 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -45,7 +55,9 @@ public class ConvertTz extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
@@ -90,7 +102,52 @@ public class ConvertTz extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        return child(1).isConstant() && child(2).isConstant();
+        if (!(child(1) instanceof StringLikeLiteral) || !(child(2) instanceof StringLikeLiteral)) {
+            return false;
+        }
+        ZoneId fromZone = parseZoneId((StringLikeLiteral) child(1));
+        ZoneId toZone = parseZoneId((StringLikeLiteral) child(2));
+        if (fromZone == null || toZone == null) {
+            return false;
+        }
+        if (toZone.getRules().isFixedOffset()) {
+            return true;
+        }
+        if (lower == null || upper == null) {
+            return false;
+        }
+        LocalDateTime lowerDateTime = toLocalDateTime(lower);
+        LocalDateTime upperDateTime = toLocalDateTime(upper);
+        if (lowerDateTime == null || upperDateTime == null) {
+            return false;
+        }
+        if (lowerDateTime.equals(upperDateTime)) {
+            return true;
+        }
+        if (upperDateTime.isBefore(lowerDateTime)) {
+            return false;
+        }
+        /*
+         * convert_tz can be treated as a composition of two mappings:
+         *
+         *   source local time x -> instant by from_tz -> target local time by to_tz.
+         *
+         * After PR #64029, the first mapping is monotonic non-decreasing. A spring gap in from_tz
+         * flattens skipped local times to the transition instant, and a fall-back overlap uses the
+         * pre-transition offset before jumping forward at the overlap end. Neither case makes the
+         * instant move backward as x increases.
+         *
+         * The second mapping, instant -> to_tz local time, is also monotonic non-decreasing except
+         * at a to_tz fall-back transition, where the displayed local time jumps backward. Therefore
+         * convert_tz is non-monotonic for a partition only when the instant interval obtained from
+         * interpreting the partition bounds in from_tz crosses a to_tz fall-back transition instant.
+         *
+         * Partition pruning folds both endpoints before deriving the function range, so a fall-back
+         * instant inside (fromInstant(lower), fromInstant(upper)] disables the monotonic shortcut.
+         */
+        Instant lowerInstant = DateTimeLiteral.convertLocalToInstant(lowerDateTime, fromZone);
+        Instant upperInstant = DateTimeLiteral.convertLocalToInstant(upperDateTime, fromZone);
+        return MonotonicityUtils.isInstantToLocalMonotonic(toZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -106,5 +163,18 @@ public class ConvertTz extends ScalarFunction
     @Override
     public Expression withConstantArgs(Expression literal) {
         return new ConvertTz(literal, child(1), child(2));
+    }
+
+    private ZoneId parseZoneId(StringLikeLiteral timeZone) {
+        try {
+            String standardizedTimeZone = TimeUtils.checkTimeZoneValidAndStandardize(timeZone.getStringValue());
+            return ZoneId.of(standardizedTimeZone, TimeUtils.timeZoneAliasMap);
+        } catch (DdlException | DateTimeException e) {
+            return null;
+        }
+    }
+
+    private LocalDateTime toLocalDateTime(Literal literal) {
+        return literal instanceof DateLiteral ? ((DateLiteral) literal).toJavaDateType() : null;
     }
 }

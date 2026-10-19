@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
@@ -34,12 +35,17 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeE
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -72,10 +78,11 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
         for (BaseColInfo pctInfo : pctInfos) {
             MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(pctInfo.getTableInfo());
-            PartitionType partitionType = pctTable.getPartitionType(MvccUtil.getSnapshotFromContext(pctTable));
+            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pctTable);
+            PartitionType partitionType = pctTable.getPartitionType(snapshot);
             if (partitionType == PartitionType.RANGE) {
                 Type partitionColumnType = MTMVPartitionUtil
-                        .getPartitionColumnType(pctTable, pctInfo.getColName());
+                        .getPartitionColumnType(pctTable, pctInfo.getColName(), snapshot);
                 if (!partitionColumnType.isDateType()) {
                     throw new AnalysisException(
                             "partitionColumnType should be date/datetime "
@@ -128,12 +135,16 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
 
     @Override
     public PartitionKeyDesc generateRollUpPartitionKeyDesc(PartitionKeyDesc partitionKeyDesc,
-            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable) throws AnalysisException {
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException {
         Type partitionColumnType = MTMVPartitionUtil
-                .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable));
+                .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable), snapshot);
         // mtmv only support one partition column
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");
+        if (partitionColumnType.isTimeStampNs()) {
+            return generateTimeStampNsRollUpPartitionKeyDesc(partitionKeyDesc);
+        }
         DateTimeV2Literal beginTime = dateTrunc(
                 partitionKeyDesc.getLowerValues().get(0).getStringValue(),
                 Optional.empty(), false);
@@ -144,6 +155,83 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         return PartitionKeyDesc.createFixed(
                 Collections.singletonList(lowerValue),
                 Collections.singletonList(upperValue));
+    }
+
+    private PartitionKeyDesc generateTimeStampNsRollUpPartitionKeyDesc(PartitionKeyDesc partitionKeyDesc)
+            throws AnalysisException {
+        TimeStampNsLiteral lower = new TimeStampNsLiteral(
+                partitionKeyDesc.getLowerValues().get(0).getStringValue());
+        LocalDateTime beginTruncTime = dateTrunc(lower.toJavaDateType());
+
+        PartitionValue upperValue = partitionKeyDesc.getUpperValues().get(0);
+        LocalDateTime upperRepresentative = upperValue.isMax()
+                ? TimeStampNsLiteral.getMaxValue().toJavaDateType()
+                : new TimeStampNsLiteral(upperValue.getStringValue()).toJavaDateType().minusNanos(1);
+        LocalDateTime endTruncTime = dateTrunc(upperRepresentative);
+        if (!beginTruncTime.equals(endTruncTime)) {
+            throw new AnalysisException(
+                    String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s",
+                            beginTruncTime, endTruncTime));
+        }
+
+        PartitionValue lowerValue = timestampNsToPartitionValue(beginTruncTime);
+        PartitionValue rollUpUpperValue = timestampNsToPartitionValue(dateIncrement(beginTruncTime));
+        return PartitionKeyDesc.createFixed(
+                Collections.singletonList(lowerValue),
+                Collections.singletonList(rollUpUpperValue));
+    }
+
+    private PartitionValue timestampNsToPartitionValue(LocalDateTime value) {
+        LocalDateTime minValue = TimeStampNsLiteral.getMinValue().toJavaDateType();
+        LocalDateTime maxValue = TimeStampNsLiteral.getMaxValue().toJavaDateType();
+        // The exclusive end of the last natural bucket is beyond the type maximum.
+        // Keep it as infinity because clamping it to the legal maximum would exclude that value.
+        if (value.isAfter(maxValue)) {
+            return PartitionValue.MAX_VALUE;
+        }
+        // The first natural bucket starts before the signed epoch-nanosecond minimum.
+        LocalDateTime clampedValue = value.isBefore(minValue) ? minValue : value;
+        return new PartitionValue(TimeStampNsLiteral.fromJavaDateType(clampedValue).getStringValue());
+    }
+
+    private LocalDateTime dateTrunc(LocalDateTime value) throws AnalysisException {
+        switch (timeUnit) {
+            case "year":
+                return LocalDateTime.of(value.getYear(), 1, 1, 0, 0);
+            case "quarter":
+                return LocalDateTime.of(value.getYear(), (value.getMonthValue() - 1) / 3 * 3 + 1, 1, 0, 0);
+            case "month":
+                return LocalDateTime.of(value.getYear(), value.getMonthValue(), 1, 0, 0);
+            case "week":
+                return value.minusDays(value.getDayOfWeek().getValue() - 1L).truncatedTo(ChronoUnit.DAYS);
+            case "day":
+                return value.truncatedTo(ChronoUnit.DAYS);
+            case "hour":
+                return value.truncatedTo(ChronoUnit.HOURS);
+            default:
+                throw new AnalysisException(
+                        "async materialized view partition roll up not support timeUnit: " + timeUnit);
+        }
+    }
+
+    private LocalDateTime dateIncrement(LocalDateTime value) throws AnalysisException {
+        switch (timeUnit) {
+            case "year":
+                return value.plusYears(1L);
+            case "quarter":
+                return value.plusMonths(3L);
+            case "month":
+                return value.plusMonths(1L);
+            case "week":
+                return value.plusWeeks(1L);
+            case "day":
+                return value.plusDays(1L);
+            case "hour":
+                return value.plusHours(1L);
+            default:
+                throw new AnalysisException(
+                        "async materialized view partition roll up not support timeUnit: " + timeUnit);
+        }
     }
 
     private PartitionValue getUpperValue(PartitionValue upperValue, DateTimeV2Literal beginTruncTime,
@@ -179,6 +267,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
     private DateTimeV2Literal strToDate(String value,
             Optional<String> dateFormat) throws AnalysisException {
         try {
+            if (DateTimeChecker.hasTimeZone(value)) {
+                // For TIMESTAMPTZ values, parse preserving UTC semantics.
+                // DateTimeV2Literal would convert to session timezone, which would
+                // produce incorrect MV partition boundaries when session tz != UTC.
+                TimestampTzLiteral tzLiteral = new TimestampTzLiteral(value);
+                return new DateTimeV2Literal(tzLiteral.getYear(), tzLiteral.getMonth(), tzLiteral.getDay(),
+                        tzLiteral.getHour(), tzLiteral.getMinute(), tzLiteral.getSecond());
+            }
             return new DateTimeV2Literal(value);
         } catch (Exception e) {
             if (!dateFormat.isPresent()) {
@@ -237,11 +333,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
                     literal.getDay());
-        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
-                || partitionColumnType.isTimeStampTz()) {
+        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
             return String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());
+        } else if (partitionColumnType.isTimeStampTz()) {
+            // The internal DateTimeV2Literal values are always in UTC after truncation.
+            // Emit an explicit +00:00 suffix so that downstream consumers
+            // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
+            // interpret the value as UTC rather than session-local time.
+            return String.format(PartitionExprUtil.DATETIME_FORMATTER,
+                    literal.getYear(), literal.getMonth(), literal.getDay(),
+                    literal.getHour(), literal.getMinute(), literal.getSecond()) + "+00:00";
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);

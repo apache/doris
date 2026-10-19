@@ -27,6 +27,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -40,9 +43,20 @@ import java.util.List;
  * Unit tests for {@link MergeAggregate}, specifically testing the fix for filtering
  * aggregate functions in mergeAggProjectAgg method.
  */
-public class MergeAggregateTest {
+public class MergeAggregateTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     private MergeAggregate mergeAggregate;
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("merge_aggregate_test");
+        connectContext.setDatabase("merge_aggregate_test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        createTable("CREATE TABLE merge_aggregate_test.duplicate_alias_table ("
+                + "a INT NOT NULL, b INT NOT NULL, c INT NULL) "
+                + "DUPLICATE KEY(a, b, c) DISTRIBUTED BY HASH(a) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1')");
+    }
 
     @BeforeEach
     public void setUp() {
@@ -120,5 +134,17 @@ public class MergeAggregateTest {
 
         LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) resultProject.child(0);
         Assertions.assertEquals(aggregate.getOutput().size(), 2);
+    }
+
+    @Test
+    public void testDoNotMergeDistinctAggregateWithDuplicateProjectedGroupBy() {
+        String sql = "SELECT g1, g2, SUM(s) FROM ("
+                + "SELECT a AS g1, a AS g2, COUNT(DISTINCT c) AS s "
+                + "FROM duplicate_alias_table GROUP BY a, b) t GROUP BY g1, g2";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalAggregate())));
     }
 }

@@ -17,15 +17,18 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -489,31 +492,36 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 .analyze("select 1 from t1 having sum(id) > 10")
                 .matchesFromRoot(
                         logicalResultSink(
-                                logicalFilter(
-                                        logicalProject(
+                                logicalProject(
+                                        logicalFilter(
                                                 logicalProject(
-                                                        logicalAggregate().when(agg -> {
-                                                            List<Slot> output = agg.getOutput();
-                                                            checkExprsToSql(output, "sum(id)");
-                                                            Assertions.assertTrue(output.get(0).nullable());
+                                                        logicalProject(
+                                                                logicalAggregate().when(agg -> {
+                                                                    List<Slot> output = agg.getOutput();
+                                                                    checkExprsToSql(output, "sum(id)");
+                                                                    Assertions.assertTrue(output.get(0).nullable());
+                                                                    return true;
+                                                                })
+                                                        ).when(project -> {
+                                                            List<NamedExpression> projects = project.getProjects();
+                                                            checkExprsToSql(projects, "sum(id)");
+                                                            Assertions.assertTrue(projects.get(0).nullable());
                                                             return true;
                                                         })
                                                 ).when(project -> {
                                                     List<NamedExpression> projects = project.getProjects();
-                                                    checkExprsToSql(projects, "sum(id)");
-                                                    Assertions.assertTrue(projects.get(0).nullable());
+                                                    checkExprsToSql(projects, "1 AS `1`", "sum(id)");
+                                                    Assertions.assertTrue(projects.get(1).nullable());
                                                     return true;
                                                 })
-                                        ).when(project -> {
-                                            List<NamedExpression> projects = project.getProjects();
-                                            checkExprsToSql(projects, "1 AS `1`", "sum(id)");
-                                            Assertions.assertTrue(projects.get(1).nullable());
+                                        ).when(filter -> {
+                                            List<Expression> conjuncts = filter.getExpressions();
+                                            checkExprsToSql(conjuncts, "(sum(id) > 10)");
+                                            Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
                                             return true;
                                         })
-                                ).when(filter -> {
-                                    List<Expression> conjuncts = filter.getExpressions();
-                                    checkExprsToSql(conjuncts, "(sum(id) > 10)");
-                                    Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
+                                ).when(project -> {
+                                    checkExprsToSql(project.getProjects(), "1");
                                     return true;
                                 })
                         )
@@ -689,6 +697,80 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                             Assertions.assertTrue(sink.getOutput().get(0).nullable());
                             return true;
                         })
+                );
+    }
+
+    @Test
+    public void testAggregateOrderByExpressionNeedPushDown() {
+        String windowSql = "select group_concat(k order by row_number() over(order by k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        PlanChecker.from(connectContext)
+                .analyze(windowSql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), WindowExpression.class));
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+
+        String subquerySql = "select group_concat(id order by (select 1)) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(subquerySql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testAggregateOrderByExpressionCannotContainAggregateFunction() {
+        String sql = "select group_concat(k order by sum(k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertEquals("aggregate function cannot contain aggregate parameters", exception.getMessage());
+    }
+
+    @Test
+    public void testDistinctAggregateOrderByExpressionNeedPushDown() {
+        String sql = "select group_concat(distinct name order by id + no) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), Add.class));
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
                 );
     }
 

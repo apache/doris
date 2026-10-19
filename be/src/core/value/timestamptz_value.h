@@ -63,6 +63,9 @@ public:
     // Outputs a string representation with timezone information in the format +03:00
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
 
+    // Caller is responsible for ensuring that buffer has enough space.
+    int to_buffer(char* buffer, const cctz::time_zone& local_time_zone, int scale = 6) const;
+
     // Parses a string, CastParameters can control whether strict mode is used
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                      CastParameters& params, uint32_t to_scale);
@@ -94,6 +97,10 @@ public:
     // Methods needed for time rounding
     int64_t datetime_diff_in_seconds(const TimestampTzValue& other) const {
         return _utc_dt.datetime_diff_in_seconds(other._utc_dt);
+    }
+
+    int64_t datetime_diff_in_microseconds(const TimestampTzValue& other) const {
+        return _utc_dt.datetime_diff_in_microseconds(other._utc_dt);
     }
 
     template <TimeUnit unit>
@@ -142,6 +149,8 @@ public:
     void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
         _utc_dt.unix_timestamp(timestamp, ctz);
     }
+
+    std::string debug_string() const { return _utc_dt.debug_string(); }
 
     // Convert UTC time to local time based on the given timezone
     void convert_utc_to_local(const cctz::time_zone& local_time_zone,

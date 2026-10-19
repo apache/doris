@@ -16,6 +16,7 @@
 // under the License.
 
 suite("pull_up_predicate_literal") {
+    sql "set parallel_pipeline_task_num=2"
     sql """ DROP TABLE IF EXISTS test_pull_up_predicate_literal; """
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute'"""

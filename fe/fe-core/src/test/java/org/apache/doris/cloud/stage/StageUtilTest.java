@@ -24,7 +24,7 @@ import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -34,8 +34,8 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -65,7 +65,7 @@ public class StageUtilTest {
     @Test
     public void testListAndFilterFilesV2() throws Exception {
         List<String> keys = readMockedOssUrl();
-        Assert.assertEquals(4956, keys.size());
+        Assertions.assertEquals(4956, keys.size());
 
         // Mock FileSystemFactory and related dependencies
         ObjFileSystem mockFs = Mockito.mock(ObjFileSystem.class);
@@ -92,7 +92,7 @@ public class StageUtilTest {
 
         try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
                 MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class)))
                     .thenReturn(mockFs);
             mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(mockCatalog);
 
@@ -112,7 +112,7 @@ public class StageUtilTest {
             LOG.info("triple:{}, fileStatus.size():{}", triple, fileStatus.size());
             // All 4956 test keys match the pattern, but the meta size limit (51200 bytes)
             // caps the result at 500 files (5 batches of cloud_filter_copy_file_num_limit=100).
-            Assert.assertEquals(500, fileStatus.size());
+            Assertions.assertEquals(500, fileStatus.size());
         }
     }
 }

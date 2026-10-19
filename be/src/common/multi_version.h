@@ -23,6 +23,10 @@
 #include <atomic>
 #include <memory>
 
+#ifdef USE_LIBCPP
+#include "common/atomic_shared_ptr.h"
+#endif
+
 /** Allow to store and read-only usage of an object in several threads,
   *  and to atomically replace an object in another thread.
   * The replacement is atomic and reading threads can work with different versions of an object.
@@ -59,5 +63,9 @@ public:
     }
 
 private:
+#ifdef USE_LIBCPP
+    doris::atomic_shared_ptr<const T> current_version;
+#else
     std::atomic<Version> current_version;
+#endif
 };

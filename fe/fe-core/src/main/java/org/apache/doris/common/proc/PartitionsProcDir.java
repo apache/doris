@@ -105,6 +105,7 @@ import java.util.stream.Collectors;
  */
 public class PartitionsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
+    static final String CLOUD_STORAGE_MEDIUM_DISPLAY = "OBJECT_STORAGE";
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
@@ -113,7 +114,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount")
+            .add("RowCount").add("BinlogSize").add("InvertedIndexStorageFormat")
             .build();
 
     private Database db;
@@ -313,17 +314,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > filterPartitionInfos.size()) {
-                endIndex = filterPartitionInfos.size();
-            }
-
-            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
-            if (beginIndex > endIndex) {
-                beginIndex = endIndex;
-            }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
+            filterPartitionInfos = limitElement.applyTo(filterPartitionInfos);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -368,17 +359,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > filterPartitionInfos.size()) {
-                endIndex = filterPartitionInfos.size();
-            }
-
-            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
-            if (beginIndex > endIndex) {
-                beginIndex = endIndex;
-            }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
+            filterPartitionInfos = limitElement.applyTo(filterPartitionInfos);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -407,6 +388,14 @@ public class PartitionsProcDir implements ProcDirInterface {
     public List<TRow> getPartitionInfosForTvf() throws AnalysisException {
         List<Pair<List<Comparable>, TRow>> partitionInfosInrernal = getPartitionInfosInrernal();
         return partitionInfosInrernal.stream().map(pair -> pair.second).collect(Collectors.toList());
+    }
+
+    public static String getStorageMediumDisplay(String storageMedium) {
+        return Config.isCloudMode() ? CLOUD_STORAGE_MEDIUM_DISPLAY : storageMedium;
+    }
+
+    public static String getReplicaAllocationDisplay(String replicaAllocation) {
+        return Config.isCloudMode() ? FeConstants.null_string : replicaAllocation;
     }
 
     private List<Long> getPartitionVersions(OlapTable olapTable, List<Long> partitionIds)
@@ -580,8 +569,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 trow.addToColumnValue(new TCell().setIntVal(totalReplicaNum));
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
-                partitionInfo.add(dataProperty.getStorageMedium().name());
-                trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium().name()));
+                String storageMedium = getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                partitionInfo.add(storageMedium);
+                trow.addToColumnValue(new TCell().setStringVal(storageMedium));
                 String cooldownTimeStr = TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs());
                 partitionInfo.add(cooldownTimeStr);
                 trow.addToColumnValue(new TCell().setStringVal(cooldownTimeStr));
@@ -600,7 +590,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(isInMemory);
                 trow.addToColumnValue(new TCell().setBoolVal(isInMemory));
                 // replica allocation
-                String replica = tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt();
+                String replica = getReplicaAllocationDisplay(
+                        tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
                 partitionInfo.add(replica);
                 trow.addToColumnValue(new TCell().setStringVal(replica));
 
@@ -639,6 +630,18 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(partition.getRowCount());
                 trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount()));
+
+                long binlogSize = partition.getBinlogDataSize();
+                Pair<Double, String> binlogSizePair = DebugUtil.getByteUint(binlogSize);
+                String readableBinlogSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(binlogSizePair.first) + " "
+                        + binlogSizePair.second;
+                partitionInfo.add(readableBinlogSize);
+                trow.addToColumnValue(new TCell().setStringVal(readableBinlogSize));
+
+                String invertedIndexStorageFormat =
+                        olapTable.getInvertedIndexFileStorageFormatForPartition(partitionId).name();
+                partitionInfo.add(invertedIndexStorageFormat);
+                trow.addToColumnValue(new TCell().setStringVal(invertedIndexStorageFormat));
 
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }

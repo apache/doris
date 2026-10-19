@@ -18,13 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -44,6 +45,36 @@ import java.util.concurrent.TimeUnit;
 
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
+
+    class TableStatusStats {
+        private final long rows;
+        private final long dataLength;
+        private final long avgRowLength;
+        private final long indexLength;
+
+        public TableStatusStats(long rows, long dataLength, long avgRowLength, long indexLength) {
+            this.rows = rows;
+            this.dataLength = dataLength;
+            this.avgRowLength = avgRowLength;
+            this.indexLength = indexLength;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public long getDataLength() {
+            return dataLength;
+        }
+
+        public long getAvgRowLength() {
+            return avgRowLength;
+        }
+
+        public long getIndexLength() {
+            return indexLength;
+        }
+    }
 
     long UNKNOWN_ROW_COUNT = -1;
 
@@ -103,12 +134,21 @@ public interface TableIf {
 
     String getName();
 
+    /**
+     * The name a user sees in SQL. Same as {@link #getName()} except for a temporary table,
+     * whose stored name is qualified with the id of the session that owns it.
+     */
+    default String getDisplayName() {
+        return getName();
+    }
+
     TableType getType();
 
     /**
      * Returns the table type name used in ENGINE= clause of SHOW CREATE TABLE.
-     * By default this is the same as getType().name(), but plugin-driven tables
-     * override this to preserve the original engine name (e.g., JDBC_EXTERNAL_TABLE).
+     * By default this is the same as getType().name(); a plugin-driven table overrides it
+     * with the engine name its connector declares, so that both places a user sees an
+     * engine name agree.
      */
     default String getEngineTableTypeName() {
         return getType().name();
@@ -175,6 +215,10 @@ public interface TableIf {
 
     long getIndexLength();
 
+    default TableStatusStats getTableStatusStats() {
+        return new TableStatusStats(getCachedRowCount(), getDataLength(), getAvgRowLength(), getIndexLength());
+    }
+
     long getLastCheckTime();
 
     String getComment(boolean escapeQuota);
@@ -193,8 +237,8 @@ public interface TableIf {
      */
     Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
-    // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
-    // For HMS external table, the return result is a list of all the files' size.
+    // Get all the chunk sizes of this table. Only a plugin-driven external table whose connector can list
+    // file sizes implements this; the return result is a list of all the files' size.
     List<Long> getChunkSizes();
 
     void write(DataOutput out) throws IOException;
@@ -209,16 +253,40 @@ public interface TableIf {
     }
 
     /**
+     * Returns whether the table can preload planning metadata before internal table locks are acquired.
+     */
+    default boolean supportsExternalMetadataPreload() {
+        return false;
+    }
+
+    /**
+     * Returns whether the table has a meaningful latest snapshot that can be preloaded ahead of analysis.
+     */
+    default boolean supportsLatestSnapshotPreload() {
+        return false;
+    }
+
+    /**
      * Doris table type.
+     *
+     * <p>There is no per-data-source external table type: an external table served by a connector plugin is a
+     * {@code PLUGIN_EXTERNAL_TABLE}, and the source's own name is answered by the connector
+     * ({@code PluginDrivenExternalCatalog#getDisplayEngineName}), never by a mapping held here.</p>
+     *
+     * <p>An image written before the cutover still carries the old per-source names, and stays readable:
+     * the persisted table class is remapped by {@code GsonUtils}' compatible-subtype registry, and the stale
+     * {@code type} string deserializes to {@code null} (Gson returns null for an enum name it does not know,
+     * it does not throw), which {@code PluginDrivenExternalTable#gsonPostProcess} then normalizes to
+     * {@code PLUGIN_EXTERNAL_TABLE} — the same normalization it already applied to a recognized legacy name.</p>
+     *
+     * <p>The legacy internal-catalog {@code CREATE EXTERNAL TABLE ... ENGINE=iceberg|hudi} types are gone as
+     * well: no {@code IcebergTable} / {@code HudiTable} class exists to carry them, and neither appears in the
+     * 4.1.3 GSON table registry ({@code upgrade/413/labels.tbl.txt}), so no readable image can hold one.
+     * {@code HIVE} stays because {@code HiveTable} is still registered there.</p>
      */
     enum TableType {
-        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE,
-        @Deprecated
-        ICEBERG, @Deprecated
-        HUDI, JDBC,
-        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
-        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
+        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, JDBC,
+        TABLE_VALUED_FUNCTION, MATERIALIZED_VIEW, TEST_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
         PLUGIN_EXTERNAL_TABLE,
         STREAM;
 
@@ -240,25 +308,12 @@ public interface TableIf {
                     return "Broker";
                 case ELASTICSEARCH:
                     return "ElasticSearch";
-                case ES_EXTERNAL_TABLE:
-                    return "es";
                 case HIVE:
                     return "Hive";
-                case HUDI:
-                case HUDI_EXTERNAL_TABLE:
-                    return "Hudi";
                 case JDBC:
-                case JDBC_EXTERNAL_TABLE:
                     return "jdbc";
                 case TABLE_VALUED_FUNCTION:
                     return "Table_Valued_Function";
-                case HMS_EXTERNAL_TABLE:
-                    return "hms";
-                case ICEBERG:
-                case ICEBERG_EXTERNAL_TABLE:
-                    return "iceberg";
-                case PAIMON_EXTERNAL_TABLE:
-                    return "paimon";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
@@ -296,15 +351,9 @@ public interface TableIf {
                 case BROKER:
                 case ELASTICSEARCH:
                 case HIVE:
-                case HUDI:
                 case JDBC:
-                case JDBC_EXTERNAL_TABLE:
                 case TABLE_VALUED_FUNCTION:
-                case HMS_EXTERNAL_TABLE:
-                case ICEBERG_EXTERNAL_TABLE:
-                case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
-                case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
                     return "BASE TABLE";
@@ -396,5 +445,10 @@ public interface TableIf {
             return Optional.empty();
         }
         return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
+    }
+
+    default void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        throw new DdlException("Base table type: " + getType()  + ", StreamScanType: " + streamScanType
+                + " is not supported for create table stream");
     }
 }

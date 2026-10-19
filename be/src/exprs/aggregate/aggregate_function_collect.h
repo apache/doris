@@ -17,16 +17,18 @@
 
 #pragma once
 
-#include <assert.h>
+#include <cctz/time_zone.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <cstddef>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
 #include <string>
+#include <type_traits>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -50,7 +52,7 @@ struct AggregateFunctionCollectSetData {
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -102,14 +104,17 @@ struct AggregateFunctionCollectSetData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data();
         vec.reserve(size());
         for (const auto& item : data_set) {
             vec.push_back(item);
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        max_size = -1;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -119,7 +124,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -137,7 +142,6 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
-        max_size = rhs.max_size;
 
         for (const auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit) {
@@ -171,14 +175,17 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to);
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
         vec.reserve(size());
         for (const auto& item : data_set) {
             vec.insert_data(item.data, item.size);
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        max_size = -1;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -205,7 +212,6 @@ struct AggregateFunctionCollectListData {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
                     return;
@@ -231,13 +237,16 @@ struct AggregateFunctionCollectListData {
         read_var_int(max_size, buf);
     }
 
-    void reset() { data.clear(); }
+    void reset() {
+        data.clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data();
         size_t old_size = vec.size();
         vec.resize(old_size + size());
-        memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
+        std::memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
     }
 };
 
@@ -263,7 +272,6 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
                                     std::min(static_cast<size_t>(max_size - size()), rhs.size()));
@@ -298,17 +306,20 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         read_var_int(max_size, buf);
     }
 
-    void reset() { data->clear(); }
+    void reset() {
+        data->clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const {
-        auto& to_str = assert_cast<ColVecType&>(to);
+        auto& to_str = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
         to_str.insert_range_from(*data, 0, size());
     }
 };
 
 template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
+             !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
@@ -332,7 +343,6 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
-            max_size = rhs.max_size;
 
             column_data->insert_range_from(
                     *rhs.column_data, 0,
@@ -347,6 +357,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         buf.write_binary(size);
 
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
+        // TODO: Refactor this aggregate state serialization to avoid
+        // round-tripping through a human-readable string format.
         auto tmp_str = ColumnString::create();
         VectorBufferWriter tmp_buf(*tmp_str.get());
 
@@ -372,6 +386,8 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
         StringRef s;
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
         for (size_t i = 0; i < size; i++) {
             buf.read_binary(s);
             Slice slice(s.data, s.size);
@@ -384,7 +400,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         read_var_int(max_size, buf);
     }
 
-    void reset() { column_data->clear(); }
+    void reset() {
+        column_data->clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
 };
@@ -422,8 +441,7 @@ public:
         if constexpr (HasLimit) {
             if (data.max_size == -1) {
                 data.max_size =
-                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(
-                                columns[1])
+                        assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                 ->get_element(row_num);
             }
             if (data.size() >= data.max_size) {
@@ -441,6 +459,18 @@ public:
                Arena& arena) const override {
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
+        if constexpr (HasLimit) {
+            if (rhs_data.size() == 0) {
+                return;
+            }
+            if (data.size() == 0) {
+                data.max_size = rhs_data.max_size;
+            } else if (UNLIKELY(data.max_size != rhs_data.max_size)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "{} aggregate states have incompatible limits: {} vs {}",
+                                get_name(), data.max_size, rhs_data.max_size);
+            }
+        }
         if constexpr (ENABLE_ARENA) {
             data.merge(rhs_data, arena);
         } else {
@@ -458,12 +488,45 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&to_nested_col);
         this->data(place).insert_result_into(col_null->get_nested_column());
         col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(Data::PType) &&
+                      std::is_same_v<AggregateFunctionCollectListData<Data::PType, HasLimit>,
+                                     Data>) {
+            this->template check_argument_column_type<ColumnString>(columns[0]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (is_string_type(Data::PType)) {
+            const auto* array_column = check_and_get_column<ColumnArray>(to);
+            if (UNLIKELY(array_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Column type {} is not "
+                        "ColumnArray",
+                        get_name(), to.get_name()));
+            }
+
+            const auto& nested_column = array_column->get_data();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(nested_column);
+            if (UNLIKELY(nullable_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Column type {} is not "
+                        "ColumnNullable",
+                        get_name(), nested_column.get_name()));
+            }
+            this->template check_result_column_type_as<ColumnString>(
+                    nullable_column->get_nested_column());
+        }
     }
 
 private:

@@ -63,13 +63,13 @@ Alice
 Charlie
 
 -- !window_function_order_by_unnested_value --
-1	English	90	1
 1	English	85	2
-1	Math	95	1
-1	Math	80	2
+1	English	90	1
 1	Math	70	3
-2	Math	75	1
+1	Math	80	2
+1	Math	95	1
 2	Math	60	2
+2	Math	75	1
 
 -- !order_by_after_where_and_unnest --
 1	0	80

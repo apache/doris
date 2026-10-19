@@ -50,7 +50,7 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
                 matchesType(InPredicate.class)
                         .when(inPredicate ->
                                 inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
-                                && !inPredicate.getCompareExpr().containsUniqueFunction())
+                                && !inPredicate.getCompareExpr().containsVolatileExpression())
                         .then(this::rewrite)
                         .toRule(ExpressionRuleType.IN_PREDICATE_EXTRACT_NON_CONSTANT)
         );

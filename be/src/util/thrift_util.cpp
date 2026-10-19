@@ -100,7 +100,7 @@ static void thrift_output_function(const char* output) {
 }
 
 void init_thrift_logging() {
-    apache::thrift::GlobalOutput.setOutputFunction(thrift_output_function);
+    apache::thrift::TOutput::instance().setOutputFunction(thrift_output_function);
 }
 
 Status wait_for_local_server(const ThriftServer& server, int num_retries, int retry_interval_ms) {
@@ -174,6 +174,19 @@ bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink) {
                     return false;
                 }
             }
+        }
+    }
+    return false;
+}
+
+bool _has_row_binlog(const TOlapTableSink& sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    for (const auto* index_schema : schema.indexes()) {
+        if (index_schema->row_binlog_id > 0) {
+            return true;
         }
     }
     return false;

@@ -17,10 +17,15 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/timestamp_ns_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_base.h"
+#include "runtime/runtime_state.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 namespace doris {
@@ -28,6 +33,8 @@ struct CastToString {
     static inline std::string from_int128(int128_t value);
     static inline std::string from_uint128(uint128_t value);
     static inline std::string from_uint128(UInt128 value);
+    static inline std::string from_uuid(UUIDValueType value);
+    static inline void push_uuid(UUIDValueType value, BufferWritable& bw);
 
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -65,6 +72,7 @@ struct CastToString {
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                               UInt32 scale);
+    static inline std::string from_timestamp_ns(const TimeStampNsValue& from);
     static inline std::string from_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                                const cctz::time_zone* timezone = nullptr);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
@@ -72,6 +80,7 @@ struct CastToString {
 
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
+    static inline void push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw);
     static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                         BufferWritable& bw,
                                         const DataTypeSerDe::FormatOptions& options);
@@ -90,7 +99,6 @@ struct CastToString {
     static constexpr size_t string_length = 1;
 
 private:
-    // refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
     template <typename T>
         requires(std::is_same_v<T, float> || std::is_same_v<T, double>)
     static inline int _fast_to_buffer(T value, char* buffer) {
@@ -114,13 +122,7 @@ private:
                 end = buffer + neg_inf_str_len;
             }
         } else {
-            if constexpr (std::is_same_v<T, float>) {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<float>::digits10 + 1);
-            } else {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::digits10 + 1);
-            }
+            end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
         }
         *end = '\0';
         return int(end - buffer);
@@ -169,6 +171,8 @@ constexpr size_t CastToString::string_length<TYPE_IPV4> = sizeof("255.255 .255.2
 template <>
 constexpr size_t CastToString::string_length<TYPE_IPV6> =
         sizeof("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") - 1;
+template <>
+constexpr size_t CastToString::string_length<TYPE_UUID> = 36;
 
 // BOOLEAN
 template <>
@@ -478,6 +482,10 @@ inline std::string CastToString::from_datetimev2(const DateV2Value<DateTimeV2Val
     return std::string(buf, pos - 1);
 }
 
+inline std::string CastToString::from_timestamp_ns(const TimeStampNsValue& from) {
+    return from.to_string();
+}
+
 inline std::string CastToString::from_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                                   const cctz::time_zone* timezone) {
     cctz::time_zone tz;
@@ -504,11 +512,18 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
     bw.write(buf, pos - buf - 1);
 }
 
+inline void CastToString::push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw) {
+    char buf[40];
+    const int32_t length = from.to_buffer(buf);
+    bw.write(buf, length);
+}
+
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                            BufferWritable& bw,
                                            const DataTypeSerDe::FormatOptions& options) {
-    auto str = from.to_string(*options.timezone, scale);
-    bw.write(str.data(), str.size());
+    char buffer[64];
+    const int len = from.to_buffer(buffer, *options.timezone, scale);
+    bw.write(buffer, len);
 }
 
 // IPv4
@@ -551,6 +566,16 @@ inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scal
     bw.write(str.data(), str.size());
 }
 
+inline std::string CastToString::from_uuid(UUIDValueType value) {
+    return UUIDValue::to_string(value);
+}
+
+inline void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
+    bw.resize(UUIDValue::TEXT_LENGTH);
+    UUIDValue::to_string(value, bw.data());
+    bw.add_offset(UUIDValue::TEXT_LENGTH);
+}
+
 class CastToStringFunction {
 public:
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -567,7 +592,29 @@ public:
         auto time_zone = cctz::utc_time_zone();
         options.timezone =
                 (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
-        type.get_serde()->to_string_batch(col_from, *col_to, options);
+        ColumnPtr limited_col;
+        const IColumn* col_to_serialize = &col_from;
+        if (col_from.size() != input_rows_count) {
+            DORIS_CHECK(col_from.size() >= input_rows_count);
+            limited_col = col_from.cut(0, input_rows_count);
+            col_to_serialize = limited_col.get();
+        }
+        const auto serde = type.get_serde();
+        if (null_map != nullptr && std::any_of(null_map, null_map + input_rows_count,
+                                               [](auto value) { return value != 0; })) {
+            // Nested payloads of NULL rows may be uninitialized or outside the type's
+            // domain. Do not format them before the nullable wrapper restores the mask.
+            col_to->reserve(input_rows_count);
+            VectorBufferWriter write_buffer(*col_to);
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if (!null_map[row]) {
+                    serde->to_string(*col_to_serialize, row, write_buffer, options);
+                }
+                write_buffer.commit();
+            }
+        } else {
+            serde->to_string_batch(*col_to_serialize, *col_to, options);
+        }
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

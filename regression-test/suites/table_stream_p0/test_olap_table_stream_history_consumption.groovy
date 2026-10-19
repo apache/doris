@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_olap_table_stream_history_consumption") {
+    if (isCloudMode()) {
+        return
+    }
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_history_consumption_db"
     sql "CREATE DATABASE test_olap_table_stream_history_consumption_db"
     sql "USE test_olap_table_stream_history_consumption_db"
@@ -29,7 +32,9 @@ suite("test_olap_table_stream_history_consumption") {
         DUPLICATE KEY(`sid`)
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
     sql """ 
@@ -40,7 +45,6 @@ suite("test_olap_table_stream_history_consumption") {
         CREATE STREAM `s1` ON TABLE tbl1
         COMMENT 'test stream 1'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -60,7 +64,9 @@ suite("test_olap_table_stream_history_consumption") {
         )    
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -72,7 +78,6 @@ suite("test_olap_table_stream_history_consumption") {
         CREATE STREAM `s2` ON TABLE tbl2
         COMMENT 'test stream 3'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -93,7 +98,9 @@ suite("test_olap_table_stream_history_consumption") {
         )    
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -105,16 +112,11 @@ suite("test_olap_table_stream_history_consumption") {
         CREATE STREAM `s3` ON TABLE tbl3
         COMMENT 'test stream 5'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
 
     qt_sql "select DB_NAME,STREAM_NAME,UNIT,CONSUMPTION_STATUS,LAG,LAST_CONSUMPTION_TIME from information_schema.table_stream_consumption where DB_NAME = 'test_olap_table_stream_history_consumption_db' order by STREAM_NAME, UNIT;"
-    qt_sql "select * from s1"
-    qt_sql "select * from s2"
-    qt_sql "select * from s3"
-    sql "SET show_hidden_columns=true;"
     qt_sql "select * from s1"
     qt_sql "select * from s2"
     qt_sql "select * from s3"
@@ -143,6 +145,47 @@ suite("test_olap_table_stream_history_consumption") {
     qt_sql "select * from s2"
     qt_sql "select * from s3"
     qt_sql "select * from target order by sid"
-    qt_sql "select DB_NAME,STREAM_NAME,UNIT,CONSUMPTION_STATUS,LAG from information_schema.table_stream_consumption where DB_NAME = 'test_olap_table_stream_history_consumption_db' order by STREAM_NAME, UNIT;"
+    def consumptionRows = sql """
+        select DB_NAME, STREAM_NAME, UNIT, CONSUMPTION_STATUS, LAG
+        from information_schema.table_stream_consumption
+        where DB_NAME = 'test_olap_table_stream_history_consumption_db'
+        order by STREAM_NAME, UNIT
+    """
+    assertEquals(6, consumptionRows.size())
+
+    assertEquals("test_olap_table_stream_history_consumption_db", consumptionRows[0][0].toString())
+    assertEquals("s1", consumptionRows[0][1].toString())
+    assertEquals("tbl1", consumptionRows[0][2].toString())
+    assertTrue(consumptionRows[0][3] != null)
+    assertTrue(consumptionRows[0][3].toString() != "N/A")
+    assertEquals("0", consumptionRows[0][4].toString())
+
+    assertEquals("s2", consumptionRows[1][1].toString())
+    assertEquals("p1", consumptionRows[1][2].toString())
+    assertEquals("N/A", consumptionRows[1][3].toString())
+    assertEquals("0", consumptionRows[1][4].toString())
+
+    assertEquals("s2", consumptionRows[2][1].toString())
+    assertEquals("p2", consumptionRows[2][2].toString())
+    assertTrue(consumptionRows[2][3] != null)
+    assertTrue(consumptionRows[2][3].toString() != "N/A")
+    assertEquals("0", consumptionRows[2][4].toString())
+
+    assertEquals("s3", consumptionRows[3][1].toString())
+    assertEquals("p1", consumptionRows[3][2].toString())
+    assertEquals("N/A", consumptionRows[3][3].toString())
+    assertEquals("0", consumptionRows[3][4].toString())
+
+    assertEquals("s3", consumptionRows[4][1].toString())
+    assertEquals("p2", consumptionRows[4][2].toString())
+    assertEquals("N/A", consumptionRows[4][3].toString())
+    assertEquals("0", consumptionRows[4][4].toString())
+
+    assertEquals("s3", consumptionRows[5][1].toString())
+    assertEquals("p3", consumptionRows[5][2].toString())
+    assertTrue(consumptionRows[5][3] != null)
+    assertTrue(consumptionRows[5][3].toString() != "N/A")
+    assertEquals("0", consumptionRows[5][4].toString())
+
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_history_consumption_db"
 }

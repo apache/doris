@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -139,7 +140,9 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                result.setRowsOffsetValue(offsetValue.longValue());
+                Preconditions.checkState(offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) <= 0,
+                        "ROWS window offset must not exceed " + WindowFrame.MAX_ROWS_OFFSET);
+                result.setRowsOffsetValue(offsetValue.longValueExact());
             }
 
             // TODO: range windows need range_offset_predicate

@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.jdbc.client;
 
-import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,7 +96,8 @@ public class JdbcOceanBaseConnectorClient extends JdbcConnectorClient {
                         enableMappingVarbinary, enableMappingTimestampTz);
             }
         } catch (SQLException e) {
-            LOG.warn("Failed to detect OceanBase compatibility mode, defaulting to MySQL mode", e);
+            LOG.warn("Failed to detect OceanBase compatibility mode, defaulting to MySQL mode: {}",
+                    jdbcDiagnosticMessage(e));
             result = new JdbcMySQLConnectorClient(
                     catalogName, JdbcDbType.MYSQL, jdbcUrl,
                     onlySpecifiedDatabase, includeDatabaseMap, excludeDatabaseMap,
@@ -104,9 +105,7 @@ public class JdbcOceanBaseConnectorClient extends JdbcConnectorClient {
         } finally {
             closeResources(rs, stmt, conn);
         }
-        // Share the class loader and data source so the delegate can get connections
-        result.classLoader = this.classLoader;
-        result.dataSource = this.dataSource;
+        shareDataSourceWith(result);
         return result;
     }
 

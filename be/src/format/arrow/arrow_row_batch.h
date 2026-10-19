@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -39,23 +40,80 @@ class Schema;
 
 namespace doris {
 
-constexpr size_t MAX_ARROW_UTF8 = (1ULL << 21); // 2G
+constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 
-Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone);
+// Each protocol owns its schema source and conversion rules. Table formats retain their
+// authoritative schemas instead of reconstructing field IDs or physical layouts from Doris types.
+class ArrowSchemaConvertor {
+public:
+    virtual ~ArrowSchemaConvertor() = default;
+    virtual Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const = 0;
+};
+
+class DorisArrowSchemaConvertor : public ArrowSchemaConvertor {
+public:
+    explicit DorisArrowSchemaConvertor(std::string timezone) : _timezone(std::move(timezone)) {}
+    DorisArrowSchemaConvertor(const Block& header, std::string timezone)
+            : _header(header.clone_empty()), _timezone(std::move(timezone)) {}
+
+    Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
+    Status get_arrow_schema_from_block(const Block& block,
+                                       std::shared_ptr<arrow::Schema>* result) const;
+    Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
+                                           std::shared_ptr<arrow::Schema>* result) const;
+    virtual Status convert_to_arrow_type(const DataTypePtr& type,
+                                         std::shared_ptr<arrow::DataType>* result) const;
+
+protected:
+    virtual std::string timestamp_timezone(PrimitiveType type) const;
+    virtual std::shared_ptr<arrow::Field> make_field(const std::string& name,
+                                                     const std::shared_ptr<arrow::DataType>& type,
+                                                     bool nullable, PrimitiveType primitive) const;
+    virtual std::shared_ptr<arrow::Field> make_child_field(
+            const std::string& name, const std::shared_ptr<arrow::DataType>& type, bool nullable,
+            PrimitiveType primitive) const;
+
+private:
+    Block _header;
+    const std::string _timezone;
+};
+
+class ArrowFlightSchemaConvertor : public DorisArrowSchemaConvertor {
+public:
+    explicit ArrowFlightSchemaConvertor(std::string timezone)
+            : DorisArrowSchemaConvertor(std::move(timezone)) {}
+    ArrowFlightSchemaConvertor(const Block& header, std::string timezone)
+            : DorisArrowSchemaConvertor(header, std::move(timezone)) {}
+
+    Status convert_to_arrow_type(const DataTypePtr& type,
+                                 std::shared_ptr<arrow::DataType>* result) const override;
+
+protected:
+    std::string timestamp_timezone(PrimitiveType type) const override;
+};
+
+// Old FEs require the pre-capability metadata layout, including metadata-free nested fields.
+class LegacyArrowFlightSchemaConvertor final : public ArrowFlightSchemaConvertor {
+public:
+    using ArrowFlightSchemaConvertor::ArrowFlightSchemaConvertor;
+
+protected:
+    std::shared_ptr<arrow::Field> make_field(const std::string& name,
+                                             const std::shared_ptr<arrow::DataType>& type,
+                                             bool nullable, PrimitiveType primitive) const override;
+    std::shared_ptr<arrow::Field> make_child_field(const std::string& name,
+                                                   const std::shared_ptr<arrow::DataType>& type,
+                                                   bool nullable,
+                                                   PrimitiveType primitive) const override;
+};
+
+Status register_arrow_variant_extension();
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type);
-
-Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone);
-
-Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
-                                       std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 

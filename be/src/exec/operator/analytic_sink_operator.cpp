@@ -64,8 +64,10 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else {
         if (!p._has_window_start) {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
+            _rows_window_type = RowsWindowType::UNBOUNDED_START;
         } else {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
+            _rows_window_type = RowsWindowType::SLIDING;
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
@@ -128,16 +130,13 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
             _agg_input_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
         _offsets_of_aggregate_states[i] = p._offsets_of_aggregate_states[i];
-        _result_column_nullable_flags[i] =
-                !_agg_functions[i]->function()->get_return_type()->is_nullable() &&
-                _agg_functions[i]->data_type()->is_nullable();
-        _result_column_could_resize[i] =
-                _agg_functions[i]->function()->result_column_could_resize();
-        if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->function()->get_name())) {
+        _result_column_nullable_flags[i] = !_agg_functions[i]->get_return_type()->is_nullable() &&
+                                           _agg_functions[i]->data_type()->is_nullable();
+        _result_column_could_resize[i] = _agg_functions[i]->result_column_could_resize();
+        if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->get_name())) {
             _streaming_mode = false;
         }
-        _support_incremental_calculate &=
-                _agg_functions[i]->function()->supported_incremental_mode();
+        _support_incremental_calculate &= _agg_functions[i]->supported_incremental_mode();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -238,11 +237,13 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t current_block_
             _need_more_data = true;
             break;
         }
-        if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
-            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
-                                  _partition_by_pose.start, current_row_end - 1);
-        }
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
+        // Initialize the first FOLLOWING frame in one call. LEAD derives the current row
+        // from frame_end, so a separate prefix call would read the previous row's default.
+        const int64_t current_row_start =
+                is_n_following_frame && _current_row_position == _partition_by_pose.start
+                        ? _partition_by_pose.start
+                        : current_row_end - 1;
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
                               current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
@@ -340,8 +341,9 @@ bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t current_block_r
     return false;
 }
 
-Status AnalyticSinkLocalState::_execute_impl() {
+Status AnalyticSinkLocalState::_execute_impl(RuntimeState* state) {
     while (_output_block_index < _input_blocks.size()) {
+        RETURN_IF_CANCELLED(state);
         {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
@@ -384,13 +386,13 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
         if constexpr (incremental) {
-            _agg_functions[i]->function()->execute_function_with_incremental(
+            _agg_functions[i]->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                     _shared_state->agg_arena_pool, false, false, false, &_use_null_result[i],
                     &_could_use_previous_result[i]);
         } else {
-            _agg_functions[i]->function()->add_range_single_place(
+            _agg_functions[i]->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                     _shared_state->agg_arena_pool, &(_use_null_result[i]),
@@ -409,14 +411,14 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
                 auto* dst = assert_cast<ColumnNullable*>(_result_window_columns[i].get());
                 dst->get_null_map_data().resize_fill(
                         dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
-                _agg_functions[i]->function()->insert_result_into_range(
-                        _fn_place_ptr + _offsets_of_aggregate_states[i], dst->get_nested_column(),
+                _agg_functions[i]->insert_result_info_range(
+                        _fn_place_ptr + _offsets_of_aggregate_states[i], &dst->get_nested_column(),
                         start, end);
             }
         } else {
-            _agg_functions[i]->function()->insert_result_into_range(
-                    _fn_place_ptr + _offsets_of_aggregate_states[i], *_result_window_columns[i],
-                    start, end);
+            _agg_functions[i]->insert_result_info_range(
+                    _fn_place_ptr + _offsets_of_aggregate_states[i],
+                    _result_window_columns[i].get(), start, end);
         }
     }
 }
@@ -683,7 +685,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::prepare(state));
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(VExpr::prepare(ctx, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(ctx, state, _child->operator_row_desc_after_projection()));
     }
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -691,7 +693,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state,
+                                                   _child->operator_row_desc_after_projection(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags[i] =
@@ -699,7 +702,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         std::vector<TTupleId> tuple_ids;
-        tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(
+                _child->operator_row_desc_after_projection().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
@@ -711,7 +715,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     }
     if (!_range_between_expr_ctxs.empty()) {
         DCHECK(_range_between_expr_ctxs.size() == 2);
-        RETURN_IF_ERROR(VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(_range_between_expr_ctxs, state,
+                                       _child->operator_row_desc_after_projection()));
     }
     RETURN_IF_ERROR(VExpr::open(_range_between_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
@@ -724,13 +729,13 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
-        const auto& agg_function = _agg_functions[i]->function();
+        const auto* agg_function = _agg_functions[i];
         // aggregate states are aligned based on maximum requirement
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
         // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
         if (i + 1 < _agg_functions_size) {
-            size_t alignment_of_next_state = _agg_functions[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _agg_functions[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
@@ -744,7 +749,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block, bool eos) {
+Status AnalyticSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -753,7 +758,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_bloc
     local_state._reserve_mem_size = 0;
     SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
     RETURN_IF_ERROR(_add_input_block(state, input_block));
-    RETURN_IF_ERROR(local_state._execute_impl());
+    RETURN_IF_ERROR(local_state._execute_impl(state));
     if (local_state._input_eos) {
         LockGuard lc(local_state._shared_state->sink_eos_lock);
         local_state._shared_state->sink_eos = true;
@@ -770,6 +775,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
     local_state._input_block_first_row_positions.emplace_back(local_state._input_total_rows);
     size_t block_rows = input_block->rows();
     local_state._input_total_rows += block_rows;
+    auto convert_column_if_overflow = [](MutableColumnPtr& column) {
+        auto converted_column = column->convert_column_if_overflow();
+        if (converted_column.get() != column.get()) {
+            column = converted_column->assert_mutable();
+        }
+    };
 
     // record origin columns, maybe be after this, could cast some column but no need to output
     auto column_to_keep = input_block->columns();
@@ -790,6 +801,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
             RETURN_IF_ERROR(
                     _insert_range_column(input_block, local_state._partition_by_eq_expr_ctxs[i],
                                          local_state._partition_by_columns[i].get(), block_rows));
+            convert_column_if_overflow(local_state._partition_by_columns[i]);
         }
     }
     {
@@ -798,6 +810,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
             RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
                                                  local_state._order_by_columns[i].get(),
                                                  block_rows));
+            convert_column_if_overflow(local_state._order_by_columns[i]);
         }
     }
     {
@@ -834,6 +847,18 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
         auto idx = _output_block_index - 1;
         if (idx < 0 || _input_block_first_row_positions[idx] <= unused_rows_pos) {
             return;
+        }
+        if (_rows_window_type != RowsWindowType::NONE) {
+            // Sliding frames need the outgoing row; unbounded-start frames need the next unread row.
+            const int64_t earliest_required_row =
+                    _rows_window_type == RowsWindowType::SLIDING
+                            ? std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_start_offset - 1)
+                            : std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_end_offset);
+            if (_have_removed_rows + earliest_required_row < unused_rows_pos) {
+                return;
+            }
         }
     } else {
         if (_have_removed_rows + _partition_by_pose.start <= unused_rows_pos) {

@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -26,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
 
@@ -40,11 +42,18 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.lang.reflect.Field;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -56,12 +65,20 @@ public class SummaryProfile {
     // Summary
     public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
+    public static final String QUERY_RETRY_TIMES = "QueryRetryTimes";
+    public static final String QUERY_RETRY_DETAILS = "QueryRetryDetails";
     public static final String DORIS_VERSION = "Doris Version";
     public static final String TASK_TYPE = "Task Type";
     public static final String START_TIME = "Start Time";
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
+    public static final String PROFILE_COMPLETION_STATE = "Profile Completion State";
+    public static final String PROFILE_COMPLETION_STATE_RUNNING = "RUNNING";
+    public static final String PROFILE_COMPLETION_STATE_COLLECTING = "COLLECTING";
+    public static final String PROFILE_COMPLETION_STATE_COMPLETE = "COMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_INCOMPLETE = "INCOMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_UNKNOWN = "UNKNOWN";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -77,13 +94,19 @@ public class SummaryProfile {
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
     public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
+    public static final String QUERY_BACKEND_SELECTION = "Query Backend Selection";
+    public static final String LOAD_BACKEND_SELECTION = "Load Backend Selection";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
+    public static final String EXTERNAL_TABLE_META_TIME = "External Table Meta Time";
+    public static final String EXTERNAL_TABLE_GET_TABLE_META_TIME = "External Table Get Table Meta Time";
+    public static final String EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME = "External Table Get Partition Values Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
     public static final String GET_PARTITION_FILES_TIME = "Get Partition Files Time";
+    public static final String EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME = "External Table Get File Scan Tasks Time";
     public static final String CREATE_SCAN_RANGE_TIME = "Create Scan Range Time";
     public static final String SINK_SET_PARTITION_VALUES_TIME = "Sink Set Partition Values Time";
     public static final String PLAN_TIME = "Plan Time";
@@ -96,6 +119,7 @@ public class SummaryProfile {
     public static final String FETCH_RESULT_TIME = "Fetch Result Time";
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String GET_META_VERSION_TIME = "Get Meta Version Time";
+    public static final String GET_META_VERSION_RATE_LIMIT_WAIT_TIME = "Get Meta Version Rate Limit Wait Time";
     public static final String GET_PARTITION_VERSION_TIME = "Get Partition Version Time";
     public static final String GET_PARTITION_VERSION_COUNT = "Get Partition Version Count";
     public static final String GET_PARTITION_VERSION_BY_HAS_DATA_COUNT = "Get Partition Version Count (hasData)";
@@ -114,6 +138,7 @@ public class SummaryProfile {
     public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
 
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
+    public static final String NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME = "Nereids Preload External Metadata Time";
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
@@ -143,8 +168,7 @@ public class SummaryProfile {
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
-    public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
-    public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
+    public static final String WAIT_CHANGE_VISIBLE_TIME = "Wait Change Visible Time";
     private boolean isWarmUp = false;
 
     public void setWarmup(boolean isWarmUp) {
@@ -167,6 +191,8 @@ public class SummaryProfile {
 
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
+            QUERY_RETRY_TIMES,
+            QUERY_RETRY_DETAILS,
             WORKLOAD_GROUP,
             MAX_CONCURRENCY,
             MAX_QUEUE_SIZE,
@@ -181,6 +207,8 @@ public class SummaryProfile {
             PARSE_SQL_TIME,
             PLAN_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
+            NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
+            WAIT_CHANGE_VISIBLE_TIME,
             NEREIDS_LOCK_TABLE_TIME,
             NEREIDS_ANALYSIS_TIME,
             NEREIDS_REWRITE_TIME,
@@ -192,14 +220,17 @@ public class SummaryProfile {
             INIT_SCAN_NODE_TIME,
             FINALIZE_SCAN_NODE_TIME,
             GET_SPLITS_TIME,
+            EXTERNAL_TABLE_META_TIME,
+            EXTERNAL_TABLE_GET_TABLE_META_TIME,
+            EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
             GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME,
+            EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
-            ICEBERG_SCAN_METRICS,
-            PAIMON_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
+            GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
             GET_PARTITION_VERSION_TIME,
             GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
             GET_PARTITION_VERSION_COUNT,
@@ -226,6 +257,8 @@ public class SummaryProfile {
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
+            QUERY_BACKEND_SELECTION,
+            LOAD_BACKEND_SELECTION,
             SPLITS_ASSIGNMENT_WEIGHT
     );
 
@@ -234,6 +267,8 @@ public class SummaryProfile {
     public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_INDENTATION
             = ImmutableMap.<String, Integer>builder()
             .put(NEREIDS_GARBAGE_COLLECT_TIME, 1)
+            .put(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME, 1)
+            .put(WAIT_CHANGE_VISIBLE_TIME, 1)
             .put(NEREIDS_LOCK_TABLE_TIME, 1)
             .put(NEREIDS_ANALYSIS_TIME, 1)
             .put(NEREIDS_REWRITE_TIME, 1)
@@ -243,14 +278,17 @@ public class SummaryProfile {
             .put(INIT_SCAN_NODE_TIME, 2)
             .put(FINALIZE_SCAN_NODE_TIME, 2)
             .put(GET_SPLITS_TIME, 3)
+            .put(EXTERNAL_TABLE_META_TIME, 4)
+            .put(EXTERNAL_TABLE_GET_TABLE_META_TIME, 5)
+            .put(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME, 5)
             .put(NEREIDS_DISTRIBUTE_TIME, 1)
             .put(NEREIDS_BE_FOLD_CONST_TIME, 2)
             .put(GET_PARTITIONS_TIME, 3)
             .put(GET_PARTITION_FILES_TIME, 3)
+            .put(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME, 5)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
-            .put(ICEBERG_SCAN_METRICS, 3)
-            .put(PAIMON_SCAN_METRICS, 3)
+            .put(GET_META_VERSION_RATE_LIMIT_WAIT_TIME, 1)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
             .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
@@ -283,6 +321,7 @@ public class SummaryProfile {
             .put(READ_BYTES_PER_SECOND, 1)
             .put(TAG, 1)
             .build();
+
     public boolean parsedByConnectionProcess = false;
     @SerializedName(value = "summaryProfile")
     private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
@@ -292,120 +331,219 @@ public class SummaryProfile {
     private long parseSqlStartTime = -1;
     @SerializedName(value = "parseSqlFinishTime")
     private long parseSqlFinishTime = -1;
+    @SerializedName(value = "nereidsPreloadExternalMetadataTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long nereidsPreloadExternalMetadataTime = 0;
+    @SerializedName(value = "nereidsLockTableStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long nereidsLockTableStartTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsLockTableFinishTime = -1;
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsCollectTablePartitionFinishTime = -1;
     @SerializedName(value = "nereidsCollectTablePartitionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsCollectTablePartitionTime = 0;
     @SerializedName(value = "nereidsAnalysisFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsRewriteFinishTime = -1;
     @SerializedName(value = "nereidsPreRewriteByMvFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsPreRewriteByMvFinishTime = -1;
     @SerializedName(value = "nereidsOptimizeFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsOptimizeFinishTime = -1;
     @SerializedName(value = "nereidsTranslateFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsTranslateFinishTime = -1;
     @SerializedName(value = "nereidsGarbageCollectionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsGarbageCollectionTime = -1;
     @SerializedName(value = "nereidsBeFoldConstTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsBeFoldConstTime = 0;
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsDistributeFinishTime = -1;
     // timestamp of query begin
     @SerializedName(value = "queryBeginTime")
     private long queryBeginTime = -1;
     @SerializedName(value = "initScanNodeStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long initScanNodeStartTime = -1;
     @SerializedName(value = "initScanNodeFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long initScanNodeFinishTime = -1;
     @SerializedName(value = "finalizeScanNodeStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long finalizeScanNodeStartTime = -1;
     @SerializedName(value = "finalizeScanNodeFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long finalizeScanNodeFinishTime = -1;
     @SerializedName(value = "getSplitsStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getSplitsStartTime = -1;
     @SerializedName(value = "getPartitionsFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getPartitionsFinishTime = -1;
     @SerializedName(value = "getPartitionFilesFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getPartitionFilesFinishTime = -1;
     @SerializedName(value = "sinkSetPartitionValuesStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long sinkSetPartitionValuesStartTime = -1;
     @SerializedName(value = "sinkSetPartitionValuesFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long sinkSetPartitionValuesFinishTime = -1;
     @SerializedName(value = "getSplitsFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getSplitsFinishTime = -1;
     @SerializedName(value = "createScanRangeFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long createScanRangeFinishTime = -1;
     // Plan end time
     @SerializedName(value = "queryPlanFinishTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long queryPlanFinishTime = -1;
     @SerializedName(value = "assignFragmentTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long assignFragmentTime = -1;
     @SerializedName(value = "fragmentSerializeTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long fragmentSerializeTime = -1;
     @SerializedName(value = "fragmentSendPhase1Time")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long fragmentSendPhase1Time = -1;
     @SerializedName(value = "fragmentSendPhase2Time")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long fragmentSendPhase2Time = -1;
     @SerializedName(value = "fragmentCompressedSize")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long fragmentCompressedSize = 0;
     @SerializedName(value = "fragmentRpcCount")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long fragmentRpcCount = 0;
+    @SerializedName(value = "queryScheduleStartTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
+    private long queryScheduleStartTime = -1;
+    @SerializedName(value = "failedAttempts")
+    private int failedAttempts = 0;
+    private TUniqueId lastFailedAttemptId;
+    @SerializedName(value = "queryRetryDetails")
+    private Map<String, QueryAttempt> queryRetryDetails = Maps.newLinkedHashMap();
+    private TUniqueId queryAttemptId;
+    private long queryAttemptStartTimeMs = -1;
     // Fragment schedule and send end time
     @SerializedName(value = "queryScheduleFinishTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long queryScheduleFinishTime = -1;
     // Query result fetch end time
     @SerializedName(value = "queryFetchResultFinishTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long queryFetchResultFinishTime = -1;
     @SerializedName(value = "tempStarTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long tempStarTime = -1;
     @SerializedName(value = "queryFetchResultConsumeTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long queryFetchResultConsumeTime = 0;
     @SerializedName(value = "queryWriteResultConsumeTime")
+    @ResetOnRetry(ResetScope.EXECUTION)
     private long queryWriteResultConsumeTime = 0;
     @SerializedName(value = "getPartitionVersionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getPartitionVersionTime = 0;
     @SerializedName(value = "getPartitionVersionCount")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getPartitionVersionCount = 0;
     @SerializedName(value = "getPartitionVersionByHasDataCount")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getPartitionVersionByHasDataCount = 0;
     @SerializedName(value = "getTableVersionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getTableVersionTime = 0;
     @SerializedName(value = "getTableVersionCount")
+    @ResetOnRetry(ResetScope.PLAN)
     private long getTableVersionCount = 0;
+    @SerializedName(value = "getMetaVersionRateLimitWaitTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long getMetaVersionRateLimitWaitTime = 0;
     @SerializedName(value = "transactionCommitBeginTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long transactionCommitBeginTime = -1;
     @SerializedName(value = "transactionCommitEndTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long transactionCommitEndTime = -1;
     @SerializedName(value = "filesystemOptTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long filesystemOptTime = -1;
     @SerializedName(value = "hmsAddPartitionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long hmsAddPartitionTime = -1;
     @SerializedName(value = "hmsAddPartitionCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long hmsAddPartitionCnt = 0;
     @SerializedName(value = "hmsUpdatePartitionTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long hmsUpdatePartitionTime = -1;
     @SerializedName(value = "hmsUpdatePartitionCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long hmsUpdatePartitionCnt = 0;
     @SerializedName(value = "filesystemRenameFileCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long filesystemRenameFileCnt = 0;
     @SerializedName(value = "filesystemRenameDirCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long filesystemRenameDirCnt = 0;
     @SerializedName(value = "filesystemDeleteDirCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long filesystemDeleteDirCnt = 0;
     @SerializedName(value = "filesystemDeleteFileCnt")
+    @ResetOnRetry(ResetScope.PLAN)
     private long filesystemDeleteFileCnt = 0;
     @SerializedName(value = "transactionType")
+    @ResetOnRetry(ResetScope.PLAN)
     private TransactionType transactionType = TransactionType.UNKNOWN;
     @SerializedName(value = "nereidsMvRewriteTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsMvRewriteTime = 0;
     @SerializedName(value = "externalCatalogMetaTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long externalCatalogMetaTime = 0;
+    // Total time to get table meta, including time to get table meta from external catalog and time to do some
+    // process based on the meta, such as partition prune.
+    @SerializedName(value = "externalTableGetTableMetaTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long externalTableGetTableMetaTime = 0;
+    // Total time to get partition values, including time to get partition values from external catalog and time to do
+    // some process based on the partition values, such as partition prune.
+    @SerializedName(value = "externalTableGetPartitionValuesTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long externalTableGetPartitionValuesTime = 0;
+    // Total time to get partitions, including time to get partitions from external catalog and time to do some
+    // process based on the partitions, such as partition prune.
+    @SerializedName(value = "externalTableGetPartitionsTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long externalTableGetPartitionsTime = 0;
+    // Total time to get partition files, including time to get partition files from external catalog and time to do
+    // some process based on the partition files, such as creating scan range.
+    @SerializedName(value = "externalTableGetPartitionFilesTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long externalTableGetPartitionFilesTime = 0;
+    // Total time to get file scan tasks, including time to get file scan tasks from external catalog and time to do
+    // some process based on the file scan tasks, such as creating scan range.
+    @SerializedName(value = "externalTableGetFileScanTasksTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long externalTableGetFileScanTasksTime = 0;
     @SerializedName(value = "externalTvfInitTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
+    @ResetOnRetry(ResetScope.PLAN)
     private long nereidsPartitiionPruneTime = 0;
     @SerializedName("maxConcurrency")
     private int maxConcurrency = 0;
@@ -431,9 +569,50 @@ public class SummaryProfile {
     private long remoteReadBytesPerSecond = -1L;
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
+    @ResetOnRetry(ResetScope.EXECUTION)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
+    @ResetOnRetry(ResetScope.EXECUTION)
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
+    @ResetOnRetry(ResetScope.PLAN)
     private Map<Backend, Long> assignedWeightPerBackend;
+    @SerializedName("waitChangeVisibleStartTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long waitChangeVisibleStartTime = -1L;
+    @SerializedName("waitChangeVisibleEndTime")
+    @ResetOnRetry(ResetScope.PLAN)
+    private long waitChangeVisibleEndTime = -1L;
+
+    private enum ResetScope {
+        PLAN,
+        EXECUTION
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.FIELD)
+    private @interface ResetOnRetry {
+        ResetScope value();
+    }
+
+    private static final Map<ResetScope, Map<Field, Object>> RETRY_FIELD_DEFAULTS = buildRetryFieldDefaults();
+
+    private static Map<ResetScope, Map<Field, Object>> buildRetryFieldDefaults() {
+        Map<ResetScope, Map<Field, Object>> defaults = new EnumMap<>(ResetScope.class);
+        for (ResetScope scope : ResetScope.values()) {
+            defaults.put(scope, new LinkedHashMap<>());
+        }
+        SummaryProfile initial = new SummaryProfile(false);
+        try {
+            for (Field field : SummaryProfile.class.getDeclaredFields()) {
+                ResetOnRetry reset = field.getAnnotation(ResetOnRetry.class);
+                if (reset != null) {
+                    defaults.get(reset.value()).put(field, field.get(initial));
+                }
+            }
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Cannot read summary profile defaults", e);
+        }
+        return defaults;
+    }
 
     public SummaryProfile() {
         this(true);
@@ -489,6 +668,10 @@ public class SummaryProfile {
         return summaryProfile;
     }
 
+    public void setProfileCompletionState(String profileCompletionState) {
+        summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
+    }
+
     public RuntimeProfile getExecutionSummary() {
         return executionSummaryProfile;
     }
@@ -509,6 +692,83 @@ public class SummaryProfile {
     public void update(Map<String, String> summaryInfo) {
         updateSummaryProfile(summaryInfo);
         updateExecutionSummaryProfile();
+    }
+
+    public synchronized void startQueryAttempt(TUniqueId queryId, long startTimeMs) {
+        if (queryAttemptStartTimeMs >= 0 && Objects.equals(queryAttemptId, queryId)) {
+            return;
+        }
+        queryAttemptId = queryId;
+        queryAttemptStartTimeMs = startTimeMs;
+    }
+
+    public synchronized void recordQueryAttempt(TUniqueId queryId, boolean failed) {
+        String id = DebugUtil.printId(queryId);
+        QueryAttempt attempt = queryRetryDetails.get(id);
+        if (attempt == null) {
+            long startTimeMs = queryAttemptStartTimeMs >= 0 && Objects.equals(queryAttemptId, queryId)
+                    ? queryAttemptStartTimeMs : queryBeginTime;
+            if (startTimeMs < 0) {
+                return;
+            }
+            attempt = new QueryAttempt(TimeUtils.getStartTimeMs() - startTimeMs, failed);
+            queryRetryDetails.put(id, attempt);
+        } else if (failed) {
+            attempt.state = "FAILED";
+        }
+        executionSummaryProfile.addInfoString(QUERY_RETRY_DETAILS, GsonUtils.GSON.toJson(queryRetryDetails));
+    }
+
+    public synchronized void recordFailedAttempt(TUniqueId queryId) {
+        recordQueryAttempt(queryId, true);
+        if (lastFailedAttemptId != null && lastFailedAttemptId.equals(queryId)) {
+            return;
+        }
+        lastFailedAttemptId = queryId;
+        failedAttempts++;
+        executionSummaryProfile.addInfoString(QUERY_RETRY_TIMES, Integer.toString(failedAttempts));
+    }
+
+    public void setQueryScheduleStartTime(long startTime) {
+        queryScheduleStartTime = startTime;
+    }
+
+    private long getQueryScheduleStartTime() {
+        return queryScheduleStartTime > 0 ? queryScheduleStartTime : queryPlanFinishTime;
+    }
+
+    private long getQueryPlanStartTime() {
+        return Math.max(queryBeginTime, parseSqlFinishTime);
+    }
+
+    public void clearExecutionDetails() {
+        resetFields(ResetScope.EXECUTION);
+        executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, "{}");
+        updateExecutionSummaryProfile();
+    }
+
+    public void clearPlanDetails() {
+        resetFields(ResetScope.PLAN);
+        for (String key : ImmutableList.of(FILESYSTEM_OPT_TIME, FILESYSTEM_OPT_RENAME_FILE_CNT,
+                FILESYSTEM_OPT_RENAME_DIR_CNT, FILESYSTEM_OPT_DELETE_FILE_CNT, FILESYSTEM_OPT_DELETE_DIR_CNT,
+                HMS_ADD_PARTITION_TIME, HMS_ADD_PARTITION_CNT, HMS_UPDATE_PARTITION_TIME, HMS_UPDATE_PARTITION_CNT)) {
+            executionSummaryProfile.addInfoString(key, "N/A");
+        }
+        updateExecutionSummaryProfile();
+        summaryProfile.addInfoString(DISTRIBUTED_PLAN, "N/A");
+        executionSummaryProfile.addInfoString(QUERY_BACKEND_SELECTION, "N/A");
+        executionSummaryProfile.addInfoString(LOAD_BACKEND_SELECTION, "N/A");
+        executionSummaryProfile.addInfoString(SPLITS_ASSIGNMENT_WEIGHT, "N/A");
+    }
+
+    private void resetFields(ResetScope scope) {
+        try {
+            for (Entry<Field, Object> entry : RETRY_FIELD_DEFAULTS.get(scope).entrySet()) {
+                entry.getKey().set(this, entry.getValue());
+            }
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Cannot reset summary profile fields", e);
+        }
     }
 
     // This method is used to display the final data status when the overall query ends.
@@ -542,9 +802,14 @@ public class SummaryProfile {
     }
 
     private void updateExecutionSummaryProfile() {
+        executionSummaryProfile.addInfoString(QUERY_RETRY_TIMES, Integer.toString(failedAttempts));
+        executionSummaryProfile.addInfoString(QUERY_RETRY_DETAILS, GsonUtils.GSON.toJson(queryRetryDetails));
         executionSummaryProfile.addInfoString(PARSE_SQL_TIME, getPrettyParseSqlTime());
         executionSummaryProfile.addInfoString(PLAN_TIME,
-                getPrettyTime(queryPlanFinishTime, parseSqlFinishTime, TUnit.TIME_MS));
+                getPrettyTime(queryPlanFinishTime, getQueryPlanStartTime(), TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
+                getPrettyNereidsPreloadExternalMetadataTime());
+        executionSummaryProfile.addInfoString(WAIT_CHANGE_VISIBLE_TIME, getPrettyWaitChangeVisibleEndTime());
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
@@ -562,19 +827,28 @@ public class SummaryProfile {
                 getPrettyTime(finalizeScanNodeFinishTime, finalizeScanNodeStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(GET_SPLITS_TIME,
                 getPrettyTime(getSplitsFinishTime, getSplitsStartTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_META_TIME,
+                getPrettyAccumulatedTime(externalCatalogMetaTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_TABLE_META_TIME,
+                getPrettyAccumulatedTime(externalTableGetTableMetaTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
+                getPrettyAccumulatedTime(externalTableGetPartitionValuesTime));
         executionSummaryProfile.addInfoString(GET_PARTITIONS_TIME,
-                getPrettyTime(getPartitionsFinishTime, getSplitsStartTime, TUnit.TIME_MS));
+                getExternalTableMetaTime(externalTableGetPartitionsTime, getPartitionsFinishTime, getSplitsStartTime));
         executionSummaryProfile.addInfoString(GET_PARTITION_FILES_TIME,
-                getPrettyTime(getPartitionFilesFinishTime, getPartitionsFinishTime, TUnit.TIME_MS));
+                getExternalTableMetaTime(externalTableGetPartitionFilesTime,
+                        getPartitionFilesFinishTime, getPartitionsFinishTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
+                getPrettyAccumulatedTime(externalTableGetFileScanTasksTime));
         executionSummaryProfile.addInfoString(SINK_SET_PARTITION_VALUES_TIME,
                 getPrettyTime(sinkSetPartitionValuesFinishTime, sinkSetPartitionValuesStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(CREATE_SCAN_RANGE_TIME,
                 getPrettyTime(createScanRangeFinishTime, getSplitsFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(SCHEDULE_TIME,
-                getPrettyTime(queryScheduleFinishTime, queryPlanFinishTime, TUnit.TIME_MS));
+                getPrettyTime(queryScheduleFinishTime, getQueryScheduleStartTime(), TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, getRpcLatency());
         executionSummaryProfile.addInfoString(ASSIGN_FRAGMENT_TIME,
-                getPrettyTime(assignFragmentTime, queryPlanFinishTime, TUnit.TIME_MS));
+                getPrettyTime(assignFragmentTime, getQueryScheduleStartTime(), TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(FRAGMENT_SERIALIZE_TIME,
                 getPrettyTime(fragmentSerializeTime, assignFragmentTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(SEND_FRAGMENT_PHASE1_TIME,
@@ -610,6 +884,8 @@ public class SummaryProfile {
 
         if (Config.isCloudMode()) {
             executionSummaryProfile.addInfoString(GET_META_VERSION_TIME, getPrettyGetMetaVersionTime());
+            executionSummaryProfile.addInfoString(GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
+                    getPrettyGetMetaVersionRateLimitWaitTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_TIME, getPrettyGetPartitionVersionTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
@@ -654,8 +930,20 @@ public class SummaryProfile {
         this.parseSqlFinishTime = parseSqlFinishTime;
     }
 
+    public void setNereidsLockTableStartTime(long lockTableStartTime) {
+        this.nereidsLockTableStartTime = lockTableStartTime;
+    }
+
     public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
+    }
+
+    public void setWaitChangeVisibleStartTime(long waitChangeVisibleStartTime) {
+        this.waitChangeVisibleStartTime = waitChangeVisibleStartTime;
+    }
+
+    public void setWaitChangeVisibleEndTime(long waitChangeVisibleEndTime) {
+        this.waitChangeVisibleEndTime = waitChangeVisibleEndTime;
     }
 
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
@@ -802,6 +1090,10 @@ public class SummaryProfile {
         this.getTableVersionCount += 1;
     }
 
+    public void addGetMetaVersionRateLimitWaitTime(long ns) {
+        this.getMetaVersionRateLimitWaitTime += ns;
+    }
+
     public void incGetPartitionVersionByHasDataCount() {
         this.getPartitionVersionByHasDataCount += 1;
     }
@@ -827,11 +1119,19 @@ public class SummaryProfile {
     }
 
     public int getPlanTimeMs() {
-        return getTimeMs(queryPlanFinishTime, parseSqlFinishTime);
+        return getTimeMs(queryPlanFinishTime, getQueryPlanStartTime());
     }
 
     public int getNereidsLockTableTimeMs() {
-        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+        return getTimeMs(nereidsLockTableFinishTime, nereidsLockTableStartTime);
+    }
+
+    public int getWaitChangeVisibleTimeMs() {
+        return getTimeMs(waitChangeVisibleEndTime, waitChangeVisibleStartTime);
+    }
+
+    public long getNereidsPreloadExternalMetadataTimeMs() {
+        return nereidsPreloadExternalMetadataTime;
     }
 
     public int getNereidsAnalysisTimeMs() {
@@ -848,7 +1148,10 @@ public class SummaryProfile {
     }
 
     public int getNereidsOptimizeTimeMs() {
-        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+        long start = nereidsCollectTablePartitionFinishTime != -1
+                ? nereidsCollectTablePartitionFinishTime
+                : nereidsRewriteFinishTime;
+        return getTimeMs(nereidsOptimizeFinishTime, start);
     }
 
     public int getNereidsTranslateTimeMs() {
@@ -880,11 +1183,11 @@ public class SummaryProfile {
     }
 
     public int getScheduleTimeMs() {
-        return getTimeMs(queryScheduleFinishTime, queryPlanFinishTime);
+        return getTimeMs(queryScheduleFinishTime, getQueryScheduleStartTime());
     }
 
     public int getFragmentAssignTimsMs() {
-        return getTimeMs(assignFragmentTime, queryPlanFinishTime);
+        return getTimeMs(assignFragmentTime, getQueryScheduleStartTime());
     }
 
     public int getFragmentSerializeTimeMs() {
@@ -919,8 +1222,16 @@ public class SummaryProfile {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
 
+    public String getPrettyNereidsPreloadExternalMetadataTime() {
+        return RuntimeProfile.printCounter(nereidsPreloadExternalMetadataTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyWaitChangeVisibleEndTime() {
+        return getPrettyTime(waitChangeVisibleEndTime, waitChangeVisibleStartTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsLockTableTime() {
-        return getPrettyTime(nereidsLockTableFinishTime, parseSqlFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsLockTableFinishTime, nereidsLockTableStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsAnalysisTime() {
@@ -945,7 +1256,12 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsPreRewriteByMvFinishTime, TUnit.TIME_MS);
+        long start = nereidsPreRewriteByMvFinishTime != -1
+                ? nereidsPreRewriteByMvFinishTime
+                : (nereidsCollectTablePartitionFinishTime != -1
+                        ? nereidsCollectTablePartitionFinishTime
+                        : nereidsRewriteFinishTime);
+        return getPrettyTime(nereidsOptimizeFinishTime, start, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {
@@ -967,6 +1283,13 @@ public class SummaryProfile {
     private String getPrettyGetMetaVersionTime() {
         long getMetaVersionTime = getPartitionVersionTime + getTableVersionTime;
         return RuntimeProfile.printCounter(getMetaVersionTime, TUnit.TIME_NS);
+    }
+
+    private String getPrettyGetMetaVersionRateLimitWaitTime() {
+        if (getMetaVersionRateLimitWaitTime == 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(getMetaVersionRateLimitWaitTime, TUnit.TIME_NS);
     }
 
     private String getPrettyGetPartitionVersionTime() {
@@ -999,8 +1322,8 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
     }
 
-    public long getGetPartitionVersionTime() {
-        return getPartitionVersionTime;
+    public long getGetPartitionVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime);
     }
 
     public long getGetPartitionVersionCount() {
@@ -1011,12 +1334,16 @@ public class SummaryProfile {
         return getPartitionVersionByHasDataCount;
     }
 
-    public long getGetTableVersionTime() {
-        return getTableVersionTime;
+    public long getGetTableVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getTableVersionTime);
     }
 
     public long getGetTableVersionCount() {
         return getTableVersionCount;
+    }
+
+    public long getGetMetaVersionRateLimitWaitTime() {
+        return getMetaVersionRateLimitWaitTime;
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {
@@ -1024,6 +1351,20 @@ public class SummaryProfile {
             return "N/A";
         }
         return RuntimeProfile.printCounter(end - start, unit);
+    }
+
+    private String getPrettyAccumulatedTime(long timeMs) {
+        if (timeMs <= 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(timeMs, TUnit.TIME_MS);
+    }
+
+    private String getExternalTableMetaTime(long accumulatedTimeMs, long end, long start) {
+        if (accumulatedTimeMs > 0) {
+            return RuntimeProfile.printCounter(accumulatedTimeMs, TUnit.TIME_MS);
+        }
+        return getPrettyTime(end, start, TUnit.TIME_MS);
     }
 
     public void setTransactionBeginTime(TransactionType type) {
@@ -1179,6 +1520,10 @@ public class SummaryProfile {
         this.nereidsMvRewriteTime += ms;
     }
 
+    public void addNereidsPreloadExternalMetadataTime(long ms) {
+        this.nereidsPreloadExternalMetadataTime += ms;
+    }
+
     public long getNereidsMvRewriteTimeMs() {
         return nereidsMvRewriteTime;
     }
@@ -1189,6 +1534,39 @@ public class SummaryProfile {
 
     public long getExternalCatalogMetaTimeMs() {
         return externalCatalogMetaTime;
+    }
+
+    public synchronized void addExternalTableGetTableMetaTime(long ms) {
+        this.externalTableGetTableMetaTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionValuesTime(long ms) {
+        this.externalTableGetPartitionValuesTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionsTime(long ms) {
+        this.externalTableGetPartitionsTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionFilesTime(long ms) {
+        this.externalTableGetPartitionFilesTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetFileScanTasksTime(long ms) {
+        this.externalTableGetFileScanTasksTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalCatalogMetaTime(long ms) {
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    private void addExternalCatalogMetaTimeInternal(long ms) {
+        this.externalCatalogMetaTime += ms;
     }
 
     public void addExternalTvfInitTime(long ms) {
@@ -1219,6 +1597,7 @@ public class SummaryProfile {
         String planTimesMs = "{"
                 + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
                 + "\"garbage_collect\"" + ":" + this.getNereidsGarbageCollectionTimeMs() + ","
+                + "\"wait_change_visible\"" + ":" + this.getWaitChangeVisibleTimeMs() + ","
                 + "\"lock_tables\"" + ":" + this.getNereidsLockTableTimeMs() + ","
                 + "\"analyze\"" + ":" + this.getNereidsAnalysisTimeMs() + ","
                 + "\"rewrite\"" + ":" + this.getNereidsRewriteTimeMs() + ","
@@ -1235,13 +1614,17 @@ public class SummaryProfile {
     }
 
     public String getMetaTime() {
-        return "{"
-                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTime() + ","
+        String metaTime = "{"
+                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTimeMs() + ","
                 + "\"get_partition_version_count_has_data\"" + ":" + this.getGetPartitionVersionByHasDataCount() + ","
                 + "\"get_partition_version_count\"" + ":" + this.getGetPartitionVersionCount() + ","
-                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTime() + ","
-                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount()
-                + "}";
+                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTimeMs() + ","
+                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount();
+        if (this.getGetMetaVersionRateLimitWaitTime() > 0) {
+            metaTime += ",\"get_meta_version_rate_limit_wait_time_ms\"" + ":"
+                    + TimeUnit.NANOSECONDS.toMillis(this.getGetMetaVersionRateLimitWaitTime());
+        }
+        return metaTime + "}";
     }
 
     public String getScheduleTime() {
@@ -1254,6 +1637,18 @@ public class SummaryProfile {
                 + "\"fragment_compressed_size_byte\"" + ":" + this.getFragmentCompressedSizeByte() + ","
                 + "\"fragment_rpc_count\"" + ":" + this.getFragmentRPCCount()
                 + "}";
+    }
+
+    private static class QueryAttempt {
+        @SerializedName(value = "durationMs")
+        private final long durationMs;
+        @SerializedName(value = "state")
+        private String state;
+
+        private QueryAttempt(long durationMs, boolean failed) {
+            this.durationMs = durationMs;
+            this.state = failed ? "FAILED" : "SUCCEEDED";
+        }
     }
 
     public static class SummaryBuilder {
@@ -1311,6 +1706,16 @@ public class SummaryProfile {
 
         public SummaryBuilder workloadGroup(String workloadGroup) {
             map.put(WORKLOAD_GROUP, workloadGroup);
+            return this;
+        }
+
+        public SummaryBuilder queryBackendSelection(String selection) {
+            map.put(QUERY_BACKEND_SELECTION, selection);
+            return this;
+        }
+
+        public SummaryBuilder loadBackendSelection(String selection) {
+            map.put(LOAD_BACKEND_SELECTION, selection);
             return this;
         }
 

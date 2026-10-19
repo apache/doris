@@ -349,7 +349,7 @@ struct DivideFloatingImpl {
 
     static inline ArgA apply(ArgA a, ArgB b, UInt8& is_null) {
         is_null = b == 0;
-        return static_cast<ArgA>(a) / (b + is_null);
+        return a / (b + is_null);
     }
 
     static ColumnPtr constant_constant(ArgA a, ArgB b) {

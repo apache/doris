@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -128,6 +129,15 @@ public class LdapManager {
                 || Objects.isNull(passwd)) {
             return false;
         }
+
+        // Reject an empty password here, before the cached-password comparison and the LDAP bind
+        // below: an empty password would otherwise reach the server as an unauthenticated bind,
+        // which LDAP reports as success. Opt out with ldap_allow_empty_pass = true.
+        if (passwd.isEmpty() && !LdapConfig.ldap_allow_empty_pass) {
+            LOG.warn("Rejected LDAP login with empty password, user={}, ldapAllowEmptyPass=false", fullName);
+            return false;
+        }
+
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
         if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             long elapsed = System.currentTimeMillis() - start;
@@ -256,12 +266,8 @@ public class LdapManager {
         // get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
         Set<Role> roles = Sets.newHashSet();
-        for (String group : ldapGroups) {
-            String qualifiedRole = group;
-            if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
-                roles.add(Env.getCurrentEnv().getAuth().getRoleByName(qualifiedRole));
-            }
-        }
+        addExistingRoles(roles, ldapGroups, false);
+        addExistingRoles(roles, Arrays.asList(LdapConfig.ldap_default_roles), true);
         if (LOG.isDebugEnabled()) {
             LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
         }
@@ -270,6 +276,27 @@ public class LdapManager {
         grantDefaultPrivToTempUser(ldapGroupsPrivs);
         roles.add(ldapGroupsPrivs);
         return roles;
+    }
+
+    private void addExistingRoles(Set<Role> roles, Iterable<String> roleNames, boolean warnIfMissing) {
+        Auth auth = null;
+        for (String roleName : roleNames) {
+            if (Strings.isNullOrEmpty(roleName)) {
+                continue;
+            }
+            String qualifiedRole = roleName.trim();
+            if (Strings.isNullOrEmpty(qualifiedRole)) {
+                continue;
+            }
+            if (auth == null) {
+                auth = Env.getCurrentEnv().getAuth();
+            }
+            if (auth.doesRoleExist(qualifiedRole)) {
+                roles.add(auth.getRoleByName(qualifiedRole));
+            } else if (warnIfMissing) {
+                LOG.warn("LDAP default role {} does not exist in Doris, ignore it.", qualifiedRole);
+            }
+        }
     }
 
     public void refresh(boolean isAll, String fullName) {

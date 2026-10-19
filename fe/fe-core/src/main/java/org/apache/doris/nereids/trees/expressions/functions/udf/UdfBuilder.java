@@ -30,4 +30,8 @@ public abstract class UdfBuilder extends FunctionBuilder {
     public abstract List<DataType> getArgTypes();
 
     public abstract List<FunctionSignature> getSignatures();
+
+    public boolean hasVarArguments() {
+        return getSignatures().get(0).hasVarArgs;
+    }
 }

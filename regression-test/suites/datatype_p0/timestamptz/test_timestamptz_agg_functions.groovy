@@ -56,4 +56,41 @@ suite("test_timestamptz_agg_functions", "datatype_p0") {
     qt_group_array_union "SELECT size(group_array_union(arr)) FROM test_tz_agg"
 
     sql "DROP TABLE IF EXISTS test_tz_agg"
+
+    sql "DROP TABLE IF EXISTS tz_group_array_crash"
+    sql """
+        CREATE TABLE tz_group_array_crash (
+            grp INT,
+            arr ARRAY<TIMESTAMPTZ(6)>
+        )
+        DUPLICATE KEY(grp)
+        DISTRIBUTED BY HASH(grp) BUCKETS 1
+        PROPERTIES('replication_num' = '1')
+    """
+
+    sql """
+        INSERT INTO tz_group_array_crash VALUES
+        (
+            1,
+            ARRAY(
+                CAST('2024-01-01 00:00:00 +00:00' AS TIMESTAMPTZ(6)),
+                CAST('2024-01-01 08:00:00 +08:00' AS TIMESTAMPTZ(6)),
+                CAST('2024-01-02 00:00:00 +00:00' AS TIMESTAMPTZ(6))
+            )
+        ),
+        (
+            1,
+            ARRAY(
+                CAST('2024-01-01 00:00:00 +00:00' AS TIMESTAMPTZ(6)),
+                CAST('2024-01-02 08:00:00 +08:00' AS TIMESTAMPTZ(6)),
+                CAST('2024-01-03 00:00:00 +00:00' AS TIMESTAMPTZ(6))
+            )
+        )
+    """
+
+    qt_group_array_nested_timestamptz """
+        SELECT CAST(array_sort(group_array(arr)) AS STRING)
+        FROM tz_group_array_crash
+        GROUP BY grp
+    """
 }

@@ -59,7 +59,9 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -140,10 +142,12 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             LargeIntType.class,
             IPv4Type.class,
             IPv6Type.class,
+            UuidType.class,
             DateType.class,
             DateV2Type.class,
             DateTimeType.class,
             DateTimeV2Type.class,
+            TimeStampNsType.class,
             FloatType.class,
             DoubleType.class,
             CharType.class,
@@ -338,7 +342,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         if (!(skipResult.shouldSkipCounting() || skipResult.isNotBeneficial())) {
             if (expr.getDepth() >= MIN_EXPRESSION_DEPTH
                     && expr.children().size() > 0
-                    && !ExpressionUtils.containUniqueFunctionExistMultiple(ImmutableList.of(expr))) {
+                    && !ExpressionUtils.containVolatileExpressionExistMultiple(ImmutableList.of(expr))) {
                 expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
             }
         }

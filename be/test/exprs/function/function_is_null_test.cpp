@@ -20,6 +20,8 @@
 #include "exprs/function/is_not_null.h"
 #include "exprs/function/is_null.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/storage_engine.h"
 
@@ -76,11 +78,18 @@ protected:
         _inverted_index_query_cache = std::unique_ptr<segment_v2::InvertedIndexQueryCache>(
                 InvertedIndexQueryCache::create_global_cache(inverted_index_cache_limit, 1));
 
+        // Both caches are owned by this fixture, so the previous globals must come back in
+        // TearDown -- otherwise ExecEnv keeps pointing at them after the fixture is destroyed and
+        // the next test that reaches InvertedIndexQueryCache::instance() reads freed memory.
+        _previous_searcher_cache = ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+        _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
                 _inverted_index_searcher_cache.get());
-        ExecEnv::GetInstance()->_inverted_index_query_cache = _inverted_index_query_cache.get();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_inverted_index_query_cache.get());
     }
     void TearDown() override {
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
@@ -134,6 +143,8 @@ private:
     std::string _absolute_dir;
     std::string _curreent_dir;
     TabletSchemaPB _schema_pb;
+    InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
+    InvertedIndexQueryCache* _previous_query_cache = nullptr;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
 };
@@ -157,8 +168,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    Block block = _tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
 
     Field key = Field::create_field<TYPE_INT>(10);
     Field v1 = Field::create_field<TYPE_STRING>("v1");
@@ -174,7 +185,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     EXPECT_TRUE(rowset_writer->flush().ok());
     EXPECT_TRUE(rowset_writer->build(rowset).ok());
 
-    auto check_result = [&](InvertedIndexReader* reader, bool is_null, int expected_result) {
+    auto check_result = [&](InvertedIndexReader* reader, ColumnId column_id, bool is_null,
+                            int expected_result) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         io::IOContext io_ctx;
@@ -214,8 +226,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         }
     };
 
-    for (int i = 0; i < rowset->num_segments(); i++) {
-        auto segment_path = rowset->segment_path(i);
+    for (auto seg : rowset->segments()) {
+        auto segment_path = seg.path();
         EXPECT_TRUE(segment_path.has_value());
         std::string index_prefix = std::string(
                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()));
@@ -227,8 +239,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         auto index_meta = index_metas[0];
         auto bkd_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         EXPECT_TRUE(bkd_reader);
-        check_result(bkd_reader.get(), true, 1);
-        check_result(bkd_reader.get(), false, 2);
+        check_result(bkd_reader.get(), 0, true, 1);
+        check_result(bkd_reader.get(), 0, false, 2);
 
         auto index_metas2 = _tablet_schema->inverted_indexs(1);
         EXPECT_FALSE(index_metas2.empty());
@@ -236,8 +248,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         auto string_reader =
                 StringTypeInvertedIndexReader::create_shared(index_meta2, index_file_reader);
         EXPECT_TRUE(string_reader);
-        check_result(string_reader.get(), true, 2);
-        check_result(string_reader.get(), false, 1);
+        check_result(string_reader.get(), 1, true, 2);
+        check_result(string_reader.get(), 1, false, 1);
     }
 }
 
@@ -322,8 +334,8 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    Block block = _tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
 
     // Create block with NO null values to test the scenario where
     // iterator might not have null bitmap or it's nullptr
@@ -348,8 +360,8 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     // Test with data that has no nulls
     // This will exercise the code path where has_null() might return false
     // or null_bitmap might be nullptr
-    for (int i = 0; i < rowset->num_segments(); i++) {
-        auto segment_path = rowset->segment_path(i);
+    for (auto seg : rowset->segments()) {
+        auto segment_path = seg.path();
         EXPECT_TRUE(segment_path.has_value());
         std::string index_prefix = std::string(
                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()));

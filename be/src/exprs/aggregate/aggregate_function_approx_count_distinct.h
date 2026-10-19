@@ -95,7 +95,8 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         if constexpr (is_decimal(type) || is_int_or_bool(type) || is_ip(type) ||
-                      is_date_type(type) || is_timestamptz_type(type) || is_float_or_double(type) ||
+                      is_date_type(type) || is_timestamp_ns_type(type) ||
+                      is_timestamptz_type(type) || is_float_or_double(type) ||
                       type == TYPE_TIMEV2) {
             auto column =
                     assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
@@ -128,7 +129,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

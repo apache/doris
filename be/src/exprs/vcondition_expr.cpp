@@ -19,8 +19,11 @@
 
 #include <glog/logging.h>
 
+#include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "exprs/function_context.h"
 #include "util/simd/bits.h"
 
@@ -73,8 +76,7 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
@@ -194,7 +196,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
         return Status::OK();
     }
 
-    const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+    const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
     const ColumnConst* cond_const_col =
             check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
@@ -311,17 +313,23 @@ Status VectorizedIfExpr::execute_for_nullable_then_else(Block& block,
         // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
         Block temporary_block;
         temporary_block.insert(arg_cond);
-        auto then_nested_null_map =
-                (then_type_is_nullable && !then_column_is_const_nullable)
-                        ? then_is_nullable->get_null_map_column_ptr()
-                        : DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        ColumnPtr then_nested_null_map;
+        if (then_type_is_nullable && !then_column_is_const_nullable) {
+            then_nested_null_map = then_is_nullable->get_null_map_column_ptr();
+        } else {
+            then_nested_null_map =
+                    DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        }
         temporary_block.insert(
                 {then_nested_null_map, std::make_shared<DataTypeUInt8>(), "then_column_null_map"});
 
-        auto else_nested_null_map =
-                (else_type_is_nullable && !else_column_is_const_nullable)
-                        ? else_is_nullable->get_null_map_column_ptr()
-                        : DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        ColumnPtr else_nested_null_map;
+        if (else_type_is_nullable && !else_column_is_const_nullable) {
+            else_nested_null_map = else_is_nullable->get_null_map_column_ptr();
+        } else {
+            else_nested_null_map =
+                    DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        }
         temporary_block.insert(
                 {else_nested_null_map, std::make_shared<DataTypeUInt8>(), "else_column_null_map"});
         temporary_block.insert(
@@ -372,17 +380,20 @@ Status VectorizedIfExpr::execute_for_null_condition(Block& block, const ColumnNu
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
         DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() == PrimitiveType::TYPE_BOOLEAN);
 
-        // update nested column by null map
+        // Treat NULL as false. The nested column may be shared with other columns of the
+        // block (e.g. NULLIF wraps its first argument as the nested column), so build a new
+        // condition column instead of mutating the nested column in place.
+        const auto rows = nullable->size();
         const auto* __restrict null_map = nullable->get_null_map_data().data();
-        auto* __restrict nested_bool_data =
-                ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
-        auto rows = nullable->size();
+        const auto* __restrict nested_bool_data =
+                assert_cast<const ColumnUInt8&>(nullable->get_nested_column()).get_data().data();
+        auto cond_column = ColumnUInt8::create(rows);
+        auto* __restrict cond_data = cond_column->get_data().data();
         for (size_t i = 0; i < rows; i++) {
-            nested_bool_data[i] &= !null_map[i];
+            cond_data[i] = nested_bool_data[i] & !null_map[i];
         }
         auto column_size = block.columns();
-        block.insert(
-                {nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type), arg_cond.name});
+        block.insert({std::move(cond_column), remove_nullable(arg_cond.type), arg_cond.name});
 
         handled = true;
         return _execute_impl_internal(block, {column_size, arguments[1], arguments[2]}, result,
@@ -496,7 +507,7 @@ Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Bl
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, first_column));
     first_column = first_column->convert_to_full_column_if_const();
 
-    if (!first_column->is_nullable()) {
+    if (!is_column_nullable(*first_column)) {
         result_column = first_column;
         DCHECK(_data_type->is_nullable() == false);
         return Status::OK();
@@ -546,12 +557,9 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                         const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
                         const size_t input_rows_count) {
     if (result_column->size() == 0 && input_rows_count) {
-        result_column->resize(input_rows_count);
-        auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column.get())->get_data().data();
-        for (int i = 0; i < input_rows_count; i++) {
-            result_raw_data[i] = {};
-        }
+        // The branchless accumulation below requires an all-zero buffer. Do not value-initialize
+        // date-like types here because their default values may have non-zero packed bits.
+        assert_cast<ColumnType*>(result_column.get())->get_data().resize_fill(input_rows_count);
     }
     auto* __restrict result_raw_data =
             assert_cast<ColumnType*>(result_column.get())->get_data().data();
@@ -572,6 +580,11 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     result_raw_data[row].to_date_int_val() +
                     column_raw_data[row].to_date_int_val() *
                             uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampNs>) {
+            result_raw_data[row] =
+                    TimeStampNsValue(result_raw_data[row].epoch_nanos() +
+                                     column_raw_data[row].epoch_nanos() *
+                                             int64_t(!(null_map_data[row] | filled_flag[row])));
         } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
             result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
                     result_raw_data[row].to_date_int_val() +
@@ -583,6 +596,12 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     binary_cast<VecDateTimeValue, int64_t>(result_raw_data[row]) +
                     binary_cast<VecDateTimeValue, int64_t>(column_raw_data[row]) *
                             int64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                             std::is_same_v<ColumnType, ColumnFloat64>) {
+            auto flag = (!(null_map_data[row] | filled_flag[row]));
+            result_raw_data[row] += std::isfinite(column_raw_data[row])
+                                            ? column_raw_data[row] * flag
+                                            : (flag ? column_raw_data[row] : 0);
         } else {
             result_raw_data[row] +=
                     column_raw_data[row] *
@@ -665,6 +684,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
                                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
     if (cannot_random_write) {
         result_column->reserve(input_rows_count);

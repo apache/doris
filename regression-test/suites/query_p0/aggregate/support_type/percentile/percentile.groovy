@@ -38,6 +38,13 @@ suite("percentile") {
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
     """
+    qt_percentile_tinyint_empty """select percentile(col_tinyint, 0.5) from d_table;"""
+    qt_percentile_smallint_empty """select percentile(col_smallint, 0.5) from d_table;"""
+    qt_percentile_int_empty """select percentile(col_int, 0.5) from d_table;"""
+    qt_percentile_bigint_empty """select percentile(col_bigint, 0.5) from d_table;"""
+    qt_percentile_largeint_empty """select percentile(col_largeint, 0.5) from d_table;"""
+    qt_percentile_float_empty """select percentile(col_float, 0.5) from d_table;"""
+    qt_percentile_double_empty """select percentile(col_double, 0.5) from d_table;"""
 
     // 插入测试数据
     sql """
@@ -55,4 +62,45 @@ suite("percentile") {
     qt_percentile_largeint """select percentile(col_largeint, 0.5) from d_table;"""
     qt_percentile_float """select percentile(col_float, 0.5) from d_table;"""
     qt_percentile_double """select percentile(col_double, 0.5) from d_table;"""
+
+    sql """drop table if exists percentile_nan_t;"""
+    sql """
+    create table percentile_nan_t (
+        id int,
+        v_double double,
+        v_float float
+    ) duplicate key(id)
+    distributed by hash(id) buckets 1
+    properties("replication_num" = "1");
+    """
+    sql """
+    insert into percentile_nan_t values
+        (1, 1.0, cast(1.0 as float)),
+        (2, cast('nan' as double), cast('nan' as float)),
+        (3, 2.0, cast(2.0 as float));
+    """
+
+    qt_percentile_double_nan """select percentile(v_double, 0.5) from percentile_nan_t;"""
+    qt_percentile_float_nan """select percentile(v_float, 0.5) from percentile_nan_t;"""
+    qt_percentile_array_double_nan """select percentile_array(v_double, [0.25, 0.5, 0.75]) from percentile_nan_t;"""
+    qt_percentile_approx_double_nan """select percentile_approx(v_double, 0.5) from percentile_nan_t;"""
+
+    sql """drop table if exists percentile_all_nan_t;"""
+    sql """
+    create table percentile_all_nan_t (
+        id int,
+        v_double double
+    ) duplicate key(id)
+    distributed by hash(id) buckets 1
+    properties("replication_num" = "1");
+    """
+    sql """
+    insert into percentile_all_nan_t values
+        (1, cast('nan' as double)),
+        (2, cast('nan' as double));
+    """
+
+    qt_percentile_all_nan """select percentile(v_double, 0.5) from percentile_all_nan_t;"""
+    qt_percentile_array_all_nan """select percentile_array(v_double, [0.25, 0.5, 0.75]) from percentile_all_nan_t;"""
+    qt_percentile_approx_all_nan """select percentile_approx(v_double, 0.5) from percentile_all_nan_t;"""
 }

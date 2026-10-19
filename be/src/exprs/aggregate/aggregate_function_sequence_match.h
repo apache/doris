@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
@@ -73,10 +74,6 @@ constexpr auto sequence_match_max_iterations = 1000000l;
 template <PrimitiveType T, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
     using Timestamp = typename PrimitiveTypeTraits<T>::CppType;
-    using NativeType =
-            std::conditional_t<T == TYPE_DATEV2, uint32_t,
-                               std::conditional_t<T == TYPE_DATETIMEV2, uint64_t,
-                                                  typename PrimitiveTypeTraits<T>::CppType>>;
     using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
@@ -121,7 +118,17 @@ public:
     }
 
     void merge(const AggregateFunctionSequenceMatchData& other) {
-        if (other.events_list.empty()) return;
+        if (other.events_list.empty()) {
+            return;
+        }
+
+        if (events_list.empty()) {
+            reset();
+            init(other.pattern, other.arg_count);
+        } else if (UNLIKELY(pattern != other.pattern || arg_count != other.arg_count)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "sequence aggregate states have incompatible patterns or event counts");
+        }
 
         events_list.insert(std::end(events_list), std::begin(other.events_list),
                            std::end(other.events_list));
@@ -219,19 +226,12 @@ private:
         const char* pos = pattern.data();
         const char* begin = pos;
         const char* end = pos + pattern.size();
+        const size_t event_count = arg_count - 2;
 
-        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
-        auto fail_parse = [&]() {
-            actions.clear();
-            dfa_states.clear();
-            conditions_in_pattern.reset();
-            pattern_has_time = false;
-        };
-
+        // FE checks a literal pattern, but a constant pattern only BE can evaluate is checked here.
         auto throw_exception = [&](const std::string& msg) {
-            LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
-                                    std::to_string(pos - begin);
-            fail_parse();
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "{} '{}' at position {} of pattern '{}'",
+                            msg, std::string(pos, end), pos - begin, pattern);
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -279,7 +279,7 @@ private:
                         return;
                     }
 
-                    NativeType duration = 0;
+                    uint64_t duration = 0;
                     if (!parse_uint(duration)) {
                         throw_exception("Could not parse number");
                         return;
@@ -302,17 +302,18 @@ private:
                         return;
                     }
 
-                    if (event_number > arg_count - 1) {
+                    if (event_number == 0 || event_number > event_count) {
                         throw_exception("Event number " + std::to_string(event_number) +
                                         " is out of range");
                         return;
                     }
 
-                    actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
+                    const auto event_index = event_number - 1;
+                    actions.emplace_back(PatternActionType::SpecificEvent, event_index);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
-                    dfa_states.back().event = static_cast<uint32_t>(event_number - 1);
+                    dfa_states.back().event = static_cast<uint32_t>(event_index);
                     dfa_states.emplace_back();
-                    conditions_in_pattern.set(event_number - 1);
+                    conditions_in_pattern.set(event_index);
                 }
 
                 if (!match(")")) {
@@ -617,7 +618,6 @@ class AggregateFunctionSequenceBase
         : public IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>,
                                               Derived> {
 public:
-    using NativeType = typename PrimitiveTypeTraits<T>::CppType;
     AggregateFunctionSequenceBase(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>, Derived>(
                       arguments) {
@@ -651,8 +651,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        const std::string pattern = this->data(rhs).get_pattern();
-        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -662,9 +660,40 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
-        const std::string pattern = this->data(place).get_pattern();
-        this->data(place).init(pattern, this->data(place).get_arg_count());
+        auto& state = AggregateFunctionSequenceBase::data(place);
+        state.read(buf);
+        // A serialized uninitialized state has no arguments and must stay uninitialized.
+        if (state.get_arg_count() == 0) {
+            return;
+        }
+        state.init(state.get_pattern(), state.get_arg_count());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[1]);
+        for (size_t i = 2; i < arg_count; ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
+    }
+
+    // the pattern is a constant checked in FE: either a literal or a value only BE can evaluate.
+    // A literal NULL pattern is rejected by FE; reject a BE-evaluated NULL here too, and validate
+    // the pattern syntax eagerly. Both checks are normally done lazily in add(), but the nullable
+    // wrapper above can skip every row (and so skip add() entirely) when any argument, including
+    // a non-constant one such as the timestamp, is NULL for every row.
+    void check_nullable_input_columns(const IColumn** columns) const {
+        if (columns[0]->empty()) {
+            return;
+        }
+        if (columns[0]->is_null_at(0)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the pattern argument of {} must not be null", this->get_name());
+        }
+        std::string pattern = columns[0]->get_data_at(0).to_string();
+        AggregateFunctionSequenceMatchData<T, Derived> validator;
+        validator.init(pattern, arg_count);
     }
 
 private:
@@ -689,7 +718,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& output = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(false);
             return;
@@ -736,7 +765,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnInt64&>(to).get_data();
+        auto& output = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(0);
             return;

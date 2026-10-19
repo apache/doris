@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -60,9 +61,21 @@
 
 namespace doris {
 
+const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_t index_id) const {
+    for (auto* schema : _row_binlog_index_schemas) {
+        if (schema->index_id == index_id) {
+            return schema;
+        }
+    }
+    return nullptr;
+}
+
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
+    if (row_binlog_id > 0) {
+        pindex->set_row_binlog_id(row_binlog_id);
+    }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
     }
@@ -182,6 +195,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
@@ -217,6 +233,26 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             index->indexes.emplace_back(ti);
         }
         _indexes.emplace_back(index);
+    }
+
+    for (const auto& p_index : pschema.row_binlog_index_schemas()) {
+        auto* index = _obj_pool.add(new OlapTableIndexSchema());
+        index->index_id = p_index.id();
+        index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
+        for (const auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
+        }
+        for (const auto& pindex_desc : p_index.indexes_desc()) {
+            TabletIndex* ti = _obj_pool.add(new TabletIndex());
+            ti->init_from_pb(pindex_desc);
+            index->indexes.emplace_back(ti);
+        }
+        _row_binlog_index_schemas.emplace_back(index);
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -320,6 +356,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
+        if (t_index.__isset.row_binlog_id) {
+            index->row_binlog_id = t_index.row_binlog_id;
+        }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
@@ -372,6 +411,23 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
+    if (tschema.__isset.row_binlog_index_schemas) {
+        for (const auto& t_index : tschema.row_binlog_index_schemas) {
+            auto* index = _obj_pool.add(new OlapTableIndexSchema());
+            index->index_id = t_index.id;
+            index->schema_hash = t_index.schema_hash;
+            if (t_index.__isset.row_binlog_id) {
+                index->row_binlog_id = t_index.row_binlog_id;
+            }
+            for (const auto& tcolumn_desc : t_index.columns_desc) {
+                TabletColumn* tc = _obj_pool.add(new TabletColumn());
+                tc->init_from_thrift(tcolumn_desc);
+                index->columns.emplace_back(tc);
+            }
+            _row_binlog_index_schemas.emplace_back(index);
+        }
+    }
+
     std::sort(_indexes.begin(), _indexes.end(),
               [](const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
                   return lhs->index_id < rhs->index_id;
@@ -405,6 +461,9 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     }
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
+    }
+    for (auto* index : _row_binlog_index_schemas) {
+        index->to_protobuf(pschema->add_row_binlog_index_schemas());
     }
 }
 
@@ -471,16 +530,16 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 auto& expr_type = _partition_function[it->second]->data_type();
                 _partition_block.insert({expr_type->create_column(), expr_type, slot->col_name()});
             } else {
-                _partition_block.insert({slot->get_empty_mutable_column(),
-                                         slot->get_data_type_ptr(), slot->col_name()});
+                _partition_block.insert(
+                        {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
             }
         }
         VLOG_TRACE << _partition_block.dump_structure();
     } else {
         // we insert all. but not all will be used. it will controlled by _partition_slot_locs
         for (auto* slot : _slots) {
-            _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                                     slot->col_name()});
+            _partition_block.insert(
+                    {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
         }
     }
 }
@@ -588,6 +647,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (primitive_type == TYPE_TIMESTAMP_NS) {
+            TimeStampNsValue dt;
+            RETURN_IF_ERROR(parse_timestamp_ns(
+                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()}, &dt));
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;
@@ -700,9 +764,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
-    // only load_to_single_tablet = true will set load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
+    }
+    if (t_part.__isset.bucket_be_id) {
+        part_result->bucket_be_id = t_part.bucket_be_id;
+    }
+    if (t_part.__isset.local_bucket_seqs) {
+        part_result->local_bucket_seqs = t_part.local_bucket_seqs;
     }
 
     if (_is_in_partition) {
@@ -790,6 +859,15 @@ Status VOlapTablePartitionParam::add_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(
@@ -862,6 +940,15 @@ Status VOlapTablePartitionParam::replace_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(

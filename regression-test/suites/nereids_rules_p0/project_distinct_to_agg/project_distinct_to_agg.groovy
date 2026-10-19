@@ -16,6 +16,7 @@
 // under the License.
 
 suite('project_distinct_to_agg') {
+    sql "set parallel_pipeline_task_num=2"
     def tbl = 'tbl_project_distinct_to_agg'
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
     sql "drop table if exists ${tbl} force"

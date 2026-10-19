@@ -54,10 +54,10 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
                 checkExplain expression, resExpression
             } else {
                 if (checkNullColumn) {
-                    checkExplain expression.replace(column, "c_${type}_null"), resExpression.replace(column, "c_${type}_null")
+                    checkExplain expression.replace(column, "test_simplify_comparison_predicate_tbl.c_${type}_null"), resExpression.replace(column, "test_simplify_comparison_predicate_tbl.c_${type}_null")
                 }
                 if (checkNotNullColumn) {
-                    checkExplain expression.replace(column, "c_${type}"), resExpression.replace(column, "c_${type}")
+                    checkExplain expression.replace(column, "test_simplify_comparison_predicate_tbl.c_${type}"), resExpression.replace(column, "test_simplify_comparison_predicate_tbl.c_${type}")
                 }
             }
         }
@@ -118,44 +118,44 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify true, true, '{int_like_column} >= 1.01',  '({int_like_column} >= 2)'
         testSimplify true, true, '{int_like_column} <= 1.01',  '({int_like_column} <= 1)'
         testSimplify true, true, '{int_like_column} < 1.01',  '({int_like_column} < 2)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.00 as DECIMAL(10, 5))',  '(c_decimal_3_0_null = 1)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.1 as DECIMAL(10, 5))',  'AND[c_decimal_3_0_null IS NULL,NULL]'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) > CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null > 1)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) >= CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null >= 2)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) < CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null < 2)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) <= CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null <= 1)'
-        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.0 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.00)'
-        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.10)'
-        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.12 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.12)'
-        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.123 as DECIMAL(10, 5))',  'AND[c_decimal_5_2_null IS NULL,NULL]'
-        testSimplify false, false, 'c_decimal_5_2 = CAST(1.123 as DECIMAL(10, 5))',  'FALSE'
-        testSimplify false, false, 'c_decimal_5_2_null > CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null > 1.12)'
-        testSimplify false, false, 'c_decimal_5_2_null >= CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null >= 1.13)'
-        testSimplify false, false, 'c_decimal_5_2_null <= CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null <= 1.12)'
-        testSimplify false, false, 'c_decimal_5_2_null < CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null < 1.13)'
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01'", "(c_datetime_0 = '2000-01-01 00:00:00')"
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'AND[c_datetime_0_null IS NULL,NULL]'
-        testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) >= '2000-01-01 00:00:00.1'", "(c_datetime_0 >= '2000-01-01 00:00:01')"
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) > '2000-01-01 00:00:00.1'", "(c_datetime_0 > '2000-01-01 00:00:00')"
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) <= '2000-01-01 00:00:00.1'", "(c_datetime_0 <= '2000-01-01 00:00:00')"
-        testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) < '2000-01-01 00:00:00.1'", "(c_datetime_0 < '2000-01-01 00:00:01')"
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) = '2000-01-01'", "(c_datetime_3 = '2000-01-01 00:00:00.000')"
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_3_null AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'AND[c_datetime_3_null IS NULL,NULL]'
-        testSimplify false, false, "CAST(c_datetime_3_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1234'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) >= '2000-01-01 00:00:00.1234'", "(c_datetime_3 >= '2000-01-01 00:00:00.124')"
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) > '2000-01-01 00:00:00.1234'", "(c_datetime_3 > '2000-01-01 00:00:00.123')"
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) <= '2000-01-01 00:00:00.1234'", "(c_datetime_3 <= '2000-01-01 00:00:00.123')"
-        testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) < '2000-01-01 00:00:00.1234'", "(c_datetime_3 < '2000-01-01 00:00:00.124')"
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.00 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null = 1)'
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.1 as DECIMAL(10, 5))',  'AND[test_simplify_comparison_predicate_tbl.c_decimal_3_0_null IS NULL,NULL]'
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) > CAST(1.1 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null > 1)'
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) >= CAST(1.1 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null >= 2)'
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) < CAST(1.1 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null < 2)'
+        testSimplify false, false, 'CAST(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null as DECIMAL(10, 5)) <= CAST(1.1 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_3_0_null <= 1)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = CAST(1.0 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = 1.00)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = CAST(1.1 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = 1.10)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = CAST(1.12 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = 1.12)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null = CAST(1.123 as DECIMAL(10, 5))',  'AND[test_simplify_comparison_predicate_tbl.c_decimal_5_2_null IS NULL,NULL]'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2 = CAST(1.123 as DECIMAL(10, 5))',  'FALSE'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null > CAST(1.123 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null > 1.12)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null >= CAST(1.123 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null >= 1.13)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null <= CAST(1.123 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null <= 1.12)'
+        testSimplify false, false, 'test_simplify_comparison_predicate_tbl.c_decimal_5_2_null < CAST(1.123 as DECIMAL(10, 5))',  '(test_simplify_comparison_predicate_tbl.c_decimal_5_2_null < 1.13)'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) = '2000-01-01'", "(test_simplify_comparison_predicate_tbl.c_datetime_0 = '2000-01-01 00:00:00')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'FALSE'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0_null AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'AND[test_simplify_comparison_predicate_tbl.c_datetime_0_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1'", 'FALSE'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) >= '2000-01-01 00:00:00.1'", "(test_simplify_comparison_predicate_tbl.c_datetime_0 >= '2000-01-01 00:00:01')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) > '2000-01-01 00:00:00.1'", "(test_simplify_comparison_predicate_tbl.c_datetime_0 > '2000-01-01 00:00:00')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) <= '2000-01-01 00:00:00.1'", "(test_simplify_comparison_predicate_tbl.c_datetime_0 <= '2000-01-01 00:00:00')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_0 AS DATETIME(5)) < '2000-01-01 00:00:00.1'", "(test_simplify_comparison_predicate_tbl.c_datetime_0 < '2000-01-01 00:00:01')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) = '2000-01-01'", "(test_simplify_comparison_predicate_tbl.c_datetime_3 = '2000-01-01 00:00:00.000')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'FALSE'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3_null AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'AND[test_simplify_comparison_predicate_tbl.c_datetime_3_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1234'", 'FALSE'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) >= '2000-01-01 00:00:00.1234'", "(test_simplify_comparison_predicate_tbl.c_datetime_3 >= '2000-01-01 00:00:00.124')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) > '2000-01-01 00:00:00.1234'", "(test_simplify_comparison_predicate_tbl.c_datetime_3 > '2000-01-01 00:00:00.123')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) <= '2000-01-01 00:00:00.1234'", "(test_simplify_comparison_predicate_tbl.c_datetime_3 <= '2000-01-01 00:00:00.123')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_datetime_3 AS DATETIME(5)) < '2000-01-01 00:00:00.1234'", "(test_simplify_comparison_predicate_tbl.c_datetime_3 < '2000-01-01 00:00:00.124')"
         testSimplify false, false, "c_date = '2000-01-01 00:00:01'", 'FALSE'
-        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", 'AND[c_date_null IS NULL,NULL]'
-        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "(c_date > '2000-01-01')"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "(c_date >= '2000-01-02')"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) <= '2000-01-01 00:00:01'", "(c_date <= '2000-01-01')"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) < '2000-01-01 00:00:01'", "(c_date < '2000-01-02')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", 'AND[test_simplify_comparison_predicate_tbl.c_date_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "(test_simplify_comparison_predicate_tbl.c_date > '2000-01-01')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "(test_simplify_comparison_predicate_tbl.c_date >= '2000-01-02')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date AS DATETIME(5)) <= '2000-01-01 00:00:01'", "(test_simplify_comparison_predicate_tbl.c_date <= '2000-01-01')"
+        testSimplify false, false, "CAST(test_simplify_comparison_predicate_tbl.c_date AS DATETIME(5)) < '2000-01-01 00:00:01'", "(test_simplify_comparison_predicate_tbl.c_date < '2000-01-02')"
 
         sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     }

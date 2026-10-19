@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <string>
 #include <tuple>
+#include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -32,8 +34,9 @@
 //
 // 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}                      -> TxnLabelPB ${version_timestamp}
 // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}                      -> TxnInfoPB
-// 0x01 "txn" ${instance_id} "txn_db_tbl" ${txn_id}                             -> TxnIndexPB
+// 0x01 "txn" ${instance_id} "txn_index" ${txn_id}                              -> TxnIndexPB
 // 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                   -> TxnRunningPB
+// 0x01 "txn" ${instance_id} "tso_fence"                                        -> TxnTsoFencePB
 //
 // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
 // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                     -> int64
@@ -44,11 +47,12 @@
 // 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                        -> TabletIndexPB
 // 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                             -> TabletSchemaCloudPB
 // 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}                   -> DeleteBitmapUpdateLockPB
-// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                                -> PendingDeleteBitmapPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${tablet_id}                               -> PendingDeleteBitmapPB
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
 // 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
-// 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator_id}                      -> MowTabletJobPB
-// 0x01 "meta" ${instance_id} "packed_file" ${packed_file_path}                                   -> PackedFileInfoPB
+// 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator_id}                        -> MowTabletJobPB
+// 0x01 "meta" ${instance_id} "packed_file" ${packed_file_path}                                  -> PackedFileInfoPB
+// 0x01 "meta" ${instance_id} "table_stream_offset" ${base_db_id} ${base_table_id} ${stream_db_id} ${stream_id} ${partition_id} -> TableStreamOffsetPB
 //
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
@@ -69,12 +73,13 @@
 // 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
 // 0x01 "job" ${instance_id} "snapshot_data_migrator"                                      -> JobRecyclePB
 // 0x01 "job" ${instance_id} "snapshot_chain_compactor"                                    -> JobRecyclePB
+// 0x01 "job" ${instance_id} "routine_load_progress" ${db_id} ${job_id}                      -> RoutineLoadProgressPB
 // 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id}                            -> StreamingJobPB
 //
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
 //
-// 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
+// 0x01 "storage_vault" ${instance_id} "vault" ${resource_id/vault_id}                     -> StorageVaultPB
 //
 // 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}                             -> RestoreJobCloudPB
 // 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}                  -> RowsetMetaCloudPB
@@ -104,6 +109,7 @@
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp}    -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id}             -> DeleteBitmapStoragePB
+// 0x03 "meta" ${instance_id} "table_stream_offset" ${base_db_id} ${base_table_id} ${stream_db_id} ${stream_id} ${partition_id} ${timestamp} -> TableStreamOffsetPB
 //
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id} => int64
 //
@@ -131,17 +137,40 @@ static constexpr std::string_view STATS_KEY_SUFFIX_SEGMENT_SIZE = "segment_size"
 
 // clang-format off
 /**
- * Wraps std::tuple for differnet types even if the underlying type is the same.
+ * Wraps std::tuple to create different types even if the underlying type is the same.
  *
- * @param N for elemination of same underlying types of type alias when we use
- *          `using` to declare a new type.
+ * @param N distinguishes type aliases that have the same underlying tuple type.
  *
  * @param Base for base tuple, the underlying type
  */
 template<size_t N, typename Base>
+struct BasicKeyInfo;
+
+template<typename T>
+struct IsBasicKeyInfo : std::false_type {};
+
+template<size_t N, typename Base>
+struct IsBasicKeyInfo<BasicKeyInfo<N, Base>> : std::true_type {};
+
+template<typename T>
+inline constexpr bool is_basic_key_info_v =
+        IsBasicKeyInfo<std::remove_cv_t<std::remove_reference_t<T>>>::value;
+
+template<size_t N, typename Base>
 struct BasicKeyInfo : Base {
-    template<typename... Args>
+    template<typename... Args,
+             std::enable_if_t<(!is_basic_key_info_v<Args> && ...), int> = 0>
     BasicKeyInfo(Args&&... args) : Base(std::forward<Args>(args)...) {}
+
+    // KeyInfo wrappers with different semantics may share the same tuple Base. Require
+    // cross-wrapper conversions to be explicit, and keep the forwarding constructor from
+    // silently providing another conversion path.
+    template<size_t M>
+    explicit BasicKeyInfo(const BasicKeyInfo<M, Base>& other) : Base(other) {}
+
+    template<size_t M>
+    explicit BasicKeyInfo(BasicKeyInfo<M, Base>&& other) : Base(std::move(other)) {}
+
     constexpr static size_t n = N;
     using base_type = Base;
 };
@@ -163,6 +192,9 @@ using TxnIndexKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 //                                                      0:instance_id  1:db_id  2:txn_id
 using TxnRunningKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t>>;
 
+//                                                      0:instance_id
+using TxnTsoFenceKeyInfo   = BasicKeyInfo<__LINE__ , std::tuple<std::string>>;
+
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
 using PartitionVersionKeyInfo     = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
 
@@ -171,6 +203,9 @@ using MetaRowsetKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 
 //                                                      0:instance_id  1:txn_id  2:tablet_id
 using MetaRowsetTmpKeyInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,  int64_t>>;
+
+//                                                      0:instance_id  1:base_db_id  2:base_table_id  3:stream_db_id  4:stream_id  5:partition_id
+using TableStreamOffsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
 using MetaTabletKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
@@ -318,6 +353,10 @@ using MetaRowsetCompactKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, 
 //                                                      0:instance_id  1:tablet_id  2:rowest_id
 using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t,   std::string>>;
 
+// 0x03 "meta" ${instance_id} "table_stream_offset" ${base_db_id} ${base_table_id} ${stream_db_id} ${stream_id} ${partition_id} ${timestamp} -> TableStreamOffsetPB
+//                                                      0:instance_id  1:base_db_id  2:base_table_id  3:stream_db_id  4:stream_id  5:partition_id
+using TableStreamOffsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t, int64_t>>;
+
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}            -> int64
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
 using DataRowsetRefCountKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
@@ -352,10 +391,12 @@ void txn_label_key(const TxnLabelKeyInfo& in, std::string* out);
 void txn_info_key(const TxnInfoKeyInfo& in, std::string* out);
 void txn_index_key(const TxnIndexKeyInfo& in, std::string* out);
 void txn_running_key(const TxnRunningKeyInfo& in, std::string* out);
+void txn_tso_fence_key(const TxnTsoFenceKeyInfo& in, std::string* out);
 static inline std::string txn_label_key(const TxnLabelKeyInfo& in) { std::string s; txn_label_key(in, &s); return s; }
 static inline std::string txn_info_key(const TxnInfoKeyInfo& in) { std::string s; txn_info_key(in, &s); return s; }
 static inline std::string txn_index_key(const TxnIndexKeyInfo& in) { std::string s; txn_index_key(in, &s); return s; }
 static inline std::string txn_running_key(const TxnRunningKeyInfo& in) { std::string s; txn_running_key(in, &s); return s; }
+static inline std::string txn_tso_fence_key(const TxnTsoFenceKeyInfo& in) { std::string s; txn_tso_fence_key(in, &s); return s; }
 
 std::string version_key_prefix(std::string_view instance_id);
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
@@ -364,6 +405,9 @@ void table_version_key(const TableVersionKeyInfo& in, std::string* out);
 static inline std::string table_version_key(const TableVersionKeyInfo& in) { std::string s; table_version_key(in, &s); return s; }
 
 std::string meta_key_prefix(std::string_view instance_id);
+std::string table_stream_offset_key_prefix(std::string_view instance_id, int64_t base_db_id,
+                                           int64_t base_table_id, int64_t stream_db_id,
+                                           int64_t stream_id);
 void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out);
 void meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in, std::string* out);
 void meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in, std::string* out);
@@ -375,6 +419,7 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
 void packed_file_key(const PackedFileKeyInfo& in, std::string* out);
+void table_stream_offset_key(const TableStreamOffsetKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
@@ -388,6 +433,11 @@ static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::
 static inline std::string packed_file_key(const PackedFileKeyInfo& in) {
     std::string s;
     packed_file_key(in, &s);
+    return s;
+}
+static inline std::string table_stream_offset_key(const TableStreamOffsetKeyInfo& in) {
+    std::string s;
+    table_stream_offset_key(in, &s);
     return s;
 }
 
@@ -428,6 +478,7 @@ void job_check_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out);
 void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in, std::string* out);
 static inline std::string job_check_key(const JobRecycleKeyInfo& in) { std::string s; job_check_key(in, &s); return s; }
+static inline std::string job_recycle_key(const JobRecycleKeyInfo& in) { std::string s; job_recycle_key(in, &s); return s; }
 static inline std::string job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in) { std::string s; job_snapshot_data_migrator_key(in, &s); return s; }
 static inline std::string job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in) { std::string s; job_snapshot_chain_compactor_key(in, &s); return s; }
 void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
@@ -471,6 +522,9 @@ std::string version_key_prefix(std::string_view instance_id);
 std::string index_key_prefix(std::string_view instance_id);
 std::string stats_key_prefix(std::string_view instance_id);
 std::string meta_key_prefix(std::string_view instance_id);
+std::string table_stream_offset_key_prefix(std::string_view instance_id, int64_t base_db_id,
+                                           int64_t base_table_id, int64_t stream_db_id,
+                                           int64_t stream_id);
 std::string data_key_prefix(std::string_view instance_id);
 std::string log_key_prefix(std::string_view instance_id);
 std::string snapshot_key_prefix(std::string_view instance_id);
@@ -525,6 +579,13 @@ static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo
 
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
 static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
+
+void table_stream_offset_key(const TableStreamOffsetKeyInfo& in, std::string* out);
+static inline std::string table_stream_offset_key(const TableStreamOffsetKeyInfo& in) {
+    std::string s;
+    table_stream_offset_key(in, &s);
+    return s;
+}
 
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }

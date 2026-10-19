@@ -123,7 +123,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
         EXPECT_TRUE(st.ok());
     }
     EXPECT_EQ(tablet->get_compaction_score(), -1);
-    EXPECT_EQ(tablet->calc_compaction_score(), 8);
+    EXPECT_EQ(tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 8);
     EXPECT_EQ(tablet->get_real_compaction_score(), 8);
 
     for (int i = 10; i < 30; ++i) {
@@ -132,7 +132,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
         EXPECT_TRUE(st.ok());
     }
     EXPECT_EQ(tablet->get_compaction_score(), 28);
-    EXPECT_EQ(tablet->calc_compaction_score(), 28);
+    EXPECT_EQ(tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 28);
     EXPECT_EQ(tablet->get_real_compaction_score(), 28);
 
     std::vector<RowsetSharedPtr> input_rowsets = tablet->get_snapshot_rowset();
@@ -151,7 +151,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
     EXPECT_TRUE(st.ok());
 
     EXPECT_EQ(tablet->get_compaction_score(), 9);
-    EXPECT_EQ(tablet->calc_compaction_score(), 9);
+    EXPECT_EQ(tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION), 9);
     EXPECT_EQ(tablet->get_real_compaction_score(), 9);
 }
 

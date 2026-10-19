@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "exec/runtime_filter/runtime_filter.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/vexpr.h"
@@ -46,6 +48,7 @@ public:
     }
 
     std::string debug_string() override {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return fmt::format(
                 "Merger: ({}, expected_producer_num: {}, received_producer_num: {}, "
                 "received_rf_size_num: {}, received_sum_size: {})",
@@ -54,35 +57,58 @@ public:
     }
 
     // If input is a disabled predicate, the final result is a disabled predicate.
-    Status merge_from(const RuntimeFilter* other) {
+    // Returns true only for the call that makes the merger ready.
+    //
+    // `other_wrapper_exclusively_owned` must be true only when the caller guarantees `other`'s
+    // wrapper has no other reader and will not be read again after this call (e.g. a producer
+    // whose wrapper is never signaled to a plain local consumer, or an RPC-only filter built
+    // solely to carry one merge request). The merger then takes the wrapper over directly
+    // instead of paying for a deep copy. It must stay false whenever `other`'s wrapper may still
+    // be used by consumers in local RF mgr of the same instance, or is shared by all producers of
+    // a broadcast join with a shared hash table: the merger must never write such a wrapper, so
+    // it only merges into its own copy.
+    Status merge_from(const RuntimeFilter* other, bool* ready,
+                      bool other_wrapper_exclusively_owned = false) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {
             return Status::InternalError(
                     "runtime filter merger input product more than expected, {}", debug_string());
         }
+        *ready = _received_producer_num == _expected_producer_num;
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
-            _wrapper = other->_wrapper;
-            return Status::OK();
+            if (other_wrapper_exclusively_owned) {
+                _wrapper = other->_wrapper;
+                return Status::OK();
+            }
+            return other->_wrapper->clone(&_wrapper);
         }
-        auto st = _wrapper->merge(other->_wrapper.get());
-        return st;
+        return _wrapper->merge(other->_wrapper.get(), other_wrapper_exclusively_owned);
     }
 
-    void set_expected_producer_num(int num) {
+    // Only raise the expected producer count. RuntimeFilterMgr may compute the
+    // count under its own lock and apply it after releasing that lock, so
+    // concurrent registrations can update the merger out of order.
+    void increase_expected_producer_num(int num) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_received_producer_num > 0 || _received_rf_size_num > 0) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "runtime filter merger set expected producer after receive data, {}",
                             debug_string());
         }
-        _expected_producer_num = num;
+        _expected_producer_num = std::max(_expected_producer_num, num);
     }
 
-    int get_expected_producer_num() const { return _expected_producer_num; }
+    int get_expected_producer_num() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _expected_producer_num;
+    }
 
     bool add_rf_size(uint64_t size) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         _received_rf_size_num++;
         if (_expected_producer_num < _received_rf_size_num) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -93,7 +119,10 @@ public:
         return (_received_rf_size_num == _expected_producer_num);
     }
 
-    uint64_t get_received_sum_size() const { return _received_sum_size; }
+    uint64_t get_received_sum_size() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _received_sum_size;
+    }
 
     bool ready() const { return _rf_state == State::READY; }
 

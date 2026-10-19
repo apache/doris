@@ -44,6 +44,7 @@ import org.apache.doris.transaction.TransactionState;
 
 import org.apache.thrift.TException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -79,6 +80,7 @@ public class InsertStreamTxnExecutor {
             TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
             tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
             tRequest.setIsMowTable(isMowTable);
+            tRequest.setEnableTso(table.enableTso());
             for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0).per_node_scan_ranges
                     .entrySet()) {
                 for (TScanRangeParams scanRangeParams : entry.getValue()) {
@@ -105,13 +107,7 @@ public class InsertStreamTxnExecutor {
             table.readUnlock();
         }
 
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
-        List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        if (beIds.isEmpty()) {
-            throw new UserException("No available backend to match the policy: " + policy);
-        }
-
-        Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(beIds.get(0));
+        Backend backend = selectBackendForTxnLoad();
         txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
@@ -126,6 +122,18 @@ public class InsertStreamTxnExecutor {
         } catch (RpcException e) {
             throw new TException(e);
         }
+    }
+
+    static Backend selectBackendForTxnLoad() throws UserException {
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
+        Map<Long, Backend> currentBackends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        List<Long> beIds = Env.getCurrentSystemInfo()
+                .selectBackendIdsByPolicy(policy, 1, new ArrayList<>(currentBackends.values()));
+        if (beIds.isEmpty()) {
+            throw new UserException("No available backend to match the policy: " + policy);
+        }
+
+        return currentBackends.get(beIds.get(0));
     }
 
     public void commitTransaction() throws TException, TimeoutException,

@@ -58,7 +58,7 @@ public class Default extends Expression
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        Expression arg = child();
+        Expression arg = getArgument(0);
         if (!(arg instanceof SlotReference)) {
             throw new AnalysisException("DEFAULT requires a column reference");
         }

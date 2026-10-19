@@ -422,6 +422,9 @@ public class DateLiteral extends LiteralExpr {
             long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
+        if (expr instanceof TimeStampNsLiteral) {
+            return -expr.compareLiteral(this);
+        }
         // date time will not overflow when doing addition and subtraction
         return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }

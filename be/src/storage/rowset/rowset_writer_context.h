@@ -21,19 +21,26 @@
 #include <glog/logging.h>
 
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/binlog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -47,6 +54,10 @@ class Tablet;
 class FileWriterCreator;
 class SegmentCollector;
 
+namespace segment_v2 {
+struct HistoricalRowRetrieverContext;
+}
+
 struct RowsetWriterContext {
     RowsetWriterContext() : schema_lock(new std::mutex) {
         load_id.set_hi(0);
@@ -54,6 +65,8 @@ struct RowsetWriterContext {
     }
 
     RowsetId rowset_id;
+    int64_t db_id {0};
+    int64_t table_id {0};
     int64_t tablet_id {0};
     int32_t tablet_schema_hash {0};
     int64_t index_id {0};
@@ -61,7 +74,13 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
+    // Immutable inverted-index file format inherited from the owner tablet.
+    std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
+    // Whether the owner tablet persists the format in its top-level metadata.
+    // This is derived from TabletMeta and keeps rowset metadata consistent with it.
+    bool persist_inverted_index_storage_format = false;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -72,6 +91,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
@@ -90,6 +110,12 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
+    // SNII only: (column_unique_id, index_id) pairs whose postings are produced
+    // by index compaction. The segment writer raw-builds every OTHER SNII index
+    // of the column, so one eligible and one new index on the same column can
+    // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
+    // their per-column CLucene directories cannot split an index off a column.
+    std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
@@ -105,7 +131,11 @@ struct RowsetWriterContext {
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
-    uint64_t file_cache_ttl_sec = 0;
+    // Absolute timestamp (seconds since epoch) after which the cache blocks written by
+    // this rowset stop being TTL protected; 0 means no TTL. Always set it from
+    // BaseTablet::file_cache_ttl_expiration_time() so every writer agrees with the
+    // deadline BlockFileCacheTtlMgr sweeps by.
+    uint64_t file_cache_expiration_time = 0;
     uint64_t approximate_bytes_to_write = 0;
     // If true, compaction output only writes index files to file cache, not data files
     bool compaction_output_write_index_only = false;
@@ -118,9 +148,15 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    segment_v2::HistoricalRowRetrieverContext make_historical_row_retriever_context();
+
     // Intent flag: caller can actively turn merge-file feature on/off for this rowset.
     // This describes whether we *want* to try small-file merging.
     bool allow_packed_file = true;
+
+    // Physical id of the first segment in this rowset. It can be nonzero for writers that
+    // allocate segment ids from a configured range.
+    int64_t first_segment_id = 0;
 
     // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
     // This is decided inside fs() based on enable_merge_file plus other conditions
@@ -132,6 +168,12 @@ struct RowsetWriterContext {
     // This prevents creating multiple MergeFileSystem instances and ensures
     // packed_file_active flag remains consistent.
     mutable io::FileSystemSPtr _cached_fs = nullptr;
+
+    void set_first_segment_id(int64_t segment_id) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK(_cached_fs == nullptr);
+        first_segment_id = segment_id;
+    }
 
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -152,6 +194,29 @@ struct RowsetWriterContext {
     std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
 
     std::string job_id;
+
+    // Per-segment LSNs allocated before memtable flush. The same storage feeds
+    // both the base row LSN column and row-binlog LSN column.
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
+    bool _need_allocate_lsn = false;
+
+    void insert_segment_allocated_lsns(int64_t segment_id,
+                                       ConstAllocatedLsnVectorSharedPtr allocated_lsns) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->insert_segment_allocated_lsns(segment_id, std::move(allocated_lsns));
+    }
+
+    void remove_segment_allocated_lsns(int64_t segment_id) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
+    }
+
+    ConstAllocatedLsnVectorSharedPtr get_segment_allocated_lsns(int64_t segment_id) const {
+        DCHECK(allocated_lsn_map != nullptr);
+        return allocated_lsn_map->get_segment_allocated_lsns(segment_id);
+    }
+
+    bool need_allocated_lsn() const { return _need_allocate_lsn; }
 
     bool is_local_rowset() const { return !storage_resource; }
 
@@ -218,10 +283,9 @@ struct RowsetWriterContext {
             io::PackedAppendContext append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
+            append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
-            append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
-                                                  ? newest_write_timestamp + file_cache_ttl_sec
-                                                  : 0;
+            append_info.expiration_time = file_cache_expiration_time;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
@@ -237,49 +301,64 @@ struct RowsetWriterContext {
 
     io::FileSystem& fs_ref() const { return *fs(); }
 
-    io::FileWriterOptions get_file_writer_options(bool is_index_file = false) {
-        bool should_write_cache = write_file_cache;
-        // If configured to only write index files to cache, skip cache for data files
-        if (compaction_output_write_index_only && !is_index_file) {
-            should_write_cache = false;
+    io::FileWriterOptions get_file_writer_options(FileType file_type = FileType::SEGMENT_FILE) {
+        io::FileWriterOptions opts {.write_file_cache = write_file_cache,
+                                    .is_cold_data = is_hot_data,
+                                    .file_cache_expiration_time = file_cache_expiration_time,
+                                    .approximate_bytes_to_write = approximate_bytes_to_write};
+
+        if (config::enable_file_cache_write_index_file_only) {
+            opts.allow_adaptive_file_cache_write = false;
+            opts.approximate_bytes_to_write = 0;
+            opts.write_file_cache = file_type == FileType::INVERTED_INDEX_FILE;
+            return opts;
         }
 
-        return io::FileWriterOptions {.write_file_cache = should_write_cache,
-                                      .is_cold_data = is_hot_data,
-                                      .file_cache_expiration_time = file_cache_ttl_sec,
-                                      .approximate_bytes_to_write = approximate_bytes_to_write};
+        if (compaction_output_write_index_only && file_type == FileType::SEGMENT_FILE) {
+            opts.write_file_cache = false;
+            opts.allow_adaptive_file_cache_write = false;
+            opts.approximate_bytes_to_write = 0;
+        }
+
+        return opts;
     }
 
     struct BinlogOptions {
     public:
-        void mark_primary_writer() { binlog_write_type = BinlogWriteType::PrimaryWriter; }
+        bool enable = false;
 
-        void mark_binlog_writer() { binlog_write_type = BinlogWriteType::BinlogWriter; }
-
-        bool is_primary_writer() const {
-            return binlog_write_type == BinlogWriteType::PrimaryWriter;
+        void set_need_before(bool need_before) {
+            this->_need_before = need_before;
+            _segment_write_binlog_opt.write_before = need_before;
         }
 
-        bool is_binlog_writer() const { return binlog_write_type == BinlogWriteType::BinlogWriter; }
+        segment_v2::SegmentWriteBinlogOptions& write_binlog_config() {
+            return _segment_write_binlog_opt;
+        }
 
-        bool need_build_binlog() const { return binlog_write_type != BinlogWriteType::Unknown; }
-
-        void set_need_before(bool need_before) { this->_need_before = need_before; }
+        const segment_v2::SegmentWriteBinlogOptions& write_binlog_config() const {
+            return _segment_write_binlog_opt;
+        }
 
     private:
-        // if you don't need to build row_binlog, `PrimaryWriter` and `BinlogWriter` are both false
-        // if you need to build row_binlog, the `is_primary_writer` of normal rowset writer is true
-        enum BinlogWriteType {
-            PrimaryWriter,
-            BinlogWriter,
-            Unknown
-        } binlog_write_type = BinlogWriteType::Unknown;
         bool _need_before = false;
+        segment_v2::SegmentWriteBinlogOptions _segment_write_binlog_opt;
     } _write_binlog_opt;
 
     BinlogOptions& write_binlog_opt() { return _write_binlog_opt; }
 
     const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
 };
+
+inline segment_v2::HistoricalRowRetrieverContext
+RowsetWriterContext::make_historical_row_retriever_context() {
+    return segment_v2::HistoricalRowRetrieverContext {
+            .tablet = tablet,
+            .tablet_schema = tablet_schema,
+            .rowset_writer_ctx = this,
+            .partial_update_info = partial_update_info,
+            .is_transient_rowset_writer = is_transient_rowset_writer,
+            .write_type = write_type};
+}
 
 } // namespace doris

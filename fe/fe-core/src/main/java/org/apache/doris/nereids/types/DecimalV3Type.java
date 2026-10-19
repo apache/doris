@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -183,6 +185,27 @@ public class DecimalV3Type extends FractionalType {
         return new DecimalV3Type(precision, scale);
     }
 
+    /**
+     * A DecimalV3 wider than decimal128 can reach the planner while enable_decimal256 is off, e.g. a
+     * decimal(76, x) column or a view output analyzed with the variable on. In that case narrow it to
+     * decimal128 and keep as much scale as possible, so that the decimal128 rules never see an integral
+     * part wider than 38 digits.
+     */
+    public static DecimalV3Type narrowToDecimal128IfDisabled(DecimalV3Type type) {
+        if (type.getPrecision() <= MAX_DECIMAL128_PRECISION) {
+            return type;
+        }
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+        }
+        if (enableDecimal256) {
+            return type;
+        }
+        return createDecimalV3Type(MAX_DECIMAL128_PRECISION, Math.min(MAX_DECIMAL128_PRECISION, type.getScale()));
+    }
+
     public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowToDouble) {
         return widerDecimalV3Type(left.getPrecision(), right.getPrecision(),
                 left.getScale(), right.getScale(), overflowToDouble);
@@ -212,6 +235,35 @@ public class DecimalV3Type extends FractionalType {
         } else {
             return DecimalV3Type.createDecimalV3Type(range + scale, scale);
         }
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof DecimalV2Type) {
+            // DECIMALV2 is deprecated, and BE does not support every DECIMALV3-to-DECIMALV2 cast
+            // accepted by FE. Keep all such casts non-injective so rewrites preserve the cast and
+            // its original execution behavior.
+            return false;
+        }
+        if (target instanceof DecimalV3Type) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) target;
+            return decimalV3Type.getRange() >= this.getRange() && decimalV3Type.getScale() >= this.getScale();
+        }
+        // An integral target discards the fractional part, so it is injective only for scale zero.
+        // The strict range bound also leaves room for the asymmetric negative endpoint of a signed
+        // integer. Binary floating-point casts round, but adjacent values in a DECIMAL(P, S) domain
+        // remain distinguishable when P <= 7 for FLOAT or P <= 15 for DOUBLE. Those conservative
+        // decimal-digit limits hold for every scale, not just for integral decimals.
+        if (scale == 0 && target instanceof IntegralType) {
+            return getRange() < ((IntegralType) target).range();
+        }
+        if (target instanceof FloatType) {
+            return precision <= 7;
+        }
+        if (target instanceof DoubleType) {
+            return precision <= 15;
+        }
+        return target instanceof CharacterType;
     }
 
     @Override

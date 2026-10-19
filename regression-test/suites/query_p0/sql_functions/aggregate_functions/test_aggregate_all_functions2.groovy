@@ -91,6 +91,25 @@ suite("test_aggregate_all_functions2") {
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
     qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
     sql """
+        select percentile_reservoir(cast(number as double), 0.5)
+        from numbers("number" = "200000")
+        group by number % 16
+    """
+    sql """
+        select percentile_reservoir(cast(number as double), 0.5)
+        from numbers("number" = "200000")
+        group by number - number
+        limit 1
+    """
+    sql """
+        select percentile_reservoir(cast(number as double), 0.5) over (
+            partition by number % 2
+            order by number
+            rows between 1 following and 1 following)
+        from numbers("number" = "4096")
+        order by number
+    """
+    sql """
         select percentile_reservoir(number,0.5) from numbers("number" = "1000000");
     """
     test {
@@ -161,8 +180,7 @@ suite("test_aggregate_all_functions2") {
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         ); 
     """
     sql """
@@ -318,6 +336,7 @@ suite("test_aggregate_all_functions2") {
     qt_maxminby_array_2 """SELECT max_by(arr, weight), min_by(arr, weight) from test_maxmin"""
     qt_maxminby_array_3 """SELECT max_by(mp, arr), min_by(mp, arr) from test_maxmin"""
     qt_maxminby_array_4 """SELECT max_by(st, arr), min_by(st, arr) from test_maxmin"""
+    qt_maxminby_array_null_order """SELECT max_by(arr, arr), min_by(arr, arr) from test_maxmin where id = 5"""
 
     qt_maxminby_array_5 """SELECT id, max_by(arr, weight), min_by(arr, weight) from test_maxmin group by id order by id"""
 

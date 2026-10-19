@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "storage/olap_common.h"
+#include <cstring>
+
+#include "core/extended_types.h"
 
 namespace doris {
 

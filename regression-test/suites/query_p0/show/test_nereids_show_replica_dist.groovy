@@ -61,9 +61,15 @@ suite("test_nereids_show_replica_dist") {
     }
     
     def replication_num = 1
-    def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
-    if (forceReplicaNum > 0) {
-        replication_num = forceReplicaNum
+    // In cloud mode the data is stored once on shared storage, so each tablet always
+    // has a single replica regardless of force_olap_table_replication_num. The cloud
+    // CloudPropertyAnalyzer unconditionally rewrites replication_num back to 1, so the
+    // forced replication num must not be applied to the expected value here.
+    if (!isCloudMode()) {
+        def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+        if (forceReplicaNum > 0) {
+            replication_num = forceReplicaNum
+        }
     }
 
     assertEquals(replication_num, queryReplicaCount("p3"))   

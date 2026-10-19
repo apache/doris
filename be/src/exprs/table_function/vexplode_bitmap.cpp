@@ -75,8 +75,8 @@ void VExplodeBitmapTableFunction::get_same_many_values(MutableColumnPtr& column,
             assert_cast<ColumnInt64*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_many_vals(**_cur_iter, length);
-            assert_cast<ColumnUInt8*>(
-                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_null_map_column_ptr()
                     ->insert_many_defaults(length);
         } else {
             assert_cast<ColumnInt64*>(column.get())->insert_many_vals(**_cur_iter, length);
@@ -104,7 +104,9 @@ void VExplodeBitmapTableFunction::process_close() {
 }
 
 int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
-    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    max_step =
+            static_cast<int>(std::min(static_cast<int64_t>(max_step), (_cur_size - _cur_offset)));
+    DCHECK_GE(max_step, 0);
     // should dispose the empty status, forward one step
     if (current_empty()) {
         column->insert_default();
@@ -114,8 +116,8 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
         if (_is_nullable) {
             target = assert_cast<ColumnInt64*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
-            assert_cast<ColumnUInt8*>(
-                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_null_map_column_ptr()
                     ->insert_many_defaults(max_step);
         } else {
             target = assert_cast<ColumnInt64*>(column.get());

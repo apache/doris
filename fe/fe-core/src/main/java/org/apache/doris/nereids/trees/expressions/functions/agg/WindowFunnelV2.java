@@ -24,14 +24,18 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -40,11 +44,17 @@ import java.util.List;
  * as (timestamp, event_index) pairs, dramatically reducing memory usage compared to V1.
  */
 public class WindowFunnelV2 extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final int MAX_EVENT_CONDITIONS = 127;
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, TimeStampTzType.WILDCARD,
+                            BooleanType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE,
+                            BooleanType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.WILDCARD,
                             BooleanType.INSTANCE)
@@ -92,8 +102,15 @@ public class WindowFunnelV2 extends NullableAggregateFunction
         if (!getArgumentType(1).isStringLikeType()) {
             throw new AnalysisException("The mode params of " + functionName + " function must be string");
         }
+        if (!getArgument(0).isConstant()) {
+            throw new AnalysisException("The window parameter of " + functionName + " must be a constant");
+        }
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException("The mode parameter of " + functionName + " must be a constant");
+        }
         if (!getArgumentType(2).isDateLikeType()) {
-            throw new AnalysisException("The 3rd param of " + functionName + " function must be DATE or DATETIME");
+            throw new AnalysisException("The 3rd param of " + functionName
+                    + " function must be DATE, DATETIME, TIMESTAMP_NS or TIMESTAMPTZ");
         }
         for (int i = 3; i < arity(); i++) {
             if (!getArgumentType(i).isBooleanType()) {
@@ -107,9 +124,9 @@ public class WindowFunnelV2 extends NullableAggregateFunction
     public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature functionSignature = super.computeSignature(signature);
         if (functionSignature.getArgType(2) instanceof DateV2Type) {
-            return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
-                    (index == 2) ? DateTimeV2Type.SYSTEM_DEFAULT : originType
-            );
+            List<DataType> newTypes = Lists.newArrayList(functionSignature.argumentsTypes);
+            newTypes.set(2, DateTimeV2Type.SYSTEM_DEFAULT);
+            return functionSignature.withArgumentTypes(functionSignature.hasVarArgs, newTypes);
         }
         return functionSignature;
     }

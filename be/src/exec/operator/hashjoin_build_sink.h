@@ -118,7 +118,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -132,17 +132,23 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                                                : DataDistribution(ExchangeType::NOOP);
+            if (!_child->is_serial_operator()) {
+                return {TLocalPartitionType::NOOP};
+            }
+            return state->enable_share_hash_table_for_broadcast_join()
+                           ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
+                           : DataDistribution(TLocalPartitionType::BROADCAST);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                       ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                          _partition_exprs)
+                       : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                          _partition_exprs);
     }
 
     bool is_shuffled_operator() const override {
@@ -186,14 +192,12 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
-    // if build side has variant column and need output variant column
-    // need to finalize variant column to speed up the join op
-    bool _need_finalize_variant_column = false;
 
     // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
     // Prepared against build child's row_desc directly (no intermediate tuple needed)
     VExprContextSPtr _asof_build_side_expr;
     TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+    bool _asof_mixed_timestamp_ns_datetimev2 = false;
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
@@ -212,7 +216,7 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
                bool short_circuit_for_null, bool with_other_conjuncts) {
         if (null_map) {
@@ -231,7 +235,7 @@ struct ProcessHashTableBuild {
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
-            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+            const_cast<IColumn*>(_build_raw_ptrs[0])->replace_column_null_data(null_map->data());
         }
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
@@ -274,5 +278,10 @@ private:
     int _batch_size;
     RuntimeState* _state = nullptr;
 };
+
+/// Instantiated once in join_build_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
+extern template class JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
 
 } // namespace doris

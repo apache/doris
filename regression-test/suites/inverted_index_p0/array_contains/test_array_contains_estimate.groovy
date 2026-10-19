@@ -20,7 +20,7 @@ suite("test_array_contains_estimate", "nonConcurrent"){
     def indexTblName = "tai_estimate"
     def dataFile = "tai_estimate.csv"
 
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     sql """ set enable_profile = true;"""
     sql """ set enable_inverted_index_query=true; """
     sql """ set inverted_index_skip_threshold = 0; """ // set skip threshold to 0
@@ -42,8 +42,7 @@ suite("test_array_contains_estimate", "nonConcurrent"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
 

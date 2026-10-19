@@ -329,6 +329,11 @@ Status ThreadPool::init() {
         thread_pool_max_queue_size->set_value(get_max_queue_size());
         thread_pool_max_threads->set_value(max_threads());
     });
+    LOG(INFO) << fmt::format(
+            "Thread pool '{}' initialized: min_threads={}, max_threads={}, max_queue_size={}, "
+            "idle_timeout_ms={}, workload_group='{}'",
+            _name, _min_threads, _max_threads, _max_queue_size, _idle_timeout.count(),
+            _workload_group);
     return Status::OK();
 }
 

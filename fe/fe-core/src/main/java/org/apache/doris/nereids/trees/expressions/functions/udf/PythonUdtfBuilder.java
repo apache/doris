@@ -65,7 +65,7 @@ public class PythonUdtfBuilder extends UdfBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
-        if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
+        if (arguments.size() != arity) {
             return false;
         }
         for (Object argument : arguments) {
@@ -88,7 +88,7 @@ public class PythonUdtfBuilder extends UdfBuilder {
         for (int i = 0; i < exprs.size(); ++i) {
             processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), argTypes.get(i)));
         }
-        return Pair.ofSame(udtf.withChildren(processedExprs));
+        return Pair.ofSame(udtf.withFreshVolatileIdentity().withChildren(processedExprs));
     }
 
     @Override

@@ -36,6 +36,7 @@
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
@@ -69,9 +70,11 @@ inline WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     }
 }
 
+template <PrimitiveType T>
 struct DataValue {
     using TimestampEvent = std::vector<ColumnUInt8::Container>;
-    std::vector<DateV2Value<DateTimeV2ValueType>> dt;
+    using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
+    std::vector<DateValueType> dt;
     TimestampEvent event_columns_data;
     bool operator<(const DataValue& other) const { return dt < other.dt; }
     void clear() {
@@ -96,15 +99,16 @@ struct DataValue {
     }
 };
 
+template <PrimitiveType T>
 struct WindowFunnelState {
-    static constexpr PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
-    using NativeType = UInt64;
-    using DateValueType = DateV2Value<DateTimeV2ValueType>;
+    static constexpr PrimitiveType PType = T;
+    using NativeType = typename PrimitiveTypeTraits<T>::StorageFieldType;
+    using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
-    DataValue events_list;
+    DataValue<T> events_list;
 
     WindowFunnelState() {
         event_count = 0;
@@ -116,16 +120,24 @@ struct WindowFunnelState {
         events_list.event_columns_data.resize(event_count);
     }
 
-    void reset() { events_list.clear(); }
+    void reset() {
+        events_list.clear();
+        window = 0;
+        window_funnel_mode = WindowFunnelMode::INVALID;
+    }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
         events_list.dt.emplace_back(
-                assert_cast<const ColumnVector<PType>&>(*arg_columns[2]).get_data()[row_num]);
+                assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(*arg_columns[2])
+                        .get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
-                    assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
+                    assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                            *arg_columns[3 + i])
+                            .get_data()[row_num]);
         }
     }
 
@@ -152,17 +164,27 @@ struct WindowFunnelState {
         }
     }
 
+    bool _within_window(const DateValueType& base_timestamp,
+                        const DateValueType& current_timestamp) const {
+        if constexpr (T == TYPE_TIMESTAMP_NS) {
+            const auto elapsed_nanos = static_cast<__int128>(current_timestamp.epoch_nanos()) -
+                                       base_timestamp.epoch_nanos();
+            const auto window_nanos =
+                    static_cast<__int128>(window) * TimeStampNsValue::NANOS_PER_SECOND;
+            return elapsed_nanos <= window_nanos;
+        }
+        return static_cast<__int128>(current_timestamp.datetime_diff_in_microseconds(
+                       base_timestamp)) <= static_cast<__int128>(window) * 1000000;
+    }
+
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType end_timestamp;
-
         if (window < 0) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "the sliding time window must be a positive integer, but got: {}",
                             window);
         }
-        TimeInterval interval(SECOND, window, false);
         int column_idx = 0;
         const auto& timestamp_data = events_list.dt;
         const auto& first_event_data = events_list.event_columns_data[column_idx].data();
@@ -170,9 +192,7 @@ struct WindowFunnelState {
         start_row = match_row + 1;
         if (match_row < row_count) {
             auto prev_timestamp = timestamp_data[match_row];
-            end_timestamp = prev_timestamp;
-            end_timestamp.template date_add_interval<SECOND>(interval);
-
+            const auto first_timestamp = prev_timestamp;
             matched_count++;
             column_idx++;
             auto last_match_row = match_row;
@@ -182,7 +202,7 @@ struct WindowFunnelState {
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
                     if (event_data[match_row] == 1) {
                         auto current_timestamp = timestamp_data[match_row];
-                        if (current_timestamp <= end_timestamp) {
+                        if (_within_window(first_timestamp, current_timestamp)) {
                             matched_count++;
                             continue;
                         }
@@ -192,7 +212,7 @@ struct WindowFunnelState {
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
                     auto current_timestamp = timestamp_data[match_row];
-                    bool is_matched = current_timestamp <= end_timestamp;
+                    bool is_matched = _within_window(first_timestamp, current_timestamp);
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
                             is_matched = current_timestamp > prev_timestamp;
@@ -267,9 +287,18 @@ struct WindowFunnelState {
         }
     }
 
-    void merge(const WindowFunnelState& other) {
+    void merge(const WindowFunnelState<T>& other) {
         if (other.events_list.empty()) {
             return;
+        }
+
+        if (events_list.empty()) {
+            window = other.window;
+            window_funnel_mode = other.window_funnel_mode;
+        } else if (UNLIKELY(window != other.window ||
+                            window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
         }
         events_list.dt.insert(std::end(events_list.dt), std::begin(other.events_list.dt),
                               std::end(other.events_list.dt));
@@ -326,7 +355,13 @@ struct WindowFunnelState {
         events_list.clear();
         events_list.dt.resize(size);
         for (auto i = 0; i < size; i++) {
-            read_var_int(*reinterpret_cast<Int64*>(&events_list.dt[i]), in);
+            Int64 timestamp = 0;
+            read_var_int(timestamp, in);
+            if constexpr (T == TYPE_TIMESTAMP_NS) {
+                events_list.dt[i] = DateValueType(timestamp);
+            } else {
+                events_list.dt[i] = DateValueType(static_cast<UInt64>(timestamp));
+            }
         }
         events_list.event_columns_data.resize(event_count);
         for (int64_t i = 0; i < event_count; i++) {
@@ -341,17 +376,19 @@ struct WindowFunnelState {
     }
 };
 
+template <PrimitiveType T>
 class AggregateFunctionWindowFunnel final
-        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>,
+        : public IAggregateFunctionDataHelper<WindowFunnelState<T>,
+                                              AggregateFunctionWindowFunnel<T>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
+            : IAggregateFunctionDataHelper<WindowFunnelState<T>, AggregateFunctionWindowFunnel<T>>(
                       argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState(
+        auto data = new (place) WindowFunnelState<T>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = IAggregateFunction::version >= 3;
@@ -365,10 +402,22 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const auto& window = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
+        const auto& window =
+                assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, window,
                               string_to_window_funnel_mode(mode.to_string()));
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnInt64>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[2]);
+        for (size_t i = 3; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -388,9 +437,9 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<WindowFunnelState,
-                                             AggregateFunctionWindowFunnel>::data(place)
+        assert_cast<ColumnInt32&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                IAggregateFunctionDataHelper<WindowFunnelState<T>,
+                                             AggregateFunctionWindowFunnel<T>>::data(place)
                         .get());
     }
 

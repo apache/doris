@@ -29,6 +29,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * This class represents the olap replica related metadata.
@@ -91,8 +94,6 @@ public abstract class Replica {
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
-    @SerializedName(value = "bs", alternate = {"binlogSize"})
-    private volatile long binlogSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
     @SerializedName(value = "st", alternate = {"state"})
@@ -106,10 +107,6 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
-
-    // Number of binlog files retained on this replica.
-    @SerializedName(value = "bfn", alternate = {"binlogFileNum"})
-    private volatile long binlogFileNum = -1;
 
     public Replica() {
     }
@@ -179,6 +176,24 @@ public abstract class Replica {
         return -1L;
     }
 
+    public long getBackendIdForProcDisplay() {
+        return getBackendIdValue();
+    }
+
+    // For proc display only. Returns a "scope key -> backendId" mapping used to render the
+    // replica's placement. In local deployment there is a single scope (empty key) and the
+    // cache is unused; in cloud deployment each compute group is a separate scope and the
+    // cache lets a single proc call fetch each compute group's backends once (see
+    // CloudReplica). The cache is keyed by compute group id.
+    public Map<String, Long> getClusterToBackendForProcDisplay(Map<String, List<Backend>> computeGroupBackendCache) {
+        Map<String, Long> result = new HashMap<>();
+        long backendId = getBackendIdForProcDisplay();
+        if (backendId != -1L) {
+            result.put("", backendId);
+        }
+        return result;
+    }
+
     public void setBackendId(long backendId) {
         if (backendId != -1) {
             throw new UnsupportedOperationException("setBackendId is not supported in Replica");
@@ -191,22 +206,6 @@ public abstract class Replica {
 
     public void setDataSize(long dataSize) {
         this.dataSize = dataSize;
-    }
-
-    public long getBinlogSize() {
-        return binlogSize;
-    }
-
-    public void setBinlogSize(long binlogSize) {
-        this.binlogSize = binlogSize;
-    }
-
-    public long getBinlogFileNum() {
-        return binlogFileNum;
-    }
-
-    public void setBinlogFileNum(long binlogFileNum) {
-        this.binlogFileNum = binlogFileNum;
     }
 
     public long getRemoteDataSize() {
@@ -313,6 +312,20 @@ public abstract class Replica {
 
     public int getLeftFurtherRepairCount() {
         return 0;
+    }
+
+    public boolean isBinlogMissing() {
+        return false;
+    }
+
+    public void setBinlogMissing(boolean binlogMissing) {
+        if (binlogMissing) {
+            throw new UnsupportedOperationException("setBinlogMissing is not supported in Replica");
+        }
+    }
+
+    public void consumeBinlogMissingRetry() {
+        throw new UnsupportedOperationException("consumeBinlogMissingRetry is not supported in Replica");
     }
 
     public long getFurtherRepairWatermarkTxnTd() {

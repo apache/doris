@@ -26,6 +26,9 @@ suite ("testBucketedAggSyncMV") {
     sql """set enable_nereids_planner=true;"""
     sql "set disable_nereids_rules='DISTINCT_AGGREGATE_SPLIT';"
     sql "set enable_bucketed_hash_agg = true;"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
 
     sql """ DROP TABLE IF EXISTS bucketed_agg_mv_test; """
 

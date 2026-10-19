@@ -16,14 +16,18 @@
 // under the License.
 
 suite("physical_agg_regulator") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql"""
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
     set be_number_for_test=1;
     """
+    // A sample request larger than the table falls back to a full scan with the linear estimator,
+    // which does not collect hot value. This case needs hot value to exercise the skew-aware
+    // aggregation shape, so ask for it explicitly instead of relying on the sample path.
     multi_sql """
-    analyze table t1025_skew5000 with sample rows 7000 with sync;
+    analyze table t1025_skew5000 with sync with hot value;
     --drop cached stats t1025;
     """
     // 这个预期应该使用cte之后any
@@ -31,8 +35,9 @@ suite("physical_agg_regulator") {
     select count(distinct a_1), count(distinct b_5) from t1025_skew5000 group by d_1025;"""
 
 
+    // Same reason as above: this table's plan expectations were built on collected hot values.
     multi_sql """
-    analyze table t1025 with sample rows 4000 with sync;
+    analyze table t1025 with sync with hot value;
     --drop cached stats t1025;
     """
     qt_not_skew """explain shape plan

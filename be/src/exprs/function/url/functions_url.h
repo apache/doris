@@ -106,48 +106,4 @@ struct ExtractSubstringImpl {
     }
 };
 
-/** Delete part of string using the Extractor.
-  */
-template <typename Extractor>
-struct CutSubstringImpl {
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        res_data.reserve(data.size());
-        size_t size = offsets.size();
-        res_offsets.resize(size);
-
-        size_t prev_offset = 0;
-        size_t res_offset = 0;
-
-        /// Matched part.
-        Pos start;
-        size_t length;
-
-        for (size_t i = 0; i < size; ++i) {
-            const char* current = reinterpret_cast<const char*>(&data[prev_offset]);
-            Extractor::execute(current, offsets[i] - prev_offset, start, length);
-            size_t start_index = start - reinterpret_cast<const char*>(data.data());
-
-            res_data.resize(res_data.size() + offsets[i] - prev_offset - length);
-            memcpy_small_allow_read_write_overflow15(&res_data[res_offset], current,
-                                                     start - current);
-            memcpy_small_allow_read_write_overflow15(&res_data[res_offset + start - current],
-                                                     start + length,
-                                                     offsets[i] - start_index - length);
-            res_offset += offsets[i] - prev_offset - length;
-
-            res_offsets[i] = res_offset;
-            prev_offset = offsets[i];
-        }
-    }
-
-    static void constant(const std::string& data, std::string& res_data) {
-        Pos start;
-        size_t length;
-        Extractor::execute(data.data(), data.size(), start, length);
-        res_data.reserve(data.size() - length);
-        res_data.append(data.data(), start);
-        res_data.append(start + length, data.data() + data.size());
-    }
-};
 } // namespace doris

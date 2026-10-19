@@ -22,9 +22,11 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -32,6 +34,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/bvars.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
@@ -40,7 +43,6 @@
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
-#include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace brpc {
@@ -56,6 +58,10 @@ class SimpleThreadPool;
 class RecyclerMetricsContext;
 class TabletRecyclerMetricsContext;
 class SegmentRecyclerMetricsContext;
+
+int64_t calculate_tmp_rowset_expired_time(
+        const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
+        int64_t* earlest_ts /* tmp_rowset earliest expiration ts */);
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -90,6 +96,8 @@ public:
 
     RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
 
+    const std::shared_ptr<SnapshotManager>& snapshot_manager() const { return snapshot_manager_; }
+
 private:
     void recycle_callback();
 
@@ -118,7 +126,6 @@ private:
 
     std::string ip_port_;
 
-    WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
 
     RecyclerThreadPoolGroup _thread_pool_group;
@@ -249,6 +256,21 @@ public:
 
 struct OplogRecycleStats;
 
+struct RelatedTxnOrJobAbortTask {
+    enum class Type : uint8_t {
+        TXN,
+        JOB,
+    };
+
+    Type type = Type::TXN;
+    std::string key;
+    int64_t txn_id = 0;
+    int64_t tablet_id = 0;
+    int64_t start_version = 0;
+    int64_t end_version = 0;
+    std::string rowset_id;
+    std::string job_id;
+};
 class InstanceRecycler {
 public:
     struct PackedFileRecycleStats {
@@ -282,6 +304,16 @@ public:
     // remove all kv and data in this instance, ONLY be called when instance has been deleted
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
+
+    int recycle_deleted_instance_data();
+
+    int recycle_deleted_instance_metadata();
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state);
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state, Transaction* txn);
 
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv
@@ -426,10 +458,26 @@ public:
 
 private:
     // returns 0 for success otherwise error
+    int remove_instance_key();
+
+    // returns 0 for success otherwise error
     int init_obj_store_accessors();
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors();
+
+    int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                       std::string_view recycle_key);
+
+    int recycle_table_stream_offset_prefix(std::string prefix,
+                                           RecyclerMetricsContext* metrics_context);
+
+    int finalize_recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                                std::string_view recycle_key);
+
+    int recycle_partition_table_stream_offsets(
+            int64_t db_id, int64_t table_id, int64_t partition_id,
+            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams);
 
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
@@ -445,7 +493,16 @@ private:
      */
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
-                         std::function<int()> loop_done = nullptr);
+                         std::function<int()> loop_done = nullptr,
+                         std::function<bool(std::string*)> next_begin_getter = nullptr);
+
+    static int next_recycle_rowset_tablet_key(const std::string& instance_id, int64_t tablet_id,
+                                              std::string* next_key);
+
+    int scan_recycle_rowsets_by_tablet(
+            std::string begin, std::string_view end,
+            std::function<int(std::string_view k, std::string_view v)> recycle_func,
+            std::function<int()> loop_done = nullptr);
 
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
@@ -455,9 +512,23 @@ private:
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
 
+    bool is_tablet_recycled(int64_t tablet_id);
+
+    // Return 1 if the versioned delete bitmap should be deleted,
+    // Return 0 if it can be skipped,
+    // negative on error.
+    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+
+    int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
+                                           const std::string& rowset_id);
+
+    int delete_delete_bitmap_kvs(int64_t tablet_id, const std::string& rowset_id);
+
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
-                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
+    int delete_rowset_data(
+            const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
+            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context,
+            std::vector<std::vector<std::string>>* delete_bitmap_key_groups = nullptr);
 
     // Decrement packed file ref counts for rowset segments.
     // Returns 0 for success, -1 for error.
@@ -473,9 +544,11 @@ private:
     // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
     // out_storage_type: if not null, will be set to the delete bitmap storage type.
+    // keys: if not null, will collect all versioned delete bitmap keys for batch deletion.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
                                                        const std::string& rowset_id,
-                                                       DeleteBitmapStorageType* out_storage_type);
+                                                       DeleteBitmapStorageType* out_storage_type,
+                                                       std::vector<std::string>* keys = nullptr);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -574,22 +647,38 @@ private:
     // reference non-existent data.
     //
     // Solution:
-    // Before recycling the rowset data, this function aborts the associated transaction/job to ensure
-    // it cannot be committed. This guarantees that:
-    // 1. The transaction/job state is marked as ABORTED
-    // 2. Any subsequent commit_rowset/commit_txn attempts will fail
-    // 3. The rowset data can be safely deleted without risk of data loss
+    // Before recycling rowset data, try to abort the associated transaction/job. A zero return only
+    // permits the caller to recheck the recycle key. Object data can be deleted only when the key
+    // still exists, still describes the same PREPARE rowset, and still belongs to the same owner.
     //
     // Parameters:
     //   txn_id: The transaction/job ID associated with the rowset to be recycled
     //
     // Returns:
-    //   0 on success, -1 on failure
+    //   0 if the recycle key may be rechecked before deletion. The caller must never delete
+    //     object data directly from the scan snapshot.
+    //   Non-zero if object data and the recycle key must be retained for a later retry.
     int abort_txn_for_related_rowset(int64_t txn_id);
-    int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
+    int abort_job_for_related_rowset(int64_t tablet_id, const std::string& rowset_id,
+                                     const std::string& job_id);
 
     template <typename T>
-    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+    int batch_abort_txn_or_job_for_recycle(
+            const std::vector<std::string>& keys,
+            std::vector<std::pair<std::string, RelatedTxnOrJobAbortTask>>& keys_to_recheck);
+
+    template <typename T>
+    void submit_batch_mark_rowsets_as_recycled_job(SimpleThreadPool& worker_pool,
+                                                   std::vector<std::string> rowset_keys_to_mark);
+
+    void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
+                                            std::vector<std::string> rowset_keys_to_abort,
+                                            std::atomic_long* num_recycled);
+
+    void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
+                                        std::vector<std::string> rowset_keys_to_abort,
+                                        std::atomic_long* num_recycled,
+                                        RecyclerMetricsContext* metrics_context);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -622,6 +711,12 @@ private:
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;
+
+    // Data tablets in the same partition have the same MoW setting. Cache both true and false so
+    // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
+    // must not populate this cache because their MoW flag is deliberately false.
+    std::mutex partition_mow_cache_mutex;
+    std::map<int64_t, bool> partition_mow_cache;
 };
 
 struct OperationLogReferenceInfo {

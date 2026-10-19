@@ -20,6 +20,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -64,5 +65,9 @@ public abstract class DataSink {
 
     public void setMerge(boolean merge) {
         isMerge = merge;
+    }
+
+    public LocalExchangeTypeRequire getLocalExchangeTypeRequire() {
+        return LocalExchangeTypeRequire.noRequire();
     }
 }

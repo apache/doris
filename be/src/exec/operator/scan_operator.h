@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -28,9 +29,9 @@
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
+#include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
-#include "exprs/function_filter.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
@@ -64,14 +65,27 @@ public:
 
     virtual RuntimeProfile* scanner_profile() = 0;
 
-    [[nodiscard]] virtual const TupleDescriptor* input_tuple_desc() const = 0;
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
+    virtual std::atomic<int64_t>* shared_scan_limit_ptr() = 0;
 
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+    virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
+
+    static bool is_count_star_pushdown(TPushAggOp::type agg_type,
+                                       const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        // An absent argument field is an old plan with unknown semantics. Only an explicitly empty
+        // argument list proves COUNT(*)/COUNT(1) and permits placeholder slots to be ignored.
+        return agg_type == TPushAggOp::type::COUNT && count_slot_ids.has_value() &&
+               count_slot_ids->empty();
+    }
+
+    bool is_count_star_pushdown() {
+        return is_count_star_pushdown(get_push_down_agg_type(), get_push_down_count_slot_ids());
+    }
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -97,6 +111,13 @@ protected:
     friend class Scanner;
 
     virtual Status _init_profile() = 0;
+
+    // Hook for subclasses to process only the runtime-filter conjuncts appended by the current
+    // update. Late-arrival updates call this while holding _conjuncts_lock because pruning may
+    // execute expression nodes shared with scanner clones.
+    virtual Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts);
+
+    Status _do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts);
 
     std::atomic<bool> _opened {false};
 
@@ -133,12 +154,14 @@ protected:
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
+    // ---- Runtime-filter partition pruning (scan-agnostic) ----
+    RuntimeFilterPartitionPruner _rf_partition_pruner;
+    RuntimeProfile::Counter* _partitions_pruned_by_rf_counter = nullptr;
+    RuntimeProfile::Counter* _total_partitions_rf_counter = nullptr;
+
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
     int _max_pushdown_conditions_per_column = 1024;
-    // Save all function predicates which may be pushed down to data source.
-    std::vector<FunctionFilter> _push_down_functions;
-
     // Virtual methods with default implementations; overridden by subclasses when supported.
     // Declared here so that the normalize methods below (non-Derived-template) can call them.
     virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
@@ -146,9 +169,6 @@ protected:
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_topn_filter() const {
-        return PushDownType::UNACCEPTABLE;
-    }
-    virtual PushDownType _should_push_down_bitmap_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const {
@@ -171,6 +191,10 @@ protected:
         return Status::OK();
     }
 
+    static void _init_slot_value_range(
+            phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+            SlotDescriptor* slot, const DataTypePtr& type_desc);
+
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
     Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,
@@ -181,11 +205,8 @@ protected:
                                   SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
-    Status _normalize_bitmap_filter(VExprContext* expr_ctx, const VExprSPtr& root,
-                                    SlotDescriptor* slot,
-                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                    PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        PushDownType* pdt);
 
     // Inner PrimitiveType-template methods. Moved to base to avoid N(Derived)×M(PrimitiveType)
@@ -220,9 +241,9 @@ class ScanLocalState : public ScanLocalStateBase {
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
@@ -231,15 +252,16 @@ class ScanLocalState : public ScanLocalStateBase {
 
     RuntimeProfile* scanner_profile() override { return _scanner_profile.get(); }
 
-    [[nodiscard]] const TupleDescriptor* input_tuple_desc() const override;
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
+    std::atomic<int64_t>* shared_scan_limit_ptr() override;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+    const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const override;
 
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
@@ -256,11 +278,6 @@ class ScanLocalState : public ScanLocalStateBase {
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
         for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
-            if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-                // compatible with older versions fe
-                continue;
-            }
-
             const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
             if (!pred.enable()) {
                 continue;
@@ -280,7 +297,11 @@ protected:
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
-    virtual bool _should_push_down_common_expr() { return false; }
+    virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
+
+    virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
+        return _parent->cast<typename Derived::Parent>().can_push_down_column_predicate(slot);
+    }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
@@ -328,7 +349,6 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
@@ -343,9 +363,9 @@ class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
-        Status status = get_block(state, block, eos);
+        Status status = OperatorX<LocalStateType>::get_block(state, block, eos);
         if (status.ok()) {
             state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
@@ -359,16 +379,28 @@ public:
         return _runtime_filter_descs;
     }
 
-    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
+    // Expose this operator's per-fragment shared partition-boundary parse
+    // result to the non-templated ScanLocalStateBase so it can drive runtime
+    // filter partition pruning without down-casting to a specific scan type.
+    // Subclasses are expected to populate `_parsed_partition_boundaries` from
+    // their own partition-boundary thrift field inside their `prepare()`
+    // override before any LocalState observes the result.
+    const ParsedPartitionBoundaries* parsed_partition_boundaries() const override {
+        return &_parsed_partition_boundaries;
+    }
+
+    [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
+        return true;
+    }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::BUCKET_HASH_SHUFFLE};
+        return {TLocalPartitionType::BUCKET_HASH_SHUFFLE};
     }
 
     void set_low_memory_mode(RuntimeState* state) override {
@@ -401,7 +433,6 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
@@ -414,6 +445,7 @@ protected:
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
+    bool _enable_condition_cache = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
@@ -428,6 +460,16 @@ protected:
 
     TPushAggOp::type _push_down_agg_type;
 
+    // Semantic arguments of a pushed-down COUNT. This is deliberately optional because absence
+    // and an empty list have different meanings during a BE-first rolling upgrade:
+    //
+    //  - nullopt: an old FE did not send the field, so the new BE must use the normal scan;
+    //  - empty: the new FE explicitly planned COUNT(*)/COUNT(1);
+    //  - non-empty: the new FE explicitly planned COUNT(col).
+    //
+    // Treating nullopt as empty would silently reinterpret an old plan as COUNT(*).
+    std::optional<std::vector<int32_t>> _push_down_count_slot_ids;
+
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
@@ -436,6 +478,12 @@ protected:
 
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
     std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
+
+    // Shared parse result of partition boundaries for runtime-filter partition
+    // pruning. Lives here (rather than on the Olap-specific subclass) so any
+    // future scan type can populate it in its `prepare()` override and reuse
+    // the generic pruning machinery in ScanLocalStateBase.
+    ParsedPartitionBoundaries _parsed_partition_boundaries;
 };
 
 } // namespace doris

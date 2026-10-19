@@ -42,18 +42,28 @@
 
 namespace doris {
 
+static MutableColumnPtr create_nullable_nested_array_column(MutableColumnPtr nested,
+                                                            MutableColumnPtr offsets) {
+    return ColumnArray::create(make_nullable(std::move(nested)), std::move(offsets));
+}
+
 class MockTableFunctionChildOperator : public OperatorXBase {
 public:
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -61,7 +71,10 @@ private:
 
 struct MockTableFunctionOperatorX : public TableFunctionOperatorX {
     MockTableFunctionOperatorX() = default;
-    RowDescriptor& row_descriptor() override { return *_mock_row_descriptor; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_descriptor = std::move(row_desc);
+        _row_descriptor = *_mock_row_descriptor;
+    }
     std::unique_ptr<MockRowDescriptor> _mock_row_descriptor;
 };
 
@@ -140,8 +153,7 @@ public:
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             nullable_column->get_nested_column_ptr()->insert_range_from(*_detail.nested_col, pos,
                                                                         max_step);
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             const size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);
             if (_detail.nested_nullmap_data != nullptr) {
@@ -211,9 +223,10 @@ struct TableFunctionOperatorTest : public ::testing::Test {
         op->_fns.push_back(fn.get());
         op->_output_slot_ids = std::move(output_slot_ids);
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{int_type, child_array_type}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{int_type, child_array_type, output_type}, &pool});
+        child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {int_type, child_array_type}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {int_type, child_array_type, output_type}, &pool));
 
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
@@ -272,9 +285,10 @@ TEST_F(TableFunctionOperatorTest, single_fn_test) {
         fns.push_back(fn);
         op->_fns.push_back(fn.get());
         op->_output_slot_ids.push_back(true);
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &pool));
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -316,10 +330,12 @@ TEST_F(TableFunctionOperatorTest, single_fn_test2) {
         fns.push_back(fn);
         op->_fns.push_back(fn.get());
         op->_output_slot_ids.push_back(true);
-        child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -372,7 +388,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -398,8 +414,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(5);
         expected_offsets->insert_value(6);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
 
@@ -431,7 +447,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -451,8 +467,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -475,8 +491,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(2);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({3, 4});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -503,7 +519,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -523,8 +539,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
@@ -552,7 +568,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -576,8 +592,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -611,7 +627,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         offsets->insert_value(1);
         offsets->insert_value(2);
         offsets->insert_value(3);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -635,8 +651,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -674,7 +690,7 @@ TEST_F(TableFunctionOperatorTest,
         offsets->insert_value(3);
         offsets->insert_value(4);
         offsets->insert_value(5);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -702,8 +718,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -730,8 +746,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(4);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -768,7 +784,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
 
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->insert_value(3);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -808,8 +824,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
         expected_offsets->insert_value(9);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out_data = ColumnInt32::create();
         expected_out_data->insert_value(1);
@@ -847,9 +863,12 @@ TEST_F(TableFunctionOperatorTest, single_two_test) {
             op->_output_slot_ids.push_back(true);
         }
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -905,9 +924,12 @@ TEST_F(TableFunctionOperatorTest, single_two_eos_test) {
             op->_output_slot_ids.push_back(true);
         }
 
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
+        child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {}, &pool));
+        op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                          std::make_shared<DataTypeInt32>()},
+                &pool));
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -1473,7 +1495,7 @@ TEST_F(UnnestTest, inner) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
                 make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
-        auto mutable_columns = expected_output_block.mutate_columns();
+        auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
         mutable_columns[0]->insert_from(
@@ -1582,7 +1604,7 @@ TEST_F(UnnestTest, outer) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
                 make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
-        auto mutable_columns = expected_output_block.mutate_columns();
+        auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
         mutable_columns[0]->insert_from(
@@ -1608,7 +1630,7 @@ TEST_F(UnnestTest, outer) {
 
         output_block.clear();
         expected_output_block.clear_column_data();
-        mutable_columns = expected_output_block.mutate_columns();
+        mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 1);
         mutable_columns[1]->insert_default();

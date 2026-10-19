@@ -188,4 +188,15 @@ TEST(BitmapSerdeTest, SerdeArrowTest) {
     std::cout << "test write/read_column_to_arrow " << std::endl;
 }
 
+TEST(BitmapSerdeTest, UnsupportedArrowReadReturnsError) {
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
+    auto column_bitmap = ColumnBitmap::create();
+
+    EXPECT_EQ(bitmap_serde->get_name(), "BitMap");
+    EXPECT_FALSE(
+            bitmap_serde
+                    ->read_column_from_arrow(*column_bitmap, nullptr, 0, 0, cctz::utc_time_zone())
+                    .ok());
+}
+
 } // namespace doris

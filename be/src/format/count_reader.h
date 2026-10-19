@@ -58,11 +58,11 @@ public:
         auto rows = std::min(_remaining_rows, static_cast<int64_t>(_batch_size));
         _remaining_rows -= rows;
 
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
 
         *read_rows = rows;
         *eof = (_remaining_rows == 0);

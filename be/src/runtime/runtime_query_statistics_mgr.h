@@ -34,6 +34,7 @@
 namespace doris {
 
 class Block;
+class TReportExecStatusParams;
 
 class RuntimeQueryStatisticsMgr {
 public:

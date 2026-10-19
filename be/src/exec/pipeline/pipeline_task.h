@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -156,9 +157,15 @@ public:
 
     bool is_running() { return _running.load(); }
     virtual bool set_running(bool running) {
-        bool old_value = !running;
-        _running.compare_exchange_weak(old_value, running);
-        return old_value;
+        // This is a mutual-exclusion gate: TaskScheduler::_do_work skips a task when
+        // set_running(true) returns true, and RevokableTask delegates here so an
+        // in-flight revocation excludes its underlying task. It must be an
+        // unconditional exchange: compare_exchange_weak may fail spuriously on LL/SC
+        // architectures (aarch64), and a spurious failure with _running == false
+        // returns "was not running" WITHOUT setting the flag — two workers then
+        // execute the same task concurrently and race on its local state
+        // (shared hash table / _places).
+        return _running.exchange(running);
     }
 
     virtual RuntimeState* runtime_state() const { return _state; }
@@ -187,6 +194,10 @@ protected:
     PipelineTask() : _index(0) {}
 
 private:
+    friend class HybridTaskScheduler;
+
+    void _stop_accepting_submit();
+
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
     // Whether this task is blocked during execution (read dependency, write dependency)
@@ -276,6 +287,10 @@ private:
     // call wake_up() and submit this task, so close()/finalize() must not clear operator/shared
     // state until forced unblocking finishes. wake_up() must not take this lock.
     std::mutex _dependency_lifecycle_lock;
+    // Guards _accept_submit and keeps HybridTaskScheduler::submit() from reading _sink/_operators
+    // in is_blockable() while terminal close/finalize is closing the submit gate.
+    std::mutex _blockable_check_lock;
+    bool _accept_submit = true;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

@@ -35,4 +35,6 @@ suite("test_convert_tz") {
     order_qt_sql1 """
         select convert_tz(dt, '+00:00', IF(property_value IS NULL, '+00:00', property_value)) from cvt_tz
     """
+    sql "set debug_skip_fold_constant=true;"
+    qt_spring_gp_with_micro_sec "select convert_tz('2021-03-28 02:30:00.00323', 'Europe/Paris','UTC');"
 }

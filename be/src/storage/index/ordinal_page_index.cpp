@@ -71,16 +71,17 @@ Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
 }
 
 Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                OlapReaderStatistics* index_load_stats) {
+                                OlapReaderStatistics* index_load_stats,
+                                const io::IOContext* io_ctx) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
-        return _load(use_page_cache, kept_in_memory, std::move(_meta_pb), index_load_stats);
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats, io_ctx] {
+        return _load(use_page_cache, kept_in_memory, std::move(_meta_pb), index_load_stats, io_ctx);
     });
 }
 
 Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                  std::unique_ptr<OrdinalIndexPB> index_meta,
-                                 OlapReaderStatistics* stats) {
+                                 OlapReaderStatistics* stats, const io::IOContext* io_ctx) {
     if (index_meta->root_page().is_root_data_page()) {
         // only one data page, no index page
         _num_pages = 1;
@@ -92,8 +93,10 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     // need to read index page
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-    PageReadOptions opts(io::IOContext {.is_index_data = true,
-                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+    io::IOContext page_io_ctx = io_ctx != nullptr ? *io_ctx : io::IOContext {};
+    page_io_ctx.is_index_data = true;
+    page_io_ctx.file_cache_stats = &stats_ptr->file_cache_stats;
+    PageReadOptions opts(page_io_ctx);
     opts.use_page_cache = use_page_cache;
     opts.kept_in_memory = kept_in_memory;
     opts.type = INDEX_PAGE;

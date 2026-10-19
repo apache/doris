@@ -16,7 +16,7 @@
 // under the License.
 
 suite("create_ann_index_test") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists tbl_not_null"
     sql """
     CREATE TABLE `tbl_not_null` (
@@ -407,7 +407,7 @@ suite("create_ann_index_test") {
             );
         """
 
-        exception "ANN index is not supported in index format V1"
+        exception "Inverted index V1 is deprecated and no longer allowed for new index creation."
     }
 
     // CREATE INDEX with ivf_on_disk type on existing table

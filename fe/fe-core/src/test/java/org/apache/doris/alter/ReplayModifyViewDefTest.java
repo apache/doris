@@ -22,27 +22,16 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.View;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.AlterViewInfo;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Unit tests for {@link Alter#replayModifyViewDef}.
@@ -52,52 +41,23 @@ import java.util.UUID;
  * 2. Replay a comment-only change (inlineViewDef is empty / null → def must not change).
  * 3. Replay with both a new definition and a new comment simultaneously.
  */
-public class ReplayModifyViewDefTest {
-
-    private static final String RUNNING_DIR =
-            "fe/mocked/ReplayModifyViewDefTest/" + UUID.randomUUID() + "/";
-
-    private static ConnectContext connectContext;
+public class ReplayModifyViewDefTest extends TestWithFeService {
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Setup / Teardown
+    // Setup
     // ──────────────────────────────────────────────────────────────────────────
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(RUNNING_DIR);
-        connectContext = UtFrameUtils.createDefaultCtx();
+    @Override
+    protected void runBeforeAll() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
-        NereidsParser parser = new NereidsParser();
+        createDatabase("test_replay_view");
 
-        // create database
-        String createDb = "create database test_replay_view;";
-        LogicalPlan plan = parser.parseSingle(createDb);
-        if (plan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) plan).run(connectContext, new StmtExecutor(connectContext, createDb));
-        }
-
-        // create table
-        String createTbl = "create table test_replay_view.tbl1(k1 int, k2 int, v1 int)"
+        createTable("create table test_replay_view.tbl1(k1 int, k2 int, v1 int)"
                 + " duplicate key(k1) distributed by hash(k1) buckets 1"
-                + " properties('replication_num' = '1');";
-        plan = parser.parseSingle(createTbl);
-        if (plan instanceof CreateTableCommand) {
-            ((CreateTableCommand) plan).run(connectContext, new StmtExecutor(connectContext, createTbl));
-        }
+                + " properties('replication_num' = '1');");
 
-        // create initial view
-        String createView = "create view test_replay_view.v1 as select k1, k2 from test_replay_view.tbl1;";
-        plan = parser.parseSingle(createView);
-        if (plan instanceof CreateViewCommand) {
-            ((CreateViewCommand) plan).run(connectContext, new StmtExecutor(connectContext, createView));
-        }
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        new File(RUNNING_DIR).delete();
+        createView("create view test_replay_view.v1 as select k1, k2 from test_replay_view.tbl1;");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -138,11 +98,11 @@ public class ReplayModifyViewDefTest {
         Env.getCurrentEnv().getAlterInstance().replayModifyViewDef(info);
 
         View updated = getView("v1");
-        Assert.assertEquals(newDef, updated.getInlineViewDef());
-        Assert.assertEquals(2, updated.getFullSchema().size());
-        Assert.assertNotNull(updated.getColumn("k1"));
-        Assert.assertNotNull(updated.getColumn("v1"));
-        Assert.assertNull(updated.getColumn("k2"));
+        Assertions.assertEquals(newDef, updated.getInlineViewDef());
+        Assertions.assertEquals(2, updated.getFullSchema().size());
+        Assertions.assertNotNull(updated.getColumn("k1"));
+        Assertions.assertNotNull(updated.getColumn("v1"));
+        Assertions.assertNull(updated.getColumn("k2"));
     }
 
     /**
@@ -164,9 +124,9 @@ public class ReplayModifyViewDefTest {
 
         View updated = getView("v1");
         // Definition must not change.
-        Assert.assertEquals(originalDef, updated.getInlineViewDef());
+        Assertions.assertEquals(originalDef, updated.getInlineViewDef());
         // Comment must be set.
-        Assert.assertEquals("my comment", updated.getComment());
+        Assertions.assertEquals("my comment", updated.getComment());
     }
 
     /**
@@ -188,9 +148,9 @@ public class ReplayModifyViewDefTest {
         Env.getCurrentEnv().getAlterInstance().replayModifyViewDef(info);
 
         View updated = getView("v1");
-        Assert.assertEquals(newDef, updated.getInlineViewDef());
-        Assert.assertEquals(1, updated.getFullSchema().size());
-        Assert.assertNotNull(updated.getColumn("k2"));
-        Assert.assertEquals("updated comment", updated.getComment());
+        Assertions.assertEquals(newDef, updated.getInlineViewDef());
+        Assertions.assertEquals(1, updated.getFullSchema().size());
+        Assertions.assertNotNull(updated.getColumn("k2"));
+        Assertions.assertEquals("updated comment", updated.getComment());
     }
 }

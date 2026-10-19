@@ -28,10 +28,10 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
 ----------------------------------------PhysicalProject
-------------------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
+------------------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'Advanced Degree')]] and customer_demographics.cd_education_status IN ('Advanced Degree', 'Unknown') and customer_demographics.cd_marital_status IN ('M', 'W'))
 --------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------PhysicalProject
---------------------------------------filter((hd_buy_potential like 'Unknown%'))
+--------------------------------------filter((household_demographics.hd_buy_potential like 'Unknown%'))
 ----------------------------------------PhysicalOlapScan[household_demographics]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))

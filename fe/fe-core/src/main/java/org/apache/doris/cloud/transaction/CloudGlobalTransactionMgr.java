@@ -28,12 +28,16 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.AdvanceTsoFenceRequest;
+import org.apache.doris.cloud.proto.Cloud.AdvanceTsoFenceResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
@@ -43,6 +47,7 @@ import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CleanTxnLabelRequest;
 import org.apache.doris.cloud.proto.Cloud.CleanTxnLabelResponse;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnRequestOrBuilder;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
@@ -431,6 +436,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos,
+                txnCommitAttachment, Collections.emptyList());
+    }
+
+    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
+            List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
             LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
@@ -449,7 +462,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
-                    mowTableList, backendToPartitionInfos);
+                    mowTableList, backendToPartitionInfos, streamUpdateInfos);
             // clear signature after commit succeeds
             clearTxnLastSignature(dbId, transactionId);
         } catch (Exception e) {
@@ -478,6 +491,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         + "] is already aborted. abort reason: " + transactionState.getReason());
             } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                     || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                    ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
+                            .invalidateVersionCaches(dbId, transactionState.getTableIdList());
+                }
                 LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ",
                         transactionId,
                         transactionState.getTransactionStatus().toString());
@@ -580,8 +597,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        long commitTso = commitTxnResponse.getTxnInfo().hasCommitTso()
+                ? commitTxnResponse.getTxnInfo().getCommitTso() : -1;
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
         if (totalPartitionNum == 0 && commitTxnResponse.getTableStatsList().isEmpty()) {
+            // A visible retry can contain only txn_info. Invalidate locally without another commit-time RPC;
+            // subsequent reads fetch fresh versions, including the table version used to validate SQL caches.
+            if (commitTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE
+                    && !(commitTxnResponse.getIsLazyCommit() && commitTxnResponse.getIsLazyCommitIncomplete())) {
+                ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
+                        .invalidateVersionCaches(dbId, commitTxnResponse.getTxnInfo().getTableIdsList());
+            }
             return Collections.emptyMap();
         }
         Env env = Env.getCurrentEnv();
@@ -610,7 +636,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 continue;
             }
             if (version == 2) {
-                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)
                         .stream().forEach(i -> i.setRowCountReported(false));
             }
             partitionVersionMap.put(partition, Pair.of(version, commitTxnResponse.getVersionUpdateTimeMs()));
@@ -635,9 +661,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         try {
             partitionVersionMap.forEach((partition, versionPair) -> {
-                partition.setCachedVisibleVersion(versionPair.first, versionPair.second);
-                LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
-                        txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second);
+                partition.setCachedVisibleVersion(versionPair.first, versionPair.second, commitTso);
+                LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update "
+                                + "time:{}, commit tso:{}",
+                        txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second,
+                        commitTso);
             });
             for (Pair<OlapTable, Long> tableVersion : tableVersions) {
                 tableVersion.first.setCachedTableVersion(tableVersion.second);
@@ -685,6 +713,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
             List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
             throws UserException {
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment,
+                is2PC, mowTableList, backendToPartitionInfos, Collections.emptyList());
+    }
+
+    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
+            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
+            List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException(
                     "disable_load_job is set to true, all load jobs are not allowed");
@@ -707,6 +744,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
+        }
+        for (TableStreamUpdateInfo updateInfo : streamUpdateInfos) {
+            if (!(updateInfo.getUpdate() instanceof CloudOlapTableStreamUpdate)) {
+                throw new UserException("Cloud transaction received a local Table Stream update");
+            }
+            CloudOlapTableStreamUpdate update = (CloudOlapTableStreamUpdate) updateInfo.getUpdate();
+            Preconditions.checkArgument(updateInfo.getDbId() == update.getIdentity().getStreamDbId()
+                            && updateInfo.getStreamId() == update.getIdentity().getStreamId(),
+                    "Cloud Table Stream update identity does not match its catalog entry");
+            builder.addTableStreamUpdates(update.toProto());
         }
 
         if (txnCommitAttachment != null) {
@@ -746,13 +793,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
+        executeCommitTxnRequest(builder, tableList, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
                 tabletCommitInfos == null ? Collections.emptyList()
                         : tabletCommitInfos.stream().map(t -> t.getTabletId()).collect(Collectors.toList()));
     }
 
-    private void executeCommitTxnRequest(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
+    private void executeCommitTxnRequest(CommitTxnRequest.Builder builder, List<Table> tableList,
+            long transactionId, boolean is2PC,
             TxnCommitAttachment txnCommitAttachment, List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds)
             throws UserException {
         if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
@@ -777,7 +824,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         try {
-            txnState = commitTxn(commitTxnRequest, transactionId, is2PC, tabletCommitInfos, tabletIds);
+            txnState = commitTxn(builder, tableList, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
@@ -816,9 +863,43 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
-            List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds) throws UserException {
-        checkCommitInfo(commitTxnRequest);
+    private TransactionState commitTxn(CommitTxnRequest.Builder builder, List<Table> tableList,
+            long transactionId, boolean is2PC, List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds)
+            throws UserException {
+        checkCommitInfo(builder);
+        // Bitmap work, attachments and metadata validation do not need a commit TSO. Allocate only
+        // when ready to send, while retaining the existing table locks and callback cleanup scope.
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
+        Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
+        long commitTso;
+        try {
+            commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        } catch (TransactionCommitFailedException e) {
+            // A previous commit may have succeeded before its response was lost. Recover its TSO
+            // and let the existing commit RPC handle idempotency, lazy publish and 2PC status checks.
+            TransactionState persisted = getTransactionState(builder.getDbId(), transactionId);
+            if (persisted == null || (persisted.getTransactionStatus() != TransactionStatus.COMMITTED
+                    && persisted.getTransactionStatus() != TransactionStatus.VISIBLE)) {
+                throw e;
+            }
+            commitTso = persisted.getCommitTSO();
+        }
+        if (commitTso > 0) {
+            builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
+        }
+        CommitTxnRequest commitTxnRequest = builder.build();
+        try {
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTxn.blockAfterTso")) {
+                Thread.sleep(100);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (commitTxnRequest.hasCommitTso()) {
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            }
+            throw new UserException("Interrupted before sending commit transaction", e);
+        }
 
         CommitTxnResponse commitTxnResponse = null;
         TransactionState txnState = null;
@@ -833,6 +914,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
                 }
+                if (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_COMMIT_TSO_EXPIRED) {
+                    if (!commitTxnResponse.hasTsoFence() || commitTxnRequest.getCommitTso() <= 0) {
+                        throw new UserException("MetaService returned an invalid TSO fence response");
+                    }
+                    long replacementTso = Env.getCurrentEnv().getTSOService().getCommitTSOAfterFence(
+                            builder.getDbId(), transactionId, commitTsoTableIds,
+                            commitTxnRequest.getCommitTso(), commitTxnResponse.getTsoFence());
+                    LOG.info("commitTxn replaces fenced TSO, transactionId:{}, oldTso:{}, newTso:{}, fenceTso:{}",
+                            transactionId, commitTxnRequest.getCommitTso(), replacementTso,
+                            commitTxnResponse.getTsoFence());
+                    commitTxnRequest = commitTxnRequest.toBuilder().setCommitTso(replacementTso).build();
+                    retryTime++;
+                    continue;
+                }
                 if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -846,7 +941,30 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             Preconditions.checkNotNull(commitTxnResponse.getStatus());
         } catch (Exception e) {
             LOG.warn("commitTxn failed, transactionId:{}, exception:", transactionId, e);
-            throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
+            if (commitTxnRequest.hasCommitTso()) {
+                try {
+                    Env.getCurrentEnv().getTSOService().fenceAndAbandonCommitTso(
+                            commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+                } catch (UserException fenceException) {
+                    fenceException.addSuppressed(e);
+                    throw fenceException;
+                }
+            }
+            throw new UserException("commitTxn() failed, errMsg:" + e.getMessage(), e);
+        }
+
+        MetaServiceCode code = commitTxnResponse.getStatus().getCode();
+        if (commitTxnRequest.hasCommitTso()) {
+            if (code == MetaServiceCode.KV_TXN_MAYBE_COMMITTED) {
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            } else if (code == MetaServiceCode.OK || code == MetaServiceCode.TXN_ALREADY_VISIBLE
+                    || code == MetaServiceCode.TXN_ALREADY_ABORTED) {
+                Env.getCurrentEnv().getTSOService().markTxnFinished(commitTxnRequest.getDbId(), transactionId);
+            } else {
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            }
         }
 
         if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
@@ -881,7 +999,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return txnState;
     }
 
-    private void checkCommitInfo(CommitTxnRequest commitTxnRequest) throws UserException {
+    private void checkCommitInfo(CommitTxnRequestOrBuilder commitTxnRequest) throws UserException {
         List<Long> commitTabletIds = Lists.newArrayList();
         List<Long> commitIndexIds = Lists.newArrayList();
         commitTabletIds.addAll(commitTxnRequest.getBaseTabletIdsList());
@@ -928,7 +1046,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     continue;
                 }
                 List<MaterializedIndex> allIndices
-                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     // Schema change during load will increase partition index number,
                     // and we need to skip these indexes.
@@ -1019,6 +1137,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!tableMap.containsKey(tableId)) {
                 continue;
             }
+            long partitionId = tabletMeta.getPartitionId();
+            Partition partition = tableMap.get(tableId).getPartition(partitionId);
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + partitionId + " does not exist");
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            if (index == null) {
+                throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
+            }
+            if (index.isRowBinlog()) {
+                // Row-binlog delete bitmap is derived and saved by its base tablet.
+                continue;
+            }
 
             lockContext.getTabletToTabletMeta().put(tabletId, tabletMeta);
 
@@ -1028,7 +1159,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 tableTabletIds.add(tabletId);
             }
 
-            long partitionId = tabletMeta.getPartitionId();
             long backendId = tabletCommitInfos.get(i).getBackendId();
 
             if (!lockContext.getTableToPartitions().containsKey(tableId)) {
@@ -1044,10 +1174,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 partitionToTablets.put(partitionId, Sets.newHashSet());
             }
             partitionToTablets.get(partitionId).add(tabletId);
-            Partition partition = tableMap.get(tableId).getPartition(partitionId);
-            if (partition == null) {
-                throw new MetaNotFoundException("partition " + partitionId + " does not exist");
-            }
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
         }
         if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
@@ -1522,6 +1648,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
+        return commitAndPublishTransactionWithRetry(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                null, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int retryTimes = 0;
@@ -1530,7 +1665,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             while (true) {
                 try {
                     res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
-                            null);
+                            txnCommitAttachment, streamUpdateInfos);
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
@@ -1636,7 +1771,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithSubTxns(long dbId, List<Table> tableList, long transactionId,
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
-            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos) throws UserException {
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
+            throws UserException {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
             sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
@@ -1671,8 +1807,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, null, new ArrayList<>(tabletIds));
+        executeCommitTxnRequest(builder, tableList, transactionId, false, null, null, new ArrayList<>(tabletIds));
     }
 
     private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
@@ -1682,9 +1817,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .sorted(Comparator.comparingLong(Table::getId))
                     .collect(Collectors.toList());
         } else {
-            // If disabled, only lock MOW tables
+            // If disabled, only lock tables that need ordered commit metadata.
             return tableList.stream()
-                    .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                    .filter(table -> table instanceof OlapTable
+                            && (((OlapTable) table).getEnableUniqueKeyMergeOnWrite()
+                            || ((OlapTable) table).enableTso()))
                     .sorted(Comparator.comparingLong(Table::getId))
                     .collect(Collectors.toList());
         }
@@ -1721,6 +1858,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                     + ", tableList=(" + StringUtils.join(tablesToLock, ",") + ")");
                 }
             }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+            String token = debugPoint.param("token", "invalid_token");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait")) {
+                DebugPoint spinWaitDebugPoint = DebugPointUtil.getDebugPoint(
+                        "CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+                String passToken = spinWaitDebugPoint.param("pass_token", "");
+                if (token.equals(passToken)) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
         }
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.timeout")) {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
@@ -1781,11 +1938,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                               TxnCommitAttachment txnCommitAttachment,
+                                               List<TableStreamUpdateInfo> streamUpdateInfos) throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
-            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos,
+                    txnCommitAttachment, streamUpdateInfos);
             // Only clear signature after commit succeeds, as BE may retry on failure
             clearTxnLastSignature(db.getId(), transactionId);
         } finally {
@@ -1817,13 +1984,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        List<OlapTable> mowTableList = getMowTableList(tableList, null);
-        if (!mowTableList.isEmpty()) {
-            if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
-                return;
+        beforeCommitTransaction(tableList, transactionId, timeoutMillis);
+        try {
+            List<OlapTable> mowTableList = getMowTableList(tableList, null);
+            if (!mowTableList.isEmpty()) {
+                if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
+                    return;
+                }
             }
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true,
+                    mowTableList, null);
+        } finally {
+            afterCommitTransaction(tableList, transactionId);
         }
-        commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
     }
 
     @Override
@@ -1841,7 +2014,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         AbortTxnResponse abortTxnResponse = null;
         try {
-            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
+            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, txnCommitAttachment);
         } finally {
             handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId,
                     callbackInfo.first, callbackInfo.second);
@@ -1905,6 +2078,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         builder.setTxnId(transactionId);
         builder.setReason(reason);
         builder.setCloudUniqueId(Config.cloud_unique_id);
+        if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            builder.setCommitAttachment(TxnUtil.rlTaskTxnCommitAttachmentToPb(
+                    (RLTaskTxnCommitAttachment) txnCommitAttachment));
+        }
 
         final AbortTxnRequest abortTxnRequest = builder.build();
         AbortTxnResponse abortTxnResponse = null;
@@ -1961,6 +2138,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void afterAbortTxnResp(AbortTxnResponse abortTxnResponse, String txnIdOrLabel,
             TxnCommitAttachment txnCommitAttachment) throws UserException {
+        // MS fills txn_info only after committing the abort's KV transaction.
+        if (abortTxnResponse.hasTxnInfo()
+                && (abortTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_ABORTED
+                || abortTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE)) {
+            Env.getCurrentEnv().getTSOService().markTxnFinished(
+                    abortTxnResponse.getTxnInfo().getDbId(), abortTxnResponse.getTxnInfo().getTxnId());
+        }
         if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
             LOG.warn("abortTxn failed, transaction:{}, response:{}", txnIdOrLabel, abortTxnResponse);
             switch (abortTxnResponse.getStatus().getCode()) {
@@ -2040,6 +2224,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException {
+        return new ArrayList<TransactionState>();
+    }
+
+    @Override
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId) {
         //do nothing for CloudGlobalTransactionMgr
         return false;
@@ -2086,6 +2275,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             conflictTxns.add(TxnUtil.transactionStateFromPb(infoPb));
         }
         return conflictTxns;
+    }
+
+    @Override
+    public long advanceTsoFence(long proposedFenceTso) throws UserException {
+        AdvanceTsoFenceRequest request = AdvanceTsoFenceRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setProposedFenceTso(proposedFenceTso)
+                .build();
+        AdvanceTsoFenceResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().advanceTsoFence(request);
+        } catch (RpcException e) {
+            throw new UserException("Failed to advance TSO fence", e);
+        }
+        if (response.getStatus().getCode() != MetaServiceCode.OK || !response.hasTsoFence()) {
+            throw new UserException("Failed to advance TSO fence: " + response.getStatus().getMsg());
+        }
+        return response.getTsoFence();
     }
 
     @Override
@@ -2491,6 +2699,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public long getTransactionIdWatermark() throws UserException {
+        // MetaService's conflict check treats end_txn_id as an exclusive upper bound.
+        return getNextTransactionId() + 1;
+    }
+
+    @Override
     public int getRunningTxnNums(Long dbId) throws AnalysisException {
         return 0;
     }
@@ -2678,7 +2892,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);
         AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
-                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnNum)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build();
         AbortSubTxnResponse response = null;
         int retryTime = 0;
@@ -2778,6 +2992,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
+        if (commitTxnResponse.getIsLazyCommit()
+                && commitTxnResponse.getIsLazyCommitIncomplete()) {
+            LOG.info("skip make cloud tmp rowsets visible for incomplete lazy commit, txn_id: {}",
+                    commitTxnResponse.getTxnInfo().getTxnId());
+            return;
+        }
         if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
                 || !Config.enable_notify_be_after_load_txn_commit) {
             return;

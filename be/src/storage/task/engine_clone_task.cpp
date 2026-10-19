@@ -33,7 +33,6 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
-#include <set>
 #include <shared_mutex>
 #include <system_error>
 #include <unordered_map>
@@ -46,10 +45,12 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "runtime/cluster_info.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "service/http/http_client.h"
 #include "service/http/utils.h"
+#include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -69,7 +70,6 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
-using std::set;
 using std::stringstream;
 
 namespace doris {
@@ -782,21 +782,25 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
     }
 
+    enum class CloneFileType { DATA, CCR_BINLOG };
+
     // check all files in /clone and /tablet
     std::vector<io::FileInfo> clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
-    std::unordered_set<std::string> clone_file_names;
+    std::vector<std::pair<CloneFileType, std::string>> clone_file_names;
     for (auto& file : clone_files) {
-        clone_file_names.insert(file.file_name);
+        CloneFileType file_type = CloneFileType::DATA;
+        if (file.file_name.ends_with(".binlog") || file.file_name.ends_with(".binlog-index")) {
+            file_type = CloneFileType::CCR_BINLOG;
+        }
+        clone_file_names.emplace_back(file_type, file.file_name);
     }
-
     std::vector<io::FileInfo> local_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
-    std::unordered_set<std::string> local_file_names;
+    std::unordered_set<std::string> data_local_file_names;
     for (auto& file : local_files) {
-        local_file_names.insert(file.file_name);
+        data_local_file_names.insert(file.file_name);
     }
-
     Status status;
     std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
@@ -811,17 +815,17 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
-    for (const std::string& clone_file : clone_file_names) {
-        if (local_file_names.find(clone_file) != local_file_names.end()) {
+    for (const auto& [clone_file_type, clone_file] : clone_file_names) {
+        if (clone_file_type == CloneFileType::DATA &&
+            data_local_file_names.find(clone_file) != data_local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
                         << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
             continue;
         }
-
         /// if binlog exist in clone dir and md5sum equal, then skip link file
         bool skip_link_file = false;
         std::string to;
-        if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
+        if (clone_file_type == CloneFileType::CCR_BINLOG) {
             if (!contain_binlog) {
                 LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
                              << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
@@ -863,7 +867,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard build_inverted_index_lock(tablet->get_build_inverted_index_lock());
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    std::lock_guard wrlock(tablet->get_header_lock());
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
         status = _finish_incremental_clone(tablet, cloned_tablet_meta, version);
@@ -958,7 +962,6 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
             DCHECK(rs->is_local());
         }
     }
-
     to_add.reserve(cloned_tablet_meta->all_rs_metas().size());
     for (const auto& [_, rs_meta] : cloned_tablet_meta->all_rs_metas()) {
         RowsetSharedPtr rs;

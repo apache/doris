@@ -42,6 +42,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -69,6 +70,17 @@ class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
+
+static std::shared_ptr<ReadSchema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+    size_t num_columns = tablet_schema->num_columns();
+    if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+        --num_columns;
+    }
+
+    std::vector<TabletColumnPtr> columns(tablet_schema->columns().begin(),
+                                         tablet_schema->columns().begin() + num_columns);
+    return std::make_shared<ReadSchema>(std::move(columns));
+}
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -191,7 +203,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     int8_t c1 = k1;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
@@ -214,7 +226,8 @@ static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
     int32_t c5 = seq;
-    columns[4]->insert_data((const char*)&c5, sizeof(c2));
+    columns[4]->insert_data((const char*)&c5, sizeof(c5));
+    block->set_columns(std::move(columns));
 }
 
 class TestDeltaWriterClusterKey : public ::testing::Test {
@@ -269,19 +282,19 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
 
     auto rows = 4;
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 457, 100);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 455, 90);
-    res = delta_writer->write(&block, {2});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {2}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 457, 90); // row 1 has larger sequence number
-    res = delta_writer->write(&block, {3});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {3}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 122, 456, 90);
-    res = delta_writer->write(&block, {4});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {4}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -294,7 +307,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -334,15 +347,13 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
 
     // read data, verify the data correct
     OlapReaderStatistics stats;
-    StorageReadOptions opts;
-    opts.stats = &stats;
-    opts.tablet_schema = rowset->tablet_schema();
+    StorageReadOptions opts(stats);
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
+    std::shared_ptr<ReadSchema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
-    auto read_block = rowset->tablet_schema()->create_block();
+    auto read_block = schema->create_read_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok()) << res;
     ASSERT_EQ(rows, read_block.rows());

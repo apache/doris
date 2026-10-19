@@ -42,14 +42,22 @@ struct AssertCastNormalizedType {
 template <typename T>
 using AssertCastNormalizedType_t = typename AssertCastNormalizedType<T>::type;
 
+template <typename T>
+using AssertCastClassType_t = std::remove_pointer_t<AssertCastNormalizedType_t<T>>;
+
 /** Perform static_cast in release build when TypeCheckOnRelease is set to DISABLE.
   * Checks type by comparing typeid and throw an exception in all the other situations.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
 template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
-PURE To assert_cast(From&& from) {
+To assert_cast(From&& from) {
     static_assert(!std::is_same_v<AssertCastNormalizedType_t<To>, AssertCastNormalizedType_t<From>>,
                   "assert_cast is redundant for the same type after removing cv/ref qualifiers");
+    static_assert(std::is_class_v<AssertCastClassType_t<To>> &&
+                          std::is_class_v<AssertCastClassType_t<From>>,
+                  "assert_cast requires casting between class pointer/reference types");
+    static_assert(std::is_base_of_v<AssertCastClassType_t<From>, AssertCastClassType_t<To>>,
+                  "assert_cast only supports downcast from a base type to a derived type");
 
     // https://godbolt.org/z/nrsx7nYhs
     // perform_cast will not be compiled to asm in release build with TypeCheckOnRelease::DISABLE

@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_simplify_range') {
+    sql "set parallel_pipeline_task_num=2"
     def tbl_1 = 'test_simplify_range_tbl_1'
     sql '''
         SET ignore_shape_nodes='PhysicalDistribute';

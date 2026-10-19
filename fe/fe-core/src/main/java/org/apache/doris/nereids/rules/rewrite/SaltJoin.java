@@ -325,6 +325,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         equalTo = (EqualPredicate) TypeCoercionUtils.processComparisonPredicate(equalTo);
         JoinReorderContext joinReorderContext = new JoinReorderContext();
         joinReorderContext.setLeadingJoin(true);
+        joinReorderContext.setSaltJoinGenerated(true);
         LogicalJoin<Plan, Plan> rightJoin = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN, ImmutableList.of(equalTo),
                 project, originPlan, joinReorderContext);
         // construct upper project

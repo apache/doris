@@ -60,16 +60,30 @@ public class ArraySort extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children.get(0).getDataType() instanceof ArrayType) {
-            DataType argType = child(0).getDataType();
-            // Find the innermost element type for nested arrays
+        Expression argument = getArgument(0);
+        DataType argType = argument.getDataType();
+        if (argType instanceof ArrayType) {
             DataType itemType = ((ArrayType) argType).getItemType();
-            while (itemType.isArrayType()) {
-                itemType = ((ArrayType) itemType).getItemType();
-            }
-            if (itemType.isMapType() || itemType.isStructType()
-                    || itemType.isVariantType() || itemType.isJsonType()) {
+            if (!ArrayFunctionUtils.isSupportedByArrayComparisonFunctions(itemType)) {
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
+            }
+        }
+        if (argument instanceof Lambda) {
+            Lambda lambda = (Lambda) argument;
+            if (lambda.getLambdaArgumentNames().size() != 2) {
+                throw new AnalysisException("When using lambda as the parameter of array_sort,"
+                        + " the lambda must be a binary comparator lambda.");
+            }
+            ArrayType sourceType = (ArrayType) lambda.getLambdaArgument(0)
+                    .getArrayExpression().getDataType();
+            if (!ArrayFunctionUtils.isSupportedByArraySortLambdaFunction(sourceType.getItemType())) {
+                throw new AnalysisException("array_sort does not support types: " + sourceType.toSql());
+            }
+            // The comparator returns -1, 0 or 1 for less than, equal to or greater than.
+            if (!lambda.getRetType().isIntegralType()) {
+                throw new AnalysisException("When using lambda as the parameter of array_sort, the lambda must"
+                        + " return -1, 0 or 1 for less than, equal to or greater than, but it returns "
+                        + lambda.getRetType().toSql());
             }
         }
     }
@@ -90,11 +104,11 @@ public class ArraySort extends ScalarFunction
             ArrayItemReference argRef = lambda.getLambdaArguments().get(0);
             Expression arrayExpr = argRef.getArrayExpression();
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else if (children.get(0).getDataType() instanceof ArrayType) {
             Expression arrayExpr = children.get(0);
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else {
             throw new AnalysisException("The first arg of array_sort must be lambda or array");
         }

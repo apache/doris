@@ -180,7 +180,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                        -(inner_sink_state->_hash_table_memory_usage->value() +
                          inner_sink_state->_build_arena_memory_usage->value()));
     }
-    const auto& row_desc = p._child->row_desc();
+    const auto& row_desc = p._child->operator_row_desc_after_projection();
     const auto num_slots = row_desc.num_slots();
     Block build_block;
     int64_t block_old_mem = 0;
@@ -299,6 +299,7 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling(RuntimeState* state) 
 /// because we use limit 1MB here. So we need to force spill all memory to disk to make sure we can make progress.
 Status PartitionedHashJoinSinkLocalState::_execute_spill_partitioned_blocks(RuntimeState* state,
                                                                             bool force_spill) {
+    RETURN_IF_CANCELLED(state);
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
         auto status = Status::InternalError(
                 "fault_inject partitioned_hash_join_sink revoke_memory canceled");
@@ -437,7 +438,7 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->prepare(state);
 }
@@ -513,7 +514,7 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
 
 #undef UPDATE_COUNTER_FROM_INNER
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto rows = in_block->rows();

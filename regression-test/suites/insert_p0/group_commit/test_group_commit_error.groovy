@@ -17,6 +17,50 @@
 
 suite("test_group_commit_error", "nonConcurrent") {
     def tableName = "test_group_commit_error"
+    def beConfigName = "group_commit_create_plan_timeout_ms"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def get_be_config = { String backend_id, String key ->
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        logger.info("show config: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == key) {
+                return ((List<String>) ele)[2]
+            }
+        }
+        assertTrue(false, "Failed to find BE config: " + key)
+    }
+
+    def set_be_config = { String key, String value ->
+        for (String backend_id : backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+        }
+    }
+
+    def originBeConfig = [:]
+    for (String backend_id : backendId_to_backendIP.keySet()) {
+        originBeConfig[backend_id] = get_be_config(backend_id, beConfigName)
+    }
+
+    onFinish {
+        for (String backend_id : originBeConfig.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
+                    backendId_to_backendHttpPort.get(backend_id), beConfigName, originBeConfig[backend_id])
+            logger.info("restore config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().clearDebugPointsForAllFEs()
+    }
+
+    set_be_config(beConfigName, "20000")
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

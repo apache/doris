@@ -85,12 +85,12 @@ void BitWriter::PutAligned(T val, int num_bytes) {
     memcpy(ptr, &val, num_bytes);
 }
 
-inline void BitWriter::PutVlqInt(int32_t v) {
-    while ((v & 0xFFFFFF80) != 0L) {
-        PutAligned<uint8_t>((v & 0x7F) | 0x80, 1);
+inline void BitWriter::PutVlqInt(uint32_t v) {
+    while ((v & 0xFFFFFF80U) != 0U) {
+        PutAligned<uint8_t>(static_cast<uint8_t>((v & 0x7F) | 0x80), 1);
         v >>= 7;
     }
-    PutAligned<uint8_t>(v & 0x7F, 1);
+    PutAligned<uint8_t>(static_cast<uint8_t>(v & 0x7F), 1);
 }
 
 inline BitReader::BitReader(const uint8_t* buffer, int buffer_len)

@@ -37,6 +37,8 @@ public:
     virtual Status assign(void* min_data, void* max_data) = 0;
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func) = 0;
+    // Deep copy. The returned object shares nothing with this one.
+    virtual MinMaxFuncBase* clone() const = 0;
     virtual ~MinMaxFuncBase() = default;
 
     virtual void to_pb(PMinMaxFilter* filter) = 0;
@@ -50,7 +52,7 @@ public:
     ~MinMaxNumFunc() override = default;
 
     void insert_fixed_len(const ColumnPtr& column, size_t start) override {
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column_ptr();
             const auto& nullmap = nullable->get_null_map_data();
@@ -85,6 +87,15 @@ public:
 
         _contain_null |= minmax_func->contain_null();
         return Status::OK();
+    }
+
+    MinMaxFuncBase* clone() const override {
+        auto* cloned = new MinMaxNumFunc(_null_aware);
+        cloned->_max = _max;
+        cloned->_min = _min;
+        cloned->_min_value_set = _min_value_set;
+        cloned->_contain_null = _contain_null;
+        return cloned;
     }
 
     void* get_max() override { return &_max; }

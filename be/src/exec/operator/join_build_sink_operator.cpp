@@ -77,9 +77,9 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
                _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::RIGHT_SEMI_JOIN)
-                << "Mark join is only supported for null aware left semi/anti join and right semi "
-                   "join and cross join "
+               _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN)
+                << "Mark join is only supported for null aware left semi/anti join, right "
+                   "semi/anti join and cross join "
                    "but this is "
                 << _join_op;
     }

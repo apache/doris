@@ -20,6 +20,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -58,10 +59,16 @@ Status _noop_create_partition_callback(void*, TCreatePartitionResult*) {
     return Status::OK();
 }
 
+Status _delegated_create_partition_callback(void* caller, TCreatePartitionResult* result) {
+    return (*static_cast<std::function<Status(TCreatePartitionResult*)>*>(caller))(result);
+}
+
 std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
         OperatorContext& ctx, const TOlapTableSchemaParam& tschema,
         const TOlapTablePartitionParam& tpartition, const TOlapTableLocationParam& tlocation,
-        TTupleId tablet_sink_tuple_id, int64_t txn_id) {
+        TTupleId tablet_sink_tuple_id, int64_t txn_id,
+        CreatePartitionCallback create_partition_callback = &_noop_create_partition_callback,
+        void* caller = nullptr) {
     auto h = std::make_unique<VRowDistributionHarness>();
 
     h->schema = std::make_shared<OlapTableSchemaParam>();
@@ -73,8 +80,8 @@ std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     h->location = std::make_unique<OlapTableLocationParam>(tlocation);
-    h->tablet_finder = std::make_unique<OlapTabletFinder>(h->vpartition.get(),
-                                                          OlapTabletFinder::FIND_TABLET_EVERY_ROW);
+    h->tablet_finder = std::make_unique<OlapTabletFinder>(
+            h->vpartition.get(), OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
     h->block_convertor = std::make_unique<OlapTableBlockConvertor>(h->schema->tuple_desc());
 
     h->output_row_desc = std::make_unique<RowDescriptor>(
@@ -91,9 +98,8 @@ std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
     rctx.location = h->location.get();
     rctx.vec_output_expr_ctxs = &h->output_expr_ctxs;
     rctx.schema = h->schema;
-    rctx.caller = nullptr;
-    rctx.write_single_replica = false;
-    rctx.create_partition_callback = &_noop_create_partition_callback;
+    rctx.caller = caller;
+    rctx.create_partition_callback = create_partition_callback;
     h->row_distribution.init(rctx);
 
     st = h->row_distribution.open(h->output_row_desc.get());
@@ -269,8 +275,27 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
             schema_index_id, tablet_sink_tuple_id, partition_slot_id);
     auto tlocation = sink_test_utils::build_location_param();
 
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                              tablet_sink_tuple_id, txn_id);
+    VRowDistributionHarness* harness = nullptr;
+    bool create_callback_called = false;
+    std::function<Status(TCreatePartitionResult*)> create_callback =
+            [&](TCreatePartitionResult* result) {
+                create_callback_called = true;
+                EXPECT_EQ(result->partitions.size(), 1);
+
+                auto new_partition_block = ColumnHelper::create_block<DataTypeInt32>({15});
+                VOlapTablePartition* new_part = nullptr;
+                harness->vpartition->find_partition(&new_partition_block, 0, new_part);
+                if (new_part == nullptr) {
+                    return Status::InternalError("new partition is not found");
+                }
+                EXPECT_EQ(new_part->id, 3);
+                return Status::OK();
+            };
+
+    auto h = _build_vrow_distribution_harness(
+            ctx, tschema, tpartition, tlocation, tablet_sink_tuple_id, txn_id,
+            &_delegated_create_partition_callback, &create_callback);
+    harness = h.get();
 
     auto input_block = ColumnHelper::create_block<DataTypeInt32>({15, 15});
     std::shared_ptr<Block> converted_block;
@@ -328,6 +353,7 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
     st = h->row_distribution.automatic_create_partition();
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_TRUE(injected);
+    EXPECT_TRUE(create_callback_called);
 
     auto check_block = ColumnHelper::create_block<DataTypeInt32>({15});
     std::vector<VOlapTablePartition*> parts(1, nullptr);
@@ -357,8 +383,36 @@ TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndRep
     tpartition.__set_overwrite_group_id(123);
     auto tlocation = sink_test_utils::build_location_param();
 
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                              tablet_sink_tuple_id, txn_id);
+    VRowDistributionHarness* harness = nullptr;
+    bool create_callback_called = false;
+    std::function<Status(TCreatePartitionResult*)> create_callback =
+            [&](TCreatePartitionResult* result) {
+                create_callback_called = true;
+                EXPECT_EQ(result->partitions.size(), 2);
+
+                auto old_partition_block = ColumnHelper::create_block<DataTypeInt32>({1});
+                VOlapTablePartition* new_part = nullptr;
+                harness->vpartition->find_partition(&old_partition_block, 0, new_part);
+                if (new_part == nullptr) {
+                    return Status::InternalError("new partition is not found");
+                }
+                EXPECT_EQ(new_part->id, 11);
+
+                auto another_old_partition_block = ColumnHelper::create_block<DataTypeInt32>({25});
+                VOlapTablePartition* another_new_part = nullptr;
+                harness->vpartition->find_partition(&another_old_partition_block, 0,
+                                                    another_new_part);
+                if (another_new_part == nullptr) {
+                    return Status::InternalError("another new partition is not found");
+                }
+                EXPECT_EQ(another_new_part->id, 12);
+                return Status::OK();
+            };
+
+    auto h = _build_vrow_distribution_harness(
+            ctx, tschema, tpartition, tlocation, tablet_sink_tuple_id, txn_id,
+            &_delegated_create_partition_callback, &create_callback);
+    harness = h.get();
 
     doris::config::enable_debug_points = true;
     doris::DebugPoints::instance()->clear();
@@ -423,6 +477,7 @@ TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndRep
                                                             row_part_tablet_ids, rows_stat_val);
         EXPECT_TRUE(st.ok()) << st.to_string();
         EXPECT_EQ(injected_times, 1);
+        EXPECT_TRUE(create_callback_called);
 
         ASSERT_EQ(row_part_tablet_ids.size(), 1);
         ASSERT_EQ(row_part_tablet_ids[0].partition_ids.size(), 2);

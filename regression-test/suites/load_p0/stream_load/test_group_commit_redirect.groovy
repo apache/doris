@@ -93,6 +93,7 @@ suite('test_group_commit_redirect', 'docker') {
     options.beNum = 3
     options.cloudMode = true
     options.beConfigs.add('enable_java_support=false')
+    options.beConfigs.add('enable_group_commit_streamload_be_forward=true')
     options.feConfigs.add('enable_group_commit_streamload_be_forward=true')
     docker(options) {
         // get fe and be info

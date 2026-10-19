@@ -49,6 +49,7 @@ TEST_F(SchemaClusterSnapshotsScannerTest, test_get_next_block_internal) {
         snapshot.set_ttl_seconds(3600);
         snapshot.set_snapshot_label("label");
         snapshot.set_reason("reason");
+        snapshot.set_resource_id("vault_1");
         snapshots.push_back(snapshot);
     }
 
@@ -62,6 +63,10 @@ TEST_F(SchemaClusterSnapshotsScannerTest, test_get_next_block_internal) {
     auto col = data_block->safe_get_by_position(0);
     auto v = (*col.column)[1].get<TYPE_STRING>();
     EXPECT_EQ(v, "232ds");
+
+    auto vault_col = data_block->safe_get_by_position(12);
+    auto vault_id = (*vault_col.column)[1].get<TYPE_STRING>();
+    EXPECT_EQ(vault_id, "vault_1");
 }
 
 } // namespace doris

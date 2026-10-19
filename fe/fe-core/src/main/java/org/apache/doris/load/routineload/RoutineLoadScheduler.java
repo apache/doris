@@ -62,6 +62,8 @@ public class RoutineLoadScheduler extends MasterDaemon {
     private void process() throws UserException {
         // update
         routineLoadManager.updateRoutineLoadJob();
+        // refresh lag cache after job progress and partition metadata are updated
+        routineLoadManager.updateRoutineLoadJobLag();
         // get need schedule routine jobs
         List<RoutineLoadJob> routineLoadJobList = null;
         try {

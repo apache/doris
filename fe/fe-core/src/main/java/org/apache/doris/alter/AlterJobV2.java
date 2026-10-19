@@ -142,6 +142,11 @@ public abstract class AlterJobV2 implements Writable {
             userIdentity = ConnectContext.get().getCurrentUserIdentity();
             this.queryOptions = ConnectContext.get().getSessionVariable().toThrift();
             this.queryGlobals = CoordinatorContext.createQueryGlobals(ConnectContext.get());
+        } else {
+            // A job a frontend daemon creates (InternalSchemaInitializer altering the audit table)
+            // has no session; its tasks still carry query globals, and a backend refuses a
+            // TQueryGlobals without now_string when it decodes the task, which cancelled the job.
+            this.queryGlobals = CoordinatorContext.createQueryGlobalsWithoutSession();
         }
     }
 
@@ -255,7 +260,7 @@ public abstract class AlterJobV2 implements Writable {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);
-            // currently used for CloudReplica.getCurrentClusterId
+            // currently used for CloudSystemInfoService.getCurrentClusterId
             // later maybe used for managing all workload in BE.
             ctx.setCurrentUserIdentity(this.userIdentity);
         }

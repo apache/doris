@@ -36,6 +36,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -51,7 +52,7 @@ namespace doris {
 
 using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
-RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thread-safe
+static RE2 tz_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thread-safe
 
 // for ut, make it never nullptr.
 std::unique_ptr<ZoneList> lower_zone_cache_ = std::make_unique<ZoneList>();
@@ -277,8 +278,8 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
     }
 
     re2::StringPiece value;
-    if (time_zone_offset_format_reg.Match(normalized, 0, normalized.size(), RE2::UNANCHORED, &value,
-                                          1)) [[likely]] {
+    if (tz_offset_format_reg.Match(normalized, 0, normalized.size(), RE2::UNANCHORED, &value, 1))
+            [[likely]] {
         const bool positive = value[0] != '-';
         const int hour = std::stoi(value.substr(1, 2).as_string());
         const int minute = std::stoi(value.substr(4, 2).as_string());

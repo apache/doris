@@ -41,11 +41,11 @@ suite("test_index_match_phrase_slop", "nonConcurrent"){
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -82,7 +82,7 @@ suite("test_index_match_phrase_slop", "nonConcurrent"){
         sql """ INSERT INTO ${indexTbName1} VALUES (1, "127.0.0.1", "I'm glad I kept my fingers crossed ~4", 1, 1); """
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where request match_phrase 'get jpg'; """

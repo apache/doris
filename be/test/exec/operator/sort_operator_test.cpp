@@ -37,12 +37,17 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -63,8 +68,8 @@ struct SortOperatorTest : public ::testing::Test {
         sink->_ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
-        _child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+        _child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool));
 
         EXPECT_TRUE(sink->set_child(_child_op));
         source = std::make_unique<SortSourceOperatorX>();
@@ -193,21 +198,20 @@ TEST_F(SortOperatorTest, test_dep) {
     EXPECT_TRUE(is_ready(source_local_state->dependencies()));
 
     {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        MutableBlock merged_block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
-        auto st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_FALSE(eos);
+        while (!eos) {
+            Block block;
+            auto st = source->get_block(state.get(), &block, &eos);
+            EXPECT_TRUE(st.ok()) << st.msg();
+            EXPECT_TRUE(merged_block.merge(block));
+        }
+
+        auto block = merged_block.to_block();
         EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
-
-        block.clear();
-        st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
-        EXPECT_EQ(block.rows(), 0);
     }
 }
 

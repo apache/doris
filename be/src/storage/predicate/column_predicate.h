@@ -20,11 +20,12 @@
 #include <memory>
 #include <roaring/roaring.hh>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 #include "format/parquet/parquet_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
@@ -48,35 +49,10 @@ enum class PredicateType {
     NOT_IN_LIST = 8,
     IS_NULL = 9,
     IS_NOT_NULL = 10,
-    BF = 11,            // BloomFilter
-    BITMAP_FILTER = 12, // BitmapFilter
-    MATCH = 13,         // fulltext match
+    BF = 11,    // BloomFilter
+    MATCH = 13, // fulltext match
+    LIKE = 14,
 };
-
-template <PrimitiveType primitive_type, typename ResultType>
-ResultType get_zone_map_value(void* data_ptr) {
-    ResultType res;
-    // DecimalV2's storage value is different from predicate or compute value type
-    // need convert it to DecimalV2Value
-    if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
-        decimal12_t decimal_12_t_value;
-        memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
-        res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint24_t date;
-        memcpy(&date, data_ptr, sizeof(uint24_t));
-        res.from_olap_date(date);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint64_t datetime;
-        memcpy(&datetime, data_ptr, sizeof(uint64_t));
-        res.from_olap_datetime(datetime);
-    } else {
-        memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
-    }
-    return res;
-}
 
 inline std::string type_to_string(PredicateType type) {
     switch (type) {
@@ -115,6 +91,9 @@ inline std::string type_to_string(PredicateType type) {
 
     case PredicateType::BF:
         return "BF";
+
+    case PredicateType::LIKE:
+        return "LIKE";
     default:
         return "";
     };
@@ -182,20 +161,25 @@ struct PredicateTypeTraits {
     }
 };
 
-#define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
-    const bool is_dense_column = pred_col.size() == size;                                 \
-    for (uint16_t i = 0; i < size; i++) {                                                 \
-        uint16_t idx = is_dense_column ? i : sel[i];                                      \
-        if constexpr (is_nullable) {                                                      \
-            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
-                sel[new_size++] = idx;                                                    \
-            }                                                                             \
-        } else {                                                                          \
-            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
-                sel[new_size++] = idx;                                                    \
-            }                                                                             \
-        }                                                                                 \
+template <bool is_nullable, typename PredColumn, typename WithNullFunc, typename WithoutNullFunc>
+inline ALWAYS_INLINE void evaluate_by_selector(const PredColumn& pred_col, uint16_t size,
+                                               uint16_t* sel, uint16_t& new_size,
+                                               WithNullFunc&& with_null_func,
+                                               WithoutNullFunc&& without_null_func) {
+    const bool is_dense_column = pred_col.size() == size;
+    for (uint16_t i = 0; i < size; i++) {
+        uint16_t idx = is_dense_column ? i : sel[i];
+        if constexpr (is_nullable) {
+            if (with_null_func(idx)) {
+                sel[new_size++] = idx;
+            }
+        } else {
+            if (without_null_func(idx)) {
+                sel[new_size++] = idx;
+            }
+        }
     }
+}
 
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
@@ -344,7 +328,8 @@ public:
         if (_predicate_input_rows_counter == nullptr ||
             _predicate_filtered_rows_counter == nullptr ||
             _predicate_always_true_rows_counter == nullptr) {
-            throw Exception(INTERNAL_ERROR, "Predicate profile counters are not initialized");
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Predicate profile counters are not initialized");
         }
         COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
         COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
@@ -377,6 +362,8 @@ public:
             return "bf";
         case PredicateType::MATCH:
             return "match";
+        case PredicateType::LIKE:
+            return "like";
         default:
             return "unknown";
         }
@@ -387,14 +374,12 @@ public:
     // If true, it was definitely created by a runtime filter.
     // If false, it may still have been created by a runtime filter,
     // as certain filters like "in filter" generate key ranges instead of ColumnPredicate.
-    // is_runtime_filter uses _can_ignore, except for BitmapFilter,
-    // as BitmapFilter cannot ignore data.
     virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
-        throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
     void reset_judge_selectivity() const { _rf_selectivity.reset_judge_selectivity(); }
@@ -416,7 +401,7 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     int _runtime_filter_id = -1;
-    // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
+    // RuntimeFilterExpr and ColumnPredicate share the same logic,
     // but it's challenging to unify them, so the code is duplicated.
     // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
     // are variables used to implement the _always_true logic, calculated periodically

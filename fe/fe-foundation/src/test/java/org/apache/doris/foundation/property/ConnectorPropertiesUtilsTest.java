@@ -61,6 +61,76 @@ public class ConnectorPropertiesUtilsTest {
         Assertions.assertEquals("matched-by-alias", config.getAliasValue());
     }
 
+    // ------------------------------------------------------------------
+    // Alias-resolution semantics.
+    //
+    // WHY these are pinned: connectors that assemble an SDK/BE payload used to resolve the same
+    // aliases with a hand-written "first non-blank of these keys" helper, reading the raw map a
+    // SECOND time next to the annotation binding. Folding that assembly onto the bound values only
+    // preserves behaviour because the binder resolves aliases the same way. If any of the three
+    // rules below changes, those connectors do not fail to compile — they silently resolve a
+    // different value than the one they validated.
+    // ------------------------------------------------------------------
+
+    /**
+     * A blank value counts as ABSENT, so a later alias wins over an earlier blank one. This is
+     * "first non-blank", not "first present": a map that carries {@code alias1=""} must still bind
+     * {@code alias2}.
+     */
+    @Test
+    void testAliasSkipsBlankAndPicksFirstNonBlank() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "   ");
+        props.put("alias2", "matched-by-second-alias");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("matched-by-second-alias", config.getAliasValue());
+    }
+
+    /** Declaration order in {@code names()} IS the priority order when several aliases are set. */
+    @Test
+    void testAliasDeclarationOrderIsPriorityOrder() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "from-first");
+        props.put("alias2", "from-second");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("from-first", config.getAliasValue());
+    }
+
+    /** All aliases blank leaves the field at its initial value; the binder never writes a blank. */
+    @Test
+    void testAllBlankAliasesLeaveFieldAtInitialValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "");
+        props.put("alias2", "  ");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertNull(config.getAliasValue());
+    }
+
+    /**
+     * The bound value is TRIMMED. This is the one place the binder differs from the hand-written
+     * helpers it replaces (which returned the value verbatim), so a padded property reaches the
+     * downstream SDK/payload trimmed once assembly is folded onto the bound value.
+     */
+    @Test
+    void testBoundValueIsTrimmed() {
+        Map<String, String> props = new HashMap<>();
+        props.put("string.key", "  hello  ");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("hello", config.getStringValue());
+    }
+
     @Test
     void testUnsupportedFieldNotSet() {
         Map<String, String> props = new HashMap<>();
@@ -105,6 +175,30 @@ public class ConnectorPropertiesUtilsTest {
     }
 
     @Test
+    void testPropertyValidatorRejectsInvalidValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "core-site.xml, ..\\secret.xml");
+
+        SampleConfig config = new SampleConfig();
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ConnectorPropertiesUtils.bindConnectorProperties(config, props));
+
+        Assertions.assertTrue(ex.getMessage().contains("parent-directory references"), ex.getMessage());
+        Assertions.assertNull(config.getPathValue());
+    }
+
+    @Test
+    void testPropertyValidatorAcceptsSafeValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "conf/core-site.xml");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("conf/core-site.xml", config.getPathValue());
+    }
+
+    @Test
     void testGetConnectorPropertiesIncludesSuperclassFields() {
         List<java.lang.reflect.Field> fields = ConnectorPropertiesUtils.getConnectorProperties(SampleConfig.class);
         Assertions.assertTrue(fields.stream().anyMatch(field -> field.getName().equals("baseValue")));
@@ -118,6 +212,37 @@ public class ConnectorPropertiesUtilsTest {
         Assertions.assertTrue(keys.contains("secret.key"));
         Assertions.assertTrue(keys.contains("secret.alias"));
         Assertions.assertFalse(keys.contains("string.key"));
+    }
+
+    @Test
+    void testToMaskedStringMasksSensitiveFields() {
+        Map<String, String> props = new HashMap<>();
+        props.put("string.key", "hello");
+        props.put("secret.key", "TOP_SECRET_VALUE");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        String masked = ConnectorPropertiesUtils.toMaskedString(config);
+
+        // Non-sensitive value is shown in clear text.
+        Assertions.assertTrue(masked.contains("stringValue=hello"), masked);
+        // Sensitive value is masked and the plaintext never leaks.
+        Assertions.assertTrue(masked.contains("secretValue=***"), masked);
+        Assertions.assertFalse(masked.contains("TOP_SECRET_VALUE"), masked);
+        // Class name is part of the rendered output for diagnostics.
+        Assertions.assertTrue(masked.contains("SampleConfig"), masked);
+    }
+
+    @Test
+    void testToMaskedStringShowsEmptyForBlankSensitiveField() {
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, new HashMap<>());
+
+        String masked = ConnectorPropertiesUtils.toMaskedString(config);
+
+        Assertions.assertTrue(masked.contains("secretValue=<empty>"), masked);
+        Assertions.assertFalse(masked.contains("secretValue=***"), masked);
     }
 
     static class BaseConfig {
@@ -157,6 +282,9 @@ public class ConnectorPropertiesUtilsTest {
         @ConnectorProperty(names = {"secret.key", "secret.alias"}, sensitive = true)
         private String secretValue;
 
+        @ConnectorProperty(names = {"path.key"}, validator = NoPathTraversalValidator.class)
+        private String pathValue;
+
         public String getStringValue() {
             return stringValue;
         }
@@ -191,6 +319,10 @@ public class ConnectorPropertiesUtilsTest {
 
         public String getSecretValue() {
             return secretValue;
+        }
+
+        public String getPathValue() {
+            return pathValue;
         }
     }
 

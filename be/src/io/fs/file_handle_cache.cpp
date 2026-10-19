@@ -21,11 +21,16 @@
 
 #include "io/fs/file_handle_cache.h"
 
+#include <cstdint>
 #include <thread>
 #include <tuple>
 
 #include "common/cast_set.h"
+#include "common/metrics/doris_metrics.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "io/hdfs_util.h"
+#include "util/bvar_helper.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 namespace doris::io {
@@ -33,34 +38,60 @@ namespace doris::io {
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
         VLOG_FILE << "hdfsCloseFile() fid=" << _hdfs_file;
-        hdfsCloseFile(_fs, _hdfs_file); // TODO: check return code
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
+        SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_fs, _hdfs_file),
+                                     "HdfsFileHandle::close::hdfsCloseFile");
+        DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
     }
     _fs = nullptr;
     _hdfs_file = nullptr;
 }
 
 Status HdfsFileHandle::init(int64_t file_size) {
-    _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
-    if (_hdfs_file == nullptr) {
-        std::string _err_msg = hdfs_error();
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
-            return Status::NotFound(_err_msg);
-        }
-        return Status::InternalError("failed to open {}: {}", _fname, _err_msg);
-    }
-
     _file_size = file_size;
     if (_file_size <= 0) {
-        hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
+        auto* file_info = SYNC_POINT_HOOK_RETURN_VALUE(hdfsGetPathInfo(_fs, _fname.c_str()),
+                                                       "HdfsFileHandle::init::hdfsGetPathInfo");
         if (file_info == nullptr) {
-            return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
+            std::string err_msg =
+                    SYNC_POINT_HOOK_RETURN_VALUE(hdfs_error(), "HdfsFileHandle::init::hdfs_error");
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            if (err_msg.find("No such file or directory") != std::string::npos) {
+                return Status::NotFound(err_msg);
+            }
+            return Status::InternalError("failed to get file size of {}: {}", _fname, err_msg);
         }
         _file_size = file_info->mSize;
         hdfsFreeFileInfo(file_info, 1);
     }
     return Status::OK();
+}
+
+Status HdfsFileHandle::ensure_open() {
+    std::call_once(_open_once, [this]() {
+        VLOG_DEBUG << "lazy open hdfs file: " << _fname;
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
+        _hdfs_file =
+                SYNC_POINT_HOOK_RETURN_VALUE(hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0),
+                                             "HdfsFileHandle::ensure_open::hdfsOpenFile");
+        if (_hdfs_file != nullptr) {
+            _open_status = Status::OK();
+            DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
+            DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+        } else {
+            // Capture error inside the opening thread (libhdfs last-error is thread-local).
+            std::string _err_msg = SYNC_POINT_HOOK_RETURN_VALUE(
+                    hdfs_error(), "HdfsFileHandle::ensure_open::hdfs_error");
+            if (_err_msg.find("No such file or directory") != std::string::npos) {
+                _open_status = Status::NotFound(_err_msg);
+            } else {
+                _open_status = Status::InternalError("failed to open {}: {}", _fname, _err_msg);
+            }
+        }
+    });
+    return _open_status;
 }
 
 CachedHdfsFileHandle::CachedHdfsFileHandle(const hdfsFS& fs, const std::string& fname,
@@ -97,18 +128,22 @@ void FileHandleCache::Accessor::destroy() {
 
 FileHandleCache::Accessor::~Accessor() {
     if (_cache_accessor.get()) {
-#ifdef USE_HADOOP_HDFS
-        if (hdfsUnbufferFile(get()->file()) != 0) {
+        auto* handle = get();
+        if (handle->file() == nullptr) {
+            // Not opened or open failed (call_once won't retry), destroy to avoid cache pollution
+            destroy();
+            return;
+        }
+        int unbuffer_ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsUnbufferFile(handle->file()),
+                                                        "HdfsFileHandle::close::hdfsUnbufferFile");
+        if (unbuffer_ret != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
-                      << _cache_accessor.get_key()->first;
+                      << _cache_accessor.get_key()->second.first;
             destroy();
         } else {
             // Calling explicit release to handle metrics
             release();
         }
-#else
-        destroy();
-#endif
     }
 }
 
@@ -148,11 +183,13 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
-    int index =
-            HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
+    uintptr_t fs_identity = reinterpret_cast<uintptr_t>(fs);
+    uint32_t seed = HashUtil::hash(&fs_identity, sizeof(fs_identity), 0);
+    int index = HashUtil::hash(fname.data(), cast_set<int>(fname.size()), seed) %
+                _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
-    auto cache_key = std::make_pair(fname, mtime);
+    auto cache_key = make_cache_key(fs, fname, mtime);
 
     // If this requires a new handle, skip to the creation codepath. Otherwise,
     // find an unused entry with the same mtime
@@ -186,6 +223,15 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
 
     return Status::OK();
 }
+
+#ifdef BE_TEST
+bool FileHandleCache::same_cache_key_for_test(const hdfsFS& lhs_fs, const std::string& lhs_fname,
+                                              int64_t lhs_mtime, const hdfsFS& rhs_fs,
+                                              const std::string& rhs_fname, int64_t rhs_mtime) {
+    return make_cache_key(lhs_fs, lhs_fname, lhs_mtime) ==
+           make_cache_key(rhs_fs, rhs_fname, rhs_mtime);
+}
+#endif
 
 void FileHandleCache::_evict_handles_loop() {
     while (!_is_shut_down.load()) {

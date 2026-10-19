@@ -64,7 +64,7 @@ suite ("test_uniq_rollup_schema_change") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 8
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
         """
 
     sql """ INSERT INTO ${tableName} VALUES

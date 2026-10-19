@@ -34,6 +34,7 @@ suite("test_error_msg_truncate","nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllFEs("TestErrorMsgTruncate")
         
         def hasException = false
+        sql "set enable_insert_value_auto_cast=false"
         try {
             sql """
                 INSERT INTO ${tableName} VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');

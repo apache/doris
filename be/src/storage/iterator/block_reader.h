@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -37,7 +38,6 @@
 
 namespace doris {
 class ColumnPredicate;
-class FunctionFilter;
 class RuntimeProfile;
 
 class BlockReader final : public TabletReader {
@@ -64,16 +64,28 @@ private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
-    // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
-    // And this is an optimization for AGGR tables.
-    // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    Status _direct_agg_key_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
+
+    Status _min_delta_next_block(Block* block, bool* eof);
+
+    Status _detail_change_next_block(Block* block, bool* eof);
+
+    int64_t _read_binlog_op(const IColumn& col, size_t row) const;
+
+    Status _write_binlog_op(IColumn& col, int64_t op) const;
+
+    uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
+
+    bool _min_delta_values_equal(size_t last_row);
+
+    void _init_pending_row_columns(const Block& block);
+
+    bool _emit_pending_row(MutableColumns& target_columns, size_t& output_row_count);
 
     Status _replace_key_next_block(Block* block, bool* eof);
 
@@ -83,8 +95,6 @@ private:
 
     Status _insert_data_normal(MutableColumns& columns);
 
-    // for partial update table
-    void _update_last_mutil_seq(int seq_idx);
     void _compare_sequence_map_and_replace(MutableColumns& columns);
 
     // Check if the accumulated output columns have reached the preferred byte budget,
@@ -99,6 +109,9 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
+    Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
+                              size_t row_pos, int64_t output_op, bool use_before);
+
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
 
@@ -108,18 +121,27 @@ private:
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
 
-    std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
-    std::vector<int> _agg_columns_idx;
-    std::vector<int> _return_columns_loc;
+    // Read-schema ordinals of the non-key columns of AGG tables, folded
+    // through the aggregate machinery.
+    std::vector<uint32_t> _agg_columns_idx;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
+    // Buffer of consecutive rows that share the same primary key, used by
+    // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.
+    // Rows are appended as the merge iterator advances and cleared after each key group.
     MutableColumns _stored_data_columns;
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_variable_length_tag;
+
+    // One-row carry-over buffer holding the AFTER row of an UPDATE pair when the BEFORE row
+    // was already emitted on the boundary of batch_max_rows(). Flushed by _emit_pending_row()
+    // at the start of the next call to *_next_block.
+    MutableColumns _pending_row_columns;
+    bool _has_pending_row = false;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
@@ -133,14 +155,9 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
-    bool _has_seq_map = false;
-    // for check multi seq
-    std::unordered_map<uint32_t, MutableColumnPtr> _seq_columns;
-    // MutableColumns _seq_columns;
-    // seq in return_columns, val pos in _normal_columns_idx
-    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
-    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
-
+    // Unsupported compare_at means equality cannot be proven, so MIN_DELTA conservatively keeps
+    // UPDATE rows. Column types are stable within a reader; cache this after the first exception.
+    bool _min_delta_value_compare_unsupported = false;
     Arena _arena;
 };
 

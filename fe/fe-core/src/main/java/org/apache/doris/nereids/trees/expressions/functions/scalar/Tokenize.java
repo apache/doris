@@ -17,17 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,20 +62,31 @@ public class Tokenize extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        Expression rightChild = child(1);
+        // validate the value FE can evaluate here, because constant folding, e.g. of tokenize(null, concat(...)),
+        // may remove this function before any later check
+        Expression rightChild = ExpressionUtils.foldConstantArgument(getArgument(1));
         // tokenize(k7, null) could return NULL
         if (rightChild instanceof NullLiteral) {
+            return;
+        }
+        if (!rightChild.isConstant()) {
+            throw new AnalysisException("tokenize second argument must be a string constant");
+        }
+        // a constant FE cannot fold is parsed by BE when it is evaluated
+        if (!(rightChild instanceof Literal)) {
             return;
         }
         if (!(rightChild instanceof StringLikeLiteral)) {
             throw new AnalysisException("tokenize second argument must be string literal");
         }
-        String properties = ((StringLikeLiteral) child(1)).value;
+        String properties = ((StringLikeLiteral) rightChild).value;
         if (properties == null || properties.isEmpty()) {
             return;
         }
         try {
-            new NereidsParser().parseProperties(((StringLikeLiteral) child(1)).value);
+            InvertedIndexUtil.checkCharFilterProperties(new NereidsParser().parseProperties(properties));
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
         } catch (Throwable e) {
             throw new AnalysisException("tokenize second argument must be properties format");
         }

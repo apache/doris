@@ -65,7 +65,7 @@ public class JavaUdtfBuilder extends UdfBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
-        if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
+        if (arguments.size() != arity) {
             return false;
         }
         for (Object argument : arguments) {
@@ -88,7 +88,7 @@ public class JavaUdtfBuilder extends UdfBuilder {
         for (int i = 0; i < exprs.size(); ++i) {
             processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), argTypes.get(i)));
         }
-        return Pair.ofSame(udf.withChildren(processedExprs));
+        return Pair.ofSame(udf.withFreshVolatileIdentity().withChildren(processedExprs));
     }
 
     @Override

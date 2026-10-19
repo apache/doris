@@ -25,6 +25,7 @@ suite("test_javaudf_float") {
     def tableName = "test_javaudf_float"
     def jarPath   = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -56,7 +57,8 @@ suite("test_javaudf_float") {
         sql """ CREATE FUNCTION java_udf_float_test(FLOAT,FLOAT) RETURNS FLOAT PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.FloatTest",
-            "type"="JAVA_UDF"
+            "type"="JAVA_UDF",
+            "volatility"="immutable"
         ); """
 
         qt_select """ SELECT java_udf_float_test(cast(2.83645 as float),cast(111.1111111 as float)) as result; """

@@ -55,6 +55,11 @@ public:
                              const std::function<bool(const FileInfo&)>& cb);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
+    // return inode statistics of the file system where the given path is.
+    // `total` is the number of inodes in the file system and `available` is the number of free
+    // inodes usable by unprivileged processes. Some file systems (e.g. btrfs) allocate inodes
+    // dynamically and report `total` as 0, callers must treat that as "unknown".
+    Status get_inode_info(const Path& path, size_t* total, size_t* available);
     // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
     Status copy_path(const Path& src, const Path& dest);
     // return true if parent path contain sub path
@@ -63,6 +68,8 @@ public:
     static bool equal_or_sub_path(const Path& parent, const Path& child);
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
+    // delete directory only if it is empty
+    Status delete_empty_directory(const Path& dir);
     // change the file permission of the given path
     Status permission(const Path& file, std::filesystem::perms prms);
 
@@ -87,6 +94,7 @@ protected:
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
     Status delete_directory_or_file_impl(const Path& path);
+    Status delete_empty_directory_impl(const Path& dir);
     Status batch_delete_impl(const std::vector<Path>& files) override;
     Status exists_impl(const Path& path, bool* res) const override;
     Status file_size_impl(const Path& file, int64_t* file_size) const override;
@@ -98,6 +106,7 @@ protected:
     Status iterate_directory_impl(const std::string& dir,
                                   const std::function<bool(const FileInfo&)>& cb);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
+    Status get_inode_info_impl(const Path& path, size_t* total, size_t* available);
     Status copy_path_impl(const Path& src, const Path& dest);
     Status permission_impl(const Path& file, std::filesystem::perms prms);
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -55,9 +56,9 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -90,6 +91,8 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    // present when IVM rewrite is active; absent otherwise
+    private Optional<IvmRewriteResult> ivmRewriteResult = Optional.empty();
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -107,6 +110,7 @@ public class CascadesContext implements ScheduleContext {
     private Optional<Scope> outerScope = Optional.empty();
 
     private boolean isRewriteRoot;
+    private boolean isMaterializedViewRewritePlanFragment;
     private volatile boolean isTimeout = false;
 
     // current process subtree, represent outer plan if empty
@@ -267,7 +271,7 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        this.memo = new Memo(getConnectContext(), plan, statementContext.getCostWeight());
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
@@ -286,7 +290,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public TableCollectAndHookInitializer newTableCollector(boolean firstLevel) {
-        return new TableCollectAndHookInitializer(this, firstLevel);
+        return newTableCollector(firstLevel, false);
+    }
+
+    public TableCollectAndHookInitializer newTableCollector(boolean firstLevel, boolean enablePreloadRule) {
+        return new TableCollectAndHookInitializer(this, firstLevel, enablePreloadRule);
     }
 
     public Analyzer newAnalyzer() {
@@ -362,6 +370,30 @@ public class CascadesContext implements ScheduleContext {
         return plan;
     }
 
+    /**
+     * Returns the unified IVM rewrite result for the current statement.
+     */
+    public Optional<IvmRewriteResult> getIvmRewriteResult() {
+        return ivmRewriteResult;
+    }
+
+    /**
+     * Returns the unified IVM rewrite result, creating it when this statement first enters IVM rewrite.
+     */
+    public IvmRewriteResult getOrCreateIvmRewriteResult() {
+        if (!ivmRewriteResult.isPresent()) {
+            ivmRewriteResult = Optional.of(new IvmRewriteResult());
+        }
+        return ivmRewriteResult.get();
+    }
+
+    /**
+     * Sets the unified IVM rewrite result for the current statement.
+     */
+    public void setIvmRewriteResult(IvmRewriteResult ivmRewriteResult) {
+        this.ivmRewriteResult = Optional.ofNullable(ivmRewriteResult);
+    }
+
     public void setRewritePlan(Plan plan) {
         this.plan = plan;
     }
@@ -400,6 +432,14 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean isRewriteRoot() {
         return isRewriteRoot;
+    }
+
+    public void setMaterializedViewRewritePlanFragment(boolean materializedViewRewritePlanFragment) {
+        isMaterializedViewRewritePlanFragment = materializedViewRewritePlanFragment;
+    }
+
+    public boolean isMaterializedViewRewritePlanFragment() {
+        return isMaterializedViewRewritePlanFragment;
     }
 
     public Optional<Scope> getOuterScope() {
@@ -472,6 +512,14 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
+    }
+
+    public void putConsumerIdToLimitRows(RelationId id, long rows) {
+        this.statementContext.getConsumerIdToLimitRows().merge(id, rows, Math::max);
+    }
+
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return this.statementContext.getConsumerIdToLimitRows();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {

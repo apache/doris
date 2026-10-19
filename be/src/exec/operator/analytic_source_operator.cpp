@@ -42,7 +42,8 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
                                                  int operator_id, const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
-Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_block, bool* eos) {
+Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* output_block,
+                                               bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -79,12 +80,6 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_blo
         auto return_rows = output_block->rows();
         COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - return_rows);
     }
-    return Status::OK();
-}
-
-Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
-    DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     return Status::OK();
 }
 

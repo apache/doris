@@ -17,6 +17,7 @@
 
 #include "service/http/action/http_stream.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <future>
 #include <sstream>
@@ -45,8 +46,10 @@
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -55,6 +58,7 @@
 #include "storage/storage_engine.h"
 #include "util/byte_buffer.h"
 #include "util/client_cache.h"
+#include "util/load_util.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -63,14 +67,34 @@
 namespace doris {
 using namespace ErrorCode;
 
+namespace {
+
+bool is_compressed_file_scan(const TPipelineFragmentParams& params) {
+    if (!params.__isset.file_scan_params) {
+        return false;
+    }
+    return std::ranges::any_of(params.file_scan_params, [](const auto& file_scan_param) {
+        const auto& file_scan_params = file_scan_param.second;
+        TFileCompressType::type compress_type = file_scan_params.__isset.compress_type
+                                                        ? file_scan_params.compress_type
+                                                        : TFileCompressType::UNKNOWN;
+        TFileFormatType::type format_type = file_scan_params.__isset.format_type
+                                                    ? file_scan_params.format_type
+                                                    : TFileFormatType::FORMAT_UNKNOWN;
+        return LoadUtil::is_compressed_load(compress_type, format_type);
+    });
+}
+
+} // namespace
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQUESTS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(http_stream_current_processing, MetricUnit::REQUESTS);
 
-HttpStreamAction::HttpStreamAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
-    // Use LOAD privilege type: requires LOAD permission
-    // Note: _exec_env is set by parent class HttpHandlerWithAuth
+HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    // HTTP stream derives db/table from the SQL header and then forwards the
+    // request credentials to FE load RPCs for table-scoped LOAD checks. The generic
+    // BE HTTP auth hook only supports caller-provided resource metadata.
     _http_stream_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("http_stream");
     INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
@@ -157,12 +181,6 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
 }
 
 int HttpStreamAction::on_header(HttpRequest* req) {
-    // Call parent's auth check first
-    int ret = HttpHandlerWithAuth::on_header(req);
-    if (ret != 0) {
-        return ret; // Auth failed, return error
-    }
-
     http_stream_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -209,7 +227,8 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // TODO(zs) : need Need to request an FE to obtain information such as format
     // check content length
     ctx->body_bytes = 0;
-    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
+    const auto csv_max_body_mb = config::streaming_load_max_mb;
+    size_t csv_max_body_bytes = csv_max_body_mb * MEBIBYTE;
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         try {
             ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
@@ -221,9 +240,11 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
-                    "are sure this load is reasonable",
-                    ctx->body_bytes, csv_max_body_bytes);
+                    "body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) set "
+                    "by BE config `streaming_load_max_mb`. Increase it if you are sure this load "
+                    "is reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    csv_max_body_bytes, csv_max_body_mb);
         }
     }
 
@@ -247,8 +268,14 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
-    if (!req->header(HTTP_WAL_ID_KY).empty()) {
-        ctx->wal_id = std::stoll(req->header(HTTP_WAL_ID_KY));
+    const auto& wal_id_str = req->header(HTTP_WAL_ID_KY);
+    if (!wal_id_str.empty()) {
+        auto wal_id = safe_stoll(wal_id_str, HTTP_WAL_ID_KY);
+        if (!wal_id.has_value()) {
+            ctx->status = std::move(wal_id).error();
+            return;
+        }
+        ctx->wal_id = wal_id.value();
     }
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
@@ -387,13 +414,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                                                http_req->header(HttpHeaders::CONTENT_LENGTH),
                                                e.what());
             }
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            if (is_compressed_file_scan(ctx->put_result.pipeline_params)) {
                 content_length *= 3;
             }
         }
@@ -432,9 +453,11 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                     ? 0
-                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    int64_t content_length = 0;
+    const auto& content_length_str = req->header(HttpHeaders::CONTENT_LENGTH);
+    if (!content_length_str.empty()) {
+        content_length = DORIS_TRY(safe_stoll(content_length_str, HttpHeaders::CONTENT_LENGTH));
+    }
     if (content_length < 0) {
         std::stringstream ss;
         ss << "This http load content length <0 (" << content_length

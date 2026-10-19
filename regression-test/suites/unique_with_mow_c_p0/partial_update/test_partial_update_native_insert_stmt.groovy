@@ -183,7 +183,6 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         "enable_unique_key_merge_on_write" = "true", 
                         "light_schema_change" = "true", 
                         "disable_auto_compaction" = "false", 
-                        "enable_single_replica_compaction" = "false",
                         "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName5} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""

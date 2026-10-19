@@ -17,14 +17,15 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -74,11 +75,6 @@ public class HiveScanRange implements ConnectorScanRange {
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(builder.properties)
                 : Collections.emptyMap();
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override
@@ -145,6 +141,40 @@ public class HiveScanRange implements ConnectorScanRange {
             populateTransactionalHiveParams(formatDesc);
         }
         // Non-transactional hive needs no per-split TTableFormatFileDesc fields.
+
+        // Rewrite columns-from-path from the connector's partition values, mirroring
+        // IcebergScanRange/PaimonScanRange. This connector now OWNS the Hive default-partition
+        // sentinel (__HIVE_DEFAULT_PARTITION__ -> SQL NULL) mapping that fe-core's
+        // FilePartitionUtils.normalizeColumnsFromPath used to do — hive was the last connector
+        // relying on that engine-side string match. The parent (FileQueryScanNode) has pre-filled a
+        // path-parsed columns-from-path; unset it, then re-set from partitionValues so BE receives the
+        // authoritative keys/values/is_null. partitionValues keys are the partition column names (same
+        // order as path_partition_keys, both from HiveTableHandle.getPartitionKeyNames), so the emitted
+        // bytes are unchanged from the legacy path. Use the NARROW NULL_PARTITION_NAME.equals — hudi's
+        // wider directory-name rule (HudiScanRange.populateRangeParams, which also nulls a literal "\N")
+        // must NOT be reused here: an HMS partition value is either a real value or the
+        // __HIVE_DEFAULT_PARTITION__ directory sentinel, never a Java null, and a hive column may carry the
+        // two characters "\N" as DATA; matching legacy normalizeColumnsFromPath, a null value maps to SQL
+        // NULL defensively.
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPathIsNull();
+        if (!partitionValues.isEmpty()) {
+            List<String> keys = new ArrayList<>(partitionValues.size());
+            List<String> values = new ArrayList<>(partitionValues.size());
+            List<Boolean> isNull = new ArrayList<>(partitionValues.size());
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                String value = entry.getValue();
+                boolean nullValue = value == null
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value);
+                keys.add(entry.getKey());
+                values.add(nullValue ? "" : value);
+                isNull.add(nullValue);
+            }
+            rangeDesc.setColumnsFromPathKeys(keys);
+            rangeDesc.setColumnsFromPath(values);
+            rangeDesc.setColumnsFromPathIsNull(isNull);
+        }
     }
 
     private void populateTransactionalHiveParams(TTableFormatFileDesc formatDesc) {
@@ -165,9 +195,19 @@ public class HiveScanRange implements ConnectorScanRange {
                 if (deltaStr != null) {
                     TTransactionalHiveDeleteDeltaDesc delta =
                             new TTransactionalHiveDeleteDeltaDesc();
-                    delta.setDirectoryLocation(deltaStr.contains("|")
-                            ? deltaStr.substring(0, deltaStr.indexOf('|'))
-                            : deltaStr);
+                    // Encoded as "dir|file1,file2" (see Builder#acidInfo). BE needs BOTH the
+                    // delete-delta directory AND the file names to correctly apply row deletes;
+                    // dropping the file names silently under-deletes on ACID reads.
+                    int sep = deltaStr.indexOf('|');
+                    if (sep >= 0) {
+                        delta.setDirectoryLocation(deltaStr.substring(0, sep));
+                        String fileNamesPart = deltaStr.substring(sep + 1);
+                        if (!fileNamesPart.isEmpty()) {
+                            delta.setFileNames(Arrays.asList(fileNamesPart.split(",")));
+                        }
+                    } else {
+                        delta.setDirectoryLocation(deltaStr);
+                    }
                     deltas.add(delta);
                 }
             }

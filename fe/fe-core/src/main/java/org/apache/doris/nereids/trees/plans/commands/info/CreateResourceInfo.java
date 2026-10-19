@@ -18,14 +18,16 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -75,6 +77,14 @@ public class CreateResourceInfo {
         }
 
         analyzeResourceType();
+
+        if (resourceType == ResourceType.AI && !"*".equals(Config.ai_resource_allowed_user)) {
+            UserIdentity allowedUser = UserIdentity.fromString(Config.ai_resource_allowed_user);
+            if (!ConnectContext.get().getCurrentUserIdentity().equals(allowedUser)) {
+                throw new AnalysisException("Current user does not have permission to create AI resources",
+                        ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+            }
+        }
     }
 
     /**
@@ -91,7 +101,8 @@ public class CreateResourceInfo {
             throw new AnalysisException("Resource type can't be null");
         }
 
-        if (AzureProperties.guessIsMe(properties)) {
+        // Facade twin of the legacy AzureProperties.guessIsMe static (guess-only heuristics).
+        if (StorageAdapter.matchesProviderGuess("AZURE", properties)) {
             resourceType = ResourceType.AZURE;
             return;
         }

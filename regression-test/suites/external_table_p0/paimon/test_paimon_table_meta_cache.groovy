@@ -55,6 +55,31 @@ suite("test_paimon_table_meta_cache", "p0,external") {
         );
     """
 
+    // Negative: an invalid meta-cache ttl-second must be rejected at CREATE (legacy CacheSpec parity:
+    // ttl-second min is -1, so -2 is out of range). Restored alongside the iceberg equivalent.
+    sql """drop catalog if exists ${catalogNoCache}_bad"""
+    test {
+        sql """
+            CREATE CATALOG ${catalogNoCache}_bad PROPERTIES (
+                'type' = 'paimon',
+                'warehouse' = 's3://warehouse/wh',
+                's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+                's3.access_key' = 'admin',
+                's3.secret_key' = 'password',
+                's3.path.style.access' = 'true',
+                'meta.cache.paimon.table.ttl-second' = '-2'
+            );
+        """
+        exception "is wrong"
+    }
+
+    // Negative: the same invalid value must also be rejected at ALTER (the alter throws, so
+    // ${catalogNoCache} keeps its valid ttl-second=0).
+    test {
+        sql """alter catalog ${catalogNoCache} set properties ("meta.cache.paimon.table.ttl-second" = "-2")"""
+        exception "is wrong"
+    }
+
     try {
         spark_paimon "CREATE DATABASE IF NOT EXISTS paimon.${testDb}"
 
@@ -74,6 +99,7 @@ suite("test_paimon_table_meta_cache", "p0,external") {
 
         spark_paimon "INSERT INTO paimon.${testDb}.test_insert VALUES (2, 'external_insert')"
 
+        // The cached catalog keeps reading the latest snapshot it cached until REFRESH (or its TTL).
         sql """switch ${catalogWithCache}"""
         def result2 = sql """select * from ${testDb}.test_insert order by id"""
         assertEquals(1, result2.size())

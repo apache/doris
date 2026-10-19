@@ -60,11 +60,11 @@ public class Uniform extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!child(0).isLiteral()) {
-            throw new AnalysisException("The first parameter (min) of uniform function must be literal");
+        if (!getArgument(0).isConstant()) {
+            throw new AnalysisException("The first parameter (min) of uniform function must be constant");
         }
-        if (!child(1).isLiteral()) {
-            throw new AnalysisException("The second parameter (max) of uniform function must be literal");
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException("The second parameter (max) of uniform function must be constant");
         }
         // if do folding on BE, will before checkLegalityAfterRewrite, so we need it here too.
         checkLegalityAfterRewrite();
@@ -72,7 +72,7 @@ public class Uniform extends ScalarFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (child(2).isLiteral()) {
+        if (getArgument(2).isLiteral()) {
             throw new AnalysisException("The third parameter (gen) of uniform function must not be literal");
         }
     }

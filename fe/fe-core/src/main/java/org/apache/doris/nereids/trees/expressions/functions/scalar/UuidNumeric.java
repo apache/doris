@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -46,11 +45,11 @@ public class UuidNumeric extends UniqueFunction
      * constructor with 0 argument.
      */
     public UuidNumeric() {
-        this(StatementScopeIdGenerator.newExprId(), false);
+        this(VolatileIdentity.newVolatileIdentity());
     }
 
-    public UuidNumeric(ExprId uniqueId, boolean ignoreUniqueId) {
-        super("uuid_numeric", uniqueId, ignoreUniqueId);
+    private UuidNumeric(VolatileIdentity volatileIdentity) {
+        super("uuid_numeric", volatileIdentity);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -66,7 +65,7 @@ public class UuidNumeric extends UniqueFunction
 
     @Override
     public UuidNumeric withIgnoreUniqueId(boolean ignoreUniqueId) {
-        return new UuidNumeric(uniqueId, ignoreUniqueId);
+        return new UuidNumeric(volatileIdentity.withIgnoreUniqueId(ignoreUniqueId));
     }
 
     @Override

@@ -56,6 +56,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -122,19 +123,22 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    // this variable is assigned to true the first time the profile is loaded from storage
-    // no further write operation, so no data race
-    private final ReentrantReadWriteLock isProfileLoadedLock = new ReentrantReadWriteLock();
-    volatile boolean isProfileLoaded = false;
+    enum ProfileLoadStatus {
+        UNLOADED,
+        LOADING,
+        LOADED
+    }
 
-    // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
+    final AtomicReference<ProfileLoadStatus> profileLoadStatus =
+            new AtomicReference<>(ProfileLoadStatus.UNLOADED);
+
     private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
 
     // profile id is long string for broker load
     // is TUniqueId for others.
-    final Map<String, ProfileElement> queryIdToProfileMap;
+    final Map<String, ProfileElement> profileIdToProfileMap;
     // Sometimes one Profile is related with multiple execution profiles(Broker-load), so that
     // execution profile's query id is not related with Profile's query id.
     final Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
@@ -159,7 +163,7 @@ public class ProfileManager extends MasterDaemon {
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
-        queryIdToProfileMap = Maps.newHashMap();
+        profileIdToProfileMap = Maps.newHashMap();
         queryIdToExecutionProfiles = Maps.newHashMap();
         fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 10, 100, "fetch-realtime-profile-pool", true);
@@ -198,7 +202,12 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public ExecutionProfile getExecutionProfile(TUniqueId queryId) {
-        return this.queryIdToExecutionProfiles.get(queryId);
+        readLock.lock();
+        try {
+            return this.queryIdToExecutionProfiles.get(queryId);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public void pushProfile(Profile profile) {
@@ -208,23 +217,20 @@ public class ProfileManager extends MasterDaemon {
 
         writeLock.lock();
         try {
-            if (!queryIdToProfileMap.containsKey(profile.getId())) {
+            if (!profileIdToProfileMap.containsKey(profile.getId())) {
                 deleteOutdatedProfilesFromMemory(1);
             }
 
             ProfileElement element = createElement(profile);
-            // 'insert into' does have job_id, put all profiles key with query_id
-            String key = profile.getSummaryProfile().getProfileId();
-            // check when push in, which can ensure every element in the list has QUERY_ID column,
-            // so there is no need to check when remove element from list.
-            if (Strings.isNullOrEmpty(key)) {
+            // Queries use query IDs; Broker Load uses job IDs.
+            String profileId = profile.getId();
+            if (Strings.isNullOrEmpty(profileId)) {
                 LOG.warn("the key or value of Map is null, "
                         + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
             }
 
-            // a profile may be updated multiple times in queryIdToProfileMap,
-            // and only needs to be inserted into the queryIdDeque for the first time.
-            queryIdToProfileMap.put(key, element);
+            // Replace the previous entry for this profile.
+            profileIdToProfileMap.put(profileId, element);
         } finally {
             writeLock.unlock();
         }
@@ -234,17 +240,23 @@ public class ProfileManager extends MasterDaemon {
         return getQueryInfoByColumnNameList(SummaryProfile.SUMMARY_KEYS);
     }
 
+    private String getProfileInfoString(ProfileElement profileElement, String columnName) {
+        if (SummaryProfile.PROFILE_COMPLETION_STATE.equals(columnName)) {
+            return profileElement.profile.getProfileCompletionState();
+        }
+        return profileElement.infoStrings.get(columnName);
+    }
+
     public List<List<String>> getQueryInfoByColumnNameList(List<String> columnNameList) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
-            while (!queueIdDeque.isEmpty()) {
-                ProfileElement profileElement = queueIdDeque.poll();
-                Map<String, String> infoStrings = profileElement.infoStrings;
+            PriorityQueue<ProfileElement> profileQueue = getProfileOrderByQueryFinishTimeDesc();
+            while (!profileQueue.isEmpty()) {
+                ProfileElement profileElement = profileQueue.poll();
                 List<String> row = Lists.newArrayList();
                 for (String str : columnNameList) {
-                    row.add(infoStrings.get(str));
+                    row.add(getProfileInfoString(profileElement, str));
                 }
                 result.add(row);
             }
@@ -306,7 +318,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id, String reqType) {
-        // For query, id is queryId, for load, id is LoadLoadingTaskId
+        // Broker Load profile IDs are job IDs.
         class QueryIdAndAddress {
             public TUniqueId id;
             public TNetworkAddress beAddress;
@@ -434,8 +446,8 @@ public class ProfileManager extends MasterDaemon {
         return summary;
     }
 
-    public String getProfile(String id) {
-        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
+    public String getProfile(String profileId) {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(profileId, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
@@ -446,17 +458,17 @@ public class ProfileManager extends MasterDaemon {
                     QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to get real-time profile, id {}, error: {}", id, e.getMessage(), e);
+                LOG.warn("Failed to get real-time profile, id {}, error: {}", profileId, e.getMessage(), e);
             }
         }
 
         if (!futures.isEmpty()) {
-            LOG.info("Get real-time exec status finished, id {}", id);
+            LOG.info("Get real-time exec status finished, id {}", profileId);
         }
 
         readLock.lock();
         try {
-            ProfileElement element = queryIdToProfileMap.get(id);
+            ProfileElement element = profileIdToProfileMap.get(profileId);
             if (element == null) {
                 return null;
             }
@@ -467,10 +479,10 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public String getProfileBrief(String queryID) {
+    public String getProfileBrief(String profileId) {
         readLock.lock();
         try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
+            ProfileElement element = profileIdToProfileMap.get(profileId);
             if (element == null) {
                 return null;
             }
@@ -480,22 +492,22 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public ProfileElement findProfileElementObject(String queryId) {
-        return queryIdToProfileMap.get(queryId);
+    public ProfileElement findProfileElementObject(String profileId) {
+        return profileIdToProfileMap.get(profileId);
     }
 
     /**
-     * Check if the query with specific query id is queried by specific user.
+     * Whether this profile belongs to the user.
      */
-    public void checkAuthByUserAndQueryId(String user, String queryId) throws AuthenticationException {
+    public void checkAuthByUserAndProfileId(String user, String profileId) throws AuthenticationException {
         readLock.lock();
         try {
-            ProfileElement element = queryIdToProfileMap.get(queryId);
+            ProfileElement element = profileIdToProfileMap.get(profileId);
             if (element == null) {
-                throw new AuthenticationException("query with id " + queryId + " not found");
+                throw new AuthenticationException("query with id " + profileId + " not found");
             }
             if (!element.infoStrings.get(SummaryProfile.USER).equals(user)) {
-                throw new AuthenticationException("Access deny to view query with id: " + queryId);
+                throw new AuthenticationException("Access deny to view query with id: " + profileId);
             }
         } finally {
             readLock.unlock();
@@ -505,7 +517,7 @@ public class ProfileManager extends MasterDaemon {
     public String getQueryIdByTraceId(String traceId) {
         readLock.lock();
         try {
-            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
+            for (Map.Entry<String, ProfileElement> entry : profileIdToProfileMap.entrySet()) {
                 if (entry.getValue().infoStrings.getOrDefault(SummaryProfile.TRACE_ID, "").equals(traceId)) {
                     return entry.getKey();
                 }
@@ -526,7 +538,7 @@ public class ProfileManager extends MasterDaemon {
     public void cleanProfile() {
         writeLock.lock();
         try {
-            queryIdToProfileMap.clear();
+            profileIdToProfileMap.clear();
             queryIdToExecutionProfiles.clear();
         } finally {
             writeLock.unlock();
@@ -562,23 +574,21 @@ public class ProfileManager extends MasterDaemon {
     // string will contain profile id and its storage timestamp
     protected List<String> getOnStorageProfileInfos() {
         List<String> res = Lists.newArrayList();
-        try {
-            File profileDir = new File(PROFILE_STORAGE_PATH);
-            if (!profileDir.exists()) {
-                LOG.warn("Profile storage directory {} does not exist", PROFILE_STORAGE_PATH);
-                return res;
-            }
+        File profileDir = new File(PROFILE_STORAGE_PATH);
+        if (!profileDir.exists()) {
+            LOG.warn("Profile storage directory {} does not exist", PROFILE_STORAGE_PATH);
+            return res;
+        }
 
-            File[] files = profileDir.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isFile()) {
-                        res.add(file.getAbsolutePath());
-                    }
+        File[] files = profileDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    res.add(file.getAbsolutePath());
                 }
             }
-        } catch (Exception e) {
-            LOG.error("Failed to get profile meta from storage", e);
+        } else {
+            throw new IllegalStateException("Failed to list profile storage directory: " + PROFILE_STORAGE_PATH);
         }
 
         return res;
@@ -588,7 +598,7 @@ public class ProfileManager extends MasterDaemon {
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
     protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
-        if (checkIfProfileLoaded()) {
+        if (!profileLoadStatus.compareAndSet(ProfileLoadStatus.UNLOADED, ProfileLoadStatus.LOADING)) {
             return;
         }
 
@@ -642,15 +652,11 @@ public class ProfileManager extends MasterDaemon {
 
                 LOG.info("Load profiles into memory finished, costs {}ms", System.currentTimeMillis() - startTime);
 
-                // Set isProfileLoaded to true with write lock
-                isProfileLoadedLock.writeLock().lock();
-                try {
-                    this.isProfileLoaded = true;
-                } finally {
-                    isProfileLoadedLock.writeLock().unlock();
-                }
+                profileLoadStatus.set(ProfileLoadStatus.LOADED);
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
+            } finally {
+                profileLoadStatus.compareAndSet(ProfileLoadStatus.LOADING, ProfileLoadStatus.UNLOADED);
             }
         });
 
@@ -684,7 +690,7 @@ public class ProfileManager extends MasterDaemon {
     protected List<ProfileElement> getProfilesNeedStore() {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
-        queryIdToProfileMap.forEach((queryId, profileElement) -> {
+        profileIdToProfileMap.forEach((profileId, profileElement) -> {
             if (profileElement.profile.shouldStoreToStorage()) {
                 profilesToBeStored.add(profileElement);
             }
@@ -759,7 +765,7 @@ public class ProfileManager extends MasterDaemon {
         long totalProfileSize = 0;
 
         // Collect all profiles that has been stored to storage
-        for (ProfileElement profileElement : queryIdToProfileMap.values()) {
+        for (ProfileElement profileElement : profileIdToProfileMap.values()) {
             if (profileElement.profile.profileHasBeenStored()) {
                 totalProfileSize += profileElement.profile.getProfileSize();
                 profileDeque.add(profileElement);
@@ -768,16 +774,16 @@ public class ProfileManager extends MasterDaemon {
 
         final int maxSpilledProfileNum = Config.max_spilled_profile_num;
         final long spilledProfileLimitBytes = Config.spilled_profile_storage_limit_bytes;
-        List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
+        List<ProfileElement> profilesToBeRemoved = Lists.newArrayList();
 
         while (profileDeque.size() > maxSpilledProfileNum || totalProfileSize >= spilledProfileLimitBytes) {
             // First profile is the oldest profile
             ProfileElement profileElement = profileDeque.poll();
             totalProfileSize -= profileElement.profile.getProfileSize();
-            queryIdToBeRemoved.add(profileElement);
+            profilesToBeRemoved.add(profileElement);
         }
 
-        return queryIdToBeRemoved;
+        return profilesToBeRemoved;
     }
 
     // We can not store all profiles on storage, because the storage space is limited
@@ -788,43 +794,43 @@ public class ProfileManager extends MasterDaemon {
         }
 
         try {
-            List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
+            List<ProfileElement> profilesToBeRemoved = Lists.newArrayList();
             readLock.lock();
             try {
-                queryIdToBeRemoved = getProfilesToBeRemoved();
+                profilesToBeRemoved = getProfilesToBeRemoved();
             } finally {
                 readLock.unlock();
             }
 
-            if (queryIdToBeRemoved.isEmpty()) {
+            if (profilesToBeRemoved.isEmpty()) {
                 return;
             }
 
             // Archive or delete profiles based on configuration
             if (Config.enable_profile_archive) {
                 // Move profiles to pending directory for archiving
-                moveProfilesToArchivePending(queryIdToBeRemoved);
+                moveProfilesToArchivePending(profilesToBeRemoved);
             } else {
                 // Directly delete profiles if archiving is disabled
-                deleteProfilesFromStorage(queryIdToBeRemoved);
+                deleteProfilesFromStorage(profilesToBeRemoved);
             }
 
             // Remove profile references from memory
             writeLock.lock();
             try {
-                for (ProfileElement profileElement : queryIdToBeRemoved) {
-                    queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
-                    TUniqueId thriftQueryId = DebugUtil.parseTUniqueIdFromString(
-                            profileElement.profile.getSummaryProfile().getProfileId());
-                    queryIdToExecutionProfiles.remove(thriftQueryId);
+                for (ProfileElement profileElement : profilesToBeRemoved) {
+                    profileIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
+                    for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                        queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                    }
                 }
             } finally {
                 writeLock.unlock();
             }
 
-            if (queryIdToBeRemoved.size() != 0 && LOG.isDebugEnabled()) {
+            if (profilesToBeRemoved.size() != 0 && LOG.isDebugEnabled()) {
                 StringBuilder builder = new StringBuilder();
-                for (ProfileElement profileElement : queryIdToBeRemoved) {
+                for (ProfileElement profileElement : profilesToBeRemoved) {
                     builder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
                 }
                 LOG.debug("Remove outdated profile: {}", builder.toString());
@@ -866,7 +872,7 @@ public class ProfileManager extends MasterDaemon {
 
             readLock.lock();
             try {
-                if (!queryIdToProfileMap.containsKey(profileId)) {
+                if (!profileIdToProfileMap.containsKey(profileId)) {
                     LOG.debug("Wild profile {}, need to be removed.", profileDirAbsPath);
                     brokenProfiles.add(profileDirAbsPath);
                 }
@@ -918,14 +924,14 @@ public class ProfileManager extends MasterDaemon {
     protected PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTimeDesc() {
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+            PriorityQueue<ProfileElement> profileQueue = new PriorityQueue<>(Comparator.comparingLong(
                     (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()).reversed());
 
-            queryIdToProfileMap.forEach((queryId, profileElement) -> {
-                queryIdDeque.add(profileElement);
+            profileIdToProfileMap.forEach((profileId, profileElement) -> {
+                profileQueue.add(profileElement);
             });
 
-            return queryIdDeque;
+            return profileQueue;
         } finally {
             readLock.unlock();
         }
@@ -936,14 +942,14 @@ public class ProfileManager extends MasterDaemon {
     protected PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+            PriorityQueue<ProfileElement> profileQueue = new PriorityQueue<>(Comparator.comparingLong(
                     (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
 
-            queryIdToProfileMap.forEach((queryId, profileElement) -> {
-                queryIdDeque.add(profileElement);
+            profileIdToProfileMap.forEach((profileId, profileElement) -> {
+                profileQueue.add(profileElement);
             });
 
-            return queryIdDeque;
+            return profileQueue;
         } finally {
             readLock.unlock();
         }
@@ -953,14 +959,14 @@ public class ProfileManager extends MasterDaemon {
     protected PriorityQueue<ProfileElement> getProfileOrderByQueryStartTime() {
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+            PriorityQueue<ProfileElement> profileQueue = new PriorityQueue<>(Comparator.comparingLong(
                     (ProfileElement profileElement) -> profileElement.profile.getSummaryProfile().getQueryBeginTime()));
 
-            queryIdToProfileMap.forEach((queryId, profileElement) -> {
-                queryIdDeque.add(profileElement);
+            profileIdToProfileMap.forEach((profileId, profileElement) -> {
+                profileQueue.add(profileElement);
             });
 
-            return queryIdDeque;
+            return profileQueue;
         } finally {
             readLock.unlock();
         }
@@ -986,8 +992,8 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public String getLastProfileId() {
-        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
-        ProfileElement profileElement = queueIdDeque.poll();
+        PriorityQueue<ProfileElement> profileQueue = getProfileOrderByQueryFinishTimeDesc();
+        ProfileElement profileElement = profileQueue.poll();
         return profileElement.profile.getSummaryProfile().getProfileId();
     }
 
@@ -1035,20 +1041,20 @@ public class ProfileManager extends MasterDaemon {
         writeLock.lock();
 
         try {
-            if (this.queryIdToProfileMap.size() + numOfNewProfiles <= Config.max_query_profile_num) {
+            if (this.profileIdToProfileMap.size() + numOfNewProfiles <= Config.max_query_profile_num) {
                 return;
             }
 
             // profile is ordered by query finish time
             // query finished earlier will be on the top of heap
             // query finished time of unfinished query is INT_MAX, so they will be on the bottom of the heap.
-            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+            PriorityQueue<ProfileElement> profileQueue = getProfileOrderByQueryFinishTime();
 
-            while (queueIdDeque.size() + numOfNewProfiles > Config.max_query_profile_num && !queueIdDeque.isEmpty()) {
-                ProfileElement profileElement = queueIdDeque.poll();
+            while (profileQueue.size() + numOfNewProfiles > Config.max_query_profile_num && !profileQueue.isEmpty()) {
+                ProfileElement profileElement = profileQueue.poll();
                 String profileId = profileElement.profile.getSummaryProfile().getProfileId();
                 stringBuilder.append(profileId).append(",");
-                queryIdToProfileMap.remove(profileId);
+                profileIdToProfileMap.remove(profileId);
                 for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                     queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
                 }
@@ -1059,7 +1065,7 @@ public class ProfileManager extends MasterDaemon {
                 }
             }
         } finally {
-            int profileNum = queryIdToProfileMap.size();
+            int profileNum = profileIdToProfileMap.size();
             writeLock.unlock();
 
             if (stringBuilder.length() != 0) {
@@ -1073,7 +1079,7 @@ public class ProfileManager extends MasterDaemon {
         StringBuilder stringBuilder = new StringBuilder();
         readLock.lock();
         try {
-            for (ProfileElement profileElement : queryIdToProfileMap.values()) {
+            for (ProfileElement profileElement : profileIdToProfileMap.values()) {
                 stringBuilder.append(profileElement.profile.debugInfo()).append("\n");
             }
         } finally {
@@ -1087,14 +1093,14 @@ public class ProfileManager extends MasterDaemon {
         readLock.lock();
 
         try {
-            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
-            while (!queueIdDeque.isEmpty() && limit > 0) {
-                ProfileElement profileElement = queueIdDeque.poll();
+            PriorityQueue<ProfileElement> profileQueue = getProfileOrderByQueryFinishTimeDesc();
+            while (!profileQueue.isEmpty() && limit > 0) {
+                ProfileElement profileElement = profileQueue.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
                 if (infoStrings.get(SummaryProfile.TASK_TYPE).equals(profileType.toString())) {
                     List<String> row = Lists.newArrayList();
                     for (String str : SummaryProfile.SUMMARY_KEYS) {
-                        row.add(infoStrings.get(str));
+                        row.add(getProfileInfoString(profileElement, str));
                     }
                     result.add(row);
                     limit--;
@@ -1108,28 +1114,20 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private boolean checkIfProfileLoaded() {
-        isProfileLoadedLock.readLock().lock();
-        try {
-            return isProfileLoaded;
-        } finally {
-            isProfileLoadedLock.readLock().unlock();
-        }
+        return profileLoadStatus.get() == ProfileLoadStatus.LOADED;
     }
 
-    public void removeProfile(String profileId) {
+    public void removeProfile(Profile profile) {
         writeLock.lock();
         try {
-            ProfileElement profileToRemove = this.queryIdToProfileMap.remove(profileId);
-            if (profileToRemove != null) {
-                for (ExecutionProfile executionProfile : profileToRemove.profile.getExecutionProfiles()) {
-                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                }
+            profileIdToProfileMap.remove(profile.getId());
+            for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
+                queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
             }
         } finally {
             writeLock.unlock();
         }
     }
-
 
     /**
      * Moves profiles to the archive pending directory.
@@ -1235,4 +1233,3 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 }
-

@@ -17,6 +17,8 @@
 
 
 def evaluate(res):
+    if res is None:
+        return None
     value = ""
     for data in res:
         if data is not None:

@@ -82,19 +82,19 @@ suite("test_outfile_expr") {
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
-        StringBuilder sb = new StringBuilder()
+        List<String> rows = []
         int i = 1
         for (; i < 1000; i ++) {
-            sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
+            rows.add("""
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i})
             """)
         }
-        sb.append("""
+        rows.add("""
                 (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
             """)
-        sql """ INSERT INTO ${tableName} VALUES
-             ${sb.toString()}
-            """
+        rows.collate(500).each { batch ->
+            sql """ INSERT INTO ${tableName} VALUES ${batch.join(",")} """
+        }
         qt_select_default """ SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile

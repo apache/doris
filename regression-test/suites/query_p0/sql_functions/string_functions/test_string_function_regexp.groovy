@@ -120,6 +120,13 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_3 'SELECT REGEXP_EXTRACT_ALL(\'foo123bar456baz\', \'(\\\\d{3})(?=bar|baz)\');'
     qt_sql_regexp_extract_all_4 'SELECT REGEXP_EXTRACT_ALL(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)\');'
     qt_sql_regexp_extract_all_5 'SELECT REGEXP_EXTRACT_ALL(\'EdgeCase1EdgeCase2EdgeCase3\', \'(?<=Edge)(Case\\\\d)(?=Edge|$)\');'
+    // zero-width Boost matches must be extracted once per position
+    qt_sql_regexp_extract_all_zero_width_1 "SELECT REGEXP_EXTRACT_ALL('ba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_2 "SELECT REGEXP_EXTRACT_ALL('aba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_3 "SELECT REGEXP_EXTRACT_ALL('aaa', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_4 "SELECT REGEXP_EXTRACT_ALL('aa', '(?<=(a))');"
+    qt_sql_regexp_extract_all_zero_width_5 "SELECT REGEXP_EXTRACT_ALL('xa', '((?<=x)|a)');"
+    qt_sql_regexp_extract_all_zero_width_6 "SELECT REGEXP_EXTRACT_ALL('xxa?b', '(?<=a)|^(b)');"
     sql "set enable_extended_regex = false;"
 
     qt_sql_regexp_extract_all_6 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(foo.bar)');"
@@ -127,6 +134,30 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_8 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(?s)(foo.bar)');"
     qt_sql_regexp_extract_all_9 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(?-s)(\\\\w.\\\\w)');"
     qt_sql_regexp_extract_all_10 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(\\\\w.\\\\w)');"
+
+    test {
+        sql 'SELECT REGEXP_EXTRACT_ALL_ARRAY(\'Apache/Doris\', \'([a-zA-Z_+-]+(?:\\/[a-zA-Z_0-9+-]+)*)(?=s|$)\');'
+        exception "Invalid regex pattern"
+    }
+    qt_regexp_extract_all_array_1 "SELECT regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)');"
+    qt_regexp_extract_all_array_2 "SELECT regexp_extract_all_array('http://a.m.baidu.com/i41915i73660.htm', 'i([0-9]+)');"
+    qt_regexp_extract_all_array_3 "SELECT regexp_extract_all_array('abc=111, def=222, ghi=333', '(\"[^\"]+\"|\\\\w+)=(\"[^\"]+\"|\\\\w+)');"
+    qt_regexp_extract_all_array_4 "select regexp_extract_all_array('xxfs','f');"
+    qt_regexp_extract_all_array_5 "select regexp_extract_all_array(NULL, 'pattern');"
+    qt_regexp_extract_all_array_6 "select regexp_extract_all_array('text', NULL);"
+    qt_regexp_extract_all_array_7 "select regexp_extract_all_array('abcdfesscca', '(ab|c|)');"
+    qt_regexp_extract_all_array_8 "SELECT regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k;"
+    qt_regexp_extract_all_array_9 "SELECT regexp_extract_all_array(k, '([a-z]+)') from test_string_function_regexp ORDER BY k;"
+    qt_regexp_extract_all_array_10 "SELECT k, v, regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k, v;"
+    qt_regexp_extract_all_array_11 "SELECT regexp_extract_all_array(k, concat('^', k)) from test_string_function_regexp WHERE k IS NOT NULL ORDER BY k;"
+    sql "set enable_extended_regex = true;"
+    qt_regexp_extract_all_array_zero_width_1 "SELECT regexp_extract_all_array('ba', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_2 "SELECT regexp_extract_all_array('aba', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_3 "SELECT regexp_extract_all_array('aaa', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_4 "SELECT regexp_extract_all_array('aa', '(?<=(a))');"
+    qt_regexp_extract_all_array_zero_width_5 "SELECT regexp_extract_all_array('xa', '((?<=x)|a)');"
+    qt_regexp_extract_all_array_zero_width_6 "SELECT regexp_extract_all_array('xxa?b', '(?<=a)|^(b)');"
+    sql "set enable_extended_regex = false;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"
@@ -150,6 +181,49 @@ suite("test_string_function_regexp") {
     qt_regexp_fn_8 'SELECT regexp(\'foobar\', \'(?<!foo)bar\');'
     qt_regexp_fn_9 'SELECT regexp(\'Hello\', \'(?i)hello\');'
     sql "set enable_extended_regex = false;"
+
+    sql "DROP TABLE IF EXISTS test_regexp_empty_pattern"
+    sql """
+        CREATE TABLE test_regexp_empty_pattern (
+            id INT,
+            value_col STRING NULL,
+            pattern_col STRING NULL
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_regexp_empty_pattern VALUES
+            (1, 'abc', ''),
+            (2, '', ''),
+            (3, 'xyz', ''),
+            (4, NULL, ''),
+            (5, 'abc', NULL),
+            (6, 'ab', ''),
+            (7, 'c', ''),
+            (8, '', ''),
+            (9, 'abc', ''),
+            (10, '', ''),
+            (11, 'xabcx', '')
+    """
+
+    qt_regexp_empty_pattern """
+        SELECT id, regexp(value_col, ''), regexp(value_col, pattern_col)
+        FROM test_regexp_empty_pattern
+        ORDER BY id
+    """
+    qt_rlike_empty_pattern """
+        SELECT id, value_col RLIKE '', value_col RLIKE pattern_col
+        FROM test_regexp_empty_pattern
+        ORDER BY id
+    """
+    qt_regexp_constant_substring_boundaries """
+        SELECT id, regexp(value_col, 'abc'), value_col RLIKE 'abc'
+        FROM test_regexp_empty_pattern
+        WHERE id >= 6
+        ORDER BY id
+    """
 
     qt_sql_utf1 """ select '皖12345' REGEXP '^[皖][0-9]{5}\$'; """
     qt_sql_utf2 """ select '皖 12345' REGEXP '^[皖] [0-9]{5}\$'; """

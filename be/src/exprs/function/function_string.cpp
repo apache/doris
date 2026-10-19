@@ -18,22 +18,32 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/locid.h>
 #include <unicode/schriter.h>
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
 #include <unicode/ustream.h>
 
 #include <bitset>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include "common/cast_set.h"
+#include "common/check.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function_reverse.h"
 #include "exprs/function/function_string_concat.h"
 #include "exprs/function/function_string_format.h"
@@ -69,10 +79,6 @@ struct StringASCII {
     }
 };
 
-struct NameParseDataSize {
-    static constexpr auto name = "parse_data_size";
-};
-
 static const std::map<std::string_view, Int128> UNITS = {
         {"B", static_cast<Int128>(1)},        {"kB", static_cast<Int128>(1) << 10},
         {"MB", static_cast<Int128>(1) << 20}, {"GB", static_cast<Int128>(1) << 30},
@@ -80,24 +86,47 @@ static const std::map<std::string_view, Int128> UNITS = {
         {"EB", static_cast<Int128>(1) << 60}, {"ZB", static_cast<Int128>(1) << 70},
         {"YB", static_cast<Int128>(1) << 80}};
 
-struct ParseDataSize {
-    using ReturnType = DataTypeInt128;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
-    using Type = String;
-    using ReturnColumnType = ColumnInt128;
+class FunctionStringParseDataSize : public IFunction {
+public:
+    static constexpr auto name = "parse_data_size";
+    static FunctionPtr create() { return std::make_shared<FunctionStringParseDataSize>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         PaddedPODArray<Int128>& res) {
-        auto size = offsets.size();
-        res.resize(size);
-        for (int i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1];
-            res[i] = parse_data_size(std::string_view(raw_str, str_size));
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto type = std::make_shared<DataTypeInt128>();
+        return arguments[0]->is_nullable() ? make_nullable(type) : type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto input =
+                ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[0]).column);
+        auto res = ColumnInt128::create(input_rows_count, 0);
+        auto& values = res->get_data();
+        ColumnUInt8::MutablePtr null_map;
+        if (input.null_map != nullptr) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (input.is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                continue;
+            }
+            const auto value = input.value_at(i);
+            values[i] = parse_data_size(std::string_view(value.data, value.size));
+        }
+        if (null_map) {
+            block.replace_by_position(result,
+                                      ColumnNullable::create(std::move(res), std::move(null_map)));
+        } else {
+            block.replace_by_position(result, std::move(res));
         }
         return Status::OK();
     }
 
+private:
     static Int128 parse_data_size(const std::string_view& dataSize) {
         int digit_length = 0;
         for (char c : dataSize) {
@@ -585,7 +614,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toUpper();
+        unicode_str.toUpper(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 
@@ -593,7 +622,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 };
@@ -675,7 +704,7 @@ struct InitcapImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         icu::UnicodeString output_str;
         bool need_capitalize = true;
         icu::StringCharacterIterator iter(unicode_str);
@@ -1185,6 +1214,12 @@ struct FromBase64Impl {
                 continue;
             }
 
+            if (UNLIKELY(srclen % 4 != 0)) {
+                null_map[i] = 1;
+                dst_offsets[i] = cast_set<uint32_t>(offset);
+                continue;
+            }
+
             auto outlen = base64_decode(source, srclen, dst_data_ptr + offset);
 
             if (outlen < 0) {
@@ -1334,15 +1369,93 @@ template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
-using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionIsValidUTF8 = FunctionUnaryToType<IsValidUTF8Impl, NameIsValidUTF8>;
-using FunctionStringStartsWith =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringStartsWithImpl, NameStartsWith>;
+
+class FunctionStringStartsWith : public FunctionBinaryToType<DataTypeString, DataTypeString,
+                                                             StringStartsWithImpl, NameStartsWith> {
+public:
+    static FunctionPtr create() { return std::make_shared<FunctionStringStartsWith>(); }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
+                                                                  slot_literal->slot_type);
+        if (slot_type == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        auto zone_map_ref = ctx.zone_map(slot_literal->slot_index);
+        if (zone_map_ref == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        const auto& zone_map = *zone_map_ref;
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (!expr_zonemap::range_stats_usable_for_zonemap(zone_map, slot_type)) {
+            return unsupported_zonemap_filter(ctx);
+        }
+
+        const auto prefix = slot_literal->literal.as_string_view();
+        auto lower = Field::create_field<TYPE_STRING>(std::string(prefix));
+        if (zone_map.max_value < lower) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        auto upper_prefix = _next_prefix_for_starts_with_zonemap(prefix);
+        if (upper_prefix.has_value() &&
+            !(zone_map.min_value < Field::create_field<TYPE_STRING>(*upper_prefix))) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return ZoneMapFilterResult::kMayMatch;
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        if (!slot_literal.has_value() || slot_literal->literal_on_left) {
+            return false;
+        }
+
+        // A NULL prefix makes starts_with(slot, NULL) evaluate to NULL. An empty prefix matches
+        // every non-NULL string and cannot prune by range. Reject both shapes here before
+        // evaluate_zonemap_filter is called.
+        if (slot_literal->literal.is_null()) {
+            return false;
+        }
+
+        DORIS_CHECK(slot_literal->slot_type != nullptr);
+        DORIS_CHECK(slot_literal->literal_type != nullptr);
+        DORIS_CHECK(is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()));
+        DORIS_CHECK(
+                is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type()));
+
+        const auto prefix = slot_literal->literal.as_string_view();
+        return !prefix.empty();
+    }
+
+private:
+    static std::optional<std::string> _next_prefix_for_starts_with_zonemap(
+            std::string_view prefix) {
+        // ZoneMap string bounds are compared by bytewise Field ordering. For starts_with(s, p),
+        // the safe upper bound is the next byte string after p: p <= s < next_prefix(p).
+        // For example, starts_with(s, "ab") can use the range "ab" <= s < "ac".
+        std::string upper(prefix);
+        for (auto i = static_cast<int64_t>(upper.size()) - 1; i >= 0; --i) {
+            auto byte = static_cast<unsigned char>(upper[i]);
+            if (byte != std::numeric_limits<unsigned char>::max()) {
+                upper[i] = static_cast<char>(byte + 1);
+                upper.resize(i + 1);
+                return upper;
+            }
+        }
+        return std::nullopt;
+    }
+};
+
 using FunctionStringEndsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringEndsWithImpl, NameEndsWith>;
 using FunctionStringInstr =

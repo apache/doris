@@ -30,7 +30,6 @@
 #include "core/data_type_serde/data_type_ipv4_serde.h"
 #include "core/pod_array.h"
 #include "core/types.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 class BufferWritable;
@@ -44,10 +43,6 @@ public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV4; }
     const std::string get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
-
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
-    }
 
     bool equals(const IDataType& rhs) const override;
 

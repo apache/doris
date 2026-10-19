@@ -93,7 +93,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
     // Cannot change nullable complex column to not null
     test {
         sql """ALTER TABLE ${table_name} MODIFY COLUMN arr_i ARRAY<INT> NOT NULL"""
-        exception "Cannot change nullable column arr_i to not null"
+        exception "Can not change nullable column arr_i to not null"
     }
 
     // Map key type change is not allowed
@@ -211,8 +211,8 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
     sql """ALTER TABLE ${table_name} ORDER BY (id, arr_i, mp_i, st, arr_f, mp_f)"""
 
     def queryRes = sql """SELECT id,
-                                 STRUCT_ELEMENT(st, 'si') AS si,
-                                 STRUCT_ELEMENT(st, 'sn') AS sn,
+                                 element_at(st, 'si') AS si,
+                                 element_at(st, 'sn') AS sn,
                                  ARRAY_SIZE(arr_i) AS arr_sz
                          FROM ${table_name} ORDER BY id"""
     assertTrue(queryRes.size() == 2, queryRes.toString())

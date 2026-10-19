@@ -303,10 +303,9 @@ public class ShowDataCommand extends ShowCommand {
 
     private void collectTableStats(OlapTable table) {
         // sort by index name
-        Map<String, Long> indexNames = table.getIndexNameToId();
         Map<String, Long> sortedIndexNames = new TreeMap<String, Long>();
-        for (Map.Entry<String, Long> entry : indexNames.entrySet()) {
-            sortedIndexNames.put(entry.getKey(), entry.getValue());
+        for (Long indexId : table.getIndexIdToMeta(true).keySet()) {
+            sortedIndexNames.put(table.getIndexNameById(indexId), indexId);
         }
 
         for (Long indexId : sortedIndexNames.values()) {
@@ -403,9 +402,9 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
                     DebugUtil.printByteWithUnit(totalBinlogSize)));
             totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
-                    DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(quota), "", "", "", "", "", ""));
             totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
-                    DebugUtil.printByteWithUnit(left), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(left), "", "", "", "", "", ""));
         }
     }
 

@@ -26,10 +26,10 @@
 #include <utility>
 
 #include "common/status.h"
-#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/column/column.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/primitive_type.h"
@@ -57,28 +57,28 @@ struct UniformIntImpl {
                                size_t input_rows_count) {
         auto res_column = ColumnInt64::create(input_rows_count);
         auto& res_data = res_column->get_data();
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, std::move(res_column));
+            return Status::OK();
+        }
 
-        // Get min and max values (constants)
-        const auto& left =
-                assert_cast<const ColumnConst&>(*block.get_by_position(arguments[0]).column)
-                        .get_data_column();
-        const auto& right =
-                assert_cast<const ColumnConst&>(*block.get_by_position(arguments[1]).column)
-                        .get_data_column();
-        Int64 min = assert_cast<const ColumnInt64&>(left).get_element(0);
-        Int64 max = assert_cast<const ColumnInt64&>(right).get_element(0);
+        // min and max are constants checked in FE, so the first row holds their values
+        Int64 min = ColumnView<TYPE_BIGINT>::create(block.get_by_position(arguments[0]).column)
+                            .value_at(0);
+        Int64 max = ColumnView<TYPE_BIGINT>::create(block.get_by_position(arguments[1]).column)
+                            .value_at(0);
 
         if (min >= max) {
             return Status::InvalidArgument(
                     "uniform's min should be less than max, but got [{}, {})", min, max);
         }
 
-        // Get gen column (seed values)
-        const auto& gen_column = block.get_by_position(arguments[2]).column;
+        auto gen_column =
+                ColumnView<TYPE_BIGINT>::create(block.get_by_position(arguments[2]).column);
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
+            auto seed = gen_column.value_at(i);
             std::mt19937_64 generator(seed);
             std::uniform_int_distribution<int64_t> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -104,17 +104,17 @@ struct UniformDoubleImpl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto res_column = ColumnFloat64::create(input_rows_count);
-        auto& res_data = static_cast<ColumnFloat64&>(*res_column).get_data();
+        auto& res_data = res_column->get_data();
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, std::move(res_column));
+            return Status::OK();
+        }
 
-        // Get min and max values (constants)
-        const auto& left =
-                assert_cast<const ColumnConst&>(*block.get_by_position(arguments[0]).column)
-                        .get_data_column();
-        const auto& right =
-                assert_cast<const ColumnConst&>(*block.get_by_position(arguments[1]).column)
-                        .get_data_column();
-        double min = assert_cast<const ColumnFloat64&>(left).get_element(0);
-        double max = assert_cast<const ColumnFloat64&>(right).get_element(0);
+        // min and max are constants checked in FE, so the first row holds their values
+        double min = ColumnView<TYPE_DOUBLE>::create(block.get_by_position(arguments[0]).column)
+                             .value_at(0);
+        double max = ColumnView<TYPE_DOUBLE>::create(block.get_by_position(arguments[1]).column)
+                             .value_at(0);
 
         if (min >= max) {
             return Status::InvalidArgument(
@@ -122,11 +122,12 @@ struct UniformDoubleImpl {
         }
 
         // Get gen column (seed values)
-        const auto& gen_column = block.get_by_position(arguments[2]).column;
+        auto gen_column =
+                ColumnView<TYPE_BIGINT>::create(block.get_by_position(arguments[2]).column);
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
+            auto seed = gen_column.value_at(i);
             std::mt19937_64 generator(seed);
             std::uniform_real_distribution<double> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -145,6 +146,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionUniform<Impl>>(); }
     String get_name() const override { return name; }
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
@@ -155,21 +158,6 @@ public:
 
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
-    }
-
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        // init_function_context do set_constant_cols for FRAGMENT_LOCAL scope
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            if (!context->is_col_constant(0)) {
-                return Status::InvalidArgument(
-                        "The first parameter (min) of uniform function must be literal");
-            }
-            if (!context->is_col_constant(1)) {
-                return Status::InvalidArgument(
-                        "The second parameter (max) of uniform function must be literal");
-            }
-        }
-        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

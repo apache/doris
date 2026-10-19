@@ -55,6 +55,7 @@ private:
                                               ColumnRawPtrs& key_columns, const uint32_t num_rows);
     void _make_nullable_output_key(Block* block);
     bool _should_expand_preagg_hash_tables();
+    size_t _memory_usage() const;
 
     void _swap_cache_block(Block* block) {
         DCHECK(!_cache_block.is_empty_column());
@@ -82,6 +83,7 @@ private:
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_use_limit = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
     bool _is_single_backend = false;
@@ -116,19 +118,22 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
                     state);
         }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution
-                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                           ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                              _partition_exprs)
+                           : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                              _partition_exprs);
         }
         if (state->enable_distinct_streaming_agg_force_passthrough()) {
-            return {ExchangeType::PASSTHROUGH};
+            return {TLocalPartitionType::PASSTHROUGH};
         } else {
             return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
                     state);
@@ -142,6 +147,7 @@ public:
 
 private:
     friend class DistinctStreamingAggLocalState;
+    size_t _memory_limit(RuntimeState* state) const;
     void init_make_nullable(RuntimeState* state);
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
@@ -155,6 +161,13 @@ private:
 
     // If _is_streaming_preagg = true, deduplication will be abandoned in cases where the deduplication rate is low.
     bool _is_streaming_preagg = false;
+    /// When spilling is enabled, the pre-agg should not occupy too much memory: session variable
+    /// `spill_streaming_agg_mem_limit` (0 = none), combined with the query-limit-based budget in
+    /// `_memory_limit()`.
+    size_t _spill_streaming_agg_mem_limit = 0;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<DistinctStreamingAggLocalState>;
 
 } // namespace doris

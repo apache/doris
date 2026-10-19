@@ -1,0 +1,275 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/tablet/tablet_reader.h"
+
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
+
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "storage/delete/delete_handler.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/schema.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+
+namespace doris {
+
+class TabletReaderTest : public testing::Test {
+protected:
+    static TabletSchemaSPtr create_schema(
+            const std::vector<std::pair<std::string, int32_t>>& name_and_uid,
+            KeysType keys_type = KeysType::DUP_KEYS) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(keys_type);
+        bool first = true;
+        for (const auto& [name, uid] : name_and_uid) {
+            auto* col = schema_pb.add_column();
+            col->set_unique_id(uid);
+            col->set_name(name);
+            col->set_type("INT");
+            col->set_is_key(first);
+            col->set_is_nullable(!first);
+            first = false;
+        }
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
+        return schema;
+    }
+
+    // Build a DeleteHandler initialized with a single delete-predicate rowset.
+    static void init_delete_handler(DeleteHandler& handler, const TabletSchemaSPtr& schema,
+                                    const DeletePredicatePB& delete_predicate,
+                                    ReadSchemaSPtr* read_schema) {
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_tablet_schema(schema);
+        rs_meta->set_version(Version(2, 2));
+        rs_meta->set_delete_predicate(delete_predicate);
+        *read_schema = std::make_shared<ReadSchema>(schema->columns());
+        std::vector<TabletColumn> dropped_columns;
+        ASSERT_TRUE(handler.init({rs_meta}, /*version=*/100, *read_schema, &dropped_columns).ok());
+        (*read_schema)->append_dropped_columns(std::move(dropped_columns));
+    }
+
+    // Give `reader` a tablet with the given keys type. Its only key column is k1.
+    static void init_tablet(StorageEngine& engine, TabletReader& reader, KeysType keys_type,
+                            bool enable_mow) {
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->set_enable_unique_key_merge_on_write(enable_mow);
+        reader._tablet = std::make_shared<Tablet>(engine, std::move(tablet_meta), nullptr);
+        reader._tablet_schema = create_schema({{"k1", 10}, {"v1", 12}}, keys_type);
+        reader._read_schema = std::make_shared<ReadSchema>(reader._tablet_schema->columns());
+    }
+
+    // Set up the order-by key columns for a storage TopN that sorts by the first
+    // `num_prefix_columns` key columns.
+    static Status init_storage_topn(TabletReader& reader, size_t num_prefix_columns) {
+        TabletReader::ReaderParams params;
+        params.read_orderby_key_num_prefix_columns = num_prefix_columns;
+        params.read_orderby_key_limit = 10;
+        return reader._init_orderby_keys_param(params);
+    }
+};
+
+// The delete columns (resolved by the delete handler to read-schema ordinals) are mapped to their
+// column unique ids and stripped from all_access_paths; unrelated columns keep their paths.
+TEST_F(TabletReaderTest, remove_delete_columns_from_access_paths) {
+    auto schema = create_schema({{"k1", 10}, {"k2", 11}, {"v1", 12}, {"v2", 13}, {"v4", 15}});
+
+    DeletePredicatePB delete_predicate;
+    auto* p1 = delete_predicate.add_sub_predicates_v2(); // k1 -> erase 10
+    p1->set_column_name("k1");
+    p1->set_column_unique_id(10);
+    p1->set_op("=");
+    p1->set_cond_value("1");
+    auto* p2 = delete_predicate.add_sub_predicates_v2(); // v1 -> erase 12
+    p2->set_column_name("v1");
+    p2->set_column_unique_id(12);
+    p2->set_op("=");
+    p2->set_cond_value("2");
+    auto* in1 = delete_predicate.add_in_predicates(); // k2 IN (...) -> erase 11
+    in1->set_column_name("k2");
+    in1->set_column_unique_id(11);
+    in1->set_is_not_in(false);
+    in1->add_values("3");
+    in1->add_values("4");
+
+    DeleteHandler handler;
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
+
+    std::map<int32_t, TColumnAccessPaths> access_paths;
+    for (int32_t uid : {10, 11, 12, 13, 15}) {
+        access_paths[uid] = TColumnAccessPaths {};
+    }
+
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
+
+    EXPECT_EQ(size_t(2), access_paths.size());
+    EXPECT_EQ(size_t(1), access_paths.count(13)) << "non-delete column must keep its access path";
+    EXPECT_EQ(size_t(1), access_paths.count(15)) << "non-delete column must keep its access path";
+    for (int32_t uid : {10, 11, 12}) {
+        EXPECT_EQ(size_t(0), access_paths.count(uid)) << "delete column " << uid << " not erased";
+    }
+}
+
+// A delete condition whose column has no access path leaves the map untouched.
+TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
+    auto schema = create_schema({{"k1", 10}, {"v1", 12}});
+
+    DeletePredicatePB delete_predicate;
+    auto* p1 = delete_predicate.add_sub_predicates_v2();
+    p1->set_column_name("k1");
+    p1->set_column_unique_id(10);
+    p1->set_op("=");
+    p1->set_cond_value("1");
+
+    DeleteHandler handler;
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
+
+    std::map<int32_t, TColumnAccessPaths> access_paths;
+    access_paths[12] = TColumnAccessPaths {};
+    access_paths[15] = TColumnAccessPaths {};
+
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
+
+    EXPECT_EQ(size_t(2), access_paths.size());
+}
+
+TEST_F(TabletReaderTest, initializes_unbounded_key_ranges) {
+    auto schema = create_schema({{"k1", 10}});
+    OlapTuple upper_key;
+    upper_key.add_field(Field::create_field<TYPE_INT>(10));
+    OlapTuple lower_key;
+    lower_key.add_field(Field::create_field<TYPE_INT>(20));
+
+    TabletReader::ReaderParams params;
+    params.start_key.emplace_back(std::nullopt);
+    params.end_key.emplace_back(std::move(upper_key));
+    params.start_key.emplace_back(std::move(lower_key));
+    params.end_key.emplace_back(std::nullopt);
+
+    TabletReader reader;
+    reader._tablet_schema = std::move(schema);
+    ASSERT_TRUE(reader._init_keys_param(params).ok());
+    EXPECT_FALSE(reader._keys_param.start_keys[0].has_value());
+    EXPECT_TRUE(reader._keys_param.end_keys[0].has_value());
+    EXPECT_TRUE(reader._keys_param.start_keys[1].has_value());
+    EXPECT_FALSE(reader._keys_param.end_keys[1].has_value());
+}
+
+// A delete predicate is bound to the historical column identity, not merely its name. This is
+// critical for DROP COLUMN x followed by ADD COLUMN x: the old delete must not filter the new x.
+TEST_F(TabletReaderTest, delete_predicate_keeps_dropped_same_name_column_identity) {
+    auto historical_schema = create_schema({{"k", 10}, {"x", 11}});
+    auto current_schema = create_schema({{"k", 10}, {"x", 20}});
+
+    for (bool predicate_has_uid : {true, false}) {
+        SCOPED_TRACE(predicate_has_uid ? "predicate with uid" : "legacy predicate without uid");
+
+        DeletePredicatePB delete_predicate;
+        if (predicate_has_uid) {
+            auto* predicate = delete_predicate.add_sub_predicates_v2();
+            predicate->set_column_name("x");
+            predicate->set_column_unique_id(11);
+            predicate->set_op("=");
+            predicate->set_cond_value("7");
+        } else {
+            delete_predicate.add_sub_predicates("x='7'");
+        }
+
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        rowset_meta->set_tablet_schema(historical_schema);
+        rowset_meta->set_version(Version(2, 2));
+        rowset_meta->set_delete_predicate(delete_predicate);
+
+        auto read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+        std::vector<TabletColumn> dropped_columns;
+        DeleteHandler handler;
+        auto st = handler.init({rowset_meta}, /*version=*/100, read_schema, &dropped_columns);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(1, dropped_columns.size());
+        EXPECT_EQ("x", dropped_columns[0].name());
+        EXPECT_EQ(11, dropped_columns[0].unique_id());
+
+        read_schema->append_dropped_columns(std::move(dropped_columns));
+        EXPECT_EQ(1, read_schema->ordinal_by_uid(20));
+        EXPECT_EQ(2, read_schema->ordinal_by_uid(11));
+
+        AndBlockColumnPredicate delete_conditions;
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+                delete_zone_maps;
+        handler.get_delete_conditions_after_version(0, &delete_conditions, &delete_zone_maps);
+
+        std::set<std::shared_ptr<const ColumnPredicate>> predicates;
+        delete_conditions.get_all_column_predicate(predicates);
+        ASSERT_EQ(1, predicates.size());
+        EXPECT_EQ(2, (*predicates.begin())->column_id());
+        EXPECT_EQ(0, delete_zone_maps.count(1));
+        EXPECT_EQ(1, delete_zone_maps.count(2));
+    }
+}
+
+// DUP and merge-on-write tablets give storage TopN the leading key columns to sort by.
+TEST_F(TabletReaderTest, storage_topn_sorts_by_leading_key_columns) {
+    StorageEngine engine({});
+    TabletReader dup_reader;
+    init_tablet(engine, dup_reader, KeysType::DUP_KEYS, /*enable_mow=*/false);
+    auto st = init_storage_topn(dup_reader, 1);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(std::vector<uint32_t>({0}), dup_reader._orderby_key_columns);
+
+    TabletReader mow_reader;
+    init_tablet(engine, mow_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/true);
+    st = init_storage_topn(mow_reader, 1);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(std::vector<uint32_t>({0}), mow_reader._orderby_key_columns);
+}
+
+// Storage TopN without order-by key columns fails at init, instead of aborting the BE
+// later in VCollectIterator.
+TEST_F(TabletReaderTest, storage_topn_without_orderby_key_columns_fails) {
+    StorageEngine engine({});
+    // A merge-on-read tablet, such as one read as DUP, sets up no order-by key columns.
+    TabletReader mor_reader;
+    init_tablet(engine, mor_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/false);
+    auto st = init_storage_topn(mor_reader, 1);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+
+    // An empty key prefix leaves nothing to sort by.
+    TabletReader dup_reader;
+    init_tablet(engine, dup_reader, KeysType::DUP_KEYS, /*enable_mow=*/false);
+    st = init_storage_topn(dup_reader, 0);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+
+    // Without TopN, a merge-on-read tablet needs no order-by key columns.
+    TabletReader plain_reader;
+    init_tablet(engine, plain_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/false);
+    st = plain_reader._init_orderby_keys_param(TabletReader::ReaderParams {});
+    EXPECT_TRUE(st.ok()) << st;
+}
+} // namespace doris

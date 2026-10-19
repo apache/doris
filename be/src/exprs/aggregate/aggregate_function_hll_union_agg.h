@@ -78,7 +78,7 @@ struct AggregateFunctionHLLData {
 template <typename Data>
 struct AggregateFunctionHLLUnionImpl : Data {
     void insert_result_into(IColumn& to) const {
-        ColumnHLL& column = assert_cast<ColumnHLL&>(to);
+        ColumnHLL& column = assert_cast<ColumnHLL&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(this->get());
     }
 
@@ -90,7 +90,7 @@ struct AggregateFunctionHLLUnionImpl : Data {
 template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
     void insert_result_into(IColumn& to) const {
-        ColumnInt64& column = assert_cast<ColumnInt64&>(to);
+        ColumnInt64& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(this->get_cardinality());
     }
 

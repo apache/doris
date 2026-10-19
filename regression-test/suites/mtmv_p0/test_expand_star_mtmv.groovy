@@ -56,13 +56,15 @@ suite("test_expand_star_mtmv","mtmv") {
 
     def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("jarPath:${jarPath}")
 
     sql "drop function if exists ${functionName}(date, date)"
     sql """ CREATE FUNCTION ${functionName}(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest1",
-            "type"="JAVA_UDF"
+            "type"="JAVA_UDF",
+            "volatility"="immutable"
         ); """
 
     sql """

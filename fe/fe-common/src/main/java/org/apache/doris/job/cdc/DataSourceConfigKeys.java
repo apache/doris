@@ -35,9 +35,16 @@ public class DataSourceConfigKeys {
     public static final String OFFSET_LATEST = "latest";
     public static final String OFFSET_SNAPSHOT = "snapshot";
     public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
+    public static final String SNAPSHOT_SPLIT_SIZE_DEFAULT = "40960";
     public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String SKIP_SNAPSHOT_BACKFILL = "skip_snapshot_backfill";
+    public static final String SCHEMA_CHANGE_ENABLED = "schema_change_enabled";
+    public static final String SCHEMA_CHANGE_BEHAVIOR = "schema_change_behavior";
+    public static final String SCHEMA_CHANGE_BEHAVIOR_DEFAULT = "evolve";
+    // MySQL CDC client identity. Single value "5400" or range "5400-5408".
+    public static final String SERVER_ID = "server_id";
     public static final String SSL_MODE = "ssl_mode";
     public static final String SSL_ROOTCERT = "ssl_rootcert";
     // PG-style spelling; MySQL normalizes to underscore form.

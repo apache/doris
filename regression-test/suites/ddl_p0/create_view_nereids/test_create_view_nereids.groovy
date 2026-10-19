@@ -131,8 +131,7 @@ suite("test_create_view_nereids") {
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
     """
     sql """insert into view_baseall_nereids values(1,[1,2,3]);"""
@@ -252,6 +251,13 @@ suite("test_create_view_nereids") {
         select c8 as c9, c2 as c3, c1 as c4 from (select a+1 c8,abs(a)+2+1 as c2, cast(b as varchar(10)) as c1 from mal_test_view) t);"""
     qt_test_alias "select * from test_view_alias order by c1,c2,c3;"
     qt_test_alias_sql "show create view test_view_alias;"
+
+    // test view column name with special chars (string literal alias contains parens)
+    sql "drop view if exists test_view_special_col_name"
+    sql "create view test_view_special_col_name as select 1 as '(第一列)'"
+    qt_test_view_special_col_name "select * from test_view_special_col_name"
+    qt_test_view_special_col_name_sql "show create view test_view_special_col_name"
+    sql "drop view if exists test_view_special_col_name"
 
     // test * except
     sql "drop view if exists test_view_star_except;"
@@ -373,6 +379,7 @@ suite("test_create_view_nereids") {
 
     def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("jarPath:${jarPath}")
 
     sql "drop function if exists java_udf_create_view_test(date, date)"

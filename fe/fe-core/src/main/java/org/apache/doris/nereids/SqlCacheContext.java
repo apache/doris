@@ -19,6 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -26,11 +28,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
@@ -79,8 +79,8 @@ public class SqlCacheContext {
     private final Map<FullTableName, String> usedViews = Maps.newLinkedHashMap();
     // value: usedColumns
     private final Map<FullTableName, Set<String>> checkPrivilegeTablesOrViews = Maps.newLinkedHashMap();
-    private final Map<FullTableName, List<RowFilterPolicy>> rowPolicies = Maps.newLinkedHashMap();
-    private final Map<FullColumnName, Optional<DataMaskPolicy>> dataMaskPolicies = Maps.newLinkedHashMap();
+    private final Map<FullTableName, List<RowFilterSpec>> rowPolicies = Maps.newLinkedHashMap();
+    private final Map<FullColumnName, Optional<DataMaskSpec>> dataMaskPolicies = Maps.newLinkedHashMap();
     private final Set<Variable> usedVariables = Sets.newLinkedHashSet();
     // key: the expression which **contains** nondeterministic function, e.g. date_add(date_column, date(now()))
     // value: the expression which already try to fold nondeterministic function,
@@ -193,9 +193,17 @@ public class SqlCacheContext {
         try {
             if (tableIf instanceof OlapTable) {
                 version = ((OlapTable) tableIf).getVisibleVersion();
-            } else if (tableIf instanceof HMSExternalTable) {
-                HMSExternalTable hmsExternalTable = (HMSExternalTable) tableIf;
-                version = hmsExternalTable.getUpdateTime();
+            } else if (tableIf instanceof MTMVRelatedTableIf) {
+                // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon:
+                // monotonic snapshot version). OlapTable is handled above; MTMV is an OlapTable too, so this
+                // arm only catches external MVCC tables (flipped hive/iceberg/paimon/hudi).
+                version = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+                if (version <= 0) {
+                    // No reliable data-change signal (empty partition set / dropped): fail-safe, do not
+                    // pin a bogus constant that would serve stale results.
+                    setHasUnsupportedTables(true);
+                    return;
+                }
             }
         } catch (Throwable e) {
             // in cloud, getVisibleVersion throw exception, disable sql cache temporary
@@ -267,22 +275,18 @@ public class SqlCacheContext {
     }
 
     public synchronized void setRowFilterPolicy(
-            String catalog, String db, String table, List<? extends RowFilterPolicy> rowFilterPolicy) {
+            String catalog, String db, String table, List<RowFilterSpec> rowFilterPolicy) {
         rowPolicies.put(new FullTableName(catalog, db, table), Utils.fastToImmutableList(rowFilterPolicy));
     }
 
-    public synchronized Map<FullTableName, List<RowFilterPolicy>> getRowFilterPolicies() {
-        return ImmutableMap.copyOf(rowPolicies);
-    }
-
     public synchronized void addDataMaskPolicy(
-            String catalog, String db, String table, String columnName, Optional<DataMaskPolicy> dataMaskPolicy) {
+            String catalog, String db, String table, String columnName, Optional<DataMaskSpec> dataMaskPolicy) {
         dataMaskPolicies.put(
                 new FullColumnName(catalog, db, table, columnName.toLowerCase(Locale.ROOT)), dataMaskPolicy
         );
     }
 
-    public synchronized Map<FullColumnName, Optional<DataMaskPolicy>> getDataMaskPolicies() {
+    public synchronized Map<FullColumnName, Optional<DataMaskSpec>> getDataMaskPolicies() {
         return ImmutableMap.copyOf(dataMaskPolicies);
     }
 
@@ -370,7 +374,7 @@ public class SqlCacheContext {
         return ImmutableMap.copyOf(checkPrivilegeTablesOrViews);
     }
 
-    public synchronized Map<FullTableName, List<RowFilterPolicy>> getRowPolicies() {
+    public synchronized Map<FullTableName, List<RowFilterSpec>> getRowPolicies() {
         return ImmutableMap.copyOf(rowPolicies);
     }
 
@@ -472,8 +476,8 @@ public class SqlCacheContext {
                     .append("=")
                     .append(pair.value().toSql());
         }
-        for (Entry<FullTableName, List<RowFilterPolicy>> entry : rowPolicies.entrySet()) {
-            List<RowFilterPolicy> policy = entry.getValue();
+        for (Entry<FullTableName, List<RowFilterSpec>> entry : rowPolicies.entrySet()) {
+            List<RowFilterSpec> policy = entry.getValue();
             if (policy.isEmpty()) {
                 continue;
             }
@@ -482,7 +486,7 @@ public class SqlCacheContext {
                     .append("=")
                     .append(policy);
         }
-        for (Entry<FullColumnName, Optional<DataMaskPolicy>> entry : dataMaskPolicies.entrySet()) {
+        for (Entry<FullColumnName, Optional<DataMaskSpec>> entry : dataMaskPolicies.entrySet()) {
             if (!entry.getValue().isPresent()) {
                 continue;
             }

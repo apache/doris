@@ -17,13 +17,20 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.common.Config;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Tests for {@link ConnectorSessionImpl} and {@link ConnectorSessionBuilder}.
@@ -54,6 +61,84 @@ public class ConnectorSessionImplTest {
 
         Assertions.assertEquals("134217728",
                 session.getProperty("file_split_size", String.class));
+    }
+
+    @Test
+    public void testExternalScanTaskReuseRequiresExplicitSessionProperty() {
+        ConnectorSession missing = ConnectorSessionBuilder.create().build();
+        ConnectorSession disabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "false"))
+                .build();
+        ConnectorSession enabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "TRUE"))
+                .build();
+        ConnectorSession catalogOnly = ConnectorSessionBuilder.create()
+                .withCatalogProperties(Map.of("enable_external_scan_task_reuse", "true"))
+                .build();
+
+        Assertions.assertFalse(missing.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(disabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertTrue(enabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(catalogOnly.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
+    public void testExternalScanTaskReuseFollowsTheSessionVariable() {
+        // Connectors see the switch only through the session properties copied out of the SessionVariable, and a
+        // missing property means off. Renaming enable_external_scan_task_reuse or making it invisible would turn
+        // reuse off for every connector, which the connector tests (they set the property by hand) cannot notice.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            Assertions.assertTrue(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "scan reuse is on by default");
+            ctx.getSessionVariable().enableExternalScanTaskReuse = false;
+            Assertions.assertFalse(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "turning the session variable off must reach the connector");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionIsTheVersionPinnedForTheStatement() {
+        // Connectors gate optimizer-time choices on it (an Iceberg partition-hash write needs exec version 18). The
+        // planner pins one version per statement, and the query options the backends receive and the write handle
+        // carry it, so the session must report it too: an ADMIN change of be_exec_version while the statement is
+        // planned must not put a version-18 partition function into a plan sent at version 17. MUTATION: reading
+        // Config.be_exec_version in getBeExecVersion() -> red.
+        int original = Config.be_exec_version;
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            stmtCtx.initializeBeExecVersion(17);
+            Config.be_exec_version = 18;
+            Assertions.assertEquals(17, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion());
+            Assertions.assertEquals(17, ConnectorSessionBuilder.create().build().getBeExecVersion(),
+                    "a session built on the statement's thread reads the thread-local statement context");
+        } finally {
+            Config.be_exec_version = original;
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionFallsBackToTheEngineConfigOutsideAPlannedStatement() {
+        // Sessions built where no statement version is pinned (background loaders, commands that plan no query,
+        // tests) report the configured version.
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 16;
+            Assertions.assertEquals(16, ConnectorSessionBuilder.create().build().getBeExecVersion());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setStatementContext(new StatementContext());
+            Assertions.assertEquals(16, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion(),
+                    "a statement whose version is not pinned yet");
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 
     @Test
@@ -177,5 +262,161 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals("UTC", session.getTimeZone());
         Assertions.assertEquals("en_US", session.getLocale());
         Assertions.assertEquals("", session.getCatalogName());
+    }
+
+    // ──────────────── transaction binding (P4-T06a W-a / gap G1) ────────────────
+
+    // The session is otherwise immutable, but the insert executor binds a connector
+    // transaction onto it at write time (setCurrentTransaction) so the connector's
+    // planWrite can read it back (getCurrentTransaction). If this round-trip regresses,
+    // the maxcompute write plan fails loud ("no transaction on session") at bind time.
+
+    @Test
+    public void testCurrentTransactionIsEmptyBeforeBinding() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "a freshly built session must carry no transaction");
+    }
+
+    @Test
+    public void testSetCurrentTransactionBindsThenReadsBackSameInstance() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        ConnectorTransaction txn = new StubConnectorTransaction(1234L);
+
+        session.setCurrentTransaction(txn);
+
+        Optional<ConnectorTransaction> bound = session.getCurrentTransaction();
+        Assertions.assertTrue(bound.isPresent(), "transaction must be present after binding");
+        Assertions.assertSame(txn, bound.get(),
+                "getCurrentTransaction must return the exact instance the executor bound, "
+                        + "because planWrite stamps that transaction's id into the sink");
+    }
+
+    @Test
+    public void testSetCurrentTransactionNullUnbindsToEmpty() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        session.setCurrentTransaction(new StubConnectorTransaction(1L));
+
+        session.setCurrentTransaction(null);
+
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "binding null must clear the transaction back to empty (Optional.ofNullable semantics)");
+    }
+
+    // ──────────── delegated-credential injection (SUPPORTS_USER_SESSION gate, #63068) ────────────
+
+    @Test
+    public void capableConnectorReceivesDelegatedCredentialAndSessionId() {
+        // A SUPPORTS_USER_SESSION connector: the offered credential + stable session id are carried onto the
+        // session so the connector can project the user's identity onto the remote metadata source.
+        ConnectorDelegatedCredential cred =
+                new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "user-token");
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(cred)
+                .build();
+
+        Assertions.assertTrue(session.getDelegatedCredential().isPresent(),
+                "a capable connector receives the delegated credential");
+        Assertions.assertSame(cred, session.getDelegatedCredential().get());
+        Assertions.assertEquals("stable-session-1", session.getSessionId(),
+                "the stable session id (AuthSession key) is carried, not the queryId");
+    }
+
+    @Test
+    public void nonCapableConnectorSkipsDelegatedCredential() {
+        // Least-privilege: without withUserSessionCapability(true) (the default), the offered credential is NOT
+        // carried — a connector that would never consume the OIDC token never receives it. The session id then
+        // falls back to the queryId.
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(
+                        new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "tok"))
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent(),
+                "a non-capable connector must never receive the delegated credential (least-privilege)");
+        Assertions.assertEquals("q1", session.getSessionId(),
+                "with no credential carried, the session id falls back to the queryId");
+    }
+
+    @Test
+    public void capableConnectorWithNoOfferedCredentialCarriesNone() {
+        // The capability gate alone does not manufacture a credential: a capable session with none offered still
+        // exposes an empty credential (the connector then fails closed on the actual metadata read).
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent());
+    }
+
+    @Test
+    public void sessionTimeZoneReachesConnectorsAsCanonicalId() {
+        // Connectors resolve the session time zone with ZoneId.of, which rejects Doris aliases such as CST or JST
+        // (MaxCompute then stops pushing down datetime predicates). MUTATION: copying the session value as is ->
+        // red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().setTimeZone("JST");
+        Assertions.assertEquals("Asia/Tokyo", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
+        ctx.getSessionVariable().setTimeZone("CST");
+        Assertions.assertEquals("Asia/Shanghai", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
+    }
+
+    @Test
+    public void explicitNoneStatementScopeWinsOverLiveContext() {
+        // Callers that deliberately request NONE must not accidentally inherit a live statement scope. Current
+        // cross-statement metadata loaders use their own operation-local scope, but NONE remains part of the SPI
+        // contract for paths that explicitly need no memoization or lifecycle ownership.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            ConnectorStatementScope live = stmtCtx.getOrCreateConnectorStatementScope();
+
+            // A default session capture binds to the live statement scope (the path a loader must avoid).
+            ConnectorSession bound = ConnectorSessionBuilder.from(ctx).withCatalogId(1L).build();
+            Assertions.assertSame(live, bound.getStatementScope(),
+                    "a default session capture binds to the live statement scope");
+
+            // An explicitly forced NONE scope wins over the live scope.
+            ConnectorSession crossStatement = ConnectorSessionBuilder.from(ctx).withCatalogId(1L)
+                    .withStatementScope(ConnectorStatementScope.NONE).build();
+            Assertions.assertSame(ConnectorStatementScope.NONE, crossStatement.getStatementScope(),
+                    "an explicit NONE scope wins over the live statement context (forced read-through)");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    /** Minimal hand-written {@link ConnectorTransaction}; only identity matters for this test. */
+    private static final class StubConnectorTransaction implements ConnectorTransaction {
+        private final long txnId;
+
+        private StubConnectorTransaction(long txnId) {
+            this.txnId = txnId;
+        }
+
+        @Override
+        public long getTransactionId() {
+            return txnId;
+        }
+
+        @Override
+        public void commit() {
+        }
+
+        @Override
+        public void rollback() {
+        }
+
+        @Override
+        public void close() {
+        }
     }
 }

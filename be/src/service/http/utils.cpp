@@ -46,6 +46,7 @@
 #include "util/md5.h"
 #include "util/path_util.h"
 #include "util/security.h"
+#include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -111,13 +112,29 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     } else if (!auth_token.empty()) {
         auth->token = auth_token;
     } else if (!auth_code.empty()) {
-        auth->auth_code = std::stoll(auth_code); // deprecated
+        // auth_code comes straight from a request header, a malformed one is just an
+        // invalid credential and must not throw out of the http callback. The value is a
+        // credential that is_sensitive_header() masks elsewhere, so it is not logged.
+        auto parsed_auth_code = safe_stoll(auth_code, HTTP_AUTH_CODE);
+        if (!parsed_auth_code.has_value()) {
+            LOG(WARNING) << "parse auth code failed, malformed " << HTTP_AUTH_CODE << " header";
+            return false;
+        }
+        auth->auth_code = parsed_auth_code.value(); // deprecated
     } else if (!valid_basic_auth) {
         return false;
     }
 
     // set user ip
     auth->user_ip.assign(req.remote_host() != nullptr ? req.remote_host() : "");
+
+    auth->cert_pem = req.header(HTTP_HEADER_CLIENT_CERT_PEM);
+    auth->cert_subject = req.header(HTTP_HEADER_CLIENT_CERT_SUBJECT);
+    auth->cert_san = req.header(HTTP_HEADER_CLIENT_CERT_SAN);
+    auth->cert_issuer = req.header(HTTP_HEADER_CLIENT_CERT_ISSUER);
+    auth->cert_cipher = req.header(HTTP_HEADER_CLIENT_CERT_CIPHER);
+    auth->cert_validity_not_before = req.header(HTTP_HEADER_CLIENT_CERT_NOT_BEFORE);
+    auth->cert_validity_not_after = req.header(HTTP_HEADER_CLIENT_CERT_NOT_AFTER);
 
     return true;
 }

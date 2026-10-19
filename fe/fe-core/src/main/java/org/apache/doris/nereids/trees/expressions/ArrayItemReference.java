@@ -77,7 +77,8 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
     @Override
     public boolean nullable() {
-        return ((ArrayType) (this.children.get(0).getDataType())).containsNull();
+        // Array elements are always nullable
+        return true;
     }
 
     @Override
@@ -93,6 +94,11 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     @Override
     public String computeToSql() {
         return child(0).toSql();
+    }
+
+    @Override
+    public String shapeInfo() {
+        return child(0).shapeInfo();
     }
 
     @Override

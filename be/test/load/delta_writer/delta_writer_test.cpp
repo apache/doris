@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -70,6 +71,17 @@ class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
+
+static std::shared_ptr<ReadSchema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+    size_t num_columns = tablet_schema->num_columns();
+    if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+        --num_columns;
+    }
+
+    std::vector<TabletColumnPtr> columns(tablet_schema->columns().begin(),
+                                         tablet_schema->columns().begin() + num_columns);
+    return std::make_shared<ReadSchema>(std::move(columns));
+}
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -446,7 +458,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     int8_t c1 = k1;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
@@ -461,15 +473,16 @@ static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
                 {"2020-07-16 19:39:43", 19}, c3, nullptr, p);
     }
     int64_t c3_int = c3.to_int64();
-    columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
+    columns[2]->insert_data((const char*)&c3_int, sizeof(c3_int));
 
     DateV2Value<DateV2ValueType> c4;
     c4.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
-    columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+    columns[3]->insert_data((const char*)&c4_int, sizeof(c4_int));
 
     int32_t c5 = seq;
-    columns[4]->insert_data((const char*)&c5, sizeof(c2));
+    columns[4]->insert_data((const char*)&c5, sizeof(c5));
+    block->set_columns(std::move(columns));
 }
 
 class TestDeltaWriter : public ::testing::Test {
@@ -522,7 +535,7 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     EXPECT_EQ(Status::OK(), res);
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
@@ -568,7 +581,7 @@ TEST_F(TestDeltaWriter, vec_write) {
                                            slot_desc->col_name()));
     }
 
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     {
         int8_t k1 = -127;
         columns[0]->insert_data((const char*)&k1, sizeof(k1));
@@ -670,7 +683,8 @@ TEST_F(TestDeltaWriter, vec_write) {
         date_v2_int = date_v2.to_date_int_val();
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
-        res = delta_writer->write(&block, {0});
+        block.set_columns(std::move(columns));
+        res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
     }
 
@@ -684,7 +698,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -760,11 +774,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
 
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
 
     generate_data(&block, 123, 456, 90);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -777,7 +791,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -817,15 +831,13 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     // read data, verify the data correct
     OlapReaderStatistics stats;
-    StorageReadOptions opts;
-    opts.stats = &stats;
-    opts.tablet_schema = rowset->tablet_schema();
+    StorageReadOptions opts(stats);
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
+    std::shared_ptr<ReadSchema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
-    auto read_block = rowset->tablet_schema()->create_block();
+    auto read_block = schema->create_read_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok()) << res;
     ASSERT_EQ(1, read_block.rows());
@@ -883,11 +895,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 100);
-        res = delta_writer1->write(&block, {0});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 100);
-        res = delta_writer1->write(&block, {1});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer1->close();
@@ -900,7 +912,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer1->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
-        res = delta_writer1->commit_txn(PSlaveTabletNodes());
+        res = delta_writer1->commit_txn();
         ASSERT_TRUE(res.ok());
     }
     // write data in delta writer 2
@@ -912,11 +924,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 110);
-        res = delta_writer2->write(&block, {0});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 90);
-        res = delta_writer2->write(&block, {1});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer2->close();
@@ -982,7 +994,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         // We can't get the rowset id of rowset2 now, will check the delete bitmap
         // contains row 0 of rowset2 at L929.
 
-        res = delta_writer2->commit_txn(PSlaveTabletNodes());
+        res = delta_writer2->commit_txn();
         ASSERT_TRUE(res.ok());
 
         Version version;
@@ -1024,18 +1036,16 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // read data from rowset 1, verify the data correct
     {
         OlapReaderStatistics stats;
-        StorageReadOptions opts;
-        opts.stats = &stats;
-        opts.tablet_schema = rowset1->tablet_schema();
+        StorageReadOptions opts(stats);
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset1->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
+        std::shared_ptr<ReadSchema> schema = create_full_schema(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset1.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
-        auto read_block = rowset1->tablet_schema()->create_block();
+        auto read_block = schema->create_read_block();
         res = iter->next_batch(&read_block);
         ASSERT_TRUE(res.ok()) << res;
         // key of (10, 123) is deleted
@@ -1052,18 +1062,16 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // read data from rowset 2, verify the data correct
     {
         OlapReaderStatistics stats;
-        StorageReadOptions opts;
-        opts.stats = &stats;
-        opts.tablet_schema = rowset2->tablet_schema();
+        StorageReadOptions opts(stats);
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset2->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
+        std::shared_ptr<ReadSchema> schema = create_full_schema(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset2.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
-        auto read_block = rowset2->tablet_schema()->create_block();
+        auto read_block = schema->create_read_block();
         res = iter->next_batch(&read_block);
         ASSERT_TRUE(res.ok());
         // key of (20, 123) is deleted, because it's seq value is low

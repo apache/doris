@@ -40,7 +40,8 @@ import java.util.List;
 
 /** MultiDistinctSum0 */
 public class MultiDistinctSum0 extends NotNullableAggregateFunction implements UnaryExpression,
-        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard {
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard,
+        NullIgnoringAggregateFunction {
     public MultiDistinctSum0(Expression arg0) {
         this(false, arg0);
     }
@@ -56,7 +57,7 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
                 || argType.isOnlyMetricType()) {
             throw new AnalysisException("sum0 requires a numeric or boolean parameter: " + this.toSql());

@@ -36,6 +36,7 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -102,6 +103,14 @@ public:
 
 protected:
     OlapReaderStatistics _stats;
+
+    Status add_block_with_columns(RowsetWriter* rowset_writer, Block* block,
+                                  MutableColumns* columns) {
+        block->set_columns(std::move(*columns));
+        auto st = rowset_writer->add_block(block);
+        *columns = std::move(*block).mutate_columns();
+        return st;
+    }
 
     bool check_dir(std::vector<std::string>& vec) {
         std::vector<std::string> result;
@@ -232,12 +241,18 @@ protected:
                                             int expect_total_rows, int rows_mark_deleted,
                                             bool skip_value_check = false) {
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_QUERY;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         reader_context.stats = &_stats;
         reader_context.delete_bitmap = delete_bitmap;
 
@@ -251,8 +266,7 @@ protected:
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};
@@ -334,8 +348,8 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
@@ -358,7 +372,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
                     }
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -440,8 +454,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         uint32_t rows_per_segment = 4096;
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -458,7 +472,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -468,8 +482,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -486,7 +500,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -496,8 +510,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -514,7 +528,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -524,8 +538,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -542,7 +556,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -553,8 +567,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 4096;
         std::map<uint32_t, uint32_t> unique_keys;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 // generate some duplicate rows, segment compaction will merge them
                 int rand_i = rand() % (num_segments - 3);
@@ -573,7 +587,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                 }
                 unique_keys.emplace(k1, rid);
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -592,8 +606,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -610,7 +624,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -670,8 +684,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         uint32_t rows_per_segment = 6400;
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -688,7 +702,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -698,8 +712,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -716,7 +730,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -726,8 +740,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -744,7 +758,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -754,8 +768,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -772,7 +786,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -782,8 +796,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -800,7 +814,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -855,8 +869,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
@@ -873,7 +887,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);

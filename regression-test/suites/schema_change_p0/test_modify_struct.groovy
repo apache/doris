@@ -90,6 +90,7 @@ suite ("test_modify_struct") {
                     (1, 14.9, named_struct('col','commiter'), named_struct('col','amory'));
                 """
             // more than 10 characters
+            sql "set enable_strict_cast = true"
             test {
                 sql """ insert into $tableName values
                     (11, 111.111, named_struct('col','commiter'), named_struct('col','amoryIsBetter'));

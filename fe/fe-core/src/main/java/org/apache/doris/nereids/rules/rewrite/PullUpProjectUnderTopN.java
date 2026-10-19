@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Pull up Project under TopN for PushDownTopNThroughJoin
@@ -66,14 +67,20 @@ public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
                         }
                     }
 
-                    Set<Slot> allUsedSlots = project.getProjects().stream().flatMap(ne -> ne.getInputSlots().stream())
+                    Set<Slot> allUsedSlots = project.getProjects().stream()
+                            .flatMap(ne -> ne instanceof Slot ? Stream.of((Slot) ne) : ne.getInputSlots().stream())
                             .collect(Collectors.toSet());
-                    LogicalTopN<Plan> newTopN = topN.withOrderKeys(newOrderKeys);
+                    if (!outputSet.containsAll(allUsedSlots)) {
+                        return null;
+                    }
+                    LogicalTopN<?> newTopN = topN.withOrderKeys(newOrderKeys);
                     if (outputSet.size() == allUsedSlots.size()) {
                         Preconditions.checkState(outputSet.equals(allUsedSlots));
                         return project.withChildren(newTopN.withChildren(project.child()));
                     } else {
-                        Plan columnProject = PlanUtils.projectOrSelf(ImmutableList.copyOf(allUsedSlots),
+                        Plan columnProject = PlanUtils.projectOrSelf(project.child().getOutput().stream()
+                                        .filter(allUsedSlots::contains)
+                                        .collect(ImmutableList.toImmutableList()),
                                 project.child());
                         return project.withChildren(newTopN.withChildren(columnProject));
                     }

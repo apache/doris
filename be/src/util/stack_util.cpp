@@ -17,21 +17,9 @@
 
 #include "util/stack_util.h"
 
-#include <execinfo.h>
-#include <signal.h>
-#include <stdio.h>
-
-#include <boost/stacktrace.hpp>
-
 #include "common/stack_trace.h"
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
-
-namespace google {
-namespace glog_internal_namespace_ {
-void DumpStackTraceToString(std::string* stacktrace);
-}
-} // namespace google
 
 namespace doris {
 
@@ -45,49 +33,6 @@ std::string get_stack_trace(int start_pointers_index, std::string dwarf_location
         dwarf_location_info_mode = config::dwarf_location_info_mode;
     }
 
-    auto tool = config::get_stack_trace_tool;
-    if (tool == "glog") {
-        return get_stack_trace_by_glog();
-    } else if (tool == "boost") {
-        return get_stack_trace_by_boost();
-    } else if (tool == "glibc") {
-        return get_stack_trace_by_glibc();
-    } else if (tool == "libunwind") {
-#if defined(__APPLE__) // TODO
-        return get_stack_trace_by_glog();
-#endif
-        return get_stack_trace_by_libunwind(start_pointers_index, dwarf_location_info_mode);
-    } else {
-        return "no stack";
-    }
-}
-
-std::string get_stack_trace_by_glog() {
-    std::string s;
-    google::glog_internal_namespace_::DumpStackTraceToString(&s);
-    return s;
-}
-
-std::string get_stack_trace_by_boost() {
-    return boost::stacktrace::to_string(boost::stacktrace::stacktrace());
-}
-
-std::string get_stack_trace_by_glibc() {
-    void* trace[16];
-    char** messages = (char**)nullptr;
-    int i, trace_size = 0;
-
-    trace_size = backtrace(trace, 16);
-    messages = backtrace_symbols(trace, trace_size);
-    std::stringstream out;
-    for (i = 1; i < trace_size; ++i) {
-        out << messages[i] << "\n";
-    }
-    return out.str();
-}
-
-std::string get_stack_trace_by_libunwind(int start_pointers_index,
-                                         const std::string& dwarf_location_info_mode) {
     return "\n" + StackTrace().toString(start_pointers_index, dwarf_location_info_mode);
 }
 

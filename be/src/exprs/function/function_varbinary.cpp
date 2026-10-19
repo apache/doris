@@ -230,6 +230,11 @@ struct FromBase64BinaryImpl {
                 continue;
             }
 
+            if (UNLIKELY(slen % 4 != 0)) {
+                null_map[i] = 1;
+                continue;
+            }
+
             int cipher_len = slen / 4 * 3;
             auto [cipher_inline, dst] = VarBinaryOP::alloc(res, i, cipher_len);
 

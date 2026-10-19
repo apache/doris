@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
@@ -213,7 +214,10 @@ public class DescribeCommand extends ShowCommand {
                     SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
                     if (sysTableDescribe.isNative()) {
                         ExternalTable sysTable = sysTableDescribe.getSysExternalTable();
-                        List<Column> columns = sysTable.getFullSchema();
+                        // getBaseSchema, not getFullSchema: a data-shaped sys table may forward invisible
+                        // columns of the table it is derived from, and DESC hides those the way it does for
+                        // the table itself (they show up under show_hidden_columns, like everywhere else).
+                        List<Column> columns = sysTable.getBaseSchema();
                         for (Column column : columns) {
                             List<String> row = Arrays.asList(
                                     column.getName(),
@@ -308,7 +312,14 @@ public class DescribeCommand extends ShowCommand {
                 if (table instanceof OlapTable) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
-                    Set<String> bfColumns = olapTable.getCopiedBfColumns();
+                    Set<String> bfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+                    if (olapTable.getCopiedBfColumns() != null) {
+                        bfColumns.addAll(olapTable.getCopiedBfColumns());
+                    }
+                    bfColumns.addAll(Index.getBfIndexColumns(olapTable.getIndexes()));
+                    if (bfColumns.isEmpty()) {
+                        bfColumns = null;
+                    }
                     Map<Long, List<Column>> indexIdToSchema = olapTable.getIndexIdToSchema();
 
                     // indices order

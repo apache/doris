@@ -168,14 +168,15 @@ struct ConvInt64Impl {
         }
 
         int64_t decimal_num = num;
-        if (src_base != 10) {
-            if (!MathFunctions::decimal_in_base_to_decimal(num, src_base, &decimal_num)) {
+        const auto src_radix = static_cast<Int8>(std::abs(src_base));
+        if (src_radix != 10) {
+            if (!MathFunctions::decimal_in_base_to_decimal(num, src_radix, &decimal_num)) {
                 MathFunctions::handle_parse_result(dst_base, &decimal_num,
                                                    StringParser::PARSE_OVERFLOW);
             }
         }
         StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+        result_column->insert_data(str.data, str.size);
     }
 };
 
@@ -199,8 +200,9 @@ struct ConvStringImpl {
         // if 'ffffffffffffff' parse as int64_t will be overflow, will be get max value: std::numeric_limits<int64_t>::max()
         // so change it parse as uint64_t, and return value could still use int64_t, in function decimal_to_base could handle it.
         // But if the value is still overflow in uint64_t, will get max value of uint64_t
-        int64_t decimal_num =
-                StringParser::string_to_int<uint64_t>(str.data, new_size, src_base, &parse_res);
+        // The sign of src_base controls input validation; parsing uses its magnitude.
+        int64_t decimal_num = StringParser::string_to_int<uint64_t>(str.data, new_size,
+                                                                    std::abs(src_base), &parse_res);
         if (src_base < 0 && decimal_num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();
@@ -211,7 +213,7 @@ struct ConvStringImpl {
             result_column->insert_data("0", 1);
         } else {
             StringRef str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
+            result_column->insert_data(str_base.data, str_base.size);
         }
     }
 };

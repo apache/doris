@@ -48,6 +48,17 @@ public class UnassignedLocalTVFSinkJob extends AbstractUnassignedJob {
         this.backendId = backendId;
     }
 
+    /**
+     * Compute a single assigned job on the designated backend for local TVF sink.
+     * The target backend is determined by {@code backendId}. If the specified backend
+     * is not alive, an {@link IllegalStateException} is thrown. This ensures
+     * INSERT INTO local(...) writes to the correct node's local disk.
+     *
+     * @param distributeContext the distribute context (unused — worker is fixed by backendId)
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a list containing exactly one assigned job on the designated backend
+     * @throws IllegalStateException if the target backend is not available
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

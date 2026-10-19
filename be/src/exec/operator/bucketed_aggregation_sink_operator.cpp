@@ -17,6 +17,7 @@
 
 #include "exec/operator/bucketed_aggregation_sink_operator.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -87,10 +88,9 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
             shared_state.aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
         }
 
-        // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
+        // Detect simple_count: exactly one COUNT(*) / COUNT(slot), with GROUP BY present.
         // Bucketed agg always has GROUP BY (without-key not supported).
-        if (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->function()->is_simple_count()) {
+        if (p._aggregate_evaluators.size() == 1 && p._aggregate_evaluators[0]->is_simple_count()) {
             shared_state.use_simple_count = true;
         }
         return Status::OK();
@@ -150,8 +150,7 @@ Status BucketedAggSinkLocalState::_create_agg_status(AggregateDataPtr data) {
 Status BucketedAggSinkLocalState::_destroy_agg_status(AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->function()->destroy(data +
-                                                      shared_state.offsets_of_aggregate_states[i]);
+        _aggregate_evaluators[i]->destroy(data + shared_state.offsets_of_aggregate_states[i]);
     }
     return Status::OK();
 }
@@ -175,8 +174,11 @@ Status BucketedAggSinkLocalState::_execute_with_serialized_key(Block* block) {
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            auto mutable_column =
+                    IColumn::mutate(std::move(block->get_by_position(result_column_id).column));
+            mutable_column->replace_float_special_values();
+            block->get_by_position(result_column_id).column = std::move(mutable_column);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -385,6 +387,10 @@ Status BucketedAggSinkLocalState::close(RuntimeState* state, Status exec_status)
     return Base::close(state, exec_status);
 }
 
+bool BucketedAggSinkLocalState::is_blockable() const {
+    return Base::_parent->template cast<BucketedAggSinkOperatorX>().has_blockable_aggregate();
+}
+
 // ============ BucketedAggSinkOperatorX ============
 
 BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -393,6 +399,11 @@ BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operato
         : DataSinkOperatorX<BucketedAggSinkLocalState>(operator_id, tnode, dest_id),
           _tuple_id(tnode.bucketed_agg_node.tuple_id),
           _pool(pool) {}
+
+bool BucketedAggSinkOperatorX::has_blockable_aggregate() const {
+    return std::any_of(_aggregate_evaluators.begin(), _aggregate_evaluators.end(),
+                       [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
 
 Status BucketedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<BucketedAggSinkLocalState>::init(tnode, state));
@@ -419,9 +430,9 @@ Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     _output_tuple_desc = _intermediate_tuple_desc;
 
-    RETURN_IF_ERROR(
-            VExpr::prepare(_probe_expr_ctxs, state,
-                           DataSinkOperatorX<BucketedAggSinkLocalState>::_child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state,
+                                   DataSinkOperatorX<BucketedAggSinkLocalState>::_child
+                                           ->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
     size_t j = _probe_expr_ctxs.size();
@@ -438,7 +449,9 @@ Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<BucketedAggSinkLocalState>::_child->row_desc(),
+                state,
+                DataSinkOperatorX<BucketedAggSinkLocalState>::_child
+                        ->operator_row_desc_after_projection(),
                 intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
@@ -451,12 +464,11 @@ Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
-        const auto& agg_function = _aggregate_evaluators[i]->function();
+        const auto* agg_function = _aggregate_evaluators[i];
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
         if (i + 1 < _aggregate_evaluators.size()) {
-            size_t alignment_of_next_state =
-                    _aggregate_evaluators[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _aggregate_evaluators[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
@@ -469,7 +481,7 @@ Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status BucketedAggSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status BucketedAggSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

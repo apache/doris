@@ -29,11 +29,11 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/column/column_string.h"
-#include "core/column/predicate_column.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
@@ -183,6 +183,12 @@ struct LikeSearchState {
 
     std::string pattern_str;
 
+    bool enable_hyperscan_fallback = true;
+
+    /// Whether a pattern rejected by RE2 may fall back to Boost.Regex, mirrors the
+    /// `enable_extended_regex` session variable.
+    bool enable_extended_regex = false;
+
     /// Used for LIKE predicates if the pattern is a constant argument, and is either a
     /// constant string or has a constant string at the beginning or end of the pattern.
     /// This will be set in order to check for that pattern in the corresponding part of
@@ -227,7 +233,7 @@ struct LikeSearchState {
 
     LikeSearchState() = default;
 
-    Status clone(LikeSearchState& cloned);
+    Status clone(LikeSearchState& cloned) const;
 
     void set_search_string(const std::string& search_string_arg) {
         search_string = search_string_arg;
@@ -293,6 +299,8 @@ public:
     friend struct VectorEndsWithSearchState;
 
 protected:
+    static bool should_fallback_to_re2(std::string_view regexp);
+
     Status vector_const(const ColumnString& values, const StringRef* pattern_val,
                         ColumnUInt8::Container& result, const LikeFn& function,
                         LikeSearchState* search_state) const;
@@ -300,10 +308,6 @@ protected:
     Status vector_non_const(const ColumnString& values, const ColumnString& patterns,
                             ColumnUInt8::Container& result, LikeState* state,
                             size_t input_rows_count) const;
-
-    Status execute_substring(const ColumnString::Chars& values,
-                             const ColumnString::Offsets& value_offsets,
-                             ColumnUInt8::Container& result, LikeSearchState* search_state) const;
 
     template <bool LIKE_PATTERN>
     static VPatternSearchStateSPtr pattern_type_recognition(const ColumnString& patterns);
@@ -366,9 +370,34 @@ protected:
     static Status regexp_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                    const StringRef& pattern, unsigned char* result);
 
+    // Compile `pattern` with RE2. When RE2 rejects it and extended regex is enabled, fall back
+    // to Boost.Regex, which supports zero-width assertions such as `(?=...)` and `(?<=...)`.
+    // Exactly one of `regex` / `boost_regex` is set on success.
+    static Status compile_regex(std::string_view pattern, bool enable_extended_regex,
+                                std::unique_ptr<re2::RE2>* regex,
+                                std::unique_ptr<boost::regex>* boost_regex);
+
+    // Match `val` with whichever engine `compile_regex` produced. Boost.Regex can also fail while
+    // matching (e.g. the backtracking budget of a pathological pattern is exhausted), which is
+    // reported as a non-OK Status instead of an exception.
+    static Status regex_search(const re2::RE2* regex, const boost::regex* boost_regex,
+                               const StringRef& val, unsigned char* result);
+
     // hyperscan compile expression to database and allocate scratch space
     static Status hs_prepare(FunctionContext* context, const char* expression,
                              hs_database_t** database, hs_scratch_t** scratch);
+
+    // Send the original LIKE/REGEXP pattern to the selected reader. The reader compiles it
+    // against its persisted gram scheme and returns an approximate candidate bitmap.
+    //
+    // Returns OK without a result when the switch is off, the call is not one column and one
+    // constant pattern, the pattern is NULL, or the index declines it. Any other index error is
+    // returned so the scan applies its usual fallback policy.
+    enum class GramCompileKind { LIKE, REGEXP };
+    Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
+                               const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+                               std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+                               segment_v2::InvertedIndexResultBitmap& bitmap_result) const;
 };
 
 class FunctionLike : public FunctionLikeBase {
@@ -391,6 +420,20 @@ public:
     friend struct VectorSubStringSearchState;
     friend struct VectorStartsWithSearchState;
     friend struct VectorEndsWithSearchState;
+
+    // The only push-down implemented for LIKE is the gram index, which answers with a superset
+    // of the matching rows.
+    bool index_result_is_approximate() const override { return true; }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return evaluate_gram_index(GramCompileKind::LIKE, arguments, data_type_with_names,
+                                   iterators, num_rows, bitmap_result);
+    }
 
 private:
     static Status like_fn(const LikeSearchState* state, const ColumnString& val,
@@ -415,6 +458,20 @@ public:
     String get_name() const override { return name; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
+    // The only push-down implemented for REGEXP is the gram index, which answers with a superset
+    // of the matching rows.
+    bool index_result_is_approximate() const override { return true; }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return evaluate_gram_index(GramCompileKind::REGEXP, arguments, data_type_with_names,
+                                   iterators, num_rows, bitmap_result);
+    }
 };
 
 } // namespace doris

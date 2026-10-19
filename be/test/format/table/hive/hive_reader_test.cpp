@@ -413,7 +413,8 @@ protected:
                     EXPECT_GT(col->size(), 0) << name << " column/subcolumn size should be > 0";
 
                     // Check if it's a nullable column
-                    if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
+                    if (const auto* nullable_col =
+                                check_and_get_column<ColumnNullable>(col.get())) {
                         auto nested_type =
                                 assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
 
@@ -430,7 +431,8 @@ protected:
                                           nested_name, depth + (is_complex_type ? 1 : 0));
                     }
                     // Check if it's a struct column
-                    else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
+                    else if (const auto* struct_col =
+                                     check_and_get_column<ColumnStruct>(col.get())) {
                         auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
                         for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
                             std::string field_name = struct_type->get_element_name(i);
@@ -440,7 +442,7 @@ protected:
                         }
                     }
                     // Check if it's an array column
-                    else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
+                    else if (const auto* array_col = check_and_get_column<ColumnArray>(col.get())) {
                         auto array_type = assert_cast<const DataTypeArray*>(type.get());
                         auto element_type = array_type->get_nested_type();
                         print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",

@@ -61,7 +61,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultFileSinkLocalState;
@@ -87,5 +87,8 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VFileResultWriter, ResultFileSinkOperatorX>;
 
 } // namespace doris

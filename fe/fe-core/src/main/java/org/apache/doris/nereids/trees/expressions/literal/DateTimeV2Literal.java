@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -62,6 +64,33 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
         roundMicroSecond(dateType.getScale());
+    }
+
+    /** Date difference rounded toward zero by time part. */
+    public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
+        long days = DateV2Literal.dateDiffInDays(lhs, rhs);
+        long nanosecondDiff = lhs.getTimePartInNanoseconds() - rhs.getTimePartInNanoseconds();
+        if (days > 0 && nanosecondDiff < 0) {
+            days--;
+        } else if (days < 0 && nanosecondDiff > 0) {
+            days++;
+        }
+        return days;
+    }
+
+    /** Datetime difference in seconds rounded toward zero by microsecond part. */
+    public static long datetimeDiffInSecondsRoundToZeroByMicroSecond(DateLiteral lhs, DateLiteral rhs) {
+        return datetimeDiffInMicroSeconds(lhs, rhs) / 1000L / 1000L;
+    }
+
+    /** Datetime difference in microseconds. */
+    public static long datetimeDiffInMicroSeconds(DateLiteral lhs, DateLiteral rhs) {
+        return DateV2Literal.dateDiffInDays(lhs, rhs) * 24L * 60L * 60L * 1000L * 1000L
+                + timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+    }
+
+    private static long timePartToMicroSecond(DateLiteral date) {
+        return date.getTimePartInNanoseconds() / 1000L;
     }
 
     @Override
@@ -168,6 +197,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         if (targetType.isDateTimeType()) {
             return new DateTimeLiteral((DateTimeType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        }
+        if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, hour, minute, second,
+                        microSecond * 1000);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         }
         if (targetType.isTimeStampTzType()) {
             DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
@@ -379,7 +416,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public DateTimeV2Literal plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -389,6 +426,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public int getScale() {
         return ((DateTimeV2Type) dataType).getScale();
+    }
+
+    /** Return DATETIMEV2's microsecond fraction in the common nanosecond comparison unit. */
+    public long getNanoSecond() {
+        return microSecond * 1000L;
     }
 
     public int commonScale(DateTimeV2Literal other) {
@@ -444,7 +486,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

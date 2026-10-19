@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -67,8 +68,11 @@ struct SchemaScannerCommonParam {
     const std::string* ip = nullptr;                   // frontend ip
     int32_t port;                                      // frontend thrift port
     int64_t thread_id;
+    // Whether the session that planned this scan asked for MySQL compatible key metadata.
+    bool mysql_compatible_index_metadata = false;
     const std::string* catalog = nullptr;
     std::set<TNetworkAddress> fe_addr_list;
+    std::set<std::string> required_columns;
 };
 
 // scanner parameter from frontend

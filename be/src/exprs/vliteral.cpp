@@ -28,6 +28,9 @@
 
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_complex.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -35,13 +38,27 @@
 
 namespace doris {
 
-class VExprContext;
+namespace {
 
-void VLiteral::init(const TExprNode& node) {
-    Field field;
-    field = _data_type->get_field(node);
-    _column_ptr = _data_type->create_column_const(1, field);
+bool supports_literal_digest(const IColumn& column) {
+    // These concrete columns inherit IColumn's throwing xxHash implementation.
+    // Inspect the column rather than the SQL type: AGG_STATE can use either a
+    // hashable string column or an unsupported fixed-length object column.
+    if (is_column<ColumnBitmap>(column) || is_column<ColumnHLL>(column) ||
+        is_column<ColumnQuantileState>(column) || is_column<ColumnVarbinary>(column) ||
+        is_column<ColumnFixedLengthObject>(column)) {
+        return false;
+    }
+
+    bool supported = true;
+    column.for_each_subcolumn(
+            [&](const IColumn& child) { supported = supported && supports_literal_digest(child); });
+    return supported;
 }
+
+} // namespace
+
+class VExprContext;
 
 Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -106,6 +123,11 @@ bool VLiteral::equals(const VExpr& other) {
 }
 
 uint64_t VLiteral::get_digest(uint64_t seed) const {
+    // Wrappers and containers delegate hashing to their nested columns. A zero
+    // digest disables the condition cache without changing the column hash contract.
+    if (!supports_literal_digest(*_column_ptr)) {
+        return 0;
+    }
     _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
     return seed;
 }

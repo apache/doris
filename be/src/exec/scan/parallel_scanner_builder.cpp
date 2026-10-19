@@ -25,11 +25,44 @@
 #include "common/status.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/olap_scanner.h"
+#include "io/io_common.h"
+#include "runtime/query_context.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/base_tablet.h"
 
 namespace doris {
+
+namespace {
+
+io::FileCacheStatistics take_initial_file_cache_stats(
+        std::unordered_map<int64_t, io::FileCacheStatistics>* preload_stats, int64_t tablet_id) {
+    auto it = preload_stats->find(tablet_id);
+    if (it == preload_stats->end()) {
+        return {};
+    }
+    auto stats = std::move(it->second);
+    preload_stats->erase(it);
+    return stats;
+}
+
+io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistics* preload_stats) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = preload_stats ? &preload_stats->file_cache_stats : nullptr;
+    if (state == nullptr) {
+        return io_ctx;
+    }
+    io_ctx.query_id = &state->query_id();
+    io_ctx.read_file_cache = state->query_options().enable_file_cache;
+    io_ctx.is_disposable = state->query_options().disable_file_cache;
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
+}
+
+} // namespace
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
@@ -47,7 +80,13 @@ Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) 
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (size_t tablet_idx = 0; tablet_idx < _tablets.size(); ++tablet_idx) {
+        const auto& key_ranges = *_tablet_key_ranges[tablet_idx];
+        if (key_ranges.empty()) {
+            continue;
+        }
+        auto&& [tablet, version] = _tablets[tablet_idx];
+        const auto& scan_range = *_scan_ranges[tablet_idx];
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -109,10 +148,12 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                         partitial_read_source.rs_splits.emplace_back(std::move(split));
 
                         scanners.emplace_back(_build_scanner(
-                                tablet, version, _key_ranges,
+                                tablet, version, key_ranges, scan_range,
                                 {.rs_splits = std::move(partitial_read_source.rs_splits),
                                  .delete_predicates = entire_read_source.delete_predicates,
-                                 .delete_bitmap = entire_read_source.delete_bitmap}));
+                                 .delete_bitmap = entire_read_source.delete_bitmap},
+                                take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                              tablet->tablet_id())));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -154,10 +195,12 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
             }
 #endif
             scanners.emplace_back(
-                    _build_scanner(tablet, version, _key_ranges,
+                    _build_scanner(tablet, version, key_ranges, scan_range,
                                    {.rs_splits = std::move(partitial_read_source.rs_splits),
                                     .delete_predicates = entire_read_source.delete_predicates,
-                                    .delete_bitmap = entire_read_source.delete_bitmap}));
+                                    .delete_bitmap = entire_read_source.delete_bitmap},
+                                   take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                                 tablet->tablet_id())));
         }
     }
 
@@ -171,7 +214,13 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
 Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (size_t tablet_idx = 0; tablet_idx < _tablets.size(); ++tablet_idx) {
+        const auto& key_ranges = *_tablet_key_ranges[tablet_idx];
+        if (key_ranges.empty()) {
+            continue;
+        }
+        auto&& [tablet, version] = _tablets[tablet_idx];
+        const auto& scan_range = *_scan_ranges[tablet_idx];
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -202,11 +251,13 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
                 TabletReadSource partitial_read_source;
                 partitial_read_source.rs_splits.emplace_back(std::move(split));
 
-                scanners.emplace_back(
-                        _build_scanner(tablet, version, _key_ranges,
-                                       {.rs_splits = std::move(partitial_read_source.rs_splits),
-                                        .delete_predicates = entire_read_source.delete_predicates,
-                                        .delete_bitmap = entire_read_source.delete_bitmap}));
+                scanners.emplace_back(_build_scanner(
+                        tablet, version, key_ranges, scan_range,
+                        {.rs_splits = std::move(partitial_read_source.rs_splits),
+                         .delete_predicates = entire_read_source.delete_predicates,
+                         .delete_bitmap = entire_read_source.delete_bitmap},
+                        take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                      tablet->tablet_id())));
             }
         }
     }
@@ -219,11 +270,14 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
-    size_t idx = 0;
     bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                         ? _state->query_options().enable_segment_cache
                                         : true;
-    for (auto&& [tablet, version] : _tablets) {
+    for (size_t idx = 0; idx < _tablets.size(); ++idx) {
+        if (_tablet_key_ranges[idx]->empty()) {
+            continue;
+        }
+        auto&& [tablet, version] = _tablets[idx];
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];
@@ -234,15 +288,17 @@ Status ParallelScannerBuilder::_load() {
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
+            OlapReaderStatistics preload_stats;
+            auto preload_io_ctx = create_preload_io_context(_state, &preload_stats);
             RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
-                                                              &_builder_stats));
+                                                              &preload_stats, &preload_io_ctx));
+            _tablet_preload_file_cache_stats[tablet_id].merge_from(preload_stats.file_cache_stats);
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
             }
             _total_rows += rowset->num_rows();
         }
-        idx++;
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;
@@ -253,9 +309,25 @@ Status ParallelScannerBuilder::_load() {
 
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReadSource&& read_source) {
-    OlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
-                                version, std::move(read_source), _limit,     _is_preaggregation};
+        const TPaloScanRange& scan_range, TabletReadSource&& read_source,
+        io::FileCacheStatistics&& initial_file_cache_stats) {
+    OlapScanner::Params params {
+            .state = _state,
+            .profile = _scanner_profile.get(),
+            .key_ranges = key_ranges,
+            .tablet = std::move(tablet),
+            .version = version,
+            .read_source = std::move(read_source),
+            .initial_file_cache_stats = std::move(initial_file_cache_stats),
+            .limit = _limit,
+            .aggregation = _is_preaggregation,
+            .read_row_binlog = false,
+            .binlog_scan_type = TBinlogScanType::NONE,
+            .bucket_seq = scan_range.bucket_seq,
+            .bucket_num = scan_range.bucket_num,
+            .start_tso = std::nullopt,
+            .end_tso = std::nullopt,
+    };
     return OlapScanner::create_shared(_parent, std::move(params));
 }
 

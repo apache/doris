@@ -217,30 +217,18 @@ private:
             if (c0_is_const) {
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
                 const auto& a = c0_const->template get_value<A>();
-                if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
-                    constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
-                else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                }
+                const auto* c1_vec = assert_cast<const ColVecB*>(c1.get());
+                constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
                 const auto& b = c1_const->template get_value<B>();
-                if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get()))
-                    vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
-                else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                }
+                const auto* c0_vec = assert_cast<const ColVecA*>(c0.get());
+                vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
             } else {
-                if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get())) {
-                    if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
-                        vector_vector<scale_left, scale_right>(c0_vec->get_data(),
-                                                               c1_vec->get_data(), vec_res, scale);
-                    else {
-                        throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                    }
-                } else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                }
+                const auto* c0_vec = assert_cast<const ColVecA*>(c0.get());
+                const auto* c1_vec = assert_cast<const ColVecB*>(c1.get());
+                vector_vector<scale_left, scale_right>(c0_vec->get_data(), c1_vec->get_data(),
+                                                       vec_res, scale);
             }
             return c_res;
         } else {

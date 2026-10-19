@@ -17,9 +17,8 @@
 
 package org.apache.doris.connector.jdbc.client;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,7 +80,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from ClickHouse", e);
+            throw jdbcException("Failed to get database name list from ClickHouse", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -105,7 +104,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             }
             consumer.accept(rs);
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -133,7 +132,8 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+        // ClickHouse JDBC V2 filters engines by these vendor-specific table type names.
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"};
     }
 
     @Override
@@ -145,25 +145,32 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     private boolean isNewClickHouseDriver(Connection conn) throws SQLException {
         if (isNewDriver == null) {
-            String driverVersion = conn.getMetaData().getDriverVersion();
-            isNewDriver = driverVersion != null && !driverVersion.startsWith("0.3")
-                    && !driverVersion.startsWith("0.4");
-            if (!isNewDriver) {
-                // Old driver uses schema mode (not catalog), matching old JdbcClickHouseClient
-                databaseTermIsCatalog = false;
-            } else {
-                // New driver checks the JDBC URL for databaseterm parameter
-                databaseTermIsCatalog = "catalog".equalsIgnoreCase(getDatabaseTermFromUrl());
-            }
+            DatabaseMetaData meta = conn.getMetaData();
+            String driverVersion = meta.getDriverVersion();
+            isNewDriver = isNewClickHouseDriverVersion(driverVersion);
+            databaseTermIsCatalog = isDatabaseTermCatalog(
+                    driverVersion, meta.supportsCatalogsInDataManipulation());
         }
         return isNewDriver;
     }
 
-    private String getDatabaseTermFromUrl() {
-        if (jdbcUrl != null && jdbcUrl.toLowerCase().contains("databaseterm=schema")) {
-            return "schema";
+    static boolean isNewClickHouseDriverVersion(String driverVersion) {
+        // Custom jars may omit or rewrite manifest versions; only a known legacy version overrides metadata.
+        if (driverVersion == null || driverVersion.isEmpty()) {
+            return true;
         }
-        return "catalog";
+        try {
+            String[] versionParts = driverVersion.split("\\.");
+            int majorVersion = Integer.parseInt(versionParts[0]);
+            int minorVersion = Integer.parseInt(versionParts[1]);
+            return majorVersion > 0 || (majorVersion == 0 && minorVersion >= 5);
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            return true;
+        }
+    }
+
+    static boolean isDatabaseTermCatalog(String driverVersion, boolean supportsCatalogs) {
+        return isNewClickHouseDriverVersion(driverVersion) && supportsCatalogs;
     }
 
     @Override
@@ -191,12 +198,13 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
         // DateTime64
         if (chType.startsWith("DateTime64(")) {
+            fieldInfo.setAllowNull(true);
             return parseDateTimeType(chType);
         }
 
         // DateTime('timezone') — DateTime with timezone parameter, second precision
         if (chType.startsWith("DateTime(")) {
-            return ConnectorType.of("DATETIMEV2", 0, -1);
+            return ConnectorType.of("TIMESTAMPTZ", 0, -1);
         }
 
         // Array
@@ -234,12 +242,13 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             case "Date32":
                 return ConnectorType.of("DATEV2");
             case "DateTime":
-                return ConnectorType.of("DATETIMEV2", 0, -1);
+                return ConnectorType.of("TIMESTAMPTZ", 0, -1);
             case "String":
-            case "UUID":
             case "IPv4":
             case "IPv6":
                 return ConnectorType.of("STRING");
+            case "UUID":
+                return ConnectorType.of("UUID");
             default:
                 if (chType.startsWith("FixedString(") || chType.startsWith("Enum8(")
                         || chType.startsWith("Enum16(")) {
@@ -285,6 +294,6 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
         String[] parts = inner.split(",");
         int scale = Integer.parseInt(parts[0].trim());
         scale = Math.min(scale, JDBC_DATETIME_SCALE);
-        return ConnectorType.of("DATETIMEV2", scale, -1);
+        return ConnectorType.of("TIMESTAMPTZ", scale, -1);
     }
 }

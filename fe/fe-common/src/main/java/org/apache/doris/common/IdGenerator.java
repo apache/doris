@@ -33,6 +33,14 @@ public abstract class IdGenerator<IdType extends Id<IdType>> {
         return this;
     }
 
+    /**
+     * The id value that {@link #getNextId()} would hand out next. Used to seed a fresh
+     * per-execution id generator from an existing one so ids never collide.
+     */
+    public int getCurrentId() {
+        return nextId;
+    }
+
     public abstract IdType getNextId();
 
 }

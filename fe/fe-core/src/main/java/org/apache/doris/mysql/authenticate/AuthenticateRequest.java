@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.authenticate.password.Password;
 
 import java.util.Collections;
@@ -35,12 +36,21 @@ public class AuthenticateRequest {
     private final String credentialType;
     private final byte[] credential;
     private final Map<String, Object> properties;
+    private final UserIdentity userIdentity;
 
     public AuthenticateRequest(String userName, Password password, String remoteIp) {
         this(builder()
                 .userName(userName)
                 .password(password)
                 .remoteHost(remoteIp));
+    }
+
+    public AuthenticateRequest(String userName, Password password, String remoteIp, UserIdentity userIdentity) {
+        this(builder()
+                .userName(userName)
+                .password(password)
+                .remoteHost(remoteIp)
+                .userIdentity(userIdentity));
     }
 
     private AuthenticateRequest(Builder builder) {
@@ -54,6 +64,7 @@ public class AuthenticateRequest {
         this.properties = builder.properties == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new HashMap<>(builder.properties));
+        this.userIdentity = builder.userIdentity;
     }
 
     public String getUserName() {
@@ -92,6 +103,24 @@ public class AuthenticateRequest {
         return properties;
     }
 
+    public UserIdentity getUserIdentity() {
+        return userIdentity;
+    }
+
+    public AuthenticateRequest withUserIdentity(UserIdentity userIdentity) {
+        return builder()
+                .userName(userName)
+                .password(password)
+                .remoteHost(remoteHost)
+                .remotePort(remotePort)
+                .clientType(clientType)
+                .credentialType(credentialType)
+                .credential(credential)
+                .properties(properties)
+                .userIdentity(userIdentity)
+                .build();
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -105,6 +134,7 @@ public class AuthenticateRequest {
         private String credentialType;
         private byte[] credential;
         private Map<String, Object> properties;
+        private UserIdentity userIdentity;
 
         private Builder() {
         }
@@ -154,6 +184,11 @@ public class AuthenticateRequest {
                 this.properties = new HashMap<>();
             }
             this.properties.put(key, value);
+            return this;
+        }
+
+        public Builder userIdentity(UserIdentity userIdentity) {
+            this.userIdentity = userIdentity;
             return this;
         }
 

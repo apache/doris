@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -27,6 +31,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -93,6 +98,27 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testSkipWideOtherConjunctButKeepHashConjunct() {
+        Expression widePredicate = new EqualTo(repeatAdd(scan1.getOutput().get(1), 257), Literal.of(1));
+        LogicalPlan innerJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(widePredicate))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
+                .applyTopDown(new InferJoinNotNull())
+                .matches(
+                        innerLogicalJoin(
+                                logicalFilter().when(f -> f.getPredicate().toString()
+                                        .equals("( not id#10000 IS NULL)")),
+                                logicalFilter().when(f -> f.getPredicate().toString()
+                                        .equals("( not id#10002 IS NULL)"))
+                        )
+                );
+    }
+
+    @Test
     void testInferAndEliminate() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -109,4 +135,11 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
                 );
     }
 
+    private Expression repeatAdd(Expression expression, int width) {
+        if (width == 1) {
+            return expression;
+        }
+        int leftWidth = width / 2;
+        return new Add(repeatAdd(expression, leftWidth), repeatAdd(expression, width - leftWidth));
+    }
 }

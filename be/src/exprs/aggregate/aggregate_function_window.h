@@ -397,8 +397,7 @@ public:
 };
 
 template <bool result_is_nullable, bool arg_is_nullable>
-struct FirstLastData
-        : public ReaderFirstAndLastData<void, result_is_nullable, arg_is_nullable, false> {
+struct FirstLastData : public ReaderFirstAndLastData<result_is_nullable, arg_is_nullable> {
 public:
     void set_is_null() { this->_data_value.reset(); }
 };
@@ -417,19 +416,11 @@ public:
     int64_t _frame_total_rows = 0;
 };
 
-template <bool arg_is_nullable>
-struct BaseValue : public Value<arg_is_nullable> {
-public:
-    bool is_null() const { return this->_ptr == nullptr; }
-    // because _ptr pointer to first_argument or third argument, so it's difficult to cast ptr
-    // so here will call virtual function
-    StringRef get_value() const { return this->_ptr->get_data_at(this->_offset); }
-};
-
 template <bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
     static constexpr bool result_nullable = result_is_nullable;
+
     void reset() {
         _data_value.reset();
         _is_inited = false;
@@ -438,17 +429,16 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
-            if (_data_value.is_null()) {
-                auto& col = assert_cast<ColumnNullable&>(to);
+            if (!_data_value.has()) {
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 col.insert_default();
             } else {
-                auto& col = assert_cast<ColumnNullable&>(to);
-                StringRef value = _data_value.get_value();
-                col.insert_data(value.data, value.size);
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
+                col.get_null_map_data().push_back(0);
+                _data_value.insert_result_into(col.get_nested_column());
             }
         } else {
-            StringRef value = _data_value.get_value();
-            to.insert_data(value.data, value.size);
+            _data_value.insert_result_into(to);
         }
     }
 
@@ -456,13 +446,15 @@ public:
         if constexpr (arg_is_nullable) {
             if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
                         ->is_null_at(pos)) {
-                // ptr == nullptr means nullable
                 _data_value.reset();
                 return;
             }
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            _data_value.set(nullable.get_nested_column(), pos);
+        } else {
+            _data_value.set(*columns[0], pos);
         }
-        // here ptr is pointer to nullable column or not null column from first
-        _data_value.set_value(columns[0], pos);
     }
 
     void set_value_from_default(const IColumn* column, size_t pos) {
@@ -473,16 +465,17 @@ public:
             if (nullable_column->is_null_at(pos)) {
                 this->_data_value.reset();
             } else {
-                this->_data_value.set_value(nullable_column->get_nested_column_ptr().get(), pos);
+                this->_data_value.set(nullable_column->get_nested_column(), pos);
             }
         } else {
-            this->_data_value.set_value(column, pos);
+            this->_data_value.set(*column, pos);
         }
     }
 
     void set_offset_value(const IColumn* column) {
         if (!_is_inited) {
-            const auto* column_number = assert_cast<const ColumnInt64*>(column);
+            const auto* column_number =
+                    assert_cast<const ColumnInt64*, TypeCheckOnRelease::DISABLE>(column);
             _offset_value = column_number->get_data()[0];
             _is_inited = true;
         }
@@ -491,7 +484,7 @@ public:
     int64_t get_offset_value() const { return _offset_value; }
 
 private:
-    BaseValue<arg_is_nullable> _data_value;
+    SingleValueDataColumn _data_value;
     bool _is_inited = false;
     int64_t _offset_value = 0;
 };
@@ -550,8 +543,10 @@ struct WindowFunctionFirstImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-            if (columns[0]->is_nullable()) {
-                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (is_column_nullable(*columns[0])) {
+                const auto& arg_nullable =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[0]);
                 // the valid range is: [frame_start, frame_end)
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
                     frame_start++;
@@ -584,8 +579,10 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-            if (columns[0]->is_nullable()) {
-                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (is_column_nullable(*columns[0])) {
+                const auto& arg_nullable =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[0]);
                 // wants find a not null value in [frame_start, frame_end)
                 // iff has find: set_value and return directly
                 // iff not find: the while loop is finished
@@ -623,14 +620,15 @@ struct WindowFunctionNthValueImpl : Data {
                 this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
         this->_frame_total_rows += real_frame_end - real_frame_start;
         int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                                 .get_data()[0] -
-                         1;
-        if (offset >= this->_frame_total_rows) {
+                                 .get_data()[0];
+        DCHECK_NE(offset, 0);
+        int64_t row_position = offset > 0 ? offset - 1 : this->_frame_total_rows + offset;
+        if (row_position < 0 || row_position >= this->_frame_total_rows) {
             // offset is beyond the frame, so set null
             this->set_is_null();
             return;
         }
-        this->set_value(columns, offset + this->_frame_start_pose);
+        this->set_value(columns, row_position + this->_frame_start_pose);
     }
 
     static const char* name() { return "nth_value"; }
@@ -651,6 +649,14 @@ public:
             return make_nullable(_argument_type);
         } else {
             return _argument_type;
+        }
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        const auto function_name = get_name();
+        if (function_name == "lead" || function_name == "lag" || function_name == "nth_value") {
+            this->template check_argument_column_type<ColumnInt64>(columns[1]);
         }
     }
 

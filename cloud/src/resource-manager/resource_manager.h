@@ -191,7 +191,7 @@ public:
      *
      * @param instance_id
      *
-     * @return true, instance_id in fdb kv
+     * @return true if the instance kv exists.
      */
     bool is_instance_id_registered(const std::string& instance_id);
 

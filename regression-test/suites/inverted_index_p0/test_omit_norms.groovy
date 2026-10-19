@@ -50,8 +50,8 @@ suite("test_omit_norms", "nonConcurrent") {
     sql """ INSERT INTO ${testTableNoOmitNorms} VALUES (893964673, '26.1.0.1', 'GET /images/hello.jpg HTTP/1.0', 200, 1000); """
     sql """ INSERT INTO ${testTableNoOmitNorms} VALUES (893964674, '26.1.0.2', 'POST /api/test HTTP/1.0', 200, 5000); """
     sql 'sync'
-    sql "set enable_common_expr_pushdown = true;"
-    
+    sql "set enable_segment_limit_pushdown = true;"
+
 
     log.info("========== Test Case 1: No Analyzer (omitNorms=true, no .nrm file) ==========")
 
@@ -63,7 +63,7 @@ suite("test_omit_norms", "nonConcurrent") {
 
     // Test 1.3: BM25 match_all query on table without analyzer (no .nrm file)
     qt_sql_no_omit_all """ SELECT request, score() as score  FROM ${testTableNoOmitNorms} WHERE request MATCH_PHRASE_PREFIX 'POST' ORDER BY score LIMIT 5; """
-    
+
     // Test case 2: With analyzer - always create .nrm file
     // When _should_analyzer = true, omitNorms is set to false, so .nrm file IS created
     // Note: We use separate table for verification but don't use qt_sql to avoid output file issues
@@ -119,17 +119,17 @@ suite("test_omit_norms", "nonConcurrent") {
         }
     }
 
-    
+
     // Assertions to verify the behavior
     log.info("========== Verification & Assertions ==========")
-    
+
     log.info("")
     log.info("========== Test Completed Successfully ==========")
     log.info("Summary:")
     log.info("- Test Case 1 (No Analyzer): omitNorms=true, .nrm file NOT created")
     log.info("  Result: All BM25 queries executed successfully")
     log.info("")
-    log.info("- Test Case 2 (With Analyzer): omitNorms=false, .nrm file created")  
+    log.info("- Test Case 2 (With Analyzer): omitNorms=false, .nrm file created")
     log.info("  Result: All BM25 queries executed successfully")
     log.info("")
     log.info("- Key Finding: Both tables return same number of rows for identical queries")

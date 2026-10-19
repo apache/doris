@@ -26,7 +26,7 @@ suite("multi_leading") {
     // setting planner to nereids
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=1'
-    sql 'set parallel_pipeline_task_num=1'
+    sql 'set parallel_pipeline_task_num=2'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_distribute_planner=false'
     sql "set ignore_shape_nodes='PhysicalProject'"
@@ -138,5 +138,5 @@ suite("multi_leading") {
     qt_sql4_res_7 """select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
 
     // // use cte in scalar query
-    qt_sql5_2 """explain shape plan with  cte as (select c11, c1 from t1)  SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select /*+ leading(cte t1) */ 0.05 * avg(t1.c11) from t1 join cte on t1.c1 = cte.c11 )"""
+    qt_sql5_2 """explain shape plan with  cte as (select c11, c1 from t1)  SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select /*+ leading(cte t1) */ avg(t1.c11) / 20.0 from t1 join cte on t1.c1 = cte.c11 )"""
 }

@@ -213,4 +213,21 @@ TEST(function_quantile_state_test, function_quantile_state_roundtrip) {
                 0.01);
 }
 
+TEST(function_quantile_state_test, function_quantile_percent_mixed_const_test) {
+    std::string func_name = "quantile_percent";
+    InputTypeSet input_types = {PrimitiveType::TYPE_QUANTILE_STATE,
+                                ConstedNotnull {PrimitiveType::TYPE_FLOAT}};
+
+    QuantileState quantile_state;
+    quantile_state.add_value(1.0);
+    quantile_state.add_value(2.0);
+    quantile_state.add_value(3.0);
+    quantile_state.add_value(4.0);
+    quantile_state.add_value(5.0);
+
+    DataSet data_set = {{{&quantile_state, 0.5F}, 3.0}};
+
+    static_cast<void>(check_function<DataTypeFloat64, false>(func_name, input_types, data_set));
+}
+
 } // namespace doris

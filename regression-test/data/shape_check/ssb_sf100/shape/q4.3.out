@@ -26,6 +26,6 @@ PhysicalResultSink
 ----------------------------filter((part.p_category = 'MFGR#14'))
 ------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalProject
-------------------------filter(d_year IN (1997, 1998))
+------------------------filter(dates.d_year IN (1997, 1998))
 --------------------------PhysicalOlapScan[dates]
 

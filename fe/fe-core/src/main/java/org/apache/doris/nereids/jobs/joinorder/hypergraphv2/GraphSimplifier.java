@@ -27,7 +27,7 @@ import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -245,7 +245,7 @@ public class GraphSimplifier {
         int upperBound = 1;
 
         // Try to probe the largest number of steps to satisfy the limit
-        Counter counter = new Counter(limit);
+        Counter counter = new Counter(graph, limit);
         SubgraphEnumerator enumerator = new SubgraphEnumerator(counter, graph);
         while (true) {
             boolean hitUpperLimit = false;

@@ -46,7 +46,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -56,7 +55,6 @@ import java.util.List;
  */
 public class ShowTabletIdCommand extends ShowCommand {
     private final long tabletId;
-    private String dbName;
 
     /**
      * constructor
@@ -84,6 +82,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("WindowAccessCount", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("IsRowBinlog", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         return builder.build();
     }
@@ -96,11 +95,6 @@ public class ShowTabletIdCommand extends ShowCommand {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
-        }
-
-        dbName = ctx.getDatabase();
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
     }
 
@@ -118,6 +112,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
         String indexName = FeConstants.null_string;
         Boolean isSync = true;
+        Boolean isRowBinlog = false;
         long queryHits = 0L;
 
         int tabletIdx = -1;
@@ -169,6 +164,7 @@ public class ShowTabletIdCommand extends ShowCommand {
                     break;
                 }
                 indexName = olapTable.getIndexNameById(indexId);
+                isRowBinlog = index.isRowBinlog();
 
                 Tablet tablet = index.getTablet(tabletId);
                 if (tablet == null) {
@@ -204,7 +200,7 @@ public class ShowTabletIdCommand extends ShowCommand {
                 partitionId.toString(), indexId.toString(),
                 isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits),
                 String.valueOf(accessCount), String.valueOf(lastAccessTime),
-                detailCmd));
+                isRowBinlog.toString(), detailCmd));
         return new ShowResultSet(getMetaData(), rows);
     }
 

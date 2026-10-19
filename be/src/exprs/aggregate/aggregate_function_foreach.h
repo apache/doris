@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
@@ -97,24 +99,25 @@ protected:
             char* new_state =
                     arena.aligned_alloc(allocation_size, nested_function->align_of_data());
 
-            size_t i;
+            size_t num_created = 0;
             try {
-                for (i = 0; i < new_size; ++i) {
-                    nested_function->create(&new_state[i * nested_size_of_data]);
+                for (; num_created < new_size; ++num_created) {
+                    nested_function->create(&new_state[num_created * nested_size_of_data]);
+                }
+
+                for (size_t i = 0; i < old_size; ++i) {
+                    nested_function->merge(&new_state[i * nested_size_of_data],
+                                           &old_state[i * nested_size_of_data], arena);
                 }
             } catch (...) {
-                size_t cleanup_size = i;
-
-                for (i = 0; i < cleanup_size; ++i) {
+                for (size_t i = 0; i < num_created; ++i) {
                     nested_function->destroy(&new_state[i * nested_size_of_data]);
                 }
 
                 throw;
             }
 
-            for (i = 0; i < old_size; ++i) {
-                nested_function->merge(&new_state[i * nested_size_of_data],
-                                       &old_state[i * nested_size_of_data], arena);
+            for (size_t i = 0; i < old_size; ++i) {
                 nested_function->destroy(&old_state[i * nested_size_of_data]);
             }
 
@@ -123,6 +126,121 @@ protected:
         }
 
         return state;
+    }
+
+private:
+    struct PreparedBatchColumns {
+        Columns owned_columns;
+        std::vector<const IColumn*> nested_columns;
+        const ColumnArray::Offsets64* offsets = nullptr;
+    };
+
+    void add_aligned(AggregateDataPtr __restrict place, const IColumn** nested,
+                     const ColumnArray::Offsets64& offsets, size_t row_num, Arena& arena) const {
+        const size_t begin = offsets[row_num - 1];
+        const size_t end = offsets[row_num];
+        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, arena);
+
+        char* nested_state = state.array_of_aggregate_datas;
+        for (size_t i = begin; i < end; ++i) {
+            nested_function->add(nested_state, nested, i, arena);
+            nested_state += nested_size_of_data;
+        }
+    }
+
+    // Validate all selected rows first. If their physical begins differ, compact every argument
+    // once for the batch and give them shared offsets;
+    // E.g. data [9,8,7,6]/[1,2,3,4,5], offsets [1,4]/[2,5], skip row 0
+    // -> data [8,7,6]/[3,4,5], shared offsets [0,3].
+    template <typename IsSelected>
+    Columns normalize_batch_columns(size_t batch_size, const IColumn** columns,
+                                    IsSelected&& is_selected) const {
+        bool offsets_aligned = true;
+        // First pass: reject size mismatches before allocating, and detect whether the
+        // original nested columns can use one shared element index.
+        for (size_t row = 0; row < batch_size; ++row) {
+            if (!is_selected(row)) {
+                continue;
+            }
+
+            const auto& first_array =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& first_offsets = first_array.get_offsets();
+            const size_t first_begin = first_offsets[row - 1];
+            const size_t row_size = first_offsets[row] - first_begin;
+            for (size_t i = 1; i < num_arguments; ++i) {
+                const auto& array =
+                        assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
+                const auto& offsets = array.get_offsets();
+                const size_t begin = offsets[row - 1];
+                if (offsets[row] - begin != row_size) {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "Arrays passed to {} aggregate function have different sizes",
+                                    get_name());
+                }
+                offsets_aligned &= row_size == 0 || begin == first_begin;
+            }
+        }
+
+        // Fast path: all visible rows already address the same physical nested positions.
+        if (offsets_aligned) {
+            return {};
+        }
+
+        // Slow path: build the shared offsets once, copy only selected row slices, and preserve
+        // the outer row count by emitting repeated offsets for unselected rows.
+        auto offsets_column = ColumnArray::ColumnOffsets::create();
+        auto& normalized_offsets = offsets_column->get_data();
+        normalized_offsets.reserve(batch_size);
+        size_t normalized_offset = 0;
+        const auto& first_offsets =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_offsets();
+        for (size_t row = 0; row < batch_size; ++row) {
+            if (is_selected(row)) {
+                normalized_offset += first_offsets[row] - first_offsets[row - 1];
+            }
+            normalized_offsets.push_back(normalized_offset);
+        }
+        ColumnPtr shared_offsets = std::move(offsets_column);
+
+        Columns normalized_columns(num_arguments);
+        for (size_t i = 0; i < num_arguments; ++i) {
+            const auto& array =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
+            auto nested = array.get_data().clone_empty();
+            for (size_t row = 0; row < batch_size; ++row) {
+                if (is_selected(row)) {
+                    const auto& offsets = array.get_offsets();
+                    const size_t begin = offsets[row - 1];
+                    const size_t row_size = offsets[row] - begin;
+                    nested->insert_range_from(array.get_data(), begin, row_size);
+                }
+            }
+            ColumnPtr nested_column = std::move(nested);
+            normalized_columns[i] = ColumnArray::create(nested_column, shared_offsets);
+        }
+        return normalized_columns;
+    }
+
+    template <typename IsSelected>
+    PreparedBatchColumns prepare_batch_columns(size_t batch_size, const IColumn** columns,
+                                               IsSelected&& is_selected) const {
+        PreparedBatchColumns prepared;
+        prepared.owned_columns =
+                normalize_batch_columns(batch_size, columns, std::forward<IsSelected>(is_selected));
+        prepared.nested_columns.resize(num_arguments);
+        for (size_t i = 0; i < num_arguments; ++i) {
+            const IColumn* column =
+                    prepared.owned_columns.empty() ? columns[i] : prepared.owned_columns[i].get();
+            const auto& array =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*column);
+            prepared.nested_columns[i] = &array.get_data();
+            if (i == 0) {
+                prepared.offsets = &array.get_offsets();
+            }
+        }
+        return prepared;
     }
 
 public:
@@ -146,6 +264,16 @@ public:
 
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeArray>(nested_function->get_return_type());
+    }
+
+    // Use foreach-specific streaming handling to align array inputs once while keeping aggregate
+    // states row-local; prepare returns empty when the original columns are already aligned.
+    bool requires_batch_add_for_streaming() const { return true; }
+
+    template <typename IsSelected>
+    Columns prepare_batch_columns_for_streaming(size_t batch_size, const IColumn** columns,
+                                                IsSelected&& is_selected) const {
+        return normalize_batch_columns(batch_size, columns, std::forward<IsSelected>(is_selected));
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
@@ -208,17 +336,48 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
 
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& offsets_to = arr_to.get_offsets();
-        IColumn& elems_to = arr_to.get_data();
+        IColumn* elems_to = &arr_to.get_data();
+        ColumnNullable* nullable_elems_to = nullptr;
+        if (!nested_function->get_return_type()->is_nullable()) {
+            nullable_elems_to = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(elems_to);
+            elems_to = nullable_elems_to->get_nested_column_ptr().get();
+        }
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < state.dynamic_array_size; ++i) {
-            nested_function->insert_result_into(nested_state, elems_to);
+            nested_function->insert_result_into(nested_state, *elems_to);
+            if (nullable_elems_to != nullptr) {
+                nullable_elems_to->get_null_map_data().push_back(0);
+            }
             nested_state += nested_size_of_data;
         }
 
         offsets_to.push_back(offsets_to.back() + state.dynamic_array_size);
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        const auto* arr_to = check_and_get_column<ColumnArray>(to);
+        if (UNLIKELY(arr_to == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} is not "
+                    "ColumnArray",
+                    get_name(), to.get_name()));
+        }
+
+        const IColumn* elems_to = &arr_to->get_data();
+        if (!nested_function->get_return_type()->is_nullable()) {
+            const auto* nullable_elems_to = check_and_get_column<ColumnNullable>(*elems_to);
+            if (UNLIKELY(nullable_elems_to == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Array nested column "
+                        "type {} is not ColumnNullable",
+                        get_name(), elems_to->get_name()));
+            }
+            elems_to = &nullable_elems_to->get_nested_column();
+        }
+        nested_function->check_result_column_type(*elems_to);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -236,28 +395,91 @@ public:
 
         size_t begin = offsets[row_num - 1];
         size_t end = offsets[row_num];
+        const size_t row_size = end - begin;
+        bool offsets_aligned = true;
 
         /// Sanity check. NOTE We can implement specialization for a case with single argument, if the check will hurt performance.
         for (size_t i = 1; i < num_arguments; ++i) {
             const auto& ith_column =
                     assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
             const auto& ith_offsets = ith_column.get_offsets();
+            const size_t ith_begin = ith_offsets[row_num - 1];
+            const size_t ith_end = ith_offsets[row_num];
 
-            if (ith_offsets[row_num] != end ||
-                (row_num != 0 && ith_offsets[row_num - 1] != begin)) {
+            if (ith_end - ith_begin != row_size) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Arrays passed to {} aggregate function have different sizes",
                                 get_name());
             }
+            offsets_aligned &= ith_begin == begin;
         }
 
-        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, arena);
+        std::vector<ColumnPtr> compacted_nested;
+        if (!offsets_aligned && row_size != 0) {
+            // The nested aggregate accepts one shared index, so align only mismatched row slices.
+            compacted_nested.reserve(num_arguments);
+            for (size_t i = 0; i < num_arguments; ++i) {
+                const auto& ith_column =
+                        assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
+                const size_t ith_begin = ith_column.get_offsets()[row_num - 1];
+                compacted_nested.emplace_back(nested[i]->cut(ith_begin, row_size));
+                nested[i] = compacted_nested.back().get();
+            }
+            begin = 0;
+            end = row_size;
+        }
+
+        AggregateFunctionForEachData& state = ensure_aggregate_data(place, row_size, arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = begin; i < end; ++i) {
             nested_function->add(nested_state, nested.data(), i, arena);
             nested_state += nested_size_of_data;
         }
+    }
+
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena& arena, bool /*agg_many*/) const override {
+        auto prepared = prepare_batch_columns(batch_size, columns, [](size_t) { return true; });
+        for (size_t row = 0; row < batch_size; ++row) {
+            add_aligned(places[row] + place_offset, prepared.nested_columns.data(),
+                        *prepared.offsets, row, arena);
+        }
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena& arena) const override {
+        auto prepared = prepare_batch_columns(batch_size, columns,
+                                              [&](size_t row) { return places[row] != nullptr; });
+        for (size_t row = 0; row < batch_size; ++row) {
+            if (places[row] != nullptr) {
+                add_aligned(places[row] + place_offset, prepared.nested_columns.data(),
+                            *prepared.offsets, row, arena);
+            }
+        }
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        auto prepared = prepare_batch_columns(batch_size, columns, [](size_t) { return true; });
+        for (size_t row = 0; row < batch_size; ++row) {
+            add_aligned(place, prepared.nested_columns.data(), *prepared.offsets, row, arena);
+        }
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        std::vector<const IColumn*> nested(num_arguments);
+        for (size_t i = 0; i < num_arguments; ++i) {
+            const auto* array_column = check_and_get_column<ColumnArray>(*columns[i]);
+            if (UNLIKELY(array_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} argument {} type check failed: Column type {} is "
+                        "not ColumnArray",
+                        get_name(), i, columns[i]->get_name()));
+            }
+            nested[i] = &array_column->get_data();
+        }
+        nested_function->check_input_columns_type(nested.data());
     }
 };
 } // namespace doris

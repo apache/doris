@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -26,13 +27,13 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -42,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -52,12 +52,19 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
@@ -70,11 +77,14 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -83,8 +93,16 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Except;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Intersect;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -122,6 +140,54 @@ import java.util.stream.Collectors;
 public class ExpressionUtils {
 
     public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
+    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
+    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
+    // inferMarkSlotNotNullMap enumerates the other mark slots in base-3: per target mark slot
+    // it runs 3^(N-1) tuples (N = number of mark slots in the conjunct), each doing 4 folds
+    // (original/simplified x false/null), and repeats this for every one of the N target slots,
+    // i.e. N * 3^(N-1) tuples and 4 * N * 3^(N-1) fold passes over the whole conjunct in total
+    // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
+    // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
+    private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /**
+     * Date arithmetic can throw for values outside its valid range. Keep it above a lower
+     * condition, join, limit, rejecting set operation, generate, or CTE consumer so rejected
+     * rows are not evaluated early.
+     * A date add/subtract with literal zero is an identity and remains safe to push through.
+     */
+    public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
+                && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof Except || plan instanceof Intersect || plan instanceof Generate
+                        || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
+    }
+
+    private static boolean isUnsafeDateArithmetic(Expression expression) {
+        if (expression instanceof DateCeilFloorMonotonic) {
+            return true;
+        }
+        if (!(expression instanceof DateAddSubMonotonic)) {
+            return false;
+        }
+        DateAddSubMonotonic dateArithmetic = (DateAddSubMonotonic) expression;
+        int dateChildIndex = dateArithmetic.getMonotonicFunctionChildIndex();
+        for (int i = 0; i < expression.children().size(); i++) {
+            if (i != dateChildIndex && !(expression.child(i) instanceof IntegerLikeLiteral
+                    && ((IntegerLikeLiteral) expression.child(i)).compareTo(new IntegerLiteral(0)) == 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether evaluating these expressions can produce results unsuitable for reuse across queries. */
+    public static boolean containsNonCacheableExpression(Collection<? extends Expression> expressions) {
+        return expressions.stream().anyMatch(expression ->
+                expression.containsType(AliasFunction.class, Udf.class, UniqueFunction.class)
+                        || expression.containsNondeterministic());
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -417,41 +483,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * <p>
-     * for example:
-     * - SlotReference to a column:
-     * col
-     * - Cast on SlotReference:
-     * cast(int_col as string)
-     * cast(cast(int_col as long) as string)
-     *
-     * @param expr input expression
-     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
-     *         Otherwise, return empty optional result.
-     */
-    public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
-        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     */
-    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
-        while (expr instanceof Cast) {
-            expr = expr.child(0);
-        }
-
-        if (expr instanceof SlotReference) {
-            return Optional.of((Slot) expr);
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    /**
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
     public static Map<Slot, Expression> generateReplaceMap(List<? extends NamedExpression> namedExpressions) {
@@ -643,11 +674,12 @@ public class ExpressionUtils {
     }
 
     /**
-     * set ignore unique id for unique functions
+     * Set ignore unique id for volatile expressions.
      */
-    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+    public static Expression setIgnoreUniqueIdForVolatileExpression(Expression expression, boolean ignoreUniqueId) {
         return expression.rewriteDownShortCircuit(e ->
-                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+                e.isVolatile()
+                        ? ((VolatileExpression) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -710,88 +742,300 @@ public class ExpressionUtils {
     }
 
     /**
-     * canInferNotNullForMarkSlot
+     * infer the null and false behavior of each mark join slot in the predicate.
+     * the predicate is first simplified by TrySimplifyPredicateWithMarkJoinSlot, which
+     * replaces the conjuncts without any mark slot in And with true and in Or with false,
+     * then both the original predicate and the simplified predicate are evaluated.
+     * return a map from mark join slot to a pair:
+     * Pair.first: whether the simplified predicate taking false or null always
+     *             evaluates to a value that is either false or null, i.e. the
+     *             target mark slot's null value can be replaced by false
+     * Pair.second: whether the original predicate taking false or null always
+     *              evaluates to a value that is either false or null, i.e. the
+     *              false and null values of the target mark slot are
+     *              indistinguishable in the original predicate
      */
-    public static boolean canInferNotNullForMarkSlot(Expression predicate, ExpressionRewriteContext ctx) {
-        /*
-         * assume predicate is from LogicalFilter
-         * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
-         * if the evaluate result are:
-         * 1. all true
-         * 2. all null and false (in logicalFilter, we discard both null and false values)
-         * the mark slot can be non-nullable boolean
-         * and in semi join, we can safely change the mark conjunct to hash conjunct
-         */
-        ImmutableList<Literal> literals = ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+    public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
+            Expression predicate, ExpressionRewriteContext ctx) {
+        // the evaluation domain defaults to the predicate itself for callers that only
+        // have the single conjunct at hand
+        return inferMarkSlotNotNullMap(predicate, ctx, ImmutableList.of(predicate));
+    }
+
+    /**
+     * infer the null and false behavior of the mark slots in the given predicate
+     * the evaluationDomain is the complete set of expressions that are evaluated together
+     * with the predicate: the containing conjunct set of the filter/join, plus all the
+     * expressions inside the correlated subquery plans. a sensitive expression (e.g.
+     * assert_true) does not need to be inside the current predicate, it may be a sibling
+     * conjunct or live in a later subquery plan whose input rows are pruned when the mark
+     * join is eliminated, so pair.second must be validated against the whole evaluation
+     * domain. the same domain is used for every target mark slot here.
+     */
+    public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
+            Expression predicate, ExpressionRewriteContext ctx, Collection<Expression> evaluationDomain) {
+        return inferMarkSlotNotNullMap(predicate, ctx, ignored -> evaluationDomain);
+    }
+
+    /**
+     * same as inferMarkSlotNotNullMap(predicate, ctx, Collection), but the evaluation domain
+     * is resolved PER TARGET MARK SLOT through the provider. when a conjunct contains several
+     * subqueries, subqueryToApply stacks their applies, and eliminating a mark join only
+     * prunes the rows below the applies built after it: the target's own and already-lower
+     * applies are evaluated identically or before the target, while the subsequent (higher)
+     * same-conjunct applies and their generated assertions are evaluated above it and CAN be
+     * suppressed by the elimination. the provider lets the caller give each target exactly the
+     * domain that can observe the elimination.
+     */
+    public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
+            Expression predicate, ExpressionRewriteContext ctx,
+            Function<MarkJoinSlotReference, Collection<Expression>> evaluationDomainProvider) {
+        Expression simplifiedPredicate = TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(predicate, ctx);
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = Maps.newLinkedHashMap();
         List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
                 (predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
-        int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
-        if (markSlotSize > 0 && markSlotSize <= maxMarkSlotCount) {
-            Map<Expression, Expression> replaceMap = Maps.newHashMap();
-            boolean meetTrue = false;
-            boolean meetNullOrFalse = false;
-            /*
-             * markSlotSize = 1 -> loopCount = 2 ---- 0, 1
-             * markSlotSize = 2 -> loopCount = 4 ---- 00, 01, 10, 11
-             * markSlotSize = 3 -> loopCount = 8 ---- 000, 001, 010, 011, 100, 101, 110, 111
-             * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
-             */
-            int loopCount = 1 << markSlotSize;
-            for (int i = 0; i < loopCount; ++i) {
-                replaceMap.clear();
-                /*
-                 * replace each mark slot with null or false
-                 * literals.get(0) -> NullLiteral(BooleanType.INSTANCE)
-                 * literals.get(1) -> BooleanLiteral.FALSE
-                 */
-                for (int j = 0; j < markSlotSize; ++j) {
-                    replaceMap.put(markJoinSlotReferenceList.get(j), literals.get((i >> j) & 1));
-                }
-                Expression evalResult = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        ctx);
+        if (markSlotSize > 0 && markSlotSize <= MAX_MARK_SLOT_COUNT) {
+            // predicateSensitive is per-conjunct (the same predicate for every target); the
+            // evaluation-domain sensitivity is per-target and resolved through the provider
+            boolean predicateSensitive = containsNoneMovableOrVolatile(ImmutableList.of(predicate));
+            for (int targetIdx = 0; targetIdx < markSlotSize; ++targetIdx) {
+                MarkJoinSlotReference target = markJoinSlotReferenceList.get(targetIdx);
+                boolean evaluationDomainSensitive =
+                        containsNoneMovableOrVolatile(evaluationDomainProvider.apply(target));
+                result.put(target, inferMarkSlotNotNullForTargetMarkSlot(
+                                predicate, simplifiedPredicate, markJoinSlotReferenceList, targetIdx, ctx,
+                                predicateSensitive, evaluationDomainSensitive));
+            }
+        }
+        return result;
+    }
 
-                if (evalResult.equals(BooleanLiteral.TRUE)) {
-                    if (meetNullOrFalse) {
-                        return false;
-                    } else {
-                        meetTrue = true;
-                    }
-                } else if ((isNullOrFalse(evalResult))) {
-                    if (meetTrue) {
-                        return false;
-                    } else {
-                        meetNullOrFalse = true;
-                    }
-                } else {
-                    return false;
+    /**
+     * infer the null and false behavior of the target mark slot
+     * replace the target slot with false and null, and replace other mark slots with
+     * true, false and null, and evaluate both the original predicate and the simplified
+     * predicate for every combination of other mark slots' values
+     * return a pair:
+     * Pair.first: whether the simplified predicate taking false or null always evaluates to
+     *             a value that is either false or null
+     * Pair.second: whether the original predicate taking false or null always evaluates to
+     *              a value that is either false or null
+     */
+    private static Pair<Boolean, Boolean> inferMarkSlotNotNullForTargetMarkSlot(Expression predicate,
+            Expression simplifiedPredicate,
+            List<MarkJoinSlotReference> markJoinSlotReferenceList, int targetIdx, ExpressionRewriteContext ctx,
+            boolean predicateSensitive, boolean evaluationDomainSensitive) {
+        int markSlotSize = markJoinSlotReferenceList.size();
+        /*
+         * target slot enumerates false and null, other mark slots enumerate true, false and null
+         * markSlotSize = 1 -> otherMarkSlotCount = 0 -> loopCount = 1
+         * markSlotSize = 2 -> otherMarkSlotCount = 1 -> loopCount = 3
+         * markSlotSize = 3 -> otherMarkSlotCount = 2 -> loopCount = 9
+         * markSlotSize = 4 -> otherMarkSlotCount = 3 -> loopCount = 27
+         */
+        int otherMarkSlotCount = markSlotSize - 1;
+        int loopCount = 1;
+        for (int i = 0; i < otherMarkSlotCount; ++i) {
+            loopCount *= 3;
+        }
+        ImmutableList<Literal> otherLiterals = ImmutableList.of(
+                BooleanLiteral.TRUE, BooleanLiteral.FALSE, NullLiteral.BOOLEAN_INSTANCE);
+        /*
+         * pair.second is a row-truth proof: it only proves that the filter treats the target
+         * mark slot taking false or null identically. dropping the mark join (turning the
+         * Apply into a plain semi join) also changes which rows reach the other expressions
+         * in the filter. for a NoneMovableFunction (e.g. assert_true) or a volatile
+         * expression in the evaluation domain, the semi join prunes the unmatched rows before
+         * the filter, so these expressions may no longer be evaluated on the same rows, which
+         * changes error behavior or results. fence pair.second to false so that the mark join
+         * is never eliminated across such expressions.
+         *
+         * pair.first is only fenced by the CURRENT predicate's sensitive expressions. treating
+         * the mark slot as non-nullable (isMarkJoinSlotNotNull) turns a null mark value into
+         * false, and a sensitive expression inside the current predicate can observe that
+         * null-vs-false distinction: the vectorized AND must evaluate its right operand for a
+         * nullable null input (NULL AND x depends on x), but can return early when the left
+         * operand is an all-false non-null column, so converting the mark's null to false may
+         * skip evaluating e.g. assert_true and suppress its error. a sensitive expression in a
+         * sibling conjunct or a later subquery plan cannot observe this distinction: pair.first
+         * keeps the apply (all rows are preserved) and those expressions do not reference the
+         * generated marker, so the complete evaluation domain fences pair.second only.
+         *
+         * this split also fixes an over-conservative fence: before it, any sensitive expression
+         * in the complete evaluation domain fenced BOTH fields, so a join ON condition such as
+         * `t1.k in (select c from t3) and assert_true(t1.k > 0, 'bad')` (clean current
+         * predicate, sensitive sibling) lost isMarkJoinSlotNotNull: the nullable IN equality
+         * stayed in the markConjuncts of a standalone mark join and, with no hash conjunct,
+         * JoinUtils.couldShuffle returned false, forcing the join to broadcast. keeping
+         * pair.first (isMarkJoinSlotNotNull=true) moves the equality into the hash conjuncts,
+         * which preserves the shuffle alternative.
+         *
+         * the sensitive expression is not necessarily inside the current conjunct. it may be a
+         * sibling conjunct of the same filter/join, or live in a later subquery plan whose
+         * input rows are also pruned when the mark join is eliminated. those expressions are
+         * invisible to the single-conjunct inference, so pair.second is validated against the
+         * complete evaluation domain (the containing conjunct set and all affected subquery
+         * plans) instead of the current conjunct alone.
+         *
+         * the current conjunct's OWN subquery plans are deliberately not part of the
+         * evaluation domain: the apply and the resulting semi/anti join both evaluate the
+         * inner plan (per outer row for correlated, once for uncorrelated), only the output
+         * row set differs, so a sensitive expression inside them cannot be affected by the
+         * elimination. the caller (collectEvaluationDomain) excludes them when building the
+         * domain.
+         *
+         * scope caveat: the fence covers exactly the classes detected by
+         * containsNoneMovableOrVolatile, i.e. NoneMovableFunction (assert_true is the only
+         * implementation in Doris today) and volatile expressions. other error-raising
+         * expressions in the evaluation domain are deliberately NOT fenced: e.g. with
+         * enable_strict_division_by_zero or on cast errors, a sibling conjunct such as
+         * `ifnull(k in (...), false) and 1/(x) > 0` raises in the retained plan (the division
+         * is evaluated on the rows the filter later discards) but is silently skipped after
+         * the elimination prunes those rows inside the semi join, so the query returns a
+         * result instead of failing. the same holds for the current conjunct when pair.first
+         * turns a null mark into false. only NoneMovableFunction/volatile error semantics are
+         * guaranteed to survive an elimination; other error behaviors are best-effort.
+         */
+        if (predicateSensitive) {
+            // a sensitive expression inside the current predicate can observe the marker's
+            // null-vs-false distinction, so both fields are fenced and the base-3 enumeration
+            // below would be discarded entirely; skip it to avoid the exponential
+            // N * 3^(N-1) * 4 fold cost for every such conjunct
+            return Pair.of(false, false);
+        }
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        boolean sameResultForFalseAndNull = true;
+        boolean simplifiedForFalseAndNull = true;
+        for (int i = 0; i < loopCount; ++i) {
+            if (!sameResultForFalseAndNull && !simplifiedForFalseAndNull) {
+                // both fields are monotonic: they start true and only become false, never
+                // back to true, so once both are false no remaining tuple can change the
+                // result and the rest of the enumeration can be skipped
+                break;
+            }
+            replaceMap.clear();
+            /*
+             * replace other mark slots with true, false or null
+             * otherLiterals.get(0) -> BooleanLiteral.TRUE
+             * otherLiterals.get(1) -> BooleanLiteral.FALSE
+             * otherLiterals.get(2) -> NullLiteral(BooleanType.INSTANCE)
+             */
+            int code = i;
+            for (int j = 0; j < markSlotSize; ++j) {
+                if (j == targetIdx) {
+                    continue;
+                }
+                replaceMap.put(markJoinSlotReferenceList.get(j), otherLiterals.get(code % 3));
+                code /= 3;
+            }
+            // a field is monotonic, so once it is false its folds are only used to flip it
+            // from true to false and can be skipped for the rest of the enumeration
+            if (sameResultForFalseAndNull) {
+                // evaluate the original predicate with target slot taking false
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
+                Expression evalResultWithFalse = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(predicate, replaceMap), ctx);
+                // evaluate the original predicate with target slot taking null
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
+                Expression evalResultWithNull = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(predicate, replaceMap), ctx);
+                /*
+                 * if the original predicate taking false or null evaluates to a value other than
+                 * false or null, the false and null values of the target mark slot are
+                 * distinguishable in the original predicate
+                 */
+                if (!isFalseOrNull(evalResultWithFalse) || !isFalseOrNull(evalResultWithNull)) {
+                    sameResultForFalseAndNull = false;
                 }
             }
-            return true;
+            if (simplifiedForFalseAndNull) {
+                // evaluate the simplified predicate with target slot taking false
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
+                Expression simplifiedEvalResultWithFalse = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+                // evaluate the simplified predicate with target slot taking null
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
+                Expression simplifiedEvalResultWithNull = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+                /*
+                 * if the simplified predicate taking false or null evaluates to a value other than
+                 * false or null, the target slot's null value cannot be replaced by false
+                 */
+                if (!isFalseOrNull(simplifiedEvalResultWithFalse)
+                        || !isFalseOrNull(simplifiedEvalResultWithNull)) {
+                    simplifiedForFalseAndNull = false;
+                }
+            }
+        }
+        // complete evaluation-domain fence: a sensitive expression anywhere in the evaluation
+        // domain must fence pair.second (the elimination prunes the unmatched rows before the
+        // sibling conjuncts and later subquery expressions), while pair.first is left as
+        // inferred (the apply is kept and sibling/later expressions cannot observe the marker's
+        // null-vs-false mapping)
+        if (evaluationDomainSensitive) {
+            sameResultForFalseAndNull = false;
+        }
+        return Pair.of(simplifiedForFalseAndNull, sameResultForFalseAndNull);
+    }
+
+    /*
+     * whether any expression in the evaluation domain is sensitive for mark join elimination:
+     * a NoneMovableFunction (assert_true is the only implementation today) or a volatile
+     * expression. other error-raising expressions (strict division-by-zero, cast errors) are
+     * deliberately not covered here, so only the NoneMovableFunction/volatile error semantics
+     * are guaranteed to survive a mark join elimination.
+     */
+    private static boolean containsNoneMovableOrVolatile(Collection<Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (expression.containsVolatileExpression() || expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
         }
         return false;
     }
 
-    private static boolean isNullOrFalse(Expression expression) {
-        return expression.isNullLiteral() || expression.equals(BooleanLiteral.FALSE);
+    private static boolean isFalseOrNull(Expression expression) {
+        return expression.isNullLiteral() || BooleanLiteral.FALSE.equals(expression);
     }
 
     /**
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
+        return inferNotNullSlots(predicates, collectNotNullInferenceTargetSlots(predicates), cascadesContext);
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given target slots.
+     */
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext, ExpressionUtils::isFalseOrNull);
+    }
+
+    private static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext, Predicate<Expression> nullInputResultPredicate) {
+        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
+        Set<Slot> inputSlots = new HashSet<>();
         for (Expression predicate : predicates) {
-            for (Slot slot : predicate.getInputSlots()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                Literal nullLiteral = new NullLiteral(slot.getDataType());
-                replaceMap.put(slot, nullLiteral);
-                Expression evalExpr = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext));
-                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
+            if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                    || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+                continue;
+            }
+            Set<Slot> predicateInputSlots = predicate.getInputSlots();
+            Set<Slot> candidateSlots = Sets.intersection(predicateInputSlots, targetSlots);
+            if (candidateSlots.isEmpty()) {
+                continue;
+            }
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsWithinLimit(inputSlots, predicateInputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            for (Slot slot : candidateSlots) {
+                if (matchesWhenSlotIsNull(predicate, slot, cascadesContext, nullInputResultPredicate)) {
                     notNullSlots.add(slot);
                 }
             }
@@ -799,27 +1043,68 @@ public class ExpressionUtils {
         return notNullSlots.build();
     }
 
+    private static Set<Slot> collectNotNullInferenceTargetSlots(Set<Expression> expressions) {
+        Set<Slot> targetSlots = new HashSet<>();
+        for (Expression expression : expressions) {
+            for (Slot slot : expression.getInputSlots()) {
+                if (!(slot instanceof MarkJoinSlotReference)) {
+                    targetSlots.add(slot);
+                }
+            }
+        }
+        return targetSlots;
+    }
+
+    private static boolean matchesWhenSlotIsNull(Expression expression, Slot slot, CascadesContext cascadesContext,
+            Predicate<Expression> nullInputResultPredicate) {
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Literal nullLiteral = new NullLiteral(slot.getDataType());
+        replaceMap.put(slot, nullLiteral);
+        Expression evalExpr = FoldConstantRule.evaluate(
+                ExpressionUtils.replace(expression, replaceMap),
+                new ExpressionRewriteContext(cascadesContext));
+        return nullInputResultPredicate.apply(evalExpr);
+    }
+
+    private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
+        if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        Set<Slot> mergedInputSlots = new HashSet<>(inputSlots);
+        mergedInputSlots.addAll(predicateInputSlots);
+        if (mergedInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        return Optional.of(mergedInputSlots);
+    }
+
     /**
      * infer notNulls slot from predicate
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            newPredicates.add(new Not(new IsNull(slot), false));
-        }
-        return newPredicates.build();
+        return buildNotNullPredicates(inferNotNullSlots(predicates, cascadesContext));
     }
 
     /**
-     * infer notNulls slot from predicate but these slots must be in the given slots.
+     * Infer not-null predicates for an aggregate that ignores rows with SQL NULL arguments.
+     *
+     * <p>The caller must first establish the aggregate's null-input contract. Even for a
+     * null-ignoring aggregate, a row can only be discarded when its argument evaluates to SQL
+     * NULL. FALSE is null-rejecting as a filter predicate, but it is a valid aggregate argument
+     * and must be kept.
      */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
-            CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            if (slots.contains(slot)) {
-                newPredicates.add(new Not(new IsNull(slot), true));
-            }
+    public static Set<Expression> inferNotNullForNullIgnoringAggregate(
+            Set<Expression> arguments, CascadesContext cascadesContext) {
+        Set<Slot> targetSlots = collectNotNullInferenceTargetSlots(arguments);
+        Set<Slot> notNullSlots = inferNotNullSlots(
+                arguments, targetSlots, cascadesContext, Expression::isNullLiteral);
+        return buildNotNullPredicates(notNullSlots);
+    }
+
+    private static Set<Expression> buildNotNullPredicates(Set<Slot> notNullSlots) {
+        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(notNullSlots.size());
+        for (Slot slot : notNullSlots) {
+            newPredicates.add(new Not(new IsNull(slot), false));
         }
         return newPredicates.build();
     }
@@ -831,13 +1116,13 @@ public class ExpressionUtils {
     }
 
     /** flatExpressions */
-    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
+    public static <E extends Expression> Set<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
         for (List<E> expressionList : expressionLists) {
             num += expressionList.size();
         }
 
-        ImmutableList.Builder<E> flatten = ImmutableList.builderWithExpectedSize(num);
+        ImmutableSet.Builder<E> flatten = ImmutableSet.builderWithExpectedSize(num);
         for (List<E> expressionList : expressionLists) {
             flatten.addAll(expressionList);
         }
@@ -897,10 +1182,10 @@ public class ExpressionUtils {
     }
 
     /** deapAnyMatch */
-    public static boolean deapAnyMatch(
+    public static boolean deepAnyMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return true;
             }
         }
@@ -908,10 +1193,10 @@ public class ExpressionUtils {
     }
 
     /** deapNoneMatch */
-    public static boolean deapNoneMatch(
+    public static boolean deepNoneMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return false;
             }
         }
@@ -975,9 +1260,45 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    /**
+     * Whether this aggregate preserves the uniqueness of its argument for single-row groups.
+     *
+     * <p>The argument must trace back to one slot through injective casts only. MIN and MAX then
+     * return that argument value unchanged. SUM and AVG can additionally coerce the argument to
+     * their result type, so that conversion must also be injective over the original slot type.</p>
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+
+        Expression source = getExpressionCoveredBySafetyCast(agg.child(0));
+        if (!(source instanceof Slot)) {
+            return false;
+        }
+
+        if (agg instanceof Max || agg instanceof Min) {
+            return true;
+        }
+        return source.getDataType().isInjectiveCastTo(agg.getDataType());
+    }
+
+    /**
+     * Whether a single-row group always produces the same aggregate result.
+     *
+     * <p>COUNT(*) always consumes its only row. Argument-based COUNT and NDV consume the row only
+     * when every argument is non-null, so nullable arguments may produce either zero or one across
+     * otherwise single-row groups. Keep the proof conservative and inspect the complete argument
+     * expressions rather than only their input slots.</p>
+     */
+    public static boolean isUniformAgg(Expression agg) {
+        if (agg instanceof Count && ((Count) agg).isCountStar()) {
+            return true;
+        }
+        if (!(agg instanceof Count || agg instanceof Ndv)) {
+            return false;
+        }
+        return agg.getArguments().stream().allMatch(Expression::notNullable);
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
@@ -1075,6 +1396,20 @@ public class ExpressionUtils {
     public static Expression getExpressionCoveredByCast(Expression expression) {
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    /**
+     * Strip only casts that preserve distinctness of the child expression.
+     */
+    public static Expression getExpressionCoveredBySafetyCast(Expression expression) {
+        while (expression instanceof Cast) {
+            if (((Cast) expression).child().getDataType().isInjectiveCastTo(expression.getDataType())) {
+                expression = ((Cast) expression).child();
+            } else {
+                break;
+            }
         }
         return expression;
     }
@@ -1193,6 +1528,30 @@ public class ExpressionUtils {
         return true;
     }
 
+    /**
+     * Try to substitute the uniform constant values of {@code childTrait} into {@code expr}. If all
+     * input slots of {@code expr} have a known uniform constant value in {@code childTrait} and the
+     * substituted expression is a constant, return it. e.g. for a project expression
+     * `days_sub(begin_time, 1)` over a child where `begin_time` is a uniform constant slot, returns
+     * `days_sub('2026-07-28 00:00:00', 1)`, so the projected slot can also be registered as a
+     * uniform constant and downstream constant propagation can fold predicates over it.
+     */
+    public static Optional<Expression> foldToConstantByUniformValues(Expression expr, DataTrait childTrait) {
+        Set<Slot> inputSlots = expr.getInputSlots();
+        if (inputSlots.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        for (Slot slot : inputSlots) {
+            if (!childTrait.isUniformAndHasConstValue(slot)) {
+                return Optional.empty();
+            }
+            replaceMap.put(slot, childTrait.getUniformValue(slot).get());
+        }
+        Expression constantExpr = replace(expr, replaceMap);
+        return constantExpr.isConstant() ? Optional.of(constantExpr) : Optional.empty();
+    }
+
     /** check constant value the expression */
     public static Optional<Literal> checkConstantExpr(Expression expr, Optional<ExpressionRewriteContext> context) {
         if (expr instanceof Literal) {
@@ -1207,6 +1566,27 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Fold a constant function argument to the literal it evaluates to on FE, for a function that needs the
+     * value of the argument before the rewrite phase folds it: to compute its signature in
+     * prepareBeforeTypeCoercion, or to validate the value in checkLegalityBeforeTypeCoercion.
+     * An argument that is not constant, or that FE cannot fold, is returned unchanged.
+     */
+    public static Expression foldConstantArgument(Expression argument) {
+        if (argument instanceof Literal || !argument.isConstant()) {
+            return argument;
+        }
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
+        return folded instanceof Literal ? folded : argument;
+    }
+
+    public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {
+        while (expr instanceof Nullable || expr instanceof NonNullable) {
+            expr = expr.child(0);
+        }
+        return expr instanceof Literal ? Optional.of((Literal) expr) : Optional.empty();
     }
 
     /** analyze the unbound expression and fold it to literal */
@@ -1226,10 +1606,7 @@ public class ExpressionUtils {
             throw new UserException(expression + " must be constant value");
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)));
-        Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
-        Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
+        Expression foldExpression = FoldConstantRule.evaluate(analyzedExpr, context);
         if (foldExpression instanceof Literal) {
             return (Literal) foldExpression;
         } else {
@@ -1343,13 +1720,13 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple times
+     * check if the expressions contain a volatile expression which exists multiple times
      */
-    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
-        Set<UniqueFunction> counterSet = Sets.newHashSet();
+    public static boolean containVolatileExpressionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<Expression> counterSet = Sets.newHashSet();
         for (Expression expression : expressions) {
             if (expression.anyMatch(
-                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                    expr -> ((Expression) expr).isVolatile() && !counterSet.add((Expression) expr))) {
                 return true;
             }
         }

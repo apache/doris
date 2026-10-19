@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "format/orc/vorc_reader.h"
@@ -34,6 +35,12 @@ public:
                       FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
             : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
                             enable_lazy_mat) {}
+    HudiParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                      const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                      std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                      FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+            : ParquetReader(profile, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                            state, meta_cache, enable_lazy_mat) {}
     ~HudiParquetReader() final = default;
 
 protected:
@@ -50,6 +57,12 @@ public:
                   bool enable_lazy_mat = true)
             : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
                         enable_lazy_mat) {}
+    HudiOrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                        meta_cache, enable_lazy_mat) {}
     ~HudiOrcReader() final = default;
 
 protected:

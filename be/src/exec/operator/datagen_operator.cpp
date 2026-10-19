@@ -60,7 +60,7 @@ Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status DataGenSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }

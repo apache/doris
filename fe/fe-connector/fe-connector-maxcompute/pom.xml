@@ -45,11 +45,31 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- connector-api provides SPI interfaces -->
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
+            <artifactId>fe-foundation</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!-- Shared declarative metadata-cache framework used by the connector's partition cache. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Caffeine: the runtime library the shared meta-cache framework links against.
+             fe-connector-cache declares Caffeine `provided` (compiles against, never
+             bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
+             2.9.3 transitively from iceberg-core), maxcompute has no Caffeine on its classpath, so declare it here
+             so it is bundled into the maxcompute plugin zip (mirrors fe-connector-hive/paimon). Pinned to 2.9.3 to
+             match the version fe-connector-cache is compiled against (the lowest common version across consuming
+             plugins). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
         </dependency>
 
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->

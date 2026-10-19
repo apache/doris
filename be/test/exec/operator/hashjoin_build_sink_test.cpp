@@ -180,6 +180,55 @@ TEST_F(HashJoinBuildSinkTest, Init) {
     run_test_block(test_block);
 }
 
+TEST_F(HashJoinBuildSinkTest, RejectBroadcastJoinThatRequiresBuildSideFinalize) {
+    for (const auto join_op : {TJoinOp::RIGHT_OUTER_JOIN, TJoinOp::FULL_OUTER_JOIN,
+                               TJoinOp::RIGHT_SEMI_JOIN, TJoinOp::RIGHT_ANTI_JOIN}) {
+        auto tnode =
+                _helper.create_test_plan_node(join_op, {TPrimitiveType::INT}, {false}, {false});
+        tnode.hash_join_node.__set_is_broadcast_join(true);
+
+        auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+        ASSERT_TRUE(probe_operator);
+        ASSERT_TRUE(sink_operator);
+
+        auto runtime_state = std::make_unique<MockRuntimeState>();
+        runtime_state->_query_ctx = _helper.query_ctx.get();
+        runtime_state->_query_id = _helper.query_ctx->query_id();
+        runtime_state->resize_op_id_to_local_state(-100);
+        runtime_state->set_max_operator_id(-100);
+        runtime_state->set_desc_tbl(_helper.desc_tbl);
+
+        auto st = sink_operator->init(tnode, runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+        st = sink_operator->prepare(runtime_state.get());
+        ASSERT_TRUE(st.is<ErrorCode::NOT_IMPLEMENTED_ERROR>())
+                << "broadcast " << to_string(join_op)
+                << " should be rejected, got: " << st.to_string();
+    }
+}
+
+TEST_F(HashJoinBuildSinkTest, RightAntiMarkJoinRejected) {
+    auto tnode = _helper.create_test_plan_node(TJoinOp::RIGHT_ANTI_JOIN,
+                                               {TPrimitiveType::INT, TPrimitiveType::STRING},
+                                               {false, false}, {false, false}, true, 1);
+    auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+    ASSERT_TRUE(probe_operator);
+    ASSERT_TRUE(sink_operator);
+
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_ctx = _helper.query_ctx.get();
+    runtime_state->_query_id = _helper.query_ctx->query_id();
+    runtime_state->resize_op_id_to_local_state(-100);
+    runtime_state->set_max_operator_id(-100);
+    runtime_state->set_desc_tbl(_helper.desc_tbl);
+
+    auto st = sink_operator->init(tnode, runtime_state.get());
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("right anti mark join"));
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("node=0"));
+}
+
 TEST_F(HashJoinBuildSinkTest, Sink) {
     auto test_block = [&](TJoinOp::type op_type, const std::vector<TPrimitiveType::type>& key_types,
                           const std::vector<bool>& left_nullables,
@@ -233,7 +282,7 @@ TEST_F(HashJoinBuildSinkTest, Sink) {
 
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
-        const auto& row_desc = sink_operator->child()->row_desc();
+        const auto& row_desc = sink_operator->child()->operator_row_desc_after_projection();
         Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
         auto mutable_block = MutableBlock(block.clone_empty());
@@ -267,6 +316,30 @@ TEST_F(HashJoinBuildSinkTest, Sink) {
     };
 
     run_test_block(test_block);
+}
+
+TEST_F(HashJoinBuildSinkTest, BroadcastJoinRequiredDataDistribution) {
+    auto tnode = _helper.create_test_plan_node(TJoinOp::INNER_JOIN, {TPrimitiveType::INT}, {false},
+                                               {false});
+    tnode.hash_join_node.__set_is_broadcast_join(true);
+    auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+    ASSERT_TRUE(probe_operator);
+    ASSERT_TRUE(sink_operator);
+
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::NOOP);
+
+    sink_operator->child()->set_serial_operator();
+    _helper.runtime_state->_enable_share_hash_table_for_broadcast_join = true;
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::PASS_TO_ONE);
+
+    _helper.runtime_state->_enable_share_hash_table_for_broadcast_join = false;
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::BROADCAST);
 }
 
 TEST_F(HashJoinBuildSinkTest, Terminate) {
@@ -322,7 +395,7 @@ TEST_F(HashJoinBuildSinkTest, Terminate) {
 
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
-        const auto& row_desc = sink_operator->child()->row_desc();
+        const auto& row_desc = sink_operator->child()->operator_row_desc_after_projection();
         Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
         auto mutable_block = MutableBlock(block.clone_empty());
@@ -536,6 +609,32 @@ TEST_F(SharedHashTableSignalTest, BuilderTerminatedDoesNotSignal) {
             << "Non-builder should return EOF when builder was terminated, got: " << st.to_string();
 
     // Clean up the non-builder
+    st = setup.sink_op->close(non_builder_state, Status::OK());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+}
+
+TEST_F(SharedHashTableSignalTest, UnbuiltHashTableDoesNotSignal) {
+    auto setup = setup_broadcast_join(2);
+    auto* builder_local_state =
+            assert_cast<HashJoinBuildSinkLocalState*>(setup.builder_state->get_sink_local_state());
+
+    ASSERT_FALSE(builder_local_state->_terminated);
+    ASSERT_TRUE(
+            std::holds_alternative<std::monostate>(setup.shared_state->cast<HashJoinSharedState>()
+                                                           ->hash_table_variant_vector.front()
+                                                           ->method_variant));
+
+    auto st = setup.sink_op->close(setup.builder_state, Status::OK());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_FALSE(setup.sink_op->_signaled)
+            << "_signaled should NOT be set when build failed before hash table was built";
+
+    auto* non_builder_state = setup.non_builder_states[0].get();
+    Block empty_block;
+    st = setup.sink_op->sink(non_builder_state, &empty_block, true);
+    ASSERT_TRUE(st.is<ErrorCode::END_OF_FILE>())
+            << "Non-builder should return EOF after builder failure, got: " << st.to_string();
+
     st = setup.sink_op->close(non_builder_state, Status::OK());
     ASSERT_TRUE(st.ok()) << st.to_string();
 }

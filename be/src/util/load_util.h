@@ -29,5 +29,8 @@ public:
                              TFileCompressType::type* compress_type);
 
     static bool is_format_support_streaming(TFileFormatType::type format);
+
+    static bool is_compressed_load(TFileCompressType::type compress_type,
+                                   TFileFormatType::type format_type);
 };
 } // namespace  doris

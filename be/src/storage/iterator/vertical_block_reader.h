@@ -43,12 +43,16 @@ namespace doris {
 struct RowsetId;
 
 class RowSourcesBuffer;
+class RowsetMeta;
 struct RowBatch;
+struct VerticalCompactionContextStats;
+class VerticalBlockReaderTestAccessor;
 
 class VerticalBlockReader final : public TabletReader {
 public:
-    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer)
-            : _row_sources_buffer(row_sources_buffer) {
+    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer,
+                        VerticalCompactionContextStats* context_stats = nullptr)
+            : _row_sources_buffer(row_sources_buffer), _context_stats(context_stats) {
         _id = nextId++;
     }
 
@@ -70,6 +74,13 @@ public:
     static uint64_t nextId;
 
 private:
+    friend class VerticalBlockReaderTestAccessor;
+
+    static void _append_grouped_iterator_init_flags(const RowsetMeta& rowset_meta,
+                                                    std::pair<int64_t, int64_t> segment_offsets,
+                                                    size_t added_iterators,
+                                                    std::vector<bool>* iterator_init_flag);
+
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
@@ -113,15 +124,13 @@ private:
     Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
+    VerticalCompactionContextStats* _context_stats;
     ColumnPtr _delete_filter_column;
 
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
     Arena _arena;
-
-    std::vector<int> _normal_columns_idx;
-    std::vector<int> _agg_columns_idx;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;

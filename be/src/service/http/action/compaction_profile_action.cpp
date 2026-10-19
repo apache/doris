@@ -220,6 +220,7 @@ void CompactionProfileAction::handle(HttpRequest* req) {
         profile.AddMember("output_index_size", task.output_index_size, allocator);
         profile.AddMember("output_total_size", task.output_total_size, allocator);
         profile.AddMember("output_segments_num", task.output_segments_num, allocator);
+        profile.AddMember("is_ordered_data_compaction", task.is_ordered_data_compaction, allocator);
 
         {
             rapidjson::Value v;

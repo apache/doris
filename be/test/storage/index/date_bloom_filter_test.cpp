@@ -23,12 +23,14 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/hybrid_set.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
+#include "storage/iterators.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "util/date_func.h"
 
@@ -108,6 +110,14 @@ protected:
         return context;
     }
 
+    Status get_column_reader_for_pruning(const segment_v2::SegmentSharedPtr& segment,
+                                         const TabletColumn& column,
+                                         std::shared_ptr<ColumnReader>* reader,
+                                         OlapReaderStatistics& stats) const {
+        StorageReadOptions read_options(stats);
+        return segment->get_column_reader_for_pruning(column, read_options, reader);
+    }
+
     DateBloomFilterTest() = default;
     ~DateBloomFilterTest() override = default;
 
@@ -130,8 +140,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    Block block = _tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
 
     auto date = timestamp_from_date("2024-11-08");
     auto datetime = timestamp_from_datetime("2024-11-08 09:00:00");
@@ -146,6 +156,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     olap_datetime_value = datetime.to_olap_datetime();
     columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
     columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    block.set_columns(std::move(columns));
 
     Status st;
     st = rowset_writer->add_block(&block);
@@ -170,7 +181,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
+        st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(0), &reader,
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -193,7 +205,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
+        st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(1), &reader,
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -223,8 +236,8 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    Block block = _tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
 
     // Insert test data
     auto date = timestamp_from_date("2024-11-08");
@@ -240,6 +253,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     olap_datetime_value = datetime.to_olap_datetime();
     columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
     columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    block.set_columns(std::move(columns));
 
     EXPECT_TRUE(rowset_writer->add_block(&block).ok());
     EXPECT_TRUE(rowset_writer->flush().ok());
@@ -258,7 +272,8 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
+        st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(0), &reader,
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -325,7 +340,8 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
+        st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(1), &reader,
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());

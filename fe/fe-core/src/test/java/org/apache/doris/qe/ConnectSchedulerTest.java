@@ -22,16 +22,17 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ConnectSchedulerTest {
@@ -41,7 +42,7 @@ public class ConnectSchedulerTest {
     private MysqlChannel channel = Mockito.mock(MysqlChannel.class);
     private MockedStatic<MysqlProto> mockedMysqlProto;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         succSubmit = new AtomicLong(0);
         mockedMysqlProto = Mockito.mockStatic(MysqlProto.class);
@@ -49,7 +50,7 @@ public class ConnectSchedulerTest {
         mockedMysqlProto.when(() -> MysqlProto.negotiate(Mockito.nullable(ConnectContext.class))).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMysqlProto != null) {
             mockedMysqlProto.close();
@@ -67,8 +68,8 @@ public class ConnectSchedulerTest {
                 context.setEnv(AccessTestUtil.fetchAdminCatalog());
             }
             context.setCurrentUserIdentity(UserIdentity.ROOT);
-            Assert.assertTrue(scheduler.submit(context));
-            Assert.assertEquals(i, context.getConnectionId());
+            Assertions.assertTrue(scheduler.submit(context));
+            Assertions.assertEquals(i, context.getConnectionId());
         }
     }
 
@@ -79,23 +80,58 @@ public class ConnectSchedulerTest {
         ConnectContext context = new ConnectContext();
         context.setEnv(AccessTestUtil.fetchAdminCatalog());
         context.setCurrentUserIdentity(UserIdentity.ROOT);
-        Assert.assertTrue(scheduler.submit(context));
-        Assert.assertEquals(0, context.getConnectionId());
+        Assertions.assertTrue(scheduler.submit(context));
+        Assertions.assertEquals(0, context.getConnectionId());
 
         Thread.sleep(1000);
-        Assert.assertNull(scheduler.getContext(0));
+        Assertions.assertNull(scheduler.getContext(0));
     }
 
     @Test
     public void testSubmitFail() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(10);
-        Assert.assertFalse(scheduler.submit(null));
+        Assertions.assertFalse(scheduler.submit(null));
     }
 
     @Test
     public void testSubmitTooMany() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(0);
         ConnectContext context = new ConnectContext();
-        Assert.assertTrue(scheduler.submit(context));
+        Assertions.assertTrue(scheduler.submit(context));
+    }
+
+    @Test
+    public void testTimeoutCheckerContinuesAfterContextException() {
+        ConnectPoolMgr connectPoolMgr = new ConnectPoolMgr(10);
+        ThrowingConnectContext throwingContext = new ThrowingConnectContext();
+        CountingConnectContext countingContext = new CountingConnectContext();
+        throwingContext.setConnectionId(1);
+        countingContext.setConnectionId(2);
+        connectPoolMgr.getConnectionMap().put(throwingContext.getConnectionId(), throwingContext);
+        connectPoolMgr.getConnectionMap().put(countingContext.getConnectionId(), countingContext);
+
+        connectPoolMgr.timeoutChecker(System.currentTimeMillis());
+
+        Assertions.assertEquals(1, throwingContext.checkCount.get());
+        Assertions.assertEquals(1, countingContext.checkCount.get());
+    }
+
+    private static class ThrowingConnectContext extends ConnectContext {
+        private final AtomicInteger checkCount = new AtomicInteger(0);
+
+        @Override
+        public void checkTimeout(long now) {
+            checkCount.incrementAndGet();
+            throw new RuntimeException("mock check timeout exception");
+        }
+    }
+
+    private static class CountingConnectContext extends ConnectContext {
+        private final AtomicInteger checkCount = new AtomicInteger(0);
+
+        @Override
+        public void checkTimeout(long now) {
+            checkCount.incrementAndGet();
+        }
     }
 }

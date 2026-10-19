@@ -24,6 +24,7 @@
 #include <openssl/md5.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -165,6 +166,26 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
     FILESYSTEM_M(delete_directory_or_file_impl(path));
+}
+
+Status LocalFileSystem::delete_empty_directory(const Path& dir) {
+    FILESYSTEM_M(delete_empty_directory_impl(dir));
+}
+
+Status LocalFileSystem::delete_empty_directory_impl(const Path& dir) {
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
+    VLOG_DEBUG << "delete empty directory: " << path.native();
+    int ret = 0;
+    RETRY_ON_EINTR(ret, rmdir(path.c_str()));
+    if (ret != 0) {
+        std::error_code ec(errno, std::generic_category());
+        if (ec == std::errc::no_such_file_or_directory) {
+            return Status::OK();
+        }
+        return localfs_error(ec, fmt::format("failed to delete empty directory {}", path.native()));
+    }
+    return Status::OK();
 }
 
 Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
@@ -364,6 +385,21 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
     }
     *capacity = info.capacity;
     *available = info.available;
+    return Status::OK();
+}
+
+Status LocalFileSystem::get_inode_info(const Path& path, size_t* total, size_t* available) {
+    FILESYSTEM_M(get_inode_info_impl(path, total, available));
+}
+
+Status LocalFileSystem::get_inode_info_impl(const Path& path, size_t* total, size_t* available) {
+    struct statvfs vfs {};
+    if (::statvfs(path.c_str(), &vfs) != 0) {
+        return localfs_error(errno,
+                             fmt::format("failed to get inode info for path {}", path.native()));
+    }
+    *total = vfs.f_files;
+    *available = vfs.f_favail;
     return Status::OK();
 }
 

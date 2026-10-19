@@ -52,7 +52,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -93,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -118,9 +121,11 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -169,6 +174,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
         return visit(boundFunction, context);
+    }
+
+    public R visitShortCircuitIf(ShortCircuitIf shortCircuitIf, C context) {
+        return visitIf(shortCircuitIf, context);
     }
 
     public R visitAggregateExpression(AggregateExpression aggregateExpression, C context) {
@@ -335,6 +344,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateTimeV2Literal, context);
     }
 
+    public R visitTimeStampNsLiteral(TimeStampNsLiteral timeStampNsLiteral, C context) {
+        return visitLiteral(timeStampNsLiteral, context);
+    }
+
     public R visitTimestampTzLiteral(TimestampTzLiteral timestampTzLiteral, C context) {
         return visitLiteral(timestampTzLiteral, context);
     }
@@ -345,6 +358,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIPv6Literal(IPv6Literal ipv6Literal, C context) {
         return visitLiteral(ipv6Literal, context);
+    }
+
+    public R visitUuidLiteral(UuidLiteral uuidLiteral, C context) {
+        return visitLiteral(uuidLiteral, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
@@ -446,6 +463,14 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIsNull(IsNull isNull, C context) {
         return visit(isNull, context);
+    }
+
+    public R visitIsTrue(IsTrue isTrue, C context) {
+        return visit(isTrue, context);
+    }
+
+    public R visitIsFalse(IsFalse isFalse, C context) {
+        return visit(isFalse, context);
     }
 
     public R visitInSubquery(InSubquery in, C context) {

@@ -42,6 +42,17 @@ public class UnassignedSpecifyInstancesJob extends AbstractUnassignedJob {
         this.specifyInstances = fragment.specifyInstances.get();
     }
 
+    /**
+     * Compute assigned jobs by delegating to the fragment's
+     * {@link NereidsSpecifyInstances}. This is used when the fragment has
+     * pre-specified instance-to-worker mappings (e.g. from hints or
+     * statement-level instance specifications), bypassing the normal
+     * worker selection and parallelization logic.
+     *
+     * @param distributeContext the distribute context (forwarded to specify instances)
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return assigned jobs built from the pre-specified instance layout
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

@@ -172,7 +172,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).count);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                this->data(place).count);
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
@@ -208,6 +209,14 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             data[i] = 1;
         }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const UInt64*>(col.get_data().data());
+        this->data(place).count = data[row];
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,

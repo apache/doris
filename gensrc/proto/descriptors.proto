@@ -64,6 +64,9 @@ message PColumnAccessPath {
     required PAccessPathType type = 1;
     optional PDataAccessPath data_access_path = 2;
     optional PMetaAccessPath meta_access_path = 3;
+    // 0/absent is the legacy all-DATA encoding with special path components. Version 1 uses
+    // typed payloads and may carry meta_access_path.
+    optional int32 version = 4;
 }
 
 message PSlotDescriptor {
@@ -100,6 +103,7 @@ message POlapTableIndexSchema {
     required int32 schema_hash = 3;
     repeated ColumnPB columns_desc = 4;
     repeated TabletIndexPB indexes_desc = 5;
+    optional int64 row_binlog_id = 6;
 };
 
 message POlapTableSchemaParam {
@@ -122,5 +126,6 @@ message POlapTableSchemaParam {
     optional UniqueKeyUpdateModePB unique_key_update_mode = 15 [default = UPSERT];
     optional int32 sequence_map_col_unique_id = 16 [default = -1];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
+    repeated POlapTableIndexSchema row_binlog_index_schemas = 18;
 };
 

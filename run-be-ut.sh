@@ -41,8 +41,74 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export ROOT
 export DORIS_HOME="${ROOT}"
-
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
+
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+feature_to_cmake_name() {
+    local feature="$1"
+    printf '%s' "${feature}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+parse_extra_be_modules() {
+    local spec_value="$1"
+    local entry feature module_path existing
+    local -a feature_keys=()
+
+    BE_EXTRA_FEATURE_KEYS=()
+    BE_EXTRA_MODULE_PATHS=()
+    if [[ -z "${spec_value}" ]]; then
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" || "${entry}" != *=* ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="$(trim_whitespace "${entry%%=*}")"
+        module_path="$(trim_whitespace "${entry#*=}")"
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid EXTRA_BE_MODULES feature '${feature}'"
+            exit 1
+        fi
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate EXTRA_BE_MODULES feature '${feature}'"
+                exit 1
+            fi
+        done
+        if [[ ! -d "${DORIS_HOME}/be/src/${module_path}" ]]; then
+            echo "Missing EXTRA_BE_MODULES module directory: ${DORIS_HOME}/be/src/${module_path}"
+            exit 1
+        fi
+        feature_keys+=("${feature}")
+        BE_EXTRA_FEATURE_KEYS+=("${feature}")
+        BE_EXTRA_MODULE_PATHS+=("${module_path}")
+    done
+}
 
 # Check args
 usage() {
@@ -58,6 +124,9 @@ Usage: $0 <options>
      --coverage         generage coverage after run ut, DOES NOT take effect if --gdb is specified
      -j                 build parallel
      -h                 print this help message
+
+  Environment:
+    DORIS_BE_UT_EXECUTABLE  Existing test binary to run after the build, for benchmark comparisons.
 
   Eg.
     $0                                                              build tests
@@ -143,11 +212,22 @@ fi
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
+EXTRA_BE_MODULES="${EXTRA_BE_MODULES:-}"
+parse_extra_be_modules "${EXTRA_BE_MODULES}"
+
+BE_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#BE_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${BE_EXTRA_FEATURE_KEYS[i]}")"
+    BE_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    BE_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${BE_EXTRA_MODULE_PATHS[i]}")
+done
+
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
-    WITH_TDE_DIR        -- ${WITH_TDE_DIR}
+    ENABLE_UNITY_BUILD  -- ${ENABLE_UNITY_BUILD:-ON}
+    EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
 echo "Build Backend UT"
 
@@ -174,8 +254,16 @@ update_submodule() {
     fi
 }
 
+# Keep this list in sync with build.sh: be/CMakeLists.txt adds storage/index/ann
+# unconditionally, and its cmake-protect target add_subdirectory()s both faiss and openblas,
+# so the configure step fails outright when either is missing. The H3 wrapper also
+# requires its submodule to be initialized before configuring BE.
+update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
+update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
@@ -225,22 +313,24 @@ if [[ -z "${ARM_MARCH}" ]]; then
     ARM_MARCH='armv8-a+crc'
 fi
 
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
-fi
-
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='ON'
+fi
+
+# The UT build is a compile-and-run loop, not a debugger session: line tables
+# keep stack traces, perf and addr2line working, and drop the variable-level
+# DWARF that dominates the object files (sampled be/test TUs: -6% compile cpu,
+# objects -91%). Ask for the full DWARF back with DORIS_DEV_DEBUG_INFO=full.
+# Only default it in under clang -- gcc has no -gline-tables-only.
+if [[ -z "${DORIS_DEV_DEBUG_INFO}" ]] && [[ "${DORIS_TOOLCHAIN}" == 'clang' ]]; then
+    DORIS_DEV_DEBUG_INFO='line-tables'
 fi
 
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE_CXX} and ${CMAKE_USE_CCACHE_C}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+echo "-- Debug info: ${DORIS_DEV_DEBUG_INFO:-full}"
 
 if [[ "${CMAKE_BUILD_TYPE}" = "ASAN" ]]; then
     BUILD_TYPE="ASAN_UT"
@@ -257,7 +347,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
-    -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \
     -DARM_MARCH="${ARM_MARCH}" \
@@ -267,9 +356,11 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE_CXX:+${CMAKE_USE_CCACHE_CXX}} \
     ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
+    -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
+    -DDORIS_DEV_DEBUG_INFO="${DORIS_DEV_DEBUG_INFO}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
-    -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+    "${BE_EXTRA_CMAKE_ARGS[@]}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
@@ -365,8 +456,8 @@ touch "${UT_TMP_DIR}/tmp_file"
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
-if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" "${LIB_DIR}/hadoop_hdfs"
 fi
 if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
@@ -475,8 +566,9 @@ export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 
-# find all executable test files
-test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
+# A saved reference binary keeps benchmark comparisons independent of relinking.
+test="${DORIS_BE_UT_EXECUTABLE:-${DORIS_TEST_BINARY_DIR}/doris_be_test}"
+echo "Using test executable: ${test}"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
 profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 
@@ -508,4 +600,5 @@ if [[ -f "${test}" ]]; then
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
     echo "unit test file: ${test} does not exist."
+    exit 1
 fi

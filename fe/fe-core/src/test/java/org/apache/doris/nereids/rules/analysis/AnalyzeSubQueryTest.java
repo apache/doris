@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -244,6 +245,92 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         for (String sql : notNullableSqls) {
             checkScalarSubquerySlotNullable(sql, false);
         }
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithTopNProject() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select T2.score + 1 from T2 where T2.id = T1.id order by T2.score limit 1)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("limit is not supported in correlated subquery"));
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithTopN() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select T2.score from T2 where T2.id = T1.id order by T2.score limit 1)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("limit is not supported in correlated subquery"));
+    }
+
+    @Test
+    public void testExistsOverScalarAggUnionOrderBy() {
+        // EXISTS over scalar aggregate with ORDER BY wrapper and UNION ALL.
+        // hasTopLevelScalarAgg() must see through LogicalSort to fold to TRUE/FALSE.
+        String sql = "SELECT EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u ORDER BY 1"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testNotExistsOverScalarAggUnionOrderBy() {
+        String sql = "SELECT NOT EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u ORDER BY 1"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testExistsCorrelatedScalarAggUnionOrderBy() {
+        // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
+        // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T2 t2 WHERE t1.id = t2.id"
+                + " UNION ALL "
+                + "SELECT id FROM T3 t3 WHERE t1.id = t3.id"
+                + ") u ORDER BY 1"
+                + ") ORDER BY id";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testExistsOverScalarAggUnionDerivedTable() {
+        // EXISTS over a scalar aggregate wrapped in a derived-table alias:
+        //   WHERE EXISTS (SELECT * FROM (SELECT COUNT(*) FROM (<union>) u) a)
+        // hasTopLevelScalarAgg() must see through LogicalSubQueryAlias to fold.
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T2 t2 WHERE t1.id = t2.id"
+                + " UNION ALL "
+                + "SELECT id FROM T3 t3 WHERE t1.id = t3.id"
+                + ") u"
+                + ") a"
+                + ") ORDER BY id";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testExistsOverScalarAggUnionDerivedTableNotCorrelated() {
+        // Non-correlated variant of the derived-table shape.
+        String sql = "SELECT EXISTS ("
+                + "SELECT * FROM ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u"
+                + ") a"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
     }
 
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {

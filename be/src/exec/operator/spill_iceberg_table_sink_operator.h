@@ -18,7 +18,9 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
+#include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
@@ -41,7 +43,7 @@ public:
     Status open(RuntimeState* state) override;
 
     bool is_blockable() const override;
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block);
     Status revoke_memory(RuntimeState* state);
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -63,9 +65,9 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block) override;
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
@@ -86,5 +88,8 @@ private:
     const std::vector<TExpr>& _t_output_expr;
     ObjectPool* _pool = nullptr;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
 
 } // namespace doris

@@ -19,8 +19,8 @@ package org.apache.doris.qe;
 
 import com.google.common.collect.Multiset;
 import com.google.common.collect.TreeMultiset;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 
@@ -36,16 +36,16 @@ public class JournalObservableTest {
 
         // empty
         { // CHECKSTYLE IGNORE THIS LINE
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), 0, 1L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), 0, 1L));
         } // CHECKSTYLE IGNORE THIS LINE
 
         // one element
         { // CHECKSTYLE IGNORE THIS LINE
             elements.add(observer2);
             int size = elements.size();
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
         } // CHECKSTYLE IGNORE THIS LINE
 
         // same element
@@ -62,16 +62,16 @@ public class JournalObservableTest {
             }
 
             int size = elements.size();
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
-            Assert.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 4L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
+            Assertions.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 4L));
             elements.remove(observer41);
-            Assert.assertEquals(3, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
+            Assertions.assertEquals(3, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
             elements.remove(observer4);
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
             elements.remove(observer42);
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
         } // CHECKSTYLE IGNORE THIS LINE
 
         // same element 2
@@ -81,11 +81,11 @@ public class JournalObservableTest {
             elements.add(observer41);
 
             int size = elements.size();
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 4L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 4L));
             elements.remove(observer41);
-            Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
+            Assertions.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
             elements.remove(observer4);
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
         } // CHECKSTYLE IGNORE THIS LINE
 
         // odd elements
@@ -98,13 +98,13 @@ public class JournalObservableTest {
             elements.add(observer6);
             elements.add(observer6);
             int size = elements.size();
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 3L));
-            Assert.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 4L));
-            Assert.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 5L));
-            Assert.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 6L));
-            Assert.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 7L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 3L));
+            Assertions.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 4L));
+            Assertions.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 5L));
+            Assertions.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 6L));
+            Assertions.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 7L));
         } // CHECKSTYLE IGNORE THIS LINE
         // even elements
         { // CHECKSTYLE IGNORE THIS LINE
@@ -117,13 +117,13 @@ public class JournalObservableTest {
             elements.add(observer6);
             elements.add(observer6);
             int size = elements.size();
-            Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));
-            Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 3L));
-            Assert.assertEquals(5, JournalObservable.upperBound(elements.toArray(), size, 4L));
-            Assert.assertEquals(5, JournalObservable.upperBound(elements.toArray(), size, 5L));
-            Assert.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 6L));
-            Assert.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 7L));
+            Assertions.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));
+            Assertions.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 3L));
+            Assertions.assertEquals(5, JournalObservable.upperBound(elements.toArray(), size, 4L));
+            Assertions.assertEquals(5, JournalObservable.upperBound(elements.toArray(), size, 5L));
+            Assertions.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 6L));
+            Assertions.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 7L));
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             CountDownLatch latch = new CountDownLatch(1);

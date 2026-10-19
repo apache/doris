@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -34,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -42,6 +44,7 @@ import java.util.Set;
  */
 public class DropColumnOp extends AlterTableOp {
     private String colName;
+    private ColumnPath columnPath;
     private String rollupName;
 
     private Map<String, String> properties;
@@ -50,14 +53,23 @@ public class DropColumnOp extends AlterTableOp {
      * DropColumnOp
      */
     public DropColumnOp(String colName, String rollupName, Map<String, String> properties) {
+        this(ColumnPath.of(colName), rollupName, properties);
+    }
+
+    public DropColumnOp(ColumnPath columnPath, String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.rollupName = rollupName;
         this.properties = properties;
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getRollupName() {
@@ -70,7 +82,7 @@ public class DropColumnOp extends AlterTableOp {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     colName, FeNameFormat.getColumnNameRegex());
         }
-        if (colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+        if (!columnPath.isNested() && colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
             throw new AnalysisException("Do not support drop hidden column");
         }
 
@@ -162,6 +174,19 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.singleton(getColName());
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // A path into a column leaves the column itself in place, so what the table holds is the container
+        // of the part this asks about: dropping the part cannot be told apart from a change that has not
+        // been applied, and that is the answer which keeps the views invalidated.
+        return !columnPath.isNested() && table.getColumn(getColName()) == null;
+    }
+
+    @Override
     public boolean allowOpRowBinlog() {
         // Drop column is considered safe for row binlog tables after whitelist
         // check in schema change job.
@@ -171,7 +196,7 @@ public class DropColumnOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP COLUMN `").append(colName).append("`");
+        sb.append("DROP COLUMN ").append(columnPath.toSql());
         if (rollupName != null) {
             sb.append(" FROM `").append(rollupName).append("`");
         }

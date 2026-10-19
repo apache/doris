@@ -28,6 +28,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -40,7 +41,9 @@ import java.util.Optional;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
-    public static final boolean SERVER_USE_SSL = Config.enable_ssl;
+    public static final boolean SERVER_USE_SSL =
+            (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.MYSQL))
+                    || Config.enable_ssl;
     private static final String CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE =
             "Client closed connection during handshake";
 
@@ -180,10 +183,6 @@ public class MysqlProto {
         if (handshakeResponse == null) {
             return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
         }
-        if (capability.isDeprecatedEOF()) {
-            context.getMysqlChannel().setClientDeprecatedEOF();
-        }
-
         // we do not save client capability to context, so here we save CLIENT_MULTI_STATEMENTS to MysqlChannel
         if (capability.isClientMultiStatements()) {
             context.getMysqlChannel().setClientMultiStatements();
@@ -205,7 +204,11 @@ public class MysqlProto {
         }
 
         // change the capability of serializer
-        context.setCapability(context.getServerCapability());
+        context.setCapability(new MysqlCapability(context.getServerCapability().getFlags()
+                & authPacket.getCapability().getFlags()));
+        if (context.getCapability().isDeprecatedEOF()) {
+            channel.setClientDeprecatedEOF();
+        }
         serializer.setCapability(context.getCapability());
 
         String qualifiedUser = parseUser(context, authPacket.getAuthResponse(), authPacket.getUser());
@@ -329,6 +332,14 @@ public class MysqlProto {
 
     public static byte[] readLenEncodedString(ByteBuffer buffer) {
         long length = readVInt(buffer);
+        // The string payload must fit in the bytes actually remaining in the packet.
+        // Without this bound an attacker-controlled length is passed straight to
+        // new byte[(int) length], where the (int) cast can go negative or request
+        // up to ~2 GiB from a few bytes on the wire.
+        if (length < 0 || length > buffer.remaining()) {
+            throw new IllegalArgumentException("invalid length-encoded string length: " + length
+                    + ", remaining: " + buffer.remaining());
+        }
         byte[] buf = new byte[(int) length];
         buffer.get(buf);
         return buf;

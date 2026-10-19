@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
@@ -38,7 +39,12 @@ class IDataType;
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
-            : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
+            : DataTypeSerDe(nesting_level) {
+        auto nullable_serde =
+                std::dynamic_pointer_cast<DataTypeNullableSerDe>(std::move(_nested_serde));
+        DORIS_CHECK(nullable_serde != nullptr);
+        nested_serde = std::move(nullable_serde);
+    }
 
     std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
@@ -86,8 +92,19 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                        const IColumn& column, const NullMap* null_map,
+                                        const std::shared_ptr<arrow::Field>& field,
+                                        arrow::ArrayBuilder* array_builder, int64_t start,
+                                        int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>& field,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
@@ -105,7 +122,8 @@ public:
                                const FormatOptions& options) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
@@ -132,6 +150,6 @@ private:
     template <bool is_strict_mode>
     Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
-    DataTypeSerDeSPtr nested_serde;
+    DataTypeNullableSerDeSPtr nested_serde;
 };
 } // namespace doris

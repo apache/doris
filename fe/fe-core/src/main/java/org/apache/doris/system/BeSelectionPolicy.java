@@ -42,6 +42,7 @@ public class BeSelectionPolicy {
     public boolean needScheduleAvailable = false;
     public boolean needQueryAvailable = false;
     public boolean needLoadAvailable = false;
+    public boolean needNonDecommissioned = false;
     // Resource tag. Empty means no need to consider resource tag.
     public Set<Tag> resourceTags = Sets.newHashSet();
     // storage medium. null means no need to consider storage medium.
@@ -86,6 +87,12 @@ public class BeSelectionPolicy {
 
         public Builder needLoadAvailable() {
             policy.needLoadAvailable = true;
+            policy.needNonDecommissioned = true;
+            return this;
+        }
+
+        public Builder needNonDecommissioned() {
+            policy.needNonDecommissioned = true;
             return this;
         }
 
@@ -156,6 +163,7 @@ public class BeSelectionPolicy {
         if (needScheduleAvailable && !backend.isScheduleAvailable()
                 || needQueryAvailable && !backend.isQueryAvailable()
                 || needLoadAvailable && !backend.isLoadAvailable()
+                || needNonDecommissioned && (backend.isDecommissioned() || backend.isDecommissioning())
                 || (!resourceTags.isEmpty() && !resourceTags.contains(backend.getLocationTag()))
                 || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)
                 || (requireAliveBe && !backend.isAlive())) {
@@ -231,8 +239,10 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
+        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | nonDecommissioned=%s"
+                        + " | tags=%s | medium=%s",
                 preferComputeNode, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
+                needNonDecommissioned,
                 resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")), storageMedium);
     }
 }

@@ -31,6 +31,6 @@ PhysicalResultSink
 --------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2002))
 ----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
-----------------------filter(t_meal_time IN ('breakfast', 'dinner'))
+----------------------filter(time_dim.t_meal_time IN ('breakfast', 'dinner'))
 ------------------------PhysicalOlapScan[time_dim]
 

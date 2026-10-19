@@ -63,7 +63,7 @@ public class PythonUdafBuilder extends UdfBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
-        if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
+        if (arguments.size() != arity) {
             return false;
         }
         for (Object argument : arguments) {
@@ -79,7 +79,7 @@ public class PythonUdafBuilder extends UdfBuilder {
 
     @Override
     public Pair<PythonUdaf, PythonUdaf> build(String name, List<?> arguments) {
-        return Pair.ofSame((PythonUdaf) udaf.withChildren(
+        return Pair.ofSame((PythonUdaf) udaf.withFreshVolatileIdentity().withChildren(
                 arguments.stream()
                         .map(Expression.class::cast)
                         .collect(Collectors.toList()))

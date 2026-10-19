@@ -23,6 +23,8 @@
 #include <condition_variable>
 #include <mutex>
 
+#include "storage/olap_common.h"
+
 namespace doris {
 
 /*
@@ -37,6 +39,8 @@ public:
     virtual ~CompactionPermitLimiter() {}
 
     void request(int64_t permits);
+
+    bool try_request(int64_t permits);
 
     void release(int64_t permits);
 

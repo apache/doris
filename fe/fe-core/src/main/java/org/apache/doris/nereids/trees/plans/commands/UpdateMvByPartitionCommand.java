@@ -115,8 +115,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
+        List<String> sinkColumns = mv.isIvm() ? mv.getInsertedColumnNames() : ImmutableList.of();
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
-                ImmutableList.of(), ImmutableList.of(), parts, plan);
+                sinkColumns, ImmutableList.of(), parts, plan);
         if (LOG.isDebugEnabled()) {
             LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
                     sink.treeString());
@@ -330,7 +331,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                                 continue;
                             }
                             if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
-                                    Lists.newArrayList(partition.getId())).isEmpty()) {
+                                    Lists.newArrayList(partition.getId()), Optional.empty()).isEmpty()) {
                                 // Add filter only when partition has data when olap table
                                 partitionHasDataItems.add(
                                         ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));

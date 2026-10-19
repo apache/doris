@@ -322,6 +322,11 @@ bool PipelineTask::is_blockable() const {
            _sink->is_blockable(_state);
 }
 
+void PipelineTask::_stop_accepting_submit() {
+    std::unique_lock<std::mutex> lock(_blockable_check_lock);
+    _accept_submit = false;
+}
+
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
@@ -564,7 +569,7 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(_root->row_desc().num_materialized_slots());
+                _block->clear_column_data(_root->operator_row_desc_after_projection().num_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
@@ -647,7 +652,6 @@ Status PipelineTask::execute(bool* done) {
 
             bool eos = false;
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, &eos));
-            RETURN_IF_ERROR(block->check_type_and_column());
             _eos = eos;
         }
 
@@ -660,7 +664,8 @@ Status PipelineTask::execute(bool* done) {
                         ->task_controller()
                         ->is_enable_reserve_memory() &&
                 workload_group && !(_wake_up_early || _dry_run)) {
-                const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
+                const auto sink_reserve_size =
+                        _sink->get_reserve_mem_size(_state, _eos, _block.get());
 
                 if (sink_reserve_size > 0 && _should_trigger_revoking(sink_reserve_size)) {
                     LOG(INFO) << fmt::format(
@@ -718,7 +723,7 @@ Status PipelineTask::execute(bool* done) {
                     }
                 }
             });
-            RETURN_IF_ERROR(block->check_type_and_column());
+
             status = _sink->sink(_state, block, _eos);
 
             if (_eos) {
@@ -865,6 +870,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 
@@ -874,11 +883,27 @@ void PipelineTask::stop_if_finished() {
         return;
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    if (auto sink = _sink) {
-        if (sink->is_finished(_state)) {
-            set_wake_up_early();
-            unblock_all_dependencies();
+    DataSinkOperatorPtr sink;
+    {
+        // This runs on FragmentMgr's cancel thread while a scheduler worker may be in finalize(),
+        // which resets _sink under the same lock. Copy the shared_ptr under the lock so the two
+        // threads never access it concurrently. The lock is released before
+        // unblock_all_dependencies() because that function acquires it again.
+        std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
+        DBUG_EXECUTE_IF("PipelineTask::stop_if_finished.holding_lifecycle_lock", {
+            if (dp->callback.has_value()) {
+                DBUG_RUN_CALLBACK();
+            }
+        });
+        if (is_finalized()) {
+            return;
         }
+        sink = _sink;
+    }
+    DCHECK(sink);
+    if (sink->is_finished(_state)) {
+        set_wake_up_early();
+        unblock_all_dependencies();
     }
 }
 
@@ -888,6 +913,7 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    _stop_accepting_submit();
     // Synchronize with unblock_all_dependencies() before clearing state used by wake_up()->submit().
     std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
@@ -902,6 +928,9 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
+    if (close_sink) {
+        _stop_accepting_submit();
+    }
     int64_t close_ns = 0;
     Status s;
     {
@@ -1061,7 +1090,7 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
     auto cancel_if_error = [&](const Status& st) {
         if (!st.ok()) {
             if (auto frag = fragment_context().lock()) {
-                frag->cancel(st);
+                frag->get_query_ctx()->cancel(st);
             }
         }
     };

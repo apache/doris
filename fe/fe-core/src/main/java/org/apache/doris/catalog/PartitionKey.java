@@ -31,16 +31,14 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -121,7 +119,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
             // if it's max value, no need to parse.
-            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2() || keyType.isTimeStampTz())) {
+            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2()
+                    || keyType.isTimeStampNs() || keyType.isTimeStampTz())) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
@@ -146,15 +145,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 return new DateTimeLiteral(value);
             } else if (type.isDatetimeV2()) {
                 return new DateTimeV2Literal(value);
+            } else if (type.isTimeStampNs()) {
+                return new TimeStampNsLiteral(value);
             } else if (type.isTimeStampTz()) {
-                DateTimeV2Literal literal = new DateTimeV2Literal(value);
-                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                        literal,
-                        new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                        new StringLiteral("UTC")));
-                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type),
-                        dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                        dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) DataType.fromCatalogType(type), value);
 
             }
         } catch (Exception e) {
@@ -199,6 +193,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (int i = 0; i < values.size(); i++) {
             if (values.get(i).isNullPartition()) {
                 partitionKey.keys.add(NullLiteral.create(types.get(i)));
+            } else if (types.get(i).isTimeStampTz()) {
+                // Route TIMESTAMPTZ through the Nereids-aware parser (same as
+                // createPartitionKey) so that named/lowercase timezone values
+                // like "2024-01-15 20:00:00 Asia/Shanghai" are parsed correctly.
+                // The legacy DateLiteralUtils path only recognizes uppercase
+                // timezone names and a subset of offsets.
+                Literal dateTimeLiteral = getDateTimeLiteral(values.get(i).getStringValue(), types.get(i));
+                partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
                 partitionKey.keys.add(values.get(i).getValue(types.get(i)));
             }
@@ -360,11 +362,22 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 } else if (type == PrimitiveType.DATETIME) {
                     successorDateTime = successorDateTime.plusSeconds(1);
                 } else {
-                    int scale = Math.min(6, Math.max(0, ((ScalarType) literal.getType()).getScalarScale()));
+                    int scale = Math.min(ScalarType.MAX_DATETIMEV2_SCALE,
+                            Math.max(0, ((ScalarType) literal.getType()).getScalarScale()));
                     long nanoSeconds = BigInteger.TEN.pow(9 - scale).longValue();
                     successorDateTime = successorDateTime.plusNanos(nanoSeconds);
                 }
                 successor.pushColumn(new DateLiteral(successorDateTime, literal.getType()), type);
+                return successor;
+            case TIMESTAMP_NS:
+                org.apache.doris.analysis.TimeStampNsLiteral timestampNsLiteral
+                        = (org.apache.doris.analysis.TimeStampNsLiteral) literal;
+                if ((long) timestampNsLiteral.getRealValue() == Long.MAX_VALUE) {
+                    successor.pushColumn(MaxLiteral.MAX_VALUE, type);
+                } else {
+                    successor.pushColumn(new org.apache.doris.analysis.TimeStampNsLiteral(
+                            timestampNsLiteral.toLocalDateTime().plusNanos(1)), type);
+                }
                 return successor;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
@@ -385,9 +398,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 sb.append(value);
             } else {
                 value = "\"" + expr.getRealValue() + "\"";
-                if (expr instanceof DateLiteral) {
-                    DateLiteral dateLiteral = (DateLiteral) expr;
-                    value = dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
+                if (expr instanceof DateLiteral || expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+                    value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 }
                 sb.append(value);
             }
@@ -433,9 +445,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
             } else {
                 value = expr.getRealValue();
-                if (expr instanceof DateLiteral) {
-                    DateLiteral dateLiteral = (DateLiteral) expr;
-                    value = dateLiteral.getStringValue();
+                if (expr instanceof DateLiteral || expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+                    value = expr.getStringValue();
                 }
             }
             if (keys.size() - 1 == i) {
@@ -570,6 +581,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     try {
                         key.checkValueValid();
                     } catch (AnalysisException e) {
+                        if (type == PrimitiveType.TIMESTAMP_NS) {
+                            throw new JsonParseException(
+                                    "Invalid TIMESTAMP_NS partition key: " + key.getStringValue(), e);
+                        }
                         LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists "
                                 + "in Doris 1.2.0 and fixed since Doris 1.2.1. You should create this table "
                                 + "again using Doris 1.2.1+ .", key.getStringValue(), type);

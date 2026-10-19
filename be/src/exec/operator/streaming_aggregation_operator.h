@@ -19,10 +19,12 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/common/agg_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
@@ -52,7 +54,6 @@ private:
     friend class StatefulOperatorX;
 
     size_t _memory_usage() const;
-    void _add_limit_heap_top(ColumnRawPtrs& key_columns, size_t rows);
     bool _do_limit_filter(size_t num_rows, ColumnRawPtrs& key_columns);
     void _refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns);
 
@@ -86,6 +87,7 @@ private:
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_use_limit = nullptr;
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
@@ -219,27 +221,32 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
     void set_low_memory_mode(RuntimeState* state) override {
-        _spill_streaming_agg_mem_limit = 1024 * 1024;
+        _low_memory_mode.store(true, std::memory_order_relaxed);
     }
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
+            return {TLocalPartitionType::PASSTHROUGH};
         }
-        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+        // Preserve the inherited distribution by default, but still reshuffle after a child
+        // non-hash exchange because it invalidates the grouping-key distribution.
+        if (!state->enable_local_exchange_before_streaming_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {
             return _needs_finalize
-                           ? DataDistribution(ExchangeType::NOOP)
+                           ? DataDistribution(TLocalPartitionType::NOOP)
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return {TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, _partition_exprs};
     }
 
 private:
     friend class StreamingAggLocalState;
+
+    size_t _memory_limit(RuntimeState* state) const;
 
     MOCK_FUNCTION Status _init_probe_expr_ctx(RuntimeState* state);
 
@@ -261,8 +268,11 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    /// When spilling is enabled, the streaming agg should not occupy too much memory.
-    size_t _spill_streaming_agg_mem_limit;
+    /// When spilling is enabled, the streaming agg should not occupy too much memory: session
+    /// variable `spill_streaming_agg_mem_limit` (0 = none), combined with the query-limit-based
+    /// budget in `_memory_limit()`.
+    size_t _spill_streaming_agg_mem_limit = 0;
+    std::atomic_bool _low_memory_mode = false;
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
@@ -278,5 +288,8 @@ private:
 
     std::vector<TExpr> _partition_exprs;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<StreamingAggLocalState>;
 
 } // namespace doris

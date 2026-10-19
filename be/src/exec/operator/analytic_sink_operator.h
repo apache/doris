@@ -20,6 +20,8 @@
 
 #include <stdint.h>
 
+#include <algorithm>
+
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 
@@ -31,8 +33,8 @@ struct BoundaryPose {
     int64_t end = 0;
     bool is_ended = false;
     void remove_unused_rows(int64_t cnt) {
-        start -= cnt;
-        end -= cnt;
+        start = std::max<int64_t>(0, start - cnt);
+        end = std::max<int64_t>(0, end - cnt);
     }
 };
 
@@ -72,8 +74,10 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
+    enum class RowsWindowType { NONE, UNBOUNDED_START, SLIDING };
+
     friend class AnalyticSinkOperatorX;
-    Status _execute_impl();
+    Status _execute_impl(RuntimeState* state);
     // over(partition by k1 order by k2 range|rows unbounded preceding and unbounded following)
     bool _get_next_for_partition(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 range between unbounded preceding and current row)
@@ -144,6 +148,7 @@ private:
     std::vector<uint8_t> _use_null_result;
     std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
+    RowsWindowType _rows_window_type = RowsWindowType::NONE;
     bool _support_incremental_calculate = true;
     bool _need_more_data = false;
     int64_t _current_row_position = 0;
@@ -209,14 +214,16 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
-            return {ExchangeType::PASSTHROUGH};
+            return {TLocalPartitionType::PASSTHROUGH};
         } else {
             return _is_colocate && _require_bucket_distribution
-                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                           ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                              _partition_exprs)
+                           : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                              _partition_exprs);
         }
     }
 
@@ -264,5 +271,9 @@ private:
     size_t _align_aggregate_states = 1;
     std::vector<bool> _change_to_nullable_flags;
 };
+
+/// Instantiated once in analytic_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class DataSinkOperatorX<AnalyticSinkLocalState>;
 
 } // namespace doris

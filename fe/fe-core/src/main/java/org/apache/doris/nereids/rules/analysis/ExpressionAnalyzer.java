@@ -40,7 +40,6 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -51,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -58,6 +58,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -70,6 +73,8 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -77,7 +82,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregat
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -99,8 +103,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VariantField;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -121,6 +123,8 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -156,7 +160,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private int suppressVariantElementAtCastDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -203,6 +206,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
 
+        expr = expr.prepareBeforeTypeCoercion();
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
         if (expr instanceof ImplicitCastInputTypes) {
@@ -219,7 +223,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
-        return resolveUnboundVariable(unboundVariable);
+        Variable variable = resolveUnboundVariable(unboundVariable);
+        if (wantToParseSqlFromSqlCache) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(sqlCacheContext -> sqlCacheContext.addUsedVariable(variable));
+        }
+        return variable.getRealExpression();
     }
 
     /** resolveUnboundVariable */
@@ -270,7 +279,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             StructType structType = (StructType) dataType;
             StructField field = structType.getField(dereferenceExpression.fieldName);
             if (field != null) {
-                return new StructElement(expression, dereferenceExpression.child(1));
+                // This newly constructed node returns directly and will not be revisited by visitElementAt.
+                return canonicalizeStructSelector(
+                        new ElementAt(expression, dereferenceExpression.child(1)));
             }
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
@@ -282,38 +293,48 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        boolean suppressLeftCast = isEnableVariantSchemaAutoCast(context) && elementAt.left() instanceof ElementAt;
-        if (suppressLeftCast) {
-            suppressVariantElementAtCastDepth++;
-        }
-        Expression left;
-        try {
-            left = elementAt.left().accept(this, context);
-        } finally {
-            if (suppressLeftCast) {
-                suppressVariantElementAtCastDepth--;
-            }
-        }
+        Expression left = elementAt.left().accept(this, context);
         Expression right = elementAt.right().accept(this, context);
         elementAt = (ElementAt) elementAt.withChildren(left, right);
-        Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
-        if (isEnableVariantSchemaAutoCast(context)) {
-            return wrapVariantElementAtWithCast(coerced);
-        }
-        return coerced;
+        elementAt = canonicalizeStructSelector(elementAt);
+        return TypeCoercionUtils.processBoundFunction(elementAt);
     }
 
     @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
-        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
-        boolean foundInThisScope = !boundedOpt.get().isEmpty();
+        List<? extends Expression> bounded = ImmutableList.of();
+        boolean foundInThisScope = false;
+        boolean canBindOuterScope = bindSlotInOuterScope && outerScope.isPresent();
+        boolean relationQualifierOccupied = false;
+
+        // A multipart name can be either a relation-qualified column (t.col) or a nested field
+        // reference (col.field). Try the relation-qualified interpretation in every visible scope
+        // first, so a nearer name "t" does not hide a farther relation alias "t". The visible scopes
+        // are the local ones, which HAVING, QUALIFY and ORDER BY layer from the select output and its
+        // child output in a clause specific order, and then the outer scope of a correlated subquery:
+        //   select q.v as q from t q order by q.v  -- q.v is the column of relation q, not alias q
+        if (shouldPrioritizeRelationQualifier() && unboundSlot.getNameParts().size() > 1) {
+            SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
+            bounded = localRelationBinding.getBoundSlots();
+            foundInThisScope = !bounded.isEmpty();
+            if (!foundInThisScope && canBindOuterScope) {
+                relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
+                if (!relationQualifierOccupied) {
+                    bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                }
+            }
+        }
+
+        if (bounded.isEmpty()) {
+            bounded = bindSlotByThisScope(unboundSlot);
+            foundInThisScope = !bounded.isEmpty();
+        }
         // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+        if (canBindOuterScope && bounded.isEmpty() && !relationQualifierOccupied) {
+            bounded = bindSlotByScope(unboundSlot, outerScope.get());
         }
         // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
-        List<? extends Expression> bounded = boundedOpt.get();
         if (bounded.size() > 1) {
             bounded = bounded.stream().distinct().collect(Collectors.toList());
         }
@@ -327,23 +348,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);
-                if (!foundInThisScope && firstBound instanceof Slot
-                        && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
+                Set<Slot> inputSlots = firstBound.getInputSlots();
+                if (!foundInThisScope
+                        && !outerScope.get().getCorrelatedSlots().containsAll(inputSlots)) {
                     if (currentPlan instanceof LogicalJoin) {
                         throw new AnalysisException(
                                 "Unsupported correlated subquery with correlated slot in join conjuncts "
                                         + currentPlan);
                     }
-                    outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
+                    outerScope.get().getCorrelatedSlots().addAll(inputSlots);
                 }
                 if (firstBound.getDataType() instanceof NestedColumnPrunable
                         || firstBound.getDataType().isVariantType()) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
-                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                } else if (firstBound.containsType(ElementAt.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
-                }
-                if (firstBound instanceof Alias) {
-                    return maybeCastAliasExpression((Alias) firstBound, context);
                 }
                 return firstBound;
             default:
@@ -398,7 +417,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
 
-        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        List<Slot> scopeSlots = qualifier.isEmpty() ? getScope().getAsteriskSlots() : getScope().getSlots();
         ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
         for (Slot slot : scopeSlots) {
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
@@ -426,7 +445,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * bind function
      * ******************************************************************************************** */
     private UnboundFunction processHighOrderFunction(UnboundFunction unboundFunction,
-            ExpressionRewriteContext context) {
+            LambdaBindingSpec bindingSpec, ExpressionRewriteContext context) {
         int childrenSize = unboundFunction.children().size();
         List<Expression> subChildren = new ArrayList<>();
         for (int i = 1; i < childrenSize; i++) {
@@ -436,68 +455,80 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
-        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(unboundFunction.getName(), subChildren);
-
-        List<Slot> boundedSlots = arrayItemReferences.stream()
-                .map(ArrayItemReference::toSlot)
-                .collect(ImmutableList.toImmutableList());
-
-        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
-                boundedSlots), context == null ? null : context.cascadesContext,
-                true, true) {
-            @Override
-            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
-            }
-        };
-        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
-
-        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
+        LambdaBinding binding = bindingSpec.bind(unboundFunction.getName(), lambda, subChildren);
+        lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
+        Lambda lambdaClosure = binding.close(lambdaFunction);
 
         // We don't add the ArrayExpression in high order function at all
         return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
-    UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        if (unboundFunction.isHighOrder()) {
-            unboundFunction = processHighOrderFunction(unboundFunction, context);
-        } else {
-            // NOTICE: some trick code here. because for time arithmetic functions,
-            //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
-            //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
-            //  And, the SlotReference will be processed in DatetimeFunctionBinder
-            if (StringUtils.isEmpty(unboundFunction.getDbName())
-                    && DatetimeFunctionBinder.isDatetimeArithmeticFunction(unboundFunction.getName())
-                    && unboundFunction.arity() == 3
-                    && unboundFunction.child(0) instanceof UnboundSlot) {
-                SlotReference slotReference = new SlotReference(new ExprId(-1),
-                        ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        TinyIntType.INSTANCE, false, ImmutableList.of());
-                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
-                newChildrenBuilder.add(slotReference);
-                for (int i = 1; i < unboundFunction.arity(); i++) {
-                    newChildrenBuilder.add(unboundFunction.child(i));
+    private Expression analyzeLambdaFunction(Expression lambdaFunction,
+            List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        ExpressionAnalyzer enclosingAnalyzer = this;
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
+                boundedSlots), context == null ? null : context.cascadesContext,
+                true, true) {
+            @Override
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+                // The lambda arguments are the nearest lexical scope. Every other name is resolved by the
+                // enclosing analyzer rather than by its default scope, because ORDER BY, HAVING and QUALIFY
+                // layer several local scopes and a correlated subquery sees its outer scope:
+                //   select id from t order by array_sum(array_map(x -> x + v, arr))  -- v is not in the output
+                if (bindSlotByThisScope(unboundSlot).isEmpty()) {
+                    return enclosingAnalyzer.visitUnboundSlot(unboundSlot, context);
                 }
-                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
-            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
-                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
-                    && unboundFunction.arity() == 2
-                    && unboundFunction.child(0) instanceof UnboundSlot) {
-                SlotReference slotReference = new SlotReference(new ExprId(-1),
-                        ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        StringType.INSTANCE, false, ImmutableList.of());
-                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
-                newChildrenBuilder.add(slotReference);
-                for (int i = 1; i < unboundFunction.arity(); i++) {
-                    newChildrenBuilder.add(unboundFunction.child(i));
-                }
-                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+                return super.visitUnboundSlot(unboundSlot, context);
             }
-            unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
+
+            @Override
+            protected boolean shouldPrioritizeRelationQualifier() {
+                // a name that starts with a lambda argument is a field of it, even if a relation of the
+                // enclosing scope has the same name: array_map(x -> x.value, x.items) from t x
+                return false;
+            }
+        };
+        return lambdaAnalyzer.analyze(lambdaFunction, context);
+    }
+
+    /** Whether relation-qualified columns should be resolved across scopes before nested fields. */
+    protected boolean shouldPrioritizeRelationQualifier() {
+        return true;
+    }
+
+    UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+        // NOTICE: some trick code here. because for time arithmetic functions,
+        //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
+        //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
+        //  And, the SlotReference will be processed in DatetimeFunctionBinder
+        if (StringUtils.isEmpty(unboundFunction.getDbName())
+                && DatetimeFunctionBinder.isDatetimeArithmeticFunction(unboundFunction.getName())
+                && unboundFunction.arity() == 3
+                && unboundFunction.child(0) instanceof UnboundSlot) {
+            SlotReference slotReference = new SlotReference(new ExprId(-1),
+                    ((UnboundSlot) unboundFunction.child(0)).getName(),
+                    TinyIntType.INSTANCE, false, ImmutableList.of());
+            ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+            newChildrenBuilder.add(slotReference);
+            for (int i = 1; i < unboundFunction.arity(); i++) {
+                newChildrenBuilder.add(unboundFunction.child(i));
+            }
+            unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+        } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                && unboundFunction.arity() == 2
+                && unboundFunction.child(0) instanceof UnboundSlot) {
+            SlotReference slotReference = new SlotReference(new ExprId(-1),
+                    ((UnboundSlot) unboundFunction.child(0)).getName(),
+                    StringType.INSTANCE, false, ImmutableList.of());
+            ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+            newChildrenBuilder.add(slotReference);
+            for (int i = 1; i < unboundFunction.arity(); i++) {
+                newChildrenBuilder.add(unboundFunction.child(i));
+            }
+            unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
         }
-        return unboundFunction;
+        return (UnboundFunction) super.visit(unboundFunction, context);
     }
 
     List<Object> constructUnboundFunctionArguments(UnboundFunction unboundFunction) {
@@ -522,10 +553,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        unboundFunction = preProcessUnboundFunction(unboundFunction, context);
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+        FunctionBuilder builder = null;
+        if (unboundFunction.isHighOrder()) {
+            String lambdaFunctionName = unboundFunction.getName();
+            builder = functionRegistry.findFunctionBuilder(
+                    unboundFunction.getDbName(), lambdaFunctionName,
+                    ImmutableList.of(unboundFunction.child(0)));
+            LambdaBindingSpec bindingSpec = builder.getLambdaBindingSpec()
+                    .orElseThrow(() -> new AnalysisException(String.format(
+                            "Function %s does not support lambda arguments", lambdaFunctionName)));
+            unboundFunction = processHighOrderFunction(unboundFunction, bindingSpec, context);
+        } else {
+            unboundFunction = preProcessUnboundFunction(unboundFunction, context);
+        }
 
         // bind function
-        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
@@ -565,8 +608,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         String functionName = unboundFunction.getName();
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                dbName, functionName, arguments);
+        if (builder == null) {
+            builder = functionRegistry.findFunctionBuilder(dbName, functionName, arguments);
+        }
         // for create view stmt
         if (builder instanceof UdfBuilder) {
             unboundFunction.getIndexInSqlString().ifPresent(index -> {
@@ -606,7 +650,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             // we do type coercion in build function in alias function, so it's ok to return directly.
             return buildResult.first;
         } else {
-            Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
+            BoundFunction boundFunction = (BoundFunction) buildResult.first;
+            if (boundFunction instanceof ElementAt) {
+                // SQL function syntax binds here directly and therefore does not visit visitElementAt above.
+                boundFunction = canonicalizeStructSelector((ElementAt) boundFunction);
+            }
+            Expression castFunction = TypeCoercionUtils.processBoundFunction(boundFunction);
             if (castFunction instanceof RewriteWhenAnalyze) {
                 castFunction = ((RewriteWhenAnalyze) castFunction).rewriteWhenAnalyze();
             }
@@ -618,6 +667,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private ElementAt canonicalizeStructSelector(ElementAt elementAt) {
+        Expression left = elementAt.left();
+        Expression right = elementAt.right();
+        if (left.getDataType() instanceof StructType && right instanceof StringLikeLiteral) {
+            String selector = ((StringLikeLiteral) right).getStringValue();
+            StructField field = ((StructType) left.getDataType()).getField(selector);
+            if (field != null && !field.getName().equals(selector)) {
+                // BE struct names use the normalized thrift identity and cannot Unicode-fold external spelling.
+                return (ElementAt) elementAt.withChildren(left, new StringLiteral(field.getName()));
+            }
+        }
+        return elementAt;
     }
 
     @Override
@@ -730,91 +793,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
-    private boolean isEnableVariantSchemaAutoCast(ExpressionRewriteContext context) {
-        if (context == null || context.cascadesContext == null) {
-            return false;
-        }
-        SessionVariable sessionVariable = context.cascadesContext.getConnectContext().getSessionVariable();
-        return sessionVariable != null && sessionVariable.isEnableVariantSchemaAutoCast();
-    }
-
-    private Expression wrapVariantElementAtWithCast(Expression expr) {
-        ElementAt elementAt = (ElementAt) expr;
-        if (suppressVariantElementAtCastDepth > 0) {
-            return elementAt;
-        }
-        Optional<VariantElementAtPath> path = resolveVariantElementAtPath(elementAt);
-        if (!path.isPresent()) {
-            return expr;
-        }
-        VariantType variantType = (VariantType) path.get().root.getDataType();
-        Optional<VariantField> matchingField = variantType.findMatchingField(path.get().path);
-        if (!matchingField.isPresent()) {
-            return expr;
-        }
-        DataType targetType = matchingField.get().getDataType();
-        return new Cast(elementAt, targetType);
-    }
-
-    private Optional<VariantElementAtPath> resolveVariantElementAtPath(ElementAt elementAt) {
-        List<String> segments = new ArrayList<>();
-        Expression current = elementAt;
-        Expression root = null;
-        while (current instanceof ElementAt) {
-            ElementAt currentElementAt = (ElementAt) current;
-            Optional<String> key = getVariantPathKey(currentElementAt.right());
-            if (!key.isPresent()) {
-                return Optional.empty();
-            }
-            segments.add(0, key.get());
-            Expression left = currentElementAt.left();
-            if (left instanceof Cast && !((Cast) left).isExplicitType()) {
-                left = ((Cast) left).child();
-            }
-            current = left;
-            root = left;
-        }
-        if (root == null || !(root.getDataType() instanceof VariantType)) {
-            return Optional.empty();
-        }
-        if (segments.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(new VariantElementAtPath(root, String.join(".", segments)));
-    }
-
-    private Optional<String> getVariantPathKey(Expression expr) {
-        if (expr instanceof StringLikeLiteral) {
-            return Optional.of(((StringLikeLiteral) expr).getStringValue());
-        }
-        return Optional.empty();
-    }
-
-    private static final class VariantElementAtPath {
-        private final Expression root;
-        private final String path;
-
-        private VariantElementAtPath(Expression root, String path) {
-            this.root = root;
-            this.path = path;
-        }
-    }
-
-    private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
-        if (suppressVariantElementAtCastDepth > 0 || !isEnableVariantSchemaAutoCast(context)) {
-            return alias;
-        }
-        Expression child = alias.child();
-        if (!(child instanceof ElementAt)) {
-            return alias;
-        }
-        Expression casted = wrapVariantElementAtWithCast(child);
-        if (casted == child) {
-            return alias;
-        }
-        return alias.withChildren(ImmutableList.of(casted));
-    }
-
     @Override
     public Expression visitNot(Not not, ExpressionRewriteContext context) {
         // maybe is `not subquery`, we should bind it first
@@ -870,7 +848,25 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
-        return TypeCoercionUtils.processComparisonPredicate(cp);
+        return isEqualityBetweenJoinChildren(cp)
+                ? TypeCoercionUtils.processJoinComparisonPredicate(cp)
+                : TypeCoercionUtils.processComparisonPredicate(cp);
+    }
+
+    private boolean isEqualityBetweenJoinChildren(ComparisonPredicate comparisonPredicate) {
+        if (!(comparisonPredicate instanceof EqualPredicate) || !(currentPlan instanceof LogicalJoin)) {
+            return false;
+        }
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) currentPlan;
+        Set<Slot> leftInputs = comparisonPredicate.left().getInputSlots();
+        Set<Slot> rightInputs = comparisonPredicate.right().getInputSlots();
+        if (leftInputs.isEmpty() || rightInputs.isEmpty()) {
+            return false;
+        }
+        Set<Slot> leftOutputs = join.left().getOutputSet();
+        Set<Slot> rightOutputs = join.right().getOutputSet();
+        return (leftOutputs.containsAll(leftInputs) && rightOutputs.containsAll(rightInputs))
+                || (rightOutputs.containsAll(leftInputs) && leftOutputs.containsAll(rightInputs));
     }
 
     @Override
@@ -938,6 +934,24 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     TypeCoercionUtils.processComparisonPredicate(new GreaterThanEqual(compareExpr, lowerBound)),
                     TypeCoercionUtils.processComparisonPredicate(new LessThanEqual(compareExpr, upperBound)));
         }
+    }
+
+    @Override
+    public Expression visitIsTrue(IsTrue isTrue, ExpressionRewriteContext context) {
+        Expression child = isTrue.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(child, new Not(new IsNull(child)));
+    }
+
+    @Override
+    public Expression visitIsFalse(IsFalse isFalse, ExpressionRewriteContext context) {
+        Expression child = isFalse.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(new Not(child), new Not(new IsNull(child)));
     }
 
     @Override
@@ -1114,17 +1128,27 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return bindSlotByScope(unboundSlot, getScope());
     }
 
+    protected SlotBinding bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
+        return bindSlotByRelationQualifier(unboundSlot, getScope());
+    }
+
     protected List<Expression> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
-        List<Expression> candidates = bindSlotByScope(unboundSlot, scope);
+        return bindExactSlotsByThisScope(unboundSlot, scope, false).getBoundSlots();
+    }
+
+    protected SlotBinding bindExactSlotsByThisScope(
+            UnboundSlot unboundSlot, Scope scope, boolean bindRelationQualifierOnly) {
+        SlotBinding binding = bindSlotByScope(unboundSlot, scope, bindRelationQualifierOnly);
+        List<Expression> candidates = binding.getBoundSlots();
         if (candidates.size() == 1) {
-            return candidates;
+            return binding;
         }
         List<Expression> extractSlots = Utils.filterImmutableList(candidates, bound ->
                 bound instanceof Slot && unboundSlot.getNameParts().size() == ((Slot) bound).getQualifier().size() + 1
         );
         // we should return origin candidates slots if extract slots is empty,
         // and then throw an ambiguous exception
-        return !extractSlots.isEmpty() ? extractSlots : candidates;
+        return binding.withBoundSlots(!extractSlots.isEmpty() ? extractSlots : candidates);
     }
 
     private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
@@ -1163,85 +1187,214 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
+    protected SlotBinding bindSlotByScope(
+            UnboundSlot unboundSlot, Scope scope, boolean bindRelationQualifierOnly) {
+        return bindRelationQualifierOnly
+                ? bindSlotByRelationQualifier(unboundSlot, scope)
+                : new SlotBinding(bindSlotByScope(unboundSlot, scope), false);
+    }
+
+    /** Bind a multipart slot as a relation-qualified column, without treating its first part as a column. */
+    protected SlotBinding bindSlotByRelationQualifier(UnboundSlot unboundSlot, Scope scope) {
+        List<? extends Expression> bounded = bindSlotsByRelationQualifier(unboundSlot, scope);
+        return bounded.isEmpty()
+                ? new SlotBinding(bounded,
+                        () -> containsRelationQualifier(unboundSlot.getNameParts(), scope))
+                : new SlotBinding(bounded, false);
+    }
+
+    private List<? extends Expression> bindSlotsByRelationQualifier(UnboundSlot unboundSlot, Scope scope) {
+        List<String> nameParts = unboundSlot.getNameParts();
+        Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
+        List<? extends Expression> bounded;
+        switch (nameParts.size()) {
+            case 1:
+                bounded = ImmutableList.of();
+                break;
+            case 2:
+                bounded = bindExpressionByTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+                break;
+            case 3:
+                bounded = bindExpressionByDbTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+                break;
+            default:
+                bounded = bindExpressionByCatalogDbTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+                break;
+        }
+        return bounded;
+    }
+
+    private boolean containsRelationQualifier(List<String> nameParts, Scope scope) {
+        int lastRelationNameIndex = Math.min(2, nameParts.size() - 2);
+        for (int relationNameIndex = 0; relationNameIndex <= lastRelationNameIndex; relationNameIndex++) {
+            for (List<String> qualifier
+                    : scope.findRelationQualifiersIgnoreCase(nameParts.get(relationNameIndex))) {
+                String catalogName = extractCatalogName(qualifier);
+                int lowerCaseTableNames = resolveLowerCaseTableNames(catalogName);
+                int lowerCaseDatabaseNames = resolveLowerCaseDatabaseNames(catalogName);
+                if (nameParts.size() >= 4 && qualifier.size() >= 3
+                        && qualifier.get(qualifier.size() - 3).equalsIgnoreCase(nameParts.get(0))
+                        && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
+                                nameParts.get(1), lowerCaseDatabaseNames)
+                        && sameTableName(qualifier.get(qualifier.size() - 1),
+                                nameParts.get(2), lowerCaseTableNames)) {
+                    return true;
+                }
+                if (nameParts.size() >= 3 && qualifier.size() >= 2
+                        && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
+                                nameParts.get(0), lowerCaseDatabaseNames)
+                        && sameTableName(qualifier.get(qualifier.size() - 1),
+                                nameParts.get(1), lowerCaseTableNames)) {
+                    return true;
+                }
+                if (sameTableName(qualifier.get(qualifier.size() - 1),
+                        nameParts.get(0), lowerCaseTableNames)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Relation-qualified binding candidates and whether that qualifier exists in the searched scope. */
+    protected static class SlotBinding {
+        private final List<Expression> boundSlots;
+        private final Supplier<Boolean> relationQualifierOccupied;
+
+        protected SlotBinding(List<? extends Expression> boundSlots, boolean relationQualifierOccupied) {
+            this(boundSlots, () -> relationQualifierOccupied);
+        }
+
+        private SlotBinding(List<? extends Expression> boundSlots, Supplier<Boolean> relationQualifierOccupied) {
+            this.boundSlots = ImmutableList.copyOf(boundSlots);
+            this.relationQualifierOccupied = relationQualifierOccupied;
+        }
+
+        protected List<Expression> getBoundSlots() {
+            return boundSlots;
+        }
+
+        protected boolean isRelationQualifierOccupied() {
+            return relationQualifierOccupied.get();
+        }
+
+        protected SlotBinding firstOrEmpty() {
+            return boundSlots.isEmpty()
+                    ? this
+                    : new SlotBinding(ImmutableList.of(boundSlots.get(0)), relationQualifierOccupied);
+        }
+
+        private SlotBinding withBoundSlots(List<? extends Expression> boundSlots) {
+            return new SlotBinding(boundSlots, relationQualifierOccupied);
+        }
+
+        protected SlotBinding withQualifierOccupancyFrom(SlotBinding other) {
+            return new SlotBinding(boundSlots,
+                    () -> relationQualifierOccupied.get() || other.relationQualifierOccupied.get());
+        }
+    }
+
     private List<? extends Expression> bindExpressionByCatalogDbTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
-        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByCatalog(
-                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
+        return bindExpressionByCatalogDbTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByCatalogDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
+        List<Slot> slots = bindSingleSlotByCatalog(
+                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope);
+            return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope, fallbackToColumn);
         } else if (slots.size() > 1) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         if (nameParts.size() == 4) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
 
         Optional<Expression> expression = bindNestedFields(
                 unboundSlot, slots.get(0), nameParts.subList(4, nameParts.size())
         );
         if (!expression.isPresent()) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         return ImmutableList.of(expression.get());
     }
 
     private List<? extends Expression> bindExpressionByDbTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
-        List<Slot> slots = addSqlIndexInfo(
-                bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope), idxInSql);
+        return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
+        List<Slot> slots = bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope);
+            return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope, fallbackToColumn);
         } else if (slots.size() > 1) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         if (nameParts.size() == 3) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
 
         Optional<Expression> expression = bindNestedFields(
                 unboundSlot, slots.get(0), nameParts.subList(3, nameParts.size())
         );
         if (!expression.isPresent()) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         return ImmutableList.of(expression.get());
     }
 
     private List<? extends Expression> bindExpressionByTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
-        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
+        return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
+        List<Slot> slots = bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope);
+            return fallbackToColumn
+                    ? bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope)
+                    : ImmutableList.of();
         } else if (slots.size() > 1) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         if (nameParts.size() == 2) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
 
         Optional<Expression> expression = bindNestedFields(
                 unboundSlot, slots.get(0), nameParts.subList(2, nameParts.size())
         );
         if (!expression.isPresent()) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         return ImmutableList.of(expression.get());
     }
 
     private List<? extends Expression> bindExpressionByColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
-        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
+        List<Slot> slots = bindSingleSlotByName(nameParts.get(0), scope);
         if (slots.size() != 1) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         if (nameParts.size() == 1) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         Optional<Expression> expression = bindNestedFields(
                 unboundSlot, slots.get(0), nameParts.subList(1, nameParts.size())
         );
         if (!expression.isPresent()) {
-            return slots;
+            return addSqlIndexInfo(slots, idxInSql);
         }
         return ImmutableList.of(expression.get());
     }
@@ -1258,7 +1411,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     throw new AnalysisException("No such struct field '" + fieldName + "' in '" + lastFieldName + "'");
                 }
                 lastFieldName = fieldName;
-                expression = new StructElement(expression, new StringLiteral(fieldName));
+                // Dereference-created selectors also cross the thrift boundary and must use runtime identity.
+                expression = new ElementAt(expression, new StringLiteral(field.getName()));
                 continue;
             } else if (dataType.isMapType()) {
                 expression = new ElementAt(expression, new StringLiteral(fieldName));
@@ -1269,7 +1423,24 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
         }
+        addNestedFieldsSqlIndexInfo(unboundSlot, slot, fieldNames);
         return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
+    }
+
+    private void addNestedFieldsSqlIndexInfo(UnboundSlot unboundSlot, Slot slot, List<String> fieldNames) {
+        Optional<Pair<Integer, Integer>> indexInSql = unboundSlot.getIndexInSqlString();
+        if (!indexInSql.isPresent()) {
+            return;
+        }
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || connectContext.getStatementContext() == null) {
+            return;
+        }
+        List<String> fullName = new ArrayList<>(slot.getQualifier());
+        fullName.add(slot.getName());
+        fullName.addAll(fieldNames);
+        connectContext.getStatementContext().addIndexInSqlToString(indexInSql.get(),
+                Utils.qualifiedNameWithBackquote(fullName));
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot, int lowerCaseTableNames) {

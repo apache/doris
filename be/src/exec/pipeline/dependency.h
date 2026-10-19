@@ -22,37 +22,51 @@
 #include <sys/_types/_u_int.h>
 #endif
 
-#include <concurrentqueue.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <sqltypes.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <queue>
+#include <set>
 #include <thread>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
+#include "common/exception.h"
+#include "common/factory_creator.h"
 #include "common/logging.h"
 #include "common/thread_safety_annotations.h"
+#include "core/arena.h"
 #include "core/block/block.h"
 #include "core/types.h"
-#include "exec/common/agg_utils.h"
-#include "exec/common/join_utils.h"
-#include "exec/common/set_utils.h"
+#include "exec/common/join_op_utils.h"
 #include "exec/operator/data_queue.h"
-#include "exec/operator/join/process_hash_table_probe.h"
 #include "exec/sort/partition_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/spill/spill_file.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile_counter_names.h"
-#include "util/brpc_closure.h"
 #include "util/stack_util.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 class AggFnEvaluator;
 class VSlotRef;
+// Heavy hash-table variant machinery (exec/common/*_utils.h) is referenced
+// through pointers only; keep it out of this header's parse cost.
+struct AggregatedDataVariants;
+struct AggregateDataContainer;
+struct BucketedAggDataVariants;
+struct JoinDataVariants;
+struct SetDataVariants;
+using AggregateDataPtr = char*;
 } // namespace doris
 
 namespace doris {
@@ -291,14 +305,11 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
-    ~AggSharedState() override {
-        if (!probe_expr_ctxs.empty()) {
-            _close_with_serialized_key();
-        } else {
-            _close_without_key();
-        }
-    }
+    // Defined in dependency.cpp: the bodies touch AggregatedDataVariants'
+    // full variant machinery, which every includer would otherwise
+    // instantiate at parse time.
+    AggSharedState();
+    ~AggSharedState() override;
 
     Status reset_hash_table();
 
@@ -310,7 +321,7 @@ public:
     // 2nd phase: is_merge=false, maybe have multiple exprs.
     static int get_slot_column_id(const AggFnEvaluator* evaluator);
 
-    AggregatedDataVariantsUPtr agg_data = nullptr;
+    std::unique_ptr<AggregatedDataVariants> agg_data;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
@@ -321,7 +332,7 @@ public:
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
-    Sizes offsets_of_aggregate_states;
+    std::vector<size_t> offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
 
     bool agg_data_created_without_key = false;
@@ -396,40 +407,8 @@ public:
 private:
     MutableColumns _get_keys_hash_table();
 
-    void _close_with_serialized_key() {
-        std::visit(Overload {[&](std::monostate& arg) -> void {
-                                 // Do nothing
-                             },
-                             [&](auto& agg_method) -> void {
-                                 if (use_simple_count) {
-                                     // Inline count: mapped slots hold UInt64,
-                                     // not real agg state pointers. Skip destroy.
-                                     return;
-                                 }
-                                 auto& data = *agg_method.hash_table;
-                                 data.for_each_mapped([&](auto& mapped) {
-                                     if (mapped) {
-                                         _destroy_agg_status(mapped);
-                                         mapped = nullptr;
-                                     }
-                                 });
-                                 if (data.has_null_key_data()) {
-                                     _destroy_agg_status(
-                                             data.template get_null_key_data<AggregateDataPtr>());
-                                 }
-                             }},
-                   agg_data->method_variant);
-    }
-
-    void _close_without_key() {
-        //because prepare maybe failed, and couldn't create agg data.
-        //but finally call close to destory agg data, if agg data has bitmapValue
-        //will be core dump, it's not initialized
-        if (agg_data_created_without_key) {
-            _destroy_agg_status(agg_data->without_key);
-            agg_data_created_without_key = false;
-        }
-    }
+    void _close_with_serialized_key();
+    void _close_without_key();
     void _destroy_agg_status(AggregateDataPtr data);
 };
 
@@ -458,22 +437,17 @@ struct BucketedAggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(BucketedAggSharedState)
 public:
     BucketedAggSharedState() = default;
-    ~BucketedAggSharedState() override { _close(); }
+    ~BucketedAggSharedState() override; // defined in dependency.cpp (variant machinery)
 
     /// Per-instance data. One per sink pipeline instance.
     /// Each instance has 256 bucket hash tables + 1 shared arena.
     struct PerInstanceData {
         /// 256 per-bucket hash tables. Each bucket has its own BucketedAggDataVariants.
         /// Uses PHHashMap<StringRef> for string keys instead of StringHashMap.
-        std::vector<BucketedAggDataVariantsUPtr> bucket_agg_data;
-        ArenaUPtr arena;
+        std::vector<std::unique_ptr<BucketedAggDataVariants>> bucket_agg_data;
+        std::unique_ptr<Arena> arena;
 
-        PerInstanceData() : arena(std::make_unique<Arena>()) {
-            bucket_agg_data.resize(BUCKETED_AGG_NUM_BUCKETS);
-            for (auto& p : bucket_agg_data) {
-                p = std::make_unique<BucketedAggDataVariants>();
-            }
-        }
+        PerInstanceData(); // defined in dependency.cpp (variant machinery)
     };
 
     /// Per-bucket merge state for pipelined source-side processing.
@@ -507,12 +481,21 @@ public:
     /// Per-bucket merge state. Indexed by bucket id [0, 256).
     std::array<BucketMergeState, BUCKETED_AGG_NUM_BUCKETS> bucket_states;
 
+    /// Arenas for memory allocated by aggregate function merges on the source side.
+    /// One per source instance, indexed by the source task idx and sized in init_instances().
+    /// Sink instance arenas cannot be used there because different buckets are merged
+    /// concurrently by different source instances and Arena is not thread-safe, while a
+    /// source instance runs on one thread at a time. Merged states may point into these
+    /// arenas and may be output by any source instance, so they live as long as the
+    /// shared state.
+    std::vector<std::unique_ptr<Arena>> source_merge_arenas;
+
     // Aggregate function metadata (shared, read-only after init).
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     VExprContextSPtrs probe_expr_ctxs;
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
-    Sizes offsets_of_aggregate_states;
+    std::vector<size_t> offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
 
     std::atomic<size_t> input_num_rows {0};
@@ -540,64 +523,17 @@ public:
     /// The callback runs exactly once (under std::call_once), must return Status,
     /// and should populate shared metadata like probe_expr_ctxs, aggregate_evaluators, etc.
     /// All threads observe the same init status via _init_status.
-    template <typename Func>
-    Status init_instances(int num_instances, Func&& metadata_init) {
-        std::call_once(_init_once, [&]() {
-            num_sink_instances = num_instances;
-            per_instance_data.resize(num_instances);
-            sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
-            for (int i = 0; i < num_instances; ++i) {
-                sink_finished[i].store(false, std::memory_order_relaxed);
-            }
-            for (auto& bs : bucket_states) {
-                bs.merged_instances.resize(num_instances, false);
-            }
-            _init_status = std::forward<Func>(metadata_init)();
-        });
-        return _init_status;
-    }
+    /// Once-per-query cold path; defined in dependency.cpp so the body (which
+    /// materializes the per-bucket BucketedAggDataVariants storage) stays out
+    /// of every includer's parse.
+    Status init_instances(int num_instances, const std::function<Status()>& metadata_init);
 
 private:
     std::once_flag _init_once;
     Status _init_status;
 
-    void _close() {
-        for (auto& inst : per_instance_data) {
-            for (auto& bucket_data : inst.bucket_agg_data) {
-                _close_one_agg_data(*bucket_data);
-            }
-        }
-    }
-
-    void _close_one_agg_data(BucketedAggDataVariants& agg_data) {
-        std::visit(
-                Overload {[&](std::monostate& arg) -> void {
-                              // Do nothing
-                          },
-                          [&](auto& agg_method) -> void {
-                              if (use_simple_count) {
-                                  // simple_count: mapped slots hold UInt64 counters,
-                                  // not real agg state pointers. Skip destroy.
-                                  return;
-                              }
-                              auto& data = *agg_method.hash_table;
-                              data.for_each_mapped([&](auto& mapped) {
-                                  if (mapped) {
-                                      _destroy_agg_status(mapped);
-                                      mapped = nullptr;
-                                  }
-                              });
-                              if constexpr (std::is_assignable_v<decltype(data.has_null_key_data()),
-                                                                 bool>) {
-                                  if (data.has_null_key_data()) {
-                                      _destroy_agg_status(
-                                              data.template get_null_key_data<AggregateDataPtr>());
-                                  }
-                              }
-                          }},
-                agg_data.method_variant);
-    }
-
+    void _close();
+    void _close_one_agg_data(BucketedAggDataVariants& agg_data);
     void _destroy_agg_status(AggregateDataPtr data);
 };
 
@@ -606,7 +542,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
-    ~PartitionedAggSharedState() override = default;
+    ~PartitionedAggSharedState() override { close(); }
 
     void close();
 
@@ -615,6 +551,10 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     std::atomic<bool> _is_spilled = false;
+    // This state is shared by the partitioned agg sink and source pipelines. Spill files left
+    // here are owned by the shared state until the source moves them into its local queue, so the
+    // cleanup must be tied to the shared state's lifetime and must be idempotent.
+    std::atomic_bool is_closed = false;
     std::deque<SpillFileSPtr> _spill_partitions;
 };
 
@@ -706,16 +646,9 @@ struct JoinSharedState : public BasicSharedState {
 
 struct HashJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(HashJoinSharedState)
-    HashJoinSharedState() {
-        hash_table_variant_vector.push_back(std::make_shared<JoinDataVariants>());
-    }
-    HashJoinSharedState(int num_instances) {
-        source_deps.resize(num_instances, nullptr);
-        hash_table_variant_vector.resize(num_instances, nullptr);
-        for (int i = 0; i < num_instances; i++) {
-            hash_table_variant_vector[i] = std::make_shared<JoinDataVariants>();
-        }
-    }
+    // Defined in dependency.cpp (they materialize JoinDataVariants).
+    HashJoinSharedState();
+    HashJoinSharedState(int num_instances);
     std::shared_ptr<Arena> arena = std::make_shared<Arena>();
 
     const std::vector<TupleDescriptor*> build_side_child_desc;
@@ -746,7 +679,8 @@ struct HashJoinSharedState : public JoinSharedState {
     bool asof_inequality_is_strict = false;
 
     // ASOF JOIN pre-sorted index with inline values for O(log K) branchless lookup
-    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for DateTimeV2/TimestampTZ)
+    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for
+    // DateTimeV2/TimestampTZ, int64_t for TimestampNs)
     AsofIndexVariant asof_index_groups;
     // build_row_index -> bucket_id for O(1) reverse lookup
     std::vector<uint32_t> asof_build_row_to_bucket;
@@ -788,6 +722,11 @@ public:
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
+    // Defined in dependency.cpp: constructing/destroying SetDataVariants
+    // needs the full variant machinery.
+    SetSharedState();
+    ~SetSharedState() override;
+
     /// default init
     Block build_block; // build to source
     //record element size in hashtable
@@ -798,9 +737,8 @@ public:
 
     //// shared static states (shared, decided in prepare/open...)
 
-    /// init in setup_local_state
-    std::unique_ptr<SetDataVariants> hash_table_variants =
-            std::make_unique<SetDataVariants>(); // the real data HERE.
+    /// init in setup_local_state (allocated in the constructor)
+    std::unique_ptr<SetDataVariants> hash_table_variants; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.
@@ -828,50 +766,44 @@ public:
     Status hash_table_init();
 };
 
-enum class ExchangeType : uint8_t {
-    NOOP = 0,
-    // Shuffle data by Crc32CHashPartitioner
-    HASH_SHUFFLE = 1,
-    // Round-robin passthrough data blocks.
-    PASSTHROUGH = 2,
-    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
-    BUCKET_HASH_SHUFFLE = 3,
-    // Passthrough data blocks to all channels.
-    BROADCAST = 4,
-    // Passthrough data to channels evenly in an adaptive way.
-    ADAPTIVE_PASSTHROUGH = 5,
-    // Send all data to the first channel.
-    PASS_TO_ONE = 6,
-};
+inline bool is_shuffled_exchange(TLocalPartitionType::type idx) {
+    return idx == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::BUCKET_HASH_SHUFFLE;
+}
 
-inline std::string get_exchange_type_name(ExchangeType idx) {
+inline std::string get_exchange_type_name(TLocalPartitionType::type idx) {
     switch (idx) {
-    case ExchangeType::NOOP:
+    case TLocalPartitionType::NOOP:
         return "NOOP";
-    case ExchangeType::HASH_SHUFFLE:
-        return "HASH_SHUFFLE";
-    case ExchangeType::PASSTHROUGH:
+    case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+        return "GLOBAL_HASH_SHUFFLE";
+    case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+        return "LOCAL_HASH_SHUFFLE";
+    case TLocalPartitionType::PASSTHROUGH:
         return "PASSTHROUGH";
-    case ExchangeType::BUCKET_HASH_SHUFFLE:
+    case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
         return "BUCKET_HASH_SHUFFLE";
-    case ExchangeType::BROADCAST:
+    case TLocalPartitionType::BROADCAST:
         return "BROADCAST";
-    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+    case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         return "ADAPTIVE_PASSTHROUGH";
-    case ExchangeType::PASS_TO_ONE:
+    case TLocalPartitionType::PASS_TO_ONE:
         return "PASS_TO_ONE";
+    case TLocalPartitionType::LOCAL_MERGE_SORT:
+        return "LOCAL_MERGE_SORT";
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
-    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+    DataDistribution(TLocalPartitionType::type type) : distribution_type(type) {}
+    DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
     DataDistribution(const DataDistribution& other) = default;
-    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    bool need_local_exchange() const { return distribution_type != TLocalPartitionType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
-    ExchangeType distribution_type;
+    TLocalPartitionType::type distribution_type;
     std::vector<TExpr> partition_exprs;
 };
 
@@ -923,7 +855,8 @@ public:
 
     void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
+        DCHECK_GE(prev_usage, cast_set<int64_t>(delta))
+                << "prev_usage: " << prev_usage << " delta: " << delta;
         if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }

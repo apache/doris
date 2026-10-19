@@ -34,7 +34,7 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         block->swap(_block);
         *eos = _eos;
         return Status::OK();
@@ -57,7 +57,7 @@ public:
 
 class MockSinkOperator final : public DataSinkOperatorXBase {
 public:
-    Status sink(RuntimeState* state, Block* block, bool eos) override { return Status::OK(); }
+    Status sink_impl(RuntimeState* state, Block* block, bool eos) override { return Status::OK(); }
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override {
         return Status::OK();

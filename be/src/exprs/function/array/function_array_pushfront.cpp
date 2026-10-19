@@ -70,8 +70,7 @@ public:
         // extract src array column
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
-        if (src_column->is_nullable()) {
-            auto nullable_array = static_cast<const ColumnNullable*>(src_column.get());
+        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(src_column.get())) {
             array_column = static_cast<const ColumnArray*>(&nullable_array->get_nested_column());
             array_null_map = nullable_array->get_null_map_column().get_data().data();
         } else {

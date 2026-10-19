@@ -80,14 +80,23 @@ struct MockAggsinkOperator : public AggSinkOperatorX {
 
     Status _init_probe_expr_ctx(RuntimeState* state) override { return Status::OK(); }
 
-    Status _init_aggregate_evaluators(RuntimeState* state) override { return Status::OK(); }
+    Status _init_aggregate_evaluators(RuntimeState* state) override {
+        _is_merge = false;
+        for (auto* evaluator : _aggregate_evaluators) {
+            _is_merge |= evaluator->is_merge();
+        }
+        return Status::OK();
+    }
 
     Status _check_agg_fn_output() override { return Status::OK(); }
 };
 
 struct MockAggSourceOperator : public AggSourceOperatorX {
     MockAggSourceOperator() = default;
-    RowDescriptor& row_descriptor() override { return *mock_row_descriptor; }
+    void set_mock_row_descriptor(RowDescriptor* row_desc) {
+        mock_row_descriptor.reset(row_desc);
+        _row_descriptor = *mock_row_descriptor;
+    }
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
@@ -148,7 +157,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_without_ord
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
-    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -245,7 +254,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_with_order_
     sink_op->_do_sort_limit = true;
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
-    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -336,7 +345,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_2_phase_without_order_by)
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
         auto source_op1 = std::make_shared<MockAggSourceOperator>();
-        source_op1->mock_row_descriptor.reset(new MockRowDescriptor {
+        source_op1->set_mock_row_descriptor(new MockRowDescriptor {
                 {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()},
                 &ctx1.pool});
         source_op1->_without_key = false;
@@ -375,7 +384,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_2_phase_without_order_by)
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     auto source_op2 = std::make_shared<MockAggSourceOperator>();
-    source_op2->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op2->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx2.pool});
     source_op2->_without_key = false;
     source_op2->_needs_finalize = true;
@@ -468,7 +477,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_2_phase_with_order_by) {
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
         auto source_op1 = std::make_shared<MockAggSourceOperator>();
-        source_op1->mock_row_descriptor.reset(new MockRowDescriptor {
+        source_op1->set_mock_row_descriptor(new MockRowDescriptor {
                 {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()},
                 &ctx1.pool});
         source_op1->_without_key = false;
@@ -511,7 +520,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_2_phase_with_order_by) {
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     auto source_op2 = std::make_shared<MockAggSourceOperator>();
-    source_op2->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op2->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx2.pool});
     source_op2->_without_key = false;
     source_op2->_needs_finalize = true;
@@ -562,7 +571,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, other_case_1) {
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
-    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -619,7 +628,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, other_case_2) {
     sink_op->_do_sort_limit = true;
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
-    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
              std::make_shared<DataTypeInt64>()},
             &ctx.pool});
@@ -679,7 +688,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, other_case_3) {
     sink_op->_do_sort_limit = true;
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
-    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+    source_op->set_mock_row_descriptor(new MockRowDescriptor {
             {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
              std::make_shared<DataTypeInt64>()},
             &ctx.pool});

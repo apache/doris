@@ -25,6 +25,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -44,7 +47,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.TreeMultimap;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,6 +55,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -79,15 +82,25 @@ public class NestedColumnPruning implements CustomRewriter {
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         try {
             StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+            // Short-circuit point queries read row-store payloads with the original full schema.
+            // Keep complex slot types and access paths unchanged for this path.
+            if (statementContext.isShortCircuitQuery()) {
+                return plan;
+            }
             SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
             if (!sessionVariable.enablePruneNestedColumns
                     || (!statementContext.hasNestedColumns()
                         && !containsVariant(plan)
-                        && !(containsStringLength(plan)))) {
+                        && !containsStringLength(plan)
+                        && !containsNullCheck(plan))) {
                 return plan;
             }
-
             AccessPathPlanCollector collector = new AccessPathPlanCollector();
+            // MV rewrite fragments must not be perturbed by metadata-only paths
+            // (NULL/OFFSET) that would otherwise prune the slot to a narrower type.
+            // Skip collecting them at the source instead of working around them downstream.
+            collector.setSkipMetaPath(
+                    jobContext.getCascadesContext().isMaterializedViewRewritePlanFragment());
             Map<Slot, List<CollectAccessPathResult>> slotToAccessPaths = collector.collect(plan, statementContext);
             Map<Integer, AccessPathInfo> slotToResult = pruneDataType(slotToAccessPaths);
 
@@ -164,6 +177,40 @@ public class NestedColumnPruning implements CustomRewriter {
         return hasVariant.get();
     }
 
+    /** Returns true when the plan tree contains IS NULL or IS NOT NULL on a nullable slot. */
+    private static boolean containsNullCheck(Plan plan) {
+        AtomicBoolean found = new AtomicBoolean(false);
+        plan.foreachUp(node -> {
+            if (found.get()) {
+                return;
+            }
+            Plan current = (Plan) node;
+            for (Expression expression : current.getExpressions()) {
+                if (expressionContainsNullCheck(expression)) {
+                    found.set(true);
+                    return;
+                }
+            }
+        });
+        return found.get();
+    }
+
+    private static boolean expressionContainsNullCheck(Expression expr) {
+        if (expr instanceof IsNull && expr.child(0).nullable()) {
+            return true;
+        }
+        if (expr instanceof Not && expr.child(0) instanceof IsNull
+                && expr.child(0).child(0).nullable()) {
+            return true;
+        }
+        for (Expression child : expr.children()) {
+            if (expressionContainsNullCheck(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Map<Integer, AccessPathInfo> pruneDataType(
             Map<Slot, List<CollectAccessPathResult>> slotToAccessPaths) {
         Map<Integer, AccessPathInfo> result = new LinkedHashMap<>();
@@ -171,8 +218,9 @@ public class NestedColumnPruning implements CustomRewriter {
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
         Map<Slot, DataType> variantSlots = new LinkedHashMap<>();
 
-        Comparator<Pair<ColumnAccessPathType, List<String>>> pathComparator = Comparator.comparing(
-                l -> StringUtils.join(l.second, "."));
+        Comparator<Pair<ColumnAccessPathType, List<String>>> pathComparator = Comparator
+                .comparing((Pair<ColumnAccessPathType, List<String>> path) -> path.first)
+                .thenComparing(path -> path.second, NestedColumnPruning::comparePathComponents);
 
         Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths = TreeMultimap.create(
                 Comparator.naturalOrder(), pathComparator);
@@ -188,7 +236,8 @@ public class NestedColumnPruning implements CustomRewriter {
                 for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
                     List<String> path = collectAccessPathResult.getPath();
                     ColumnAccessPathType pathType = collectAccessPathResult.getType();
-                    allAccessPaths.put(slot.getExprId().asInt(), Pair.of(pathType, path));
+                    Pair<ColumnAccessPathType, List<String>> allPath = Pair.of(pathType, path);
+                    allAccessPaths.put(slot.getExprId().asInt(), allPath);
                     if (collectAccessPathResult.isPredicate()) {
                         predicateAccessPaths.put(
                                 slot.getExprId().asInt(), Pair.of(pathType, path)
@@ -200,11 +249,12 @@ public class NestedColumnPruning implements CustomRewriter {
             for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
                 List<String> path = collectAccessPathResult.getPath();
                 ColumnAccessPathType pathType = collectAccessPathResult.getType();
+                Pair<ColumnAccessPathType, List<String>> allPath = Pair.of(pathType, path);
                 DataTypeAccessTree allAccessTree = slotIdToAllAccessTree.computeIfAbsent(
-                        slot, i -> DataTypeAccessTree.ofRoot(slot, pathType)
+                        slot, i -> DataTypeAccessTree.ofRoot(slot, allPath.first)
                 );
-                allAccessTree.setAccessByPath(path, 0, pathType);
-                allAccessPaths.put(slot.getExprId().asInt(), Pair.of(pathType, path));
+                allAccessTree.setAccessByPath(allPath.second, 0, allPath.first);
+                allAccessPaths.put(slot.getExprId().asInt(), allPath);
 
                 if (collectAccessPathResult.isPredicate()) {
                     DataTypeAccessTree predicateAccessTree = slotIdToPredicateAccessTree.computeIfAbsent(
@@ -218,83 +268,29 @@ public class NestedColumnPruning implements CustomRewriter {
             }
         }
 
+        // phase 1.5: for slots with meta paths, expand map-star paths before building final
+        // access path lists. This turns map.*.OFFSET into precise map.KEYS +
+        // map.VALUES.OFFSET paths instead of broad map.* access.
+        for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
+            Slot slot = kv.getKey();
+            DataTypeAccessTree accessTree = kv.getValue();
+            if (!accessTree.hasOffsetPath() && !accessTree.hasNullPath()) {
+                continue;
+            }
+            // Expand both sets so all-path and predicate-path routing stay consistent.
+            expandMapStarPaths(slot, allAccessPaths);
+            expandMapStarPaths(slot, predicateAccessPaths);
+        }
+
         // second: build non-predicate access paths
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
-
-            if (slot.getDataType().isStringLikeType()) {
-                if (accessTree.hasStringOffsetOnlyAccess()) {
-                    // Offset-only access (e.g. length(str_col)): type stays varchar,
-                    // but we must still send the access path to BE so it skips the char data.
-                    List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                    result.put(slot.getExprId().asInt(),
-                            new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                }
-                // direct access (accessAll=true) or other: skip — no type change, no access paths needed.
-                continue;
-            }
-
-            if ((slot.getDataType().isArrayType() || slot.getDataType().isMapType())
-                    && accessTree.hasStringOffsetOnlyAccess()) {
-                // Offset-only access (e.g. length(arr_col) / length(map_col)): type stays unchanged,
-                // but we must send the OFFSET access path to BE so it skips element/key-value data.
-                List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                result.put(slot.getExprId().asInt(),
-                        new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                continue;
-            }
-
-            if (slot.getDataType().isMapType() && accessTree.hasMapValueOffsetOnlyAccess()) {
-                // length(map_col['key']): keys read in full (element lookup) + values offset-only.
-                // Emit [col, KEYS] and [col, VALUES, OFFSET] directly instead of the collected
-                // [col, *, OFFSET] path which the BE cannot interpret for split key/value access.
-                String colName = slot.getName().toLowerCase();
-                ColumnAccessPath keysColumnPath = ColumnAccessPath.data(
-                        new ArrayList<>(ImmutableList.of(colName, AccessPathInfo.ACCESS_MAP_KEYS)));
-
-                ColumnAccessPath valsOffsetColumnPath = ColumnAccessPath.data(
-                        new ArrayList<>(ImmutableList.of(colName, AccessPathInfo.ACCESS_MAP_VALUES,
-                                AccessPathInfo.ACCESS_STRING_OFFSET)));
-
-                result.put(slot.getExprId().asInt(), new AccessPathInfo(
-                        slot.getDataType(),
-                        ImmutableList.of(keysColumnPath, valsOffsetColumnPath),
-                        new ArrayList<>()));
-                continue;
-            }
-
-            // Strip OFFSET-suffix paths when a non-OFFSET path covers the same nested field or
-            // container. The overlapping array/map container may live under the root slot itself
-            // or under a nested struct field, so compare against the actual nested prefix instead
-            // of gating this logic on the root slot type.
-            int slotId = slot.getExprId().asInt();
-            Collection<Pair<ColumnAccessPathType, List<String>>> paths = allAccessPaths.get(slotId);
-            List<List<String>> nonOffsetPaths = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : paths) {
-                List<String> path = p.second;
-                if (path.isEmpty()
-                        || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
-                    nonOffsetPaths.add(path);
-                }
-            }
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(paths)) {
-                OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
-                        slot.getDataType(), p.second, nonOffsetPaths);
-                if (!rewrite.shouldRemoveOffsetPath()) {
-                    continue;
-                }
-                pathsToRemove.add(p);
-                for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
-                    pathsToAdd.add(Pair.of(p.first, supplementalPath));
-                }
-            }
-            paths.removeAll(pathsToRemove);
-            paths.addAll(pathsToAdd);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+            if (shouldSkipAccessInfo(slot, prunedDataType, allPaths)) {
+                continue;
+            }
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
         }
@@ -306,14 +302,15 @@ public class NestedColumnPruning implements CustomRewriter {
                     new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
         }
 
-        // third: build predicate access path
+        // third: build predicate access paths
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
-
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                addPredicatePathsToFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -324,6 +321,8 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                addPredicatePathsToFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -331,153 +330,67 @@ public class NestedColumnPruning implements CustomRewriter {
         return result;
     }
 
+    private static int comparePathComponents(List<String> left, List<String> right) {
+        int commonSize = Math.min(left.size(), right.size());
+        for (int i = 0; i < commonSize; i++) {
+            int result = left.get(i).compareTo(right.get(i));
+            if (result != 0) {
+                return result;
+            }
+        }
+        return Integer.compare(left.size(), right.size());
+    }
+
     /**
-     * Decide whether an OFFSET-suffix path can be removed because another non-OFFSET path
-     * already covers the same container.
+     * Keep final allAccessPaths as a superset of non-metadata predicateAccessPaths. Predicate
+     * paths are collected from filter expressions first, but final all-path construction may later
+     * collapse ordinary paths to whole-column access. BE complex readers use allAccessPaths to
+     * decide which data sub-iterators can be pruned; any predicate data path missing from
+     * allAccessPaths can therefore make predicate reads disagree with pruning.
      *
-     * <p>For map element_at paths, {@code *} means "read keys fully, then follow the rest of
-     * the path on the value side". So a VALUES path can cover the value-side OFFSET access,
-     * but it does NOT cover the key lookup requirement. In that case we remove the OFFSET path
-     * and add a KEYS-only path instead.
+     * Metadata predicate paths are already retained in allAccessPaths while the access trees are
+     * built, so only missing data paths need to be added here.
      */
-    private static OffsetPathRewrite analyzeOffsetPathRewrite(
-            DataType slotType, List<String> path, List<List<String>> nonOffsetPaths) {
-        if (path.isEmpty()
-                || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
-            return OffsetPathRewrite.keep();
-        }
-        List<String> prefix = path.subList(0, path.size() - 1);
-        List<List<String>> supplementalPaths = new ArrayList<>();
-        for (List<String> nonOffset : nonOffsetPaths) {
-            OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, nonOffset);
-            if (!candidate.shouldRemoveOffsetPath()) {
-                continue;
+    private static void addPredicatePathsToFinalAllAccessPaths(
+            List<ColumnAccessPath> predicatePaths, List<ColumnAccessPath> allPaths) {
+        for (ColumnAccessPath predicatePath : predicatePaths) {
+            if (!isMetaPath(predicatePath) && !isCoveredByAllPath(predicatePath, allPaths)) {
+                allPaths.add(predicatePath);
             }
-            if (candidate.getSupplementalPaths().isEmpty()) {
-                return OffsetPathRewrite.remove();
-            }
-            supplementalPaths.addAll(candidate.getSupplementalPaths());
         }
-        if (supplementalPaths.isEmpty()) {
-            return OffsetPathRewrite.keep();
-        }
-        return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
     }
 
-    private static OffsetPathRewrite compareOffsetPrefixCoverage(
-            DataType slotType, List<String> prefix, List<String> nonOffset) {
-        if (nonOffset.isEmpty()) {
-            return OffsetPathRewrite.remove();
-        }
-        int minLen = Math.min(prefix.size(), nonOffset.size());
-        List<List<String>> supplementalPaths = new ArrayList<>();
-        DataType currentType = slotType;
-        for (int i = 0; i < minLen; i++) {
-            String prefixComponent = prefix.get(i);
-            String nonOffsetComponent = nonOffset.get(i);
-            if (i == 0) {
-                if (!prefixComponent.equals(nonOffsetComponent)) {
-                    return OffsetPathRewrite.keep();
-                }
-                continue;
-            }
-            if (currentType.isStructType()) {
-                if (!prefixComponent.equals(nonOffsetComponent)) {
-                    return OffsetPathRewrite.keep();
-                }
-                StructField field = ((StructType) currentType).getField(prefixComponent);
-                if (field == null) {
-                    return OffsetPathRewrite.keep();
-                }
-                currentType = field.getDataType();
-                continue;
-            }
-            if (currentType.isArrayType()) {
-                if (!prefixComponent.equals(nonOffsetComponent)
-                        || !AccessPathInfo.ACCESS_ALL.equals(prefixComponent)) {
-                    return OffsetPathRewrite.keep();
-                }
-                currentType = ((ArrayType) currentType).getItemType();
-                continue;
-            }
-            if (currentType.isMapType()) {
-                MapType mapType = (MapType) currentType;
-                if (prefixComponent.equals(nonOffsetComponent)) {
-                    currentType = descendMapType(mapType, prefixComponent);
-                    continue;
-                }
-                if (AccessPathInfo.ACCESS_ALL.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_MAP_VALUES.equals(nonOffsetComponent)) {
-                    supplementalPaths.add(buildMapKeysOnlyPath(prefix, i));
-                    currentType = mapType.getValueType();
-                    continue;
-                }
-                if (AccessPathInfo.ACCESS_MAP_VALUES.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
-                    currentType = mapType.getValueType();
-                    continue;
-                }
-                if (AccessPathInfo.ACCESS_MAP_KEYS.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
-                    currentType = mapType.getKeyType();
-                    continue;
-                }
-                return OffsetPathRewrite.keep();
-            }
-            if (!prefixComponent.equals(nonOffsetComponent)) {
-                return OffsetPathRewrite.keep();
+    private static boolean isCoveredByAllPath(ColumnAccessPath predicatePath, List<ColumnAccessPath> allPaths) {
+        for (ColumnAccessPath allPath : allPaths) {
+            if (allPath.getType() == predicatePath.getType()
+                    && isPrefixPathIgnoreCase(allPath.getPath(), predicatePath.getPath())) {
+                return true;
             }
         }
-        if (supplementalPaths.isEmpty()) {
-            return OffsetPathRewrite.remove();
-        }
-        return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
+        return false;
     }
 
-    private static DataType descendMapType(MapType mapType, String component) {
-        if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
-            return mapType.getKeyType();
+    /**
+     * Whether {@code prefix} is a prefix of {@code path}, ignoring case. The collected access paths
+     * lower-case every component, but buildColumnAccessPaths rebuilds a whole-column path from the
+     * catalog column name, so for a column named {@code S} the all path {@code [S]} must still cover
+     * the predicate path {@code [s, city]}. Compared case-sensitively, {@code [s, city]} would be
+     * appended next to {@code [S]}.
+     */
+    private static boolean isPrefixPathIgnoreCase(List<String> prefix, List<String> path) {
+        if (prefix.size() > path.size()) {
+            return false;
         }
-        return mapType.getValueType();
+        for (int i = 0; i < prefix.size(); ++i) {
+            if (!prefix.get(i).equalsIgnoreCase(path.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    private static List<String> buildMapKeysOnlyPath(List<String> prefix, int mapTokenIndex) {
-        List<String> keyPath = new ArrayList<>(prefix.subList(0, mapTokenIndex));
-        keyPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
-        return keyPath;
-    }
-
-    private static final class OffsetPathRewrite {
-        private static final OffsetPathRewrite KEEP = new OffsetPathRewrite(false, ImmutableList.of());
-        private static final OffsetPathRewrite REMOVE = new OffsetPathRewrite(true, ImmutableList.of());
-
-        private final boolean removeOffsetPath;
-        private final List<List<String>> supplementalPaths;
-
-        private OffsetPathRewrite(boolean removeOffsetPath, List<List<String>> supplementalPaths) {
-            this.removeOffsetPath = removeOffsetPath;
-            this.supplementalPaths = supplementalPaths;
-        }
-
-        private static OffsetPathRewrite keep() {
-            return KEEP;
-        }
-
-        private static OffsetPathRewrite remove() {
-            return REMOVE;
-        }
-
-        private static OffsetPathRewrite rewriteWithSupplementalPaths(List<List<String>> supplementalPaths) {
-            return new OffsetPathRewrite(true, ImmutableList.copyOf(supplementalPaths));
-        }
-
-        private boolean shouldRemoveOffsetPath() {
-            return removeOffsetPath;
-        }
-
-        private List<List<String>> getSupplementalPaths() {
-            return supplementalPaths;
-        }
+    private static boolean isMetaPath(ColumnAccessPath path) {
+        return path.getType() == ColumnAccessPathType.META;
     }
 
     private static List<ColumnAccessPath> buildColumnAccessPaths(
@@ -503,9 +416,29 @@ public class NestedColumnPruning implements CustomRewriter {
         if (accessWholeColumn) {
             SlotReference slotReference = (SlotReference) slot;
             String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-            return ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName)));
+            return new ArrayList<>(
+                    ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName))));
         }
         return paths;
+    }
+
+    private static boolean shouldSkipAccessInfo(
+            Slot slot, DataType prunedDataType, List<ColumnAccessPath> allPaths) {
+        if (!prunedDataType.equals(slot.getDataType())) {
+            return false;
+        }
+        if (slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType()) {
+            return false;
+        }
+
+        // Only scalar / string-like types reach here (NestedColumnPrunable and Variant
+        // returned false above). A single [col] path means the entire column is read;
+        // no access info needs to be sent to BE.
+        if (allPaths.size() != 1) {
+            return false;
+        }
+        List<String> path = allPaths.get(0).getPath();
+        return path.size() == 1;
     }
 
     /** DataTypeAccessTree */
@@ -517,11 +450,18 @@ public class NestedColumnPruning implements CustomRewriter {
         // if access 's.a.b' the node 's' and 'a' has accessPartialChild, and node 'b' has accessAll
         private boolean accessPartialChild;
         private boolean accessAll;
-        // True when this string-typed node is accessed ONLY via the offset array
-        // (e.g. length(str_col) or length(element_at(c_struct,'f3'))).
-        // When this flag is set and accessAll is NOT set, pruneDataType() returns BigIntType
-        // to signal that the BE only needs to read the offset array, not the chars data.
-        private boolean isStringOffsetOnly;
+        // Cached marker set by setAccessByPath() when a path component is OFFSET.
+        // Avoids scanning the multimap: hasStringOffsetOnlyAccess() reads this flag in
+        // O(1) instead of checking every path for an OFFSET suffix. Used for array, map,
+        // and string-like types (they share offset-based storage in BE).
+        // When set without accessAll, pruneDataType() keeps the node's type so that BE
+        // reads only the offset structure, skipping element / key-value / chars data.
+        private boolean hasOffsetPath;
+        // Cached marker set by setAccessByPath() when a path component is NULL.
+        // Same purpose as hasOffsetPath — O(1) flag read instead of multimap scan
+        // in hasNullCheckOnlyAccess(). When set without accessAll, BE reads only the
+        // null bitmap, skipping actual column data.
+        private boolean hasNullPath;
         // for the future, only access the meta of the column,
         // e.g. `is not null` can only access the column's offset, not need to read the data
         private ColumnAccessPathType pathType;
@@ -564,69 +504,33 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         /**
-         * True when a MAP column is accessed as {@code length(map_col['key'])}: the keys must
-         * be read in full (for the element lookup) while the values only need the offset array
-         * (since only their length, not their content, is used).
-         * Expected access paths: [col, KEYS] and [col, VALUES, OFFSET].
+         * recursively search in the tree, if any node hasOffsetPath
          */
-        public boolean hasMapValueOffsetOnlyAccess() {
-            if (!isRoot) {
-                return false;
-            }
-            DataTypeAccessTree child = children.values().iterator().next();
-            if (!child.type.isMapType() || child.accessAll) {
-                return false;
-            }
-            DataTypeAccessTree keysChild = child.children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-            DataTypeAccessTree valsChild = child.children.get(AccessPathInfo.ACCESS_MAP_VALUES);
-            // Keys must be fully accessed (element-at lookup).
-            if (!keysChild.accessAll) {
-                return false;
-            }
-            // Values must be accessed offset-only (no deeper element reads).
-            if (!valsChild.isStringOffsetOnly || valsChild.accessAll) {
-                return false;
-            }
-            if (valsChild.type.isStringLikeType()) {
-                // String value: accessAll check above is sufficient.
+        public boolean hasOffsetPath() {
+            if (hasOffsetPath) {
                 return true;
             }
-            if (valsChild.type.isArrayType()) {
-                // Array value (e.g. MAP<STRING, ARRAY<INT>>): verify no element was read directly
-                // (e.g. map_col['k'][0] would set allChild.accessAll=true).
-                DataTypeAccessTree allChild = valsChild.children.get(AccessPathInfo.ACCESS_ALL);
-                return !allChild.accessAll && !allChild.accessPartialChild;
-            }
-            return true;
-        }
-
-        /** True when the column is accessed ONLY via the offset array (e.g. length(str_col),
-         *  length(arr_col), length(map_col)), meaning the type must not change but an access
-         *  path still needs to be sent to BE so it can skip the char/element data. */
-        public boolean hasStringOffsetOnlyAccess() {
-            if (isRoot) {
-                DataTypeAccessTree child = children.values().iterator().next();
-                if (!child.isStringOffsetOnly || child.accessAll) {
-                    return false;
-                }
-                if (child.type.isStringLikeType()) {
+            for (DataTypeAccessTree child : children.values()) {
+                if (child.hasOffsetPath()) {
                     return true;
                 }
-                if (child.type.isArrayType()) {
-                    // True only if no element was accessed (element_at / explode etc.)
-                    DataTypeAccessTree allChild = child.children.get(AccessPathInfo.ACCESS_ALL);
-                    return !allChild.accessAll && !allChild.accessPartialChild;
-                }
-                if (child.type.isMapType()) {
-                    // True only if neither keys nor values were accessed directly
-                    DataTypeAccessTree keysChild = child.children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-                    DataTypeAccessTree valsChild = child.children.get(AccessPathInfo.ACCESS_MAP_VALUES);
-                    return !keysChild.accessAll && !keysChild.accessPartialChild
-                            && !valsChild.accessAll && !valsChild.accessPartialChild;
-                }
-                return false;
             }
-            return type.isStringLikeType() && isStringOffsetOnly && !accessAll;
+            return false;
+        }
+
+        /**
+         * recursively search in the tree, if any node hasNullPath
+         */
+        public boolean hasNullPath() {
+            if (hasNullPath) {
+                return true;
+            }
+            for (DataTypeAccessTree child : children.values()) {
+                if (child.hasNullPath()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /** pruneCastType */
@@ -660,8 +564,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.values().iterator().next().pruneCastType(
                                 origin.children.values().iterator().next(),
                                 cast.children.values().iterator().next()
-                        ),
-                        ((ArrayType) cast.type).containsNull()
+                        )
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
@@ -682,29 +585,43 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         /** replacePathByAnotherTree */
-        public boolean replacePathByAnotherTree(DataTypeAccessTree cast, List<String> path, int index) {
+        public boolean replacePathByAnotherTree(
+                DataTypeAccessTree cast, List<String> path, int index, ColumnAccessPathType pathType) {
             if (index >= path.size()) {
                 return true;
+            }
+            if (pathType == ColumnAccessPathType.META && index == path.size() - 1) {
+                String metaPath = path.get(index);
+                if (!metaPath.equals(AccessPathInfo.ACCESS_NULL)
+                        && !metaPath.equals(AccessPathInfo.ACCESS_OFFSET)) {
+                    throw new AnalysisException("unsupported metadata access path: " + metaPath);
+                }
+                // A type-changing cast can change both the physical OFFSET representation and
+                // nullness (for example, a failed string-to-number cast). Only translate the
+                // metadata suffix when the source and target node types are identical; otherwise
+                // visitCast falls back to reading the original value data before evaluating cast.
+                return type.equals(cast.type);
             }
             if (cast.type instanceof StructType) {
                 List<StructField> fields = ((StructType) cast.type).getFields();
                 for (int i = 0; i < fields.size(); i++) {
                     String castFieldName = path.get(index);
-                    if (fields.get(i).getName().equalsIgnoreCase(castFieldName)) {
+                    // Struct runtime keys are ROOT-normalized; broad folding can merge distinct siblings.
+                    if (fields.get(i).getName().equals(castFieldName)) {
                         String originFieldName = ((StructType) type).getFields().get(i).getName();
                         path.set(index, originFieldName);
                         return children.get(originFieldName).replacePathByAnotherTree(
-                                cast.children.get(castFieldName), path, index + 1
+                                cast.children.get(castFieldName), path, index + 1, pathType
                         );
                     }
                 }
             } else if (cast.type instanceof ArrayType) {
                 return children.values().iterator().next().replacePathByAnotherTree(
-                        cast.children.values().iterator().next(), path, index + 1);
+                        cast.children.values().iterator().next(), path, index + 1, pathType);
             } else if (cast.type instanceof MapType) {
                 String fieldName = path.get(index);
                 return children.get(AccessPathInfo.ACCESS_MAP_VALUES).replacePathByAnotherTree(
-                        cast.children.get(fieldName), path, index + 1
+                        cast.children.get(fieldName), path, index + 1, pathType
                 );
             }
             return false;
@@ -715,16 +632,25 @@ public class NestedColumnPruning implements CustomRewriter {
             if (accessIndex >= path.size()) {
                 accessAll = true;
                 return;
-            } else {
-                accessPartialChild = true;
             }
 
             if (pathType == ColumnAccessPathType.DATA) {
                 this.pathType = ColumnAccessPathType.DATA;
             }
 
+            // Terminal NULL component: the column is accessed only via IS NULL / IS NOT NULL.
+            // Mark null-check-only and return without setting accessAll or accessPartialChild,
+            // so that parent nodes can distinguish "null-only leaf" from "has real sub-access".
+            if (pathType == ColumnAccessPathType.META && accessIndex == path.size() - 1
+                    && path.get(accessIndex).equals(AccessPathInfo.ACCESS_NULL)) {
+                hasNullPath = true;
+                return;
+            }
+
+            accessPartialChild = true;
+
             if (this.type.isStructType()) {
-                String fieldName = path.get(accessIndex).toLowerCase();
+                String fieldName = path.get(accessIndex).toLowerCase(Locale.ROOT);
                 DataTypeAccessTree child = children.get(fieldName);
                 if (child != null) {
                     child.setAccessByPath(path, accessIndex + 1, pathType);
@@ -734,9 +660,10 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return;
             } else if (this.type.isArrayType()) {
-                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
-                    // length(array_col) — only the offset array is needed, not element data.
-                    isStringOffsetOnly = true;
+                if (pathType == ColumnAccessPathType.META && accessIndex == path.size() - 1
+                        && path.get(accessIndex).equals(AccessPathInfo.ACCESS_OFFSET)) {
+                    // cardinality(array_col) — only the offset array is needed, not element data.
+                    hasOffsetPath = true;
                     return;
                 }
                 DataTypeAccessTree child = children.get(AccessPathInfo.ACCESS_ALL);
@@ -747,9 +674,10 @@ public class NestedColumnPruning implements CustomRewriter {
                 return;
             } else if (this.type.isMapType()) {
                 String fieldName = path.get(accessIndex);
-                if (fieldName.equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
-                    // length(map_col) — only the offset array is needed, not key/value data.
-                    isStringOffsetOnly = true;
+                if (pathType == ColumnAccessPathType.META && accessIndex == path.size() - 1
+                        && fieldName.equals(AccessPathInfo.ACCESS_OFFSET)) {
+                    // cardinality(map_col) — only the offset array is needed, not key/value data.
+                    hasOffsetPath = true;
                     return;
                 }
                 if (fieldName.equals(AccessPathInfo.ACCESS_ALL)) {
@@ -761,10 +689,12 @@ public class NestedColumnPruning implements CustomRewriter {
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 } else if (fieldName.equals(AccessPathInfo.ACCESS_MAP_KEYS)) {
-                    // only access the keys and not need enter keys, because it must be primitive type.
-                    // e.g. map_keys(map_column)
+                    // Access the keys sub-column. Delegate to child so that trailing path
+                    // components (e.g. NULL for IS NULL) are processed correctly.
+                    // When no trailing component exists, setAccessByPath reaches end-of-path
+                    // and sets accessAll = true, preserving the original behavior.
                     DataTypeAccessTree keysChild = children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-                    keysChild.accessAll = true;
+                    keysChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 } else if (fieldName.equals(AccessPathInfo.ACCESS_MAP_VALUES)) {
                     // only access the values without keys, and maybe prune the value's data type.
@@ -777,15 +707,22 @@ public class NestedColumnPruning implements CustomRewriter {
             } else if (type.isStringLikeType()) {
                 // String leaf accessed via the offset array (e.g. path ends in "offset").
                 // Mark offset-only so pruneDataType() can return BigIntType instead of full data.
-                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
-                    isStringOffsetOnly = true;
+                if (pathType == ColumnAccessPathType.META && accessIndex == path.size() - 1
+                        && path.get(accessIndex).equals(AccessPathInfo.ACCESS_OFFSET)) {
+                    hasOffsetPath = true;
                     return; // do NOT set accessAll — offset-only is distinguishable from full access
                 }
                 // Any other sub-path on a string column means full data is needed.
                 accessAll = true;
                 return;
+            } else if (type.isVariantType()) {
+                // Variant object keys stay in the serialized access path. Keeping the terminal type
+                // here lets BE project a shredded leaf without inventing static schema fields.
+                accessAll = true;
+                return;
             } else if (isRoot) {
-                children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
+                children.get(path.get(accessIndex).toLowerCase(Locale.ROOT))
+                        .setAccessByPath(path, accessIndex + 1, pathType);
                 return;
             }
             throw new AnalysisException("unsupported data type: " + this.type);
@@ -794,7 +731,7 @@ public class NestedColumnPruning implements CustomRewriter {
         public static DataTypeAccessTree ofRoot(Slot slot, ColumnAccessPathType pathType) {
             DataTypeAccessTree child = of(slot.getDataType(), pathType);
             DataTypeAccessTree root = new DataTypeAccessTree(true, NullType.INSTANCE, pathType);
-            root.children.put(slot.getName().toLowerCase(), child);
+            root.children.put(slot.getName().toLowerCase(Locale.ROOT), child);
             return root;
         }
 
@@ -804,7 +741,8 @@ public class NestedColumnPruning implements CustomRewriter {
             if (type instanceof StructType) {
                 StructType structType = (StructType) type;
                 for (Entry<String, StructField> kv : structType.getNameToFields().entrySet()) {
-                    root.children.put(kv.getKey().toLowerCase(), of(kv.getValue().getDataType(), pathType));
+                    root.children.put(kv.getKey().toLowerCase(Locale.ROOT),
+                            of(kv.getValue().getDataType(), pathType));
                 }
             } else if (type instanceof ArrayType) {
                 root.children.put(AccessPathInfo.ACCESS_ALL, of(((ArrayType) type).getItemType(), pathType));
@@ -821,8 +759,13 @@ public class NestedColumnPruning implements CustomRewriter {
                 return children.values().iterator().next().pruneDataType();
             } else if (accessAll) {
                 return Optional.of(type);
-            } else if (isStringOffsetOnly && !accessPartialChild) {
+            } else if (hasOffsetPath && !accessPartialChild) {
                 // Only the offset array is accessed (e.g. length(str_col)).
+                return Optional.of(type);
+            } else if (hasNullPath && !accessPartialChild) {
+                // Only the null flag is accessed (e.g. col IS NULL / element_at(s,'f') IS NULL).
+                // Return the node's type so that parent nodes include this child in their pruned type,
+                // while the access path (ending in NULL) tells BE to skip actual data reading.
                 return Optional.of(type);
             } else if (!accessPartialChild) {
                 return Optional.empty();
@@ -874,12 +817,113 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return new StructType(newFields);
             } else if (dataType instanceof ArrayType) {
-                return ArrayType.of(newChildrenTypes.get(0).second, ((ArrayType) dataType).containsNull());
+                return ArrayType.of(newChildrenTypes.get(0).second);
             } else if (dataType instanceof MapType) {
                 return MapType.of(newChildrenTypes.get(0).second, newChildrenTypes.get(1).second);
             } else {
                 throw new AnalysisException("unsupported data type: " + dataType);
             }
         }
+    }
+
+    /**
+     * Expand map-level {@code *} wildcards into {@code KEYS} + {@code VALUES}
+     * variants.  For n map-level stars in a single path, n+1 paths are
+     * emitted: one all-VALUES path plus one KEYS-terminating path per star
+     * position.  Array-level stars are left unchanged.
+     *
+     * <p>Paths with no map-level star are kept as-is.
+     */
+    private static void expandMapStarPaths(
+            Slot slot,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> accessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = accessPaths.get(slotId);
+        if (slotPaths.isEmpty()) {
+            return;
+        }
+        DataType slotType = slot.getDataType();
+
+        List<Pair<ColumnAccessPathType, List<String>>> toAdd = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+
+        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+            List<String> path = p.second;
+            List<Integer> positions = new ArrayList<>();
+            findMapStarPositions(path, slotType, positions);
+            if (positions.isEmpty()) {
+                continue;
+            }
+            toRemove.add(p);
+            toAdd.addAll(expandOnePath(p.first, path, positions));
+        }
+
+        slotPaths.removeAll(toRemove);
+        slotPaths.addAll(toAdd);
+    }
+
+    private static void findMapStarPositions(
+            List<String> path, DataType slotType, List<Integer> positions) {
+        DataType current = slotType;
+        for (int i = 1; i < path.size(); i++) {
+            String component = path.get(i);
+            if (current.isStructType()) {
+                StructField field = ((StructType) current).getField(component);
+                if (field == null) {
+                    break;
+                }
+                current = field.getDataType();
+            } else if (current.isArrayType()) {
+                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    break;
+                }
+                current = ((ArrayType) current).getItemType();
+            } else if (current.isMapType()) {
+                MapType mapType = (MapType) current;
+                if (AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    positions.add(i);
+                    current = mapType.getValueType();
+                } else if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
+                    current = mapType.getKeyType();
+                } else if (AccessPathInfo.ACCESS_MAP_VALUES.equals(component)) {
+                    current = mapType.getValueType();
+                } else {
+                    current = mapType.getValueType();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    private static List<Pair<ColumnAccessPathType, List<String>>> expandOnePath(
+            ColumnAccessPathType type, List<String> path, List<Integer> positions) {
+        int n = positions.size();
+        List<Pair<ColumnAccessPathType, List<String>>> result = new ArrayList<>(n + 1);
+
+        // All-VALUES path: replace every map * with VALUES
+        List<String> allValues = new ArrayList<>(path);
+        for (int pos : positions) {
+            allValues.set(pos, AccessPathInfo.ACCESS_MAP_VALUES);
+        }
+        result.add(Pair.of(type, allValues));
+
+        // KEYS-terminating path for each position. Map lookup still reads key data even when
+        // the values path only reads metadata.
+        for (int i = 0; i < n; i++) {
+            int keysPos = positions.get(i);
+            List<String> keysPath = new ArrayList<>();
+            for (int j = 0; j < keysPos; j++) {
+                String component = path.get(j);
+                if (positions.contains(j)) {
+                    component = AccessPathInfo.ACCESS_MAP_VALUES;
+                }
+                keysPath.add(component);
+            }
+            keysPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
+            result.add(Pair.of(ColumnAccessPathType.DATA, keysPath));
+        }
+
+        return result;
     }
 }

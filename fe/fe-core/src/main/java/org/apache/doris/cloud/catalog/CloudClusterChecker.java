@@ -27,6 +27,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
@@ -148,15 +149,20 @@ public class CloudClusterChecker extends MasterDaemon {
                 }
                 List<Backend> toDel =
                         new ArrayList<>(finalClusterIdToBackend.getOrDefault(delId, new ArrayList<>()));
+                // The name index may already belong to a same-name replacement. Use the
+                // obsolete group's own BE tags, and never skip ID cleanup for a missing name.
+                String delClusterName = toDel.stream().map(Backend::getCloudClusterName).findFirst()
+                        .orElseGet(() -> cloudSystemInfoService.getClusterNameByClusterId(delId));
+                // Name-scoped jobs may already belong to the replacement group.
+                if (delId.equals(cloudSystemInfoService.getCloudClusterIdByName(delClusterName))) {
+                    ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().cancelTableFilterJobsForClusterChange(
+                            delClusterName, "system cancel: compute group " + delClusterName + " dropped");
+                }
                 cloudSystemInfoService.updateCloudBackends(new ArrayList<>(), toDel);
                 // del clusterName
-                String delClusterName = cloudSystemInfoService.getClusterNameByClusterId(delId);
-                if (delClusterName.isEmpty()) {
-                    return;
-                }
                 // del clusterID
                 MetricRepo.unregisterCloudMetrics(delId, delClusterName, toDel);
-                cloudSystemInfoService.dropCluster(delId, delClusterName);
+                cloudSystemInfoService.removeComputeGroup(delId, delClusterName);
             }
         );
     }
@@ -183,14 +189,14 @@ public class CloudClusterChecker extends MasterDaemon {
             }
 
             if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONING) {
-                if (!be.isDecommissioned()) {
-                    LOG.info("decommissioned backend: {} status: {}", be, status);
+                if (!be.isDecommissioning()) {
+                    LOG.info("decommissioning backend: {} status: {}", be, status);
                     try {
                         ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().registerWaterShedTxnId(be.getId());
+                        be.setDecommissioning(true);
                     } catch (UserException e) {
                         LOG.warn("failed to register water shed txn id, decommission be {}", be.getId(), e);
                     }
-                    be.setDecommissioning(true);
                 }
             }
 
@@ -262,6 +268,9 @@ public class CloudClusterChecker extends MasterDaemon {
                 LOG.info("cluster_name corresponding to cluster_id has been changed,"
                         + " cluster_id : {} , current_cluster_name : {}, new_cluster_name :{}",
                         cid, currentClusterName, newClusterName);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().cancelTableFilterJobsForClusterChange(
+                        currentClusterName, "system cancel: compute group " + currentClusterName
+                                + " renamed to " + newClusterName);
                 // change all be's cluster_name
                 currentBes.forEach(b -> b.setCloudClusterName(newClusterName));
                 // update clusterNameToId
@@ -534,6 +543,11 @@ public class CloudClusterChecker extends MasterDaemon {
     }
 
     private void checkCloudBackends() {
+        if (DebugPointUtil.isEnable("CloudClusterChecker.checkCloudBackends.pause")) {
+            LOG.info("CloudClusterChecker.checkCloudBackends.pause phase={}", DebugPointUtil.getDebugParamOrDefault(
+                    "CloudClusterChecker.checkCloudBackends.pause", "phase", ""));
+            return;
+        }
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
         //rpc to ms, to get mysql user can use cluster_id
         // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
@@ -568,6 +582,8 @@ public class CloudClusterChecker extends MasterDaemon {
             }
             // clusterID local == remote, diff nodes
             checkDiffNode(remoteClusterIdToPB, clusterIdToBackend);
+
+            cloudSystemInfoService.refreshComputeGroupNames(remoteClusterIdToPB.values());
 
             // check mem map
             checkFeNodesMapValid();

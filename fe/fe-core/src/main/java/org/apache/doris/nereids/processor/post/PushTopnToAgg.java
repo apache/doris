@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate.TopnP
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.util.AggregateUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -49,6 +50,11 @@ public class PushTopnToAgg extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         topN.child().accept(this, ctx);
+        if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+            // limit + offset overflows the long range: no aggregate can hold that many rows, so
+            // pushing a topn limit into the aggregate cannot reduce anything; leave the topn as is.
+            return topN;
+        }
         if (ConnectContext.get().getSessionVariable().topnOptLimitThreshold <= topN.getLimit() + topN.getOffset()
                 && !ConnectContext.get().getSessionVariable().pushTopnToAgg) {
             return topN;

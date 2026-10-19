@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------------------PhysicalProject
---------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------------------filter(ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 1998))
@@ -48,7 +48,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
 ------------------------------------------PhysicalProject
---------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------------------filter(ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 1998))

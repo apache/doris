@@ -22,11 +22,19 @@
 
 #include <fmt/format.h>
 
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#include <libunwind.h>
+#else
+#include <execinfo.h>
+#endif
+
 #include <atomic>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 #include "common/config.h"
@@ -36,13 +44,8 @@
 #include "common/memory_sanitizer.h"
 #include "common/symbol_index.h"
 #include "exec/common/hex.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
-
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
-#include <libunwind.h>
-#else
-#include <execinfo.h>
-#endif
 
 namespace {
 /// Currently this variable is set up once on server startup.
@@ -288,7 +291,12 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
     } else {
         /// Skip excessive stack frames that we have created while finding stack trace.
         for (size_t i = 0; i < size; ++i) {
-            if (frame_pointers[i] == caller_address) {
+            const auto frame_address = reinterpret_cast<uintptr_t>(frame_pointers[i]);
+            const auto caller_address_value = reinterpret_cast<uintptr_t>(caller_address);
+            if (caller_address_value != 0 &&
+                (frame_address == caller_address_value ||
+                 (caller_address_value < std::numeric_limits<uintptr_t>::max() &&
+                  frame_address == caller_address_value + 1))) {
                 offset = i;
                 break;
             }
@@ -297,13 +305,17 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 }
 
 void StackTrace::tryCapture() {
-    // When unw_backtrace is not available, fall back on the standard
-    // `backtrace` function from execinfo.h.
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__) // TODO
-    size = unw_backtrace(frame_pointers.data(), capacity);
+    int frame_count = 0;
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+    frame_count = unw_backtrace(frame_pointers.data(), capacity);
 #else
-    size = backtrace(frame_pointers.data(), capacity);
+    frame_count = backtrace(frame_pointers.data(), capacity);
 #endif
+    size = frame_count > 0 ? static_cast<size_t>(frame_count) : 0;
+    if (doris::config::enable_debug_points &&
+        doris::DebugPoints::instance()->is_enable("StackTrace::tryCapture.empty_trace")) {
+        size = 0;
+    }
     __msan_unpoison(frame_pointers.data(), size * sizeof(frame_pointers[0]));
 }
 
@@ -329,20 +341,27 @@ struct StackTraceRefTriple {
     const StackTrace::FramePointers& pointers;
     size_t offset;
     size_t size;
+    std::string_view dwarf_location_info_mode;
 };
 
 struct StackTraceTriple {
     StackTrace::FramePointers pointers;
     size_t offset;
     size_t size;
+    std::string dwarf_location_info_mode;
 };
 
 template <class T>
 concept MaybeRef = std::is_same_v<T, StackTraceTriple> || std::is_same_v<T, StackTraceRefTriple>;
 
 constexpr bool operator<(const MaybeRef auto& left, const MaybeRef auto& right) {
-    return std::tuple {left.pointers, left.size, left.offset} <
-           std::tuple {right.pointers, right.size, right.offset};
+    // The same PCs can be rendered with different DWARF detail levels. Keeping the mode in the
+    // key prevents a cheap disabled rendering from poisoning a later full rendering, and prevents
+    // full file/line detail from leaking into a disabled request.
+    return std::tuple {left.pointers, left.size, left.offset,
+                       std::string_view(left.dwarf_location_info_mode)} <
+           std::tuple {right.pointers, right.size, right.offset,
+                       std::string_view(right.dwarf_location_info_mode)};
 }
 
 static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_location_info_mode,
@@ -427,7 +446,8 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
 }
 
 void StackTrace::toStringEveryLine(std::function<void(std::string_view)> callback) const {
-    toStringEveryLineImpl("FULL_WITH_INLINE", {frame_pointers, offset, size}, std::move(callback));
+    toStringEveryLineImpl("FULL_WITH_INLINE", {frame_pointers, offset, size, "FULL_WITH_INLINE"},
+                          std::move(callback));
 }
 
 using StackTraceCache = std::map<StackTraceTriple, std::string, std::less<>>;
@@ -447,7 +467,7 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
     std::lock_guard lock {stacktrace_cache_mutex};
 
     StackTraceCache& cache = cacheInstance();
-    const StackTraceRefTriple key {pointers, offset, size};
+    const StackTraceRefTriple key {pointers, offset, size, dwarf_location_info_mode};
 
     if (auto it = cache.find(key); it != cache.end()) {
         return it->second;
@@ -456,7 +476,10 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
         toStringEveryLineImpl(dwarf_location_info_mode, key,
                               [&](std::string_view str) { out << str << '\n'; });
 
-        return cache.emplace(StackTraceTriple {pointers, offset, size}, out.str()).first->second;
+        return cache
+                .emplace(StackTraceTriple {pointers, offset, size, dwarf_location_info_mode},
+                         out.str())
+                .first->second;
     }
 }
 
@@ -464,11 +487,17 @@ std::string StackTrace::toString(int start_pointers_index,
                                  const std::string& dwarf_location_info_mode) const {
     // Default delete the first three frame pointers, which are inside the stack_trace.cpp.
     start_pointers_index += 3;
+    if (start_pointers_index < 0 || static_cast<size_t>(start_pointers_index) >= size) {
+        // Unwind can legitimately return fewer frames than the internal frames we normally hide.
+        return toStringCached({}, 0, 0, dwarf_location_info_mode);
+    }
+
+    const auto first_frame = static_cast<size_t>(start_pointers_index);
     StackTrace::FramePointers frame_pointers_raw {};
-    std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
+    std::copy(frame_pointers.begin() + first_frame, frame_pointers.end(),
               frame_pointers_raw.begin());
-    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index,
-                          dwarf_location_info_mode);
+    return toStringCached(frame_pointers_raw, offset > first_frame ? offset - first_frame : 0,
+                          size - first_frame, dwarf_location_info_mode);
 }
 
 std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size,

@@ -121,4 +121,37 @@ TEST(DataGenSourceOperatorTest, testConst) {
             ColumnHelper::create_column<DataTypeInt64>({5, 5, 5, 5, 5, 5, 5, 5, 5, 5})));
 }
 
+TEST(DataGenSourceOperatorTest, testMemReuseWithSharedOutputColumn) {
+    OperatorContext ctx;
+
+    DataGenSourceOperatorX op;
+
+    std::vector<DataTypePtr> data_types {std::make_shared<DataTypeInt64>()};
+    auto row_desc = std::make_unique<MockRowDescriptor>(data_types, &ctx.pool);
+    op._tuple_id = 0;
+    op._tuple_desc = row_desc->tuple_desc_map[0];
+
+    TDataGenScanRange data_gen_scan_range;
+    data_gen_scan_range.numbers_params.useConst = false;
+    data_gen_scan_range.numbers_params.constValue = 0;
+    data_gen_scan_range.numbers_params.totalNumbers = 10;
+
+    TScanRangeParams scan_range_param;
+    scan_range_param.scan_range.data_gen_scan_range = data_gen_scan_range;
+
+    OperatorHelper::init_local_state(ctx, op, {scan_range_param});
+
+    Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({})};
+    auto old_output_column = block.get_by_position(0).column;
+    bool eos = false;
+    auto st = op.get_block(&ctx.state, &block, &eos);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(old_output_column->size(), 0);
+    EXPECT_TRUE(ColumnHelper::column_equal(
+            block.get_by_position(0).column,
+            ColumnHelper::create_column<DataTypeInt64>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9})));
+}
+
 } // namespace doris

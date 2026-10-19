@@ -49,12 +49,63 @@ import java.util.stream.Collectors;
 
 public class CloudFEVersionSynchronizer {
     private static final Logger LOG = LogManager.getLogger(CloudFEVersionSynchronizer.class);
+    // Reuse the version RPC for whole-table invalidation when a commit response has no versions.
+    // Older FEs ignore this value and continue relying on their periodic version synchronization.
+    private static final long INVALIDATE_VERSION_CACHE = -1;
 
     private static final ExecutorService SYNC_VERSION_THREAD_POOL = Executors.newFixedThreadPool(
             Config.cloud_sync_version_task_threads_num,
             new ThreadFactoryBuilder().setNameFormat("sync-version-%d").setDaemon(true).build());
 
     public CloudFEVersionSynchronizer() {
+    }
+
+    public void invalidateVersionCaches(long dbId, List<Long> tableIds) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return; // The database may have been dropped since the original commit.
+        }
+        List<OlapTable> tables = new ArrayList<>();
+        for (long tableId : tableIds) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null && table.isManagedTable()) {
+                tables.add((OlapTable) table);
+            }
+        }
+        invalidateVersionCaches(tables);
+        List<Pair<OlapTable, Long>> tableVersions = tables.stream()
+                .map(table -> Pair.of(table, INVALIDATE_VERSION_CACHE)).collect(Collectors.toList());
+        pushVersionAsync(dbId, tableVersions, Collections.emptyMap());
+    }
+
+    private void invalidateVersionCaches(List<OlapTable> tables) {
+        tables.sort(Comparator.comparingLong(OlapTable::getId));
+        for (OlapTable table : tables) {
+            table.readLock();
+        }
+        try {
+            for (OlapTable table : tables) {
+                table.versionWriteLock();
+            }
+            try {
+                for (OlapTable table : tables) {
+                    table.invalidateCachedTableVersion();
+                    for (Partition partition : table.getAllPartitions()) {
+                        ((CloudPartition) partition).invalidateCachedVisibleVersion();
+                    }
+                }
+            } finally {
+                for (int i = tables.size() - 1; i >= 0; i--) {
+                    tables.get(i).versionWriteUnlock();
+                }
+            }
+        } finally {
+            for (int i = tables.size() - 1; i >= 0; i--) {
+                tables.get(i).readUnlock();
+            }
+        }
+        LOG.info("Invalidated cloud version caches for tables {}",
+                tables.stream().map(OlapTable::getId).collect(Collectors.toList()));
     }
 
     // master FE send sync version rpc to other FEs
@@ -97,6 +148,7 @@ public class CloudFEVersionSynchronizer {
             partitionVersion.setPartitionId(partition.getId());
             partitionVersion.setVersion(versionPair.first);
             partitionVersion.setVersionUpdateTime(versionPair.second);
+            partitionVersion.setCommitTso(partition.getTso());
             partitionVersionInfos.add(partitionVersion);
         });
         TFrontendSyncCloudVersionRequest request = new TFrontendSyncCloudVersionRequest();
@@ -153,17 +205,25 @@ public class CloudFEVersionSynchronizer {
         }
         // only update table version
         if (request.getPartitionVersionInfos().isEmpty()) {
+            List<OlapTable> invalidatedTables = new ArrayList<>();
             request.getTableVersionInfos().forEach(tableVersionInfo -> {
                 Table table = db.getTableNullable(tableVersionInfo.getTableId());
                 if (table == null || !table.isManagedTable()) {
                     return;
                 }
                 OlapTable olapTable = (OlapTable) table;
+                if (tableVersionInfo.getVersion() == INVALIDATE_VERSION_CACHE) {
+                    invalidatedTables.add(olapTable);
+                    return;
+                }
                 olapTable.setCachedTableVersion(tableVersionInfo.getVersion());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Update tableId: {}, version: {}", olapTable.getId(), tableVersionInfo.getVersion());
                 }
             });
+            if (!invalidatedTables.isEmpty()) {
+                invalidateVersionCaches(invalidatedTables);
+            }
             return;
         }
         // update partition and table version
@@ -197,12 +257,13 @@ public class CloudFEVersionSynchronizer {
                     continue;
                 }
                 CloudPartition cloudPartition = (CloudPartition) partition;
+                long commitTso = partitionVersionInfo.isSetCommitTso() ? partitionVersionInfo.getCommitTso() : -1;
                 cloudPartition.setCachedVisibleVersion(partitionVersionInfo.getVersion(),
-                        partitionVersionInfo.getVersionUpdateTime());
+                        partitionVersionInfo.getVersionUpdateTime(), commitTso);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update tableId: {}, partitionId: {}, version: {}, updateTime: {}",
+                    LOG.debug("Update tableId: {}, partitionId: {}, version: {}, updateTime: {}, commitTso: {}",
                             partitionVersionInfo.getTableId(), partition.getId(), partitionVersionInfo.getVersion(),
-                            partitionVersionInfo.getVersionUpdateTime());
+                            partitionVersionInfo.getVersionUpdateTime(), commitTso);
                 }
             }
             for (Pair<OlapTable, Long> tableVersion : tableVersions) {

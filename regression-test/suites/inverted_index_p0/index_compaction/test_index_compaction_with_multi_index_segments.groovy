@@ -94,7 +94,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         // check config
         check_config.call("inverted_index_compaction_enable", "true")
         check_config.call("inverted_index_max_buffered_docs", "5")
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         /**
         * test duplicated tables
@@ -120,7 +120,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
-            "inverted_index_storage_format" = "V1"
+            "inverted_index_storage_format" = "V2"
             );
         """
 
@@ -248,7 +248,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             "replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
-            "inverted_index_storage_format" = "V1"
+            "inverted_index_storage_format" = "V2"
             );
         """
 

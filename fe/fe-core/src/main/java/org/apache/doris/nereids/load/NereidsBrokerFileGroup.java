@@ -20,11 +20,9 @@ package org.apache.doris.nereids.load;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -209,27 +207,8 @@ public class NereidsBrokerFileGroup {
         fileSize = dataDescription.getFileSize();
 
         if (dataDescription.isLoadFromTable()) {
-            String srcTableName = dataDescription.getSrcTableName();
-            // src table should be hive table
-            Table srcTable = db.getTableOrDdlException(srcTableName);
-            if (!(srcTable instanceof HiveTable)) {
-                throw new DdlException("Source table " + srcTableName + " is not HiveTable");
-            }
-            // src table columns should include all columns of loaded table
-            for (Column column : olapTable.getBaseSchema()) {
-                boolean isIncluded = false;
-                for (Column srcColumn : srcTable.getBaseSchema()) {
-                    if (srcColumn.getName().equalsIgnoreCase(column.getName())) {
-                        isIncluded = true;
-                        break;
-                    }
-                }
-                if (!isIncluded) {
-                    throw new DdlException("Column " + column.getName() + " is not in Source table");
-                }
-            }
-            srcTableId = srcTable.getId();
-            isLoadFromTable = true;
+            throw new DdlException("Load from an external hive table is no longer supported. "
+                    + "Please use Hive Catalog and INSERT INTO ... SELECT ... instead.");
         }
     }
 

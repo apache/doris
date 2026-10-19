@@ -17,82 +17,160 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
-import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * @author wangcong
  * @version 1.0
  * @date 2020/10/7 12:31 下午
  */
-public class CreateTableLikeTest {
-    private static String runningDir = "fe/mocked/CreateTableLikeTest/" + UUID.randomUUID().toString() + "/";
+public class CreateTableLikeTest extends TestWithFeService {
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir);
+    }
 
-        // create connect context
-        connectContext = TestWithFeService.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        createDatabase("test2");
+    }
 
-        String createDbStmtStr2 = "create database test2;";
-        logicalPlan = nereidsParser.parseSingle(createDbStmtStr2);
-        stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr2);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+    @Test
+    public void testGeneratedColumnSessionVariables() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        boolean originalDecimal256 = original.enableDecimal256;
+        try {
+            for (boolean decimal256 : new boolean[] {true, false}) {
+                String sourceName = "generated_session_src_" + decimal256;
+                String targetName = "generated_session_dst_" + decimal256;
+                original.enableDecimal256 = decimal256;
+                createTable("CREATE TABLE test." + sourceName + " ("
+                        + "a DECIMAL(20,5), b DECIMAL(21,6), "
+                        + "c DECIMAL(38,11) GENERATED ALWAYS AS (a * b) NOT NULL) "
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+                original.enableDecimal256 = !decimal256;
+                createTableLike("CREATE TABLE test." + targetName + " LIKE test." + sourceName);
+
+                Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+                Column source = db.getTableOrDdlException(sourceName).getColumn("c");
+                Column target = db.getTableOrDdlException(targetName).getColumn("c");
+                Assertions.assertEquals(source.getSessionVariables(), target.getSessionVariables());
+                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr().getType(),
+                        target.getGeneratedColumnInfo().getExpr().getType());
+                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr()
+                                .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                        target.getGeneratedColumnInfo().getExpr()
+                                .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+                Assertions.assertSame(original, connectContext.getSessionVariable());
+                Assertions.assertEquals(!decimal256, original.enableDecimal256);
+            }
+        } finally {
+            original.enableDecimal256 = originalDecimal256;
         }
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+    @Test
+    public void testGeneratedColumnLikeBackslashModes() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        long originalSqlMode = original.getSqlMode();
+        try {
+            for (boolean noBackslashEscapes : new boolean[] {true, false}) {
+                String sourceName = "generated_backslash_src_" + noBackslashEscapes;
+                long sourceMode = noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0;
+                long callerMode = noBackslashEscapes ? 0 : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+                String expression = noBackslashEscapes ? "concat(a, 'C:\\')" : "concat(a, 'C:\\\\')";
+                original.setSqlMode(sourceMode);
+                createTable("CREATE TABLE test." + sourceName + " ("
+                        + "a VARCHAR(10), c VARCHAR(30) AS (" + expression + "), "
+                        + "d VARCHAR(40) AS (concat(c, 'x'))) "
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+                Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+                Table source = db.getTableOrDdlException(sourceName);
+                String sourceDdl = getCreateTableStmt(source);
+                original.setSqlMode(callerMode);
+                String previousName = sourceName;
+                for (int copy = 0; copy < 2; copy++) {
+                    String targetName = sourceName + "_copy_" + copy;
+                    createTableLike("CREATE TABLE test." + targetName + " LIKE test." + previousName);
+                    Table target = db.getTableOrDdlException(targetName);
+                    for (String columnName : new String[] {"c", "d"}) {
+                        Column sourceColumn = source.getColumn(columnName);
+                        Column targetColumn = target.getColumn(columnName);
+                        Assertions.assertEquals(sourceColumn.getSessionVariables(), targetColumn.getSessionVariables());
+                        Assertions.assertEquals(sourceColumn.getGeneratedColumnInfo().getExprSql(),
+                                targetColumn.getGeneratedColumnInfo().getExprSql());
+                        Assertions.assertEquals(sourceColumn.getGeneratedColumnInfo().getExpr()
+                                        .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                                targetColumn.getGeneratedColumnInfo().getExpr()
+                                        .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+                    }
+                    Assertions.assertSame(original, connectContext.getSessionVariable());
+                    Assertions.assertEquals(callerMode, original.getSqlMode());
+                    Assertions.assertEquals(sourceDdl, getCreateTableStmt(source));
+                    Assertions.assertEquals(sourceDdl.replace(sourceName, targetName), getCreateTableStmt(target));
+                    previousName = targetName;
+                }
+            }
+        } finally {
+            original.setSqlMode(originalSqlMode);
         }
     }
 
-    private static void createTableLike(String sql) throws Exception {
+    @Test
+    public void testDeferredGeneratedColumnRestoresSessionOnFailure() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        long originalSqlMode = original.getSqlMode();
+        try {
+            original.setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            GeneratedColumnDesc desc = new GeneratedColumnDesc("missing_generated_function(a, 'C:\\')");
+            desc.setSessionVariables(original.getAffectQueryResultInPlanVariables());
+            original.setSqlMode(0);
+            String sql = "CREATE TABLE test.generated_deferred_failure (a VARCHAR(10), c VARCHAR(30) AS (NULL)) "
+                    + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")";
+            CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(sql);
+            command.getCreateTableInfo().getColumnDefinitions().get(1).setGeneratedColumnDesc(desc);
+            Exception failure = Assertions.assertThrows(Exception.class,
+                    () -> command.run(connectContext, new StmtExecutor(connectContext, sql)));
+            Assertions.assertTrue(failure.getMessage().contains("missing_generated_function"));
+            Assertions.assertSame(original, connectContext.getSessionVariable());
+            Assertions.assertEquals(0, original.getSqlMode());
+            Assertions.assertNull(Env.getCurrentInternalCatalog().getDbOrDdlException("test")
+                    .getTableNullable("generated_deferred_failure"));
+        } finally {
+            original.setSqlMode(originalSqlMode);
+        }
+    }
+
+    private void createTableLike(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         CreateTableLikeCommand command = (CreateTableLikeCommand) nereidsParser.parseSingle(sql);
         command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    private static String getCreateTableStmt(Table table) {
+        List<String> createTableStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
+        return createTableStmt.get(0);
     }
 
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
@@ -103,7 +181,7 @@ public class CreateTableLikeTest {
         List<String> existedAddRollupStmt = Lists.newArrayList();
         Env.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */,
                 -1L);
-        Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()),
+        Assertions.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()),
                 existedTableStmt.get(0));
         checkTableRollup(existedAddRollupStmt, newAddRollupStmt, newTable.getName(), existedTable.getName(),
                 rollupSize);
@@ -116,18 +194,18 @@ public class CreateTableLikeTest {
             for (String aaRollupStmt : newAddRollupStmt) {
                 addRollupStmt.add(aaRollupStmt.replace(newTableName, existedTableName));
             }
-            Assert.assertEquals(addRollupStmt.size(), rollupSize);
-            Assert.assertTrue(existedAddRollupStmt.containsAll(addRollupStmt));
+            Assertions.assertEquals(addRollupStmt.size(), rollupSize);
+            Assertions.assertTrue(existedAddRollupStmt.containsAll(addRollupStmt));
         }
     }
 
-    private static void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql, String newDbName,
+    private void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql, String newDbName,
             String existedDbName, String newTblName, String existedTblName) throws Exception {
         checkCreateOlapTableLike(createTableSql, createTableLikeSql, newDbName, existedDbName, newTblName,
                 existedTblName, 0);
     }
 
-    private static void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql, String newDbName,
+    private void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql, String newDbName,
             String existedDbName, String newTblName, String existedTblName, int rollupSize) throws Exception {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
@@ -140,7 +218,7 @@ public class CreateTableLikeTest {
         checkTableEqual(newTbl, existedTbl, rollupSize);
     }
 
-    private static void checkCreateMysqlTableLike(String createTableSql, String createTableLikeSql, String newDbName,
+    private void checkCreateMysqlTableLike(String createTableSql, String createTableLikeSql, String newDbName,
             String existedDbName, String newTblName, String existedTblName) throws Exception {
 
         createTable(createTableSql);
@@ -169,8 +247,8 @@ public class CreateTableLikeTest {
         DistributionInfo defaultInfo = table.getDefaultDistributionInfo();
         DistributionInfo previous = null;
         for (Partition p : table.getPartitions()) {
-            Assert.assertFalse(p.getDistributionInfo() == defaultInfo);
-            Assert.assertFalse(p.getDistributionInfo() == previous);
+            Assertions.assertFalse(p.getDistributionInfo() == defaultInfo);
+            Assertions.assertFalse(p.getDistributionInfo() == previous);
             previous = p.getDistributionInfo();
         }
     }
@@ -279,15 +357,15 @@ public class CreateTableLikeTest {
         String createTableLikeSql9 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
         try {
             createTableLike(createTableLikeSql9);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("already exists"));
+            Assertions.assertTrue(e.getMessage().contains("already exists"));
         }
         createTableLikeSql9 = "create table if not exists test.testMysqlTbl_like like test.testMysqlTbl";
         try {
             createTableLike(createTableLikeSql9);
         } catch (Exception e) {
-            Assert.fail(e.getMessage());
+            Assertions.fail(e.getMessage());
         }
 
         // 10. test create table like with rollup
@@ -385,6 +463,163 @@ public class CreateTableLikeTest {
     }
 
     @Test
+    public void testTimestampTzLessThanPartitionCreateTableAcceptsExplicitOffset() throws Exception {
+        String tableName = "test_timestamptz_less_than_create";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p0 VALUES LESS THAN ('2024-01-15 13:00:00 +00:00'),\n"
+                + "  PARTITION p1 VALUES LESS THAN ('2024-01-15 14:00:00 +00:00')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("+00:00");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"),
+                    createStmt);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"),
+                    createStmt);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzRangePartitionCreateTableAcceptsNamedAndLowercaseZones() throws Exception {
+        String tableName = "test_timestamptz_named_lowercase_zone_create";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p1 VALUES [('2024-01-15 20:00:00Asia/Shanghai'), ('2024-01-15 13:00:00    uTc')),\n"
+                + "  PARTITION p2 VALUES [('2024-01-15 13:00:00    uTc'), ('2024-01-15 22:00:00 Asia/Shanghai'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 12:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"),
+                    createStmt);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p2 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"),
+                    createStmt);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzLessThanPartitionCreateTableUsesSessionTimezoneWithoutOffset() throws Exception {
+        String tableName = "test_timestamptz_less_than_session_tz";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p0 VALUES LESS THAN ('2024-01-15 13:00:00'),\n"
+                + "  PARTITION p1 VALUES LESS THAN ('2024-01-15 14:00:00')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 18:00:00.000000+00:00'))"),
+                    createStmt);
+            Assertions.assertTrue(createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 18:00:00.000000+00:00'), ('2024-01-15 19:00:00.000000+00:00'))"),
+                    createStmt);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzRangePartitionCreateLikeKeepsUtcBoundary() throws Exception {
+        String sourceTableName = "test_timestamptz_range_like_src";
+        String cloneTableName = "test_timestamptz_range_like_clone";
+        String createSourceTableSql = "CREATE TABLE test." + sourceTableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p1 VALUES [('2024-01-15 12:00:00 +00:00'), ('2024-01-15 13:00:00 +00:00')),\n"
+                + "  PARTITION p2 VALUES [('2024-01-15 13:00:00 +00:00'), ('2024-01-15 14:00:00 +00:00'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+        String createLikeSql = "CREATE TABLE test." + cloneTableName + " LIKE test." + sourceTableName;
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("+00:00");
+            createTable(createSourceTableSql);
+
+            connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+            createTableLike(createLikeSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable sourceTable = (OlapTable) db.getTableOrDdlException(sourceTableName);
+            OlapTable cloneTable = (OlapTable) db.getTableOrDdlException(cloneTableName);
+
+            String sourceCreateStmt = getCreateTableStmt(sourceTable);
+            Assertions.assertTrue(sourceCreateStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 12:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"));
+            Assertions.assertTrue(sourceCreateStmt.contains(
+                    "PARTITION p2 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"));
+            checkTableEqual(cloneTable, sourceTable, 0);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
     public void checkSyncedTableWithRollup() throws Exception {
         String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_rollup_synced\n" + "(\n"
                         + "    event_day DATE,\n"
@@ -416,10 +651,10 @@ public class CreateTableLikeTest {
         Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
                         -1L);
 
-        Assert.assertTrue(existedTableStmt.toString().contains("r1 (event_day, siteid, pv)"));
-        Assert.assertTrue(existedTableStmt.toString().contains("r3 (siteid, citycode, username, pv)"));
-        Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
-        Assert.assertTrue(existedTableStmt.toString().contains("r2 (siteid, pv)"));
+        Assertions.assertTrue(existedTableStmt.toString().contains("r1 (event_day, siteid, pv)"));
+        Assertions.assertTrue(existedTableStmt.toString().contains("r3 (siteid, citycode, username, pv)"));
+        Assertions.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
+        Assertions.assertTrue(existedTableStmt.toString().contains("r2 (siteid, pv)"));
     }
 
     @Test
@@ -449,7 +684,7 @@ public class CreateTableLikeTest {
         Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
                         -1L);
 
-        Assert.assertTrue(!existedTableStmt.toString().contains("ROLLUP"));
+        Assertions.assertTrue(!existedTableStmt.toString().contains("ROLLUP"));
     }
 
     @Test
@@ -479,7 +714,7 @@ public class CreateTableLikeTest {
         Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
                         -1L);
 
-        Assert.assertTrue(!existedTableStmt.toString().contains("r (event_day, pv),"));
-        Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
+        Assertions.assertTrue(!existedTableStmt.toString().contains("r (event_day, pv),"));
+        Assertions.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
     }
 }

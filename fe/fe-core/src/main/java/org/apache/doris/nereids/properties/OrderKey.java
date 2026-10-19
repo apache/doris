@@ -112,4 +112,8 @@ public class OrderKey {
         OrderKey that = (OrderKey) o;
         return isAsc == that.isAsc() && nullFirst == that.isNullFirst() && expr.equals(that.getExpr());
     }
+
+    public String shapeInfo() {
+        return expr.shapeInfo() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+    }
 }

@@ -32,15 +32,21 @@
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
+namespace butil {
+class IOBuf;
+}
+
 namespace doris {
 namespace io {
 
 struct FileBlocksHolder;
+struct FileBlocksProbeResult;
 class BlockFileCache;
 struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
+    friend struct FileBlocksProbeResult;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
@@ -97,9 +103,13 @@ public:
 
     // append data to cache file
     [[nodiscard]] Status append(Slice data);
+    [[nodiscard]] Status appendv(const Slice* data, size_t data_cnt);
+    [[nodiscard]] Status append_iobuf(const butil::IOBuf& data);
 
     // read data from cache file
     [[nodiscard]] Status read(Slice buffer, size_t read_offset);
+    [[nodiscard]] Status read_to_iobuf(butil::IOBuf* out, size_t read_offset, size_t bytes_req,
+                                       size_t* bytes_read);
 
     // finish write, release the file writer
     [[nodiscard]] Status finalize();
@@ -146,6 +156,11 @@ public:
             false}; // pocessed by CachedRemoteFileReader::_cache_file_readers
 
 private:
+    enum class CacheReferenceRole {
+        HOLDER,
+        PROBE,
+    };
+
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
 
     [[nodiscard]] Status set_downloaded(std::lock_guard<std::mutex>& block_lock);
@@ -154,6 +169,14 @@ private:
     void complete_unlocked(std::lock_guard<std::mutex>& block_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& block_lock);
+
+    /// Release one holder/probe reference and complete deferred EMPTY/deleting block cleanup when
+    /// it is the last reference outside the cache map.
+    /// @param[in,out] file_block Reference to release.
+    /// @param[in] role A holder completes downloader ownership acquired through get_or_set; a
+    /// read-only probe never changes downloader state.
+    static void release_cache_reference(std::shared_ptr<FileBlock>& file_block,
+                                        CacheReferenceRole role);
 
     Range _block_range;
 

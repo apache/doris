@@ -34,23 +34,23 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/template_helpers.hpp"
-#include "util/json/path_in_data.h"
 
 namespace doris {
+class PathInData;
+class TimeStampNsValue;
 template <typename T>
 class ColumnStr;
 class IColumnDummy;
 class ColumnMap;
-class ColumnVariant;
+class ColumnVariantV2;
 class ColumnStruct;
 class ColumnVarbinary;
+class VariantField;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
-struct Tuple;
+struct Struct;
 struct Map;
-struct FieldWithDataType;
-using VariantMap = std::map<PathInData, FieldWithDataType>;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
 template <PrimitiveType T>
@@ -60,6 +60,8 @@ using ColumnHLL = ColumnComplexType<TYPE_HLL>;
 using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 template <PrimitiveType T>
 class DataTypeNumber;
+template <PrimitiveType T>
+class DataTypeUInt;
 using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
 using DataTypeInt16 = DataTypeNumber<TYPE_SMALLINT>;
 using DataTypeInt32 = DataTypeNumber<TYPE_INT>;
@@ -69,12 +71,15 @@ using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
 using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+using DataTypeUInt32 = DataTypeUInt<TYPE_UINT32>;
+using DataTypeUInt64 = DataTypeUInt<TYPE_UINT64>;
 
 class DataTypeNothing;
 class DataTypeTimeV2;
 class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
+class DataTypeTimeStampNs;
 class DataTypeDateV2;
 class DataTypeTimeStampTz;
 template <PrimitiveType T>
@@ -86,16 +91,20 @@ using DataTypeDecimal128 = DataTypeDecimal<TYPE_DECIMAL128I>;
 using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
+class DataTypeUUID;
 class DataTypeString;
 class DataTypeVarbinary;
 class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
 class DataTypeMap;
-class DataTypeVariant;
+class DataTypeNullable;
+class DataTypeVariantV2;
+using DataTypeVariant = DataTypeVariantV2;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
+using DataTypeNullablePtr = std::shared_ptr<const DataTypeNullable>;
 template <PrimitiveType T>
 class ColumnVector;
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;
@@ -110,10 +119,12 @@ using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnTimeStampNs = ColumnVector<TYPE_TIMESTAMP_NS>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
+using ColumnUUID = ColumnVector<TYPE_UUID>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
@@ -138,6 +149,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
     case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
@@ -161,6 +173,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DATEV2:
     case TYPE_IPV4:
     case TYPE_IPV6:
+    case TYPE_UUID:
         return true;
 
     case INVALID_TYPE:
@@ -174,6 +187,10 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
 constexpr bool is_date_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
            type == TYPE_DATEV2;
+}
+
+constexpr bool is_timestamp_ns_type(PrimitiveType type) {
+    return type == TYPE_TIMESTAMP_NS;
 }
 
 constexpr bool is_time_type(PrimitiveType type) {
@@ -364,6 +381,13 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using ColumnType = ColumnDateTimeV2;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_TIMESTAMP_NS> {
+    using CppType = TimeStampNsValue;
+    using StorageFieldType = int64_t;
+    using DataType = DataTypeTimeStampNs;
+    using ColumnType = ColumnTimeStampNs;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppType = DateV2Value<DateV2ValueType>;
     using StorageFieldType = uint32_t;
@@ -430,6 +454,13 @@ struct PrimitiveTypeTraits<TYPE_IPV6> {
     using ColumnType = ColumnIPv6;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_UUID> {
+    using CppType = UUIDValueType;
+    using StorageFieldType = CppType;
+    using DataType = DataTypeUUID;
+    using ColumnType = ColumnUUID;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
     using CppType = String;
     using StorageFieldType = CppType;
@@ -487,17 +518,17 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
-    using CppType = Tuple;
+    using CppType = Struct;
     using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARIANT> {
-    using CppType = VariantMap;
+    using CppType = VariantField;
     using StorageFieldType = CppType;
     using DataType = DataTypeVariant;
-    using ColumnType = ColumnVariant;
+    using ColumnType = ColumnVariantV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BITMAP> {
@@ -517,59 +548,15 @@ template <>
 struct PrimitiveTypeTraits<TYPE_UINT32> {
     using CppType = UInt32;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt32;
     using ColumnType = ColumnOffset32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT64> {
     using CppType = UInt64;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt64;
     using ColumnType = ColumnOffset64;
-};
-
-template <PrimitiveType PT>
-struct PrimitiveTypeConvertor {
-    using CppType = typename PrimitiveTypeTraits<PT>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-
-    static inline StorageFieldType&& to_storage_field_type(CppType&& value) {
-        return static_cast<StorageFieldType&&>(std::forward<CppType>(value));
-    }
-
-    static inline const StorageFieldType& to_storage_field_type(const CppType& value) {
-        return *reinterpret_cast<const StorageFieldType*>(&value);
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATE> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return StorageFieldType(cast_set<uint32_t>(value.to_olap_date()));
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATETIME> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_datetime();
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return {value.int_value(), value.frac_value()};
-    }
 };
 
 inline TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int scale = 0) {

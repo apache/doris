@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -45,15 +46,16 @@ import java.util.Optional;
 public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
 
+    private final Database database;
     private final Dictionary dictionary;
     private final boolean allowAdaptiveLoad;
 
     /**
      * create unbound sink for dictionary sink
      */
-    public UnboundDictionarySink(Dictionary dictionary, CHILD_TYPE child, boolean adaptiveLoad) {
+    public UnboundDictionarySink(Database database, Dictionary dictionary, CHILD_TYPE child, boolean adaptiveLoad) {
         // all the empty arguments is like UnboundTableSink
-        super(ImmutableList.copyOf(dictionary.getNameWithFullQualifiers().split("\\.")), // nameParts
+        super(ImmutableList.of(database.getCatalog().getName(), database.getFullName(), dictionary.getName()),
                 PlanType.LOGICAL_UNBOUND_DICTIONARY_SINK, // type
                 ImmutableList.of(), // outputExprs
                 Optional.empty(), // groupExpression
@@ -61,8 +63,13 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
                 dictionary.getColumnNames(), // colNames from dictionary
                 DMLCommandType.INSERT, // dmlCommandType
                 child);
+        this.database = database;
         this.dictionary = dictionary;
         this.allowAdaptiveLoad = adaptiveLoad;
+    }
+
+    public Database getDatabase() {
+        return database;
     }
 
     public Dictionary getDictionary() {
@@ -76,7 +83,7 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundDictionarySink only accepts one child");
-        return new UnboundDictionarySink<>(dictionary, children.get(0), allowAdaptiveLoad);
+        return new UnboundDictionarySink<>(database, dictionary, children.get(0), allowAdaptiveLoad);
     }
 
     @Override
@@ -91,13 +98,13 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundDictionarySink<>(dictionary, child(), allowAdaptiveLoad);
+        return new UnboundDictionarySink<>(database, dictionary, child(), allowAdaptiveLoad);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundDictionarySink<>(dictionary, children.get(0), allowAdaptiveLoad);
+        return new UnboundDictionarySink<>(database, dictionary, children.get(0), allowAdaptiveLoad);
     }
 
     @Override

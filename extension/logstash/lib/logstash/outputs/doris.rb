@@ -33,9 +33,14 @@ require 'java'
 require "#{File.dirname(__FILE__)}/../../logstash-output-doris_jars.rb"
 
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
-   include_package 'org.apache.hc.client5.http.impl.async'
-   include_package 'org.apache.hc.client5.http.async.methods'
-   include_package 'org.apache.hc.core5.http'
+   java_import 'org.apache.http.client.methods.HttpPut'
+   java_import 'org.apache.http.entity.ByteArrayEntity'
+   java_import 'org.apache.http.util.EntityUtils'
+   java_import 'org.apache.http.impl.client.HttpClients'
+   java_import 'org.apache.http.impl.client.DefaultHttpRequestRetryHandler'
+   java_import 'org.apache.http.impl.NoConnectionReuseStrategy'
+   java_import 'org.apache.http.protocol.HttpRequestExecutor'
+   java_import 'org.apache.http.client.config.RequestConfig'
 
    # support multi thread concurrency for performance
    # so multi_receive() and function it calls are all stateless and thread safe
@@ -96,11 +101,19 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       :http_hosts => @http_hosts)
    end
 
-   class DorisRedirectStrategy < Java::org.apache.hc.client5.http.impl.DefaultRedirectStrategy
+   class DorisRedirectStrategy < Java::org.apache.http.impl.client.DefaultRedirectStrategy
+      # allow redirect for all methods (PUT/POST) - HC4 only allows GET/HEAD by default
+      def isRedirectable(method)
+         true
+      end
+
       def getLocationURI(request, response, context)
          uri = super(request, response, context)
          # remove user info in redirect uri
-         java.net.URI.new(uri.getScheme, nil, uri.getHost, uri.getPort, uri.getPath, uri.getQuery, uri.getFragment)
+         # normalize empty query string ("?" with nothing after) to no query at all
+         query = uri.getQuery
+         query = nil if query == ""
+         java.net.URI.new(uri.getScheme, nil, uri.getHost, uri.getPort, uri.getPath, query, uri.getFragment)
       end
    end
 
@@ -109,8 +122,21 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    def register
-      @client = HttpAsyncClients.custom.setRedirectStrategy(DorisRedirectStrategy.new).build
-      @client.start
+      # HttpClient 4.5.13 sync — same setup as Doris Flink connector (HttpUtil.java)
+      # Key points:
+      #   - setRequestExecutor(60s)        : long wait for 100-continue, FE may delay 307 under load
+      #   - setRedirectStrategy            : follow 307 on PUT (default DefaultRedirectStrategy refuses)
+      #   - DefaultHttpRequestRetryHandler(0, false) : NO retries -> avoid spurious CircularRedirect
+      #   - NoConnectionReuseStrategy      : one connection per request, dodge keep-alive half-close
+      #   - setExpectContinueEnabled(true) : critical -> HC4 waits for 100, FE 307s before body is sent,
+      #                                      entity stays unconsumed, RedirectExec follows successfully
+      @client = HttpClients.custom
+         .setRequestExecutor(HttpRequestExecutor.new(60_000))
+         .setRedirectStrategy(DorisRedirectStrategy.new)
+         .setRetryHandler(DefaultHttpRequestRetryHandler.new(0, false))
+         .setConnectionReuseStrategy(NoConnectionReuseStrategy::INSTANCE)
+         .setDefaultRequestConfig(RequestConfig.custom.setExpectContinueEnabled(true).build)
+         .build
 
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
@@ -262,11 +288,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
          response = ""
          if stat == STAT_SUCCESS
-            begin
-               response = table_events.response_future.get.getBodyText
-            rescue => e
-               log_failure("doris stream load request error: #{e}")
+            if table_events.response_error
+               log_failure("doris stream load request error: #{table_events.response_error}")
                stat = STAT_RETRY
+            else
+               response = table_events.response_body
             end
          end
 
@@ -339,15 +365,33 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
          @logger.debug("doris stream load request body: #{table_events.documents}")
 
-         request = SimpleRequestBuilder.
-            put(url).
-            setBody(table_events.documents, ContentType::TEXT_PLAIN).
-            build
+         request = HttpPut.new(url)
+         # ByteArrayEntity: known content-length, repeatable -> safe across 307 retries.
+         # Combined with Expect:100-continue at the client config level, body is held back
+         # until FE decides; FE 307 short-circuits without consuming the entity.
+         request.setEntity(ByteArrayEntity.new(table_events.documents.to_java_bytes))
+         # HC4's addHeader(String, String) is strict on types — users commonly write
+         # non-string values like `max_filter_ratio => 1.0` (Float) or `timeout => 1200`
+         # (Integer) in their pipeline config. HC5 tolerated this via an (String, Object)
+         # overload; HC4 does not. Stringify both sides to keep that ergonomics.
          table_events.http_headers.each do |k, v|
-            request.addHeader(k, v)
+            request.addHeader(k.to_s, v.to_s)
          end
 
-         table_events.response_future = @client.execute(request, nil)
+         # Sync execute. Capture body + status into table_events so handle_request stays
+         # mostly unchanged. Exceptions are stashed for the same flow to interpret as RETRY.
+         begin
+            response = @client.execute(request)
+            begin
+               table_events.response_code = response.getStatusLine.getStatusCode
+               entity = response.getEntity
+               table_events.response_body = entity.nil? ? "" : EntityUtils.toString(entity)
+            ensure
+               response.close
+            end
+         rescue => e
+            table_events.response_error = e
+         end
       end
    end # def make_request
 
@@ -423,7 +467,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    class TableEvents
-      attr_accessor :table, :http_headers, :events, :events_count, :documents, :req_count, :response_future
+      attr_accessor :table, :http_headers, :events, :events_count, :documents, :req_count,
+                    :response_code, :response_body, :response_error
 
       def initialize(table, http_headers)
          @table = table
@@ -434,12 +479,16 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          @documents = ""
          @req_count = 1
 
-         @response_future = nil
+         @response_code = nil
+         @response_body = nil
+         @response_error = nil
       end
 
       def prepare_retry
          @req_count += 1
-         @response_future = nil
+         @response_code = nil
+         @response_body = nil
+         @response_error = nil
       end
    end
 

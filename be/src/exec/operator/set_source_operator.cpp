@@ -21,6 +21,7 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
@@ -46,8 +47,9 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
-    auto output_data_types = VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
+    auto output_data_types =
+            VectorizedUtils::get_data_types(_parent->cast<SetSourceOperatorX<is_intersect>>()
+                                                    .operator_row_desc_before_projection());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
@@ -74,7 +76,8 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SetSourceOperatorX<is_intersect>::get_block_impl(RuntimeState* state, Block* block,
+                                                        bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -114,7 +117,7 @@ void SetSourceOperatorX<is_intersect>::_create_mutable_cols(
     for (int i = 0; i < local_state._left_table_data_types.size(); ++i) {
         if (mem_reuse) {
             local_state._mutable_cols[i] =
-                    std::move(*output_block->get_by_position(i).column).mutate();
+                    IColumn::mutate(std::move(output_block->get_by_position(i).column));
         } else {
             local_state._mutable_cols[i] = (local_state._left_table_data_types[i]->create_column());
         }
@@ -173,6 +176,9 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
                                                        local_state._left_table_data_types[i], ""));
         }
     } else {
+        for (int i = 0; i < left_col_len; ++i) {
+            output_block->replace_by_position(i, std::move(local_state._mutable_cols[i]));
+        }
         local_state._mutable_cols.clear();
     }
 

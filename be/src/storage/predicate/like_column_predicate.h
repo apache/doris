@@ -24,6 +24,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "common/status.h"
@@ -43,23 +44,23 @@ class Roaring;
 namespace doris {
 class FunctionContext;
 
-template <PrimitiveType T>
 class LikeColumnPredicate final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(LikeColumnPredicate);
     LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
                         doris::FunctionContext* fn_ctx, doris::StringRef val);
     ~LikeColumnPredicate() override = default;
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other, uint32_t col_id)
+    LikeColumnPredicate(const LikeColumnPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id) {
         _origin = other._origin;
         pattern = other.pattern;
         _state = other._state;
         _opposite = other._opposite;
+        THROW_IF_ERROR(_state->search_state.clone(_like_state));
     }
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other) = delete;
+    LikeColumnPredicate(const LikeColumnPredicate& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
-        return LikeColumnPredicate<T>::create_shared(*this, col_id);
+        return LikeColumnPredicate::create_shared(*this, col_id);
     }
     std::string debug_string() const override {
         fmt::memory_buffer debug_string_buffer;
@@ -68,7 +69,7 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    PredicateType type() const override { return PredicateType::EQ; }
+    PredicateType type() const override { return PredicateType::LIKE; }
     void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
     void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override;
@@ -89,19 +90,29 @@ public:
         }
         return true;
     }
-    bool can_do_bloom_filter(bool ngram) const override { return ngram; }
+    bool can_do_bloom_filter(bool ngram) const override {
+        if (!ngram) {
+            return false;
+        }
+        // A pattern that can carry an escape is not supported by the ngram index.
+        if (_state->has_custom_escape) {
+            return false;
+        }
+        return std::string_view(reinterpret_cast<const char*>(pattern.data), pattern.size)
+                       .find('\\') == std::string_view::npos;
+    }
 
 private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     template <bool is_and>
     void _evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
-        if (column.is_nullable()) {
-            auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+        if (is_column_nullable(column)) {
+            auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
             if (nested_col.is_column_dictionary()) {
-                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(nested_col);
+                auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&nested_col);
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
@@ -127,7 +138,7 @@ private:
             }
         } else {
             if (column.is_column_dictionary()) {
-                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&column);
                 auto& data_array = nested_col_ptr->get_data();
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 for (uint16_t i = 0; i < size; i++) {
@@ -155,7 +166,7 @@ private:
 
         std::vector<bool> tmp_res(column.dict_size(), false);
         for (int i = 0; i < column.dict_size(); i++) {
-            StringRef cell_value = column.get_shrink_value(i);
+            StringRef cell_value = column.get_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
                     &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));

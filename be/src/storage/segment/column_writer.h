@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -24,23 +26,24 @@
 #include <algorithm>
 #include <memory> // for unique_ptr
 #include <ostream>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "common/status.h" // for Status
-#include "core/column/column_variant.h"
-#include "storage/field.h" // for StorageField
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/segment/common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_statistics.h"
-#include "util/bitmap.h" // for BitmapChange
-#include "util/slice.h"  // for OwnedSlice
+#include "storage/tablet/tablet_schema.h" // for TabletColumnPtr
+#include "storage/types.h"                // for field_type_size
+#include "util/bitmap.h"                  // for BitmapChange
+#include "util/slice.h"                   // for OwnedSlice
 
 namespace doris {
 
@@ -48,12 +51,18 @@ class BlockCompressionCodec;
 class TabletColumn;
 class TabletIndex;
 struct RowsetWriterContext;
+struct VariantColumnData;
 
 namespace io {
 class FileWriter;
 }
 
 namespace segment_v2 {
+
+enum class VariantWriterInputFormat : uint8_t {
+    UNSET,
+    V2,
+};
 
 struct ColumnWriterOptions {
     // input and output parameter:
@@ -75,6 +84,13 @@ struct ColumnWriterOptions {
     BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> inverted_indexes;
     IndexFileWriter* index_file_writer = nullptr;
+    // The owning segment serves a direct load (stream/broker load,
+    // DataWriteType::TYPE_DIRECT) rather than compaction / schema change. Set
+    // once by the segment writer and propagated to variant subcolumn writers;
+    // forwarded to every created IndexColumnWriter via set_direct_load() so
+    // SNII can select its direct-load PRX zstd level without plumbing
+    // DataWriteType itself down here.
+    bool is_direct_load = false;
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;
@@ -84,7 +100,12 @@ struct ColumnWriterOptions {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     const TabletIndex* ann_index = nullptr;
 
-    EncodingPreference encoding_preference {};
+    // Storage format of the owning tablet (V2 or V3). Set once by the segment writer
+    // (from TabletMeta::storage_format()) and propagated down to aux child writers
+    // (null / array-length / map-length), struct subcolumn writers and variant subcolumn
+    // writers. All encoding-default decisions consult this via resolve_default_encoding().
+    // Also forwarded to BinaryDictPageBuilder via PageBuilderOptions::binary_plain_encoding.
+    TabletStorageFormatPB storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
 
     std::string to_string() const {
         std::stringstream ss;
@@ -103,6 +124,8 @@ class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
+class VariantShredder;
+class VariantPathBuilder;
 class ColumnWriter;
 
 class ColumnWriter {
@@ -127,8 +150,7 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable,
-                          ColumnMetaPB* meta);
+    explicit ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -188,24 +210,26 @@ public:
     virtual uint64_t get_raw_data_bytes() const = 0;
     virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
+    // Points to one of the three data bytes getters above.
+    using DataBytesGetter = uint64_t (ColumnWriter::*)() const;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
     bool is_nullable() const { return _is_nullable; }
 
-    StorageField* get_field() const { return _field.get(); }
+    const TabletColumn* get_column() const { return _column.get(); }
+
+    // Per-row in-memory cell footprint of this writer's column, used to step
+    // the input pointer across rows in append_*/null-run loops.
+    size_t cell_size() const { return field_type_size(_column->type()); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
-protected:
-    DataTypePtr _data_type;
-
 private:
-    std::unique_ptr<StorageField> _field;
+    TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
-    std::vector<uint8_t> _null_bitmap;
 };
 
 class FlushPageCallback {
@@ -220,7 +244,7 @@ public:
 // to file
 class ScalarColumnWriter : public ColumnWriter {
 public:
-    ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                        io::FileWriter* file_writer);
 
     ~ScalarColumnWriter() override;
@@ -341,7 +365,7 @@ private:
 //  in footer.next_array_item_ordinal which in finish_cur_page() callback put_extra_info_in_page()
 class OffsetColumnWriter final : public ScalarColumnWriter, FlushPageCallback {
 public:
-    OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    OffsetColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                        io::FileWriter* file_writer);
 
     ~OffsetColumnWriter() override;
@@ -358,8 +382,7 @@ private:
 
 class StructColumnWriter final : public ColumnWriter {
 public:
-    explicit StructColumnWriter(const ColumnWriterOptions& opts,
-                                std::unique_ptr<StorageField> field,
+    explicit StructColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                 ScalarColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;
@@ -374,7 +397,9 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("struct writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -426,7 +451,7 @@ private:
 
 class ArrayColumnWriter final : public ColumnWriter {
 public:
-    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
@@ -486,7 +511,8 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows,
+                             bool is_null); // U+5199 U+5165 num_rowsU+4E2A nullU+6807 U+8BB0
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
@@ -500,7 +526,7 @@ private:
 
 class MapColumnWriter final : public ColumnWriter {
 public:
-    explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    explicit MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                              ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
@@ -516,7 +542,9 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("map writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -574,10 +602,9 @@ private:
 // used for compaction to write sub variant column
 class VariantSubcolumnWriter : public ColumnWriter {
 public:
-    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                    std::unique_ptr<StorageField> field);
+    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
-    ~VariantSubcolumnWriter() override = default;
+    ~VariantSubcolumnWriter() override;
 
     Status init() override;
 
@@ -595,16 +622,14 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override { return _writer->get_raw_data_bytes(); }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_uncompressed_data_pages_bytes();
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer->get_total_compressed_data_pages_bytes();
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -621,12 +646,18 @@ public:
     Status finalize();
 
 private:
+    Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
+    Status _append_v2(const VariantColumnData& column, size_t num_rows,
+                      std::span<const uint8_t> outer_nulls);
+    Status _ensure_input_format(const VariantColumnData& column);
+    Status _initialize_v2_builder();
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
-    ColumnVariant::MutablePtr _column;
-    const TabletColumn* _tablet_column = nullptr;
+    VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
+    std::unique_ptr<VariantPathBuilder> _v2_builder;
+    size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;
@@ -637,8 +668,7 @@ private:
 
 class VariantColumnWriter : public ColumnWriter {
 public:
-    explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                 std::unique_ptr<StorageField> field);
+    explicit VariantColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantColumnWriter() override = default;
 
@@ -658,17 +688,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
 
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
 
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

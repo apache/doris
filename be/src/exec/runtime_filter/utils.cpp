@@ -41,9 +41,6 @@ std::string filter_type_to_string(RuntimeFilterType type) {
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         return "IN_OR_BLOOM_FILTER";
     }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        return "BITMAP_FILTER";
-    }
     default:
         return "UNKNOWN_FILTER";
     }
@@ -70,9 +67,6 @@ RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
     case TRuntimeFilterType::IN_OR_BLOOM: {
         return RuntimeFilterType::IN_OR_BLOOM_FILTER;
     }
-    case TRuntimeFilterType::BITMAP: {
-        return RuntimeFilterType::BITMAP_FILTER;
-    }
     default: {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid runtime filter type {}",
                                int(desc->type));
@@ -81,7 +75,7 @@ RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
 }
 
 // PFilterType -> RuntimeFilterType
-RuntimeFilterType get_type(int filter_type) {
+RuntimeFilterType get_type(PFilterType filter_type) {
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         return RuntimeFilterType::IN_FILTER;

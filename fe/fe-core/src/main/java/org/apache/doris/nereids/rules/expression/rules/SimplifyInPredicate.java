@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -63,10 +64,12 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
                 } else if (cast.child().getDataType().isDateTimeV2Type()
                         && expr.child(1) instanceof DateTimeV2Literal) {
                     List<Expression> literals = expr.children().subList(1, expr.children().size());
+                    DateTimeV2Type castType = (DateTimeV2Type) cast.getDataType();
                     DateTimeV2Type compareType = (DateTimeV2Type) cast.child().getDataType();
-                    if (literals.stream().allMatch(literal -> literal instanceof DateTimeV2Literal
-                            && canLosslessConvertToLowScaleLiteral(
-                            (DateTimeV2Literal) literal, compareType.getScale()))) {
+                    if (castType.getScale() >= compareType.getScale()
+                            && literals.stream().allMatch(literal -> literal instanceof DateTimeV2Literal
+                                    && canLosslessConvertToLowScaleLiteral(
+                                            (DateTimeV2Literal) literal, compareType.getScale()))) {
                         ImmutableList.Builder<Expression> children = ImmutableList.builder();
                         children.add(cast.child());
                         literals.forEach(l -> children.add(new DateTimeV2Literal(compareType,
@@ -91,7 +94,7 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
     */
     private static boolean canLosslessConvertToDateV2Literal(DateTimeV2Literal literal) {
         return (literal.getHour() | literal.getMinute() | literal.getSecond()
-                | literal.getMicroSecond()) == 0L;
+                | literal.getNanoSecond()) == 0L;
     }
 
     private static DateV2Literal convertToDateV2Literal(DateTimeV2Literal literal) {
@@ -99,6 +102,7 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
     }
 
     private static boolean canLosslessConvertToLowScaleLiteral(DateTimeV2Literal literal, int targetScale) {
-        return literal.getMicroSecond() % (1L << (DateTimeV2Type.MAX_SCALE - targetScale)) == 0;
+        long scaleFactor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - targetScale);
+        return literal.getNanoSecond() % scaleFactor == 0;
     }
 }

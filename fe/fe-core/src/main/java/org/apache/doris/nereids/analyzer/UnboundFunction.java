@@ -112,10 +112,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         return isSkew;
     }
 
-    public List<Expression> getArguments() {
-        return children();
-    }
-
     @Override
     public String computeToSql() throws UnboundException {
         String params = children.stream()

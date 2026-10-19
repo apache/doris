@@ -23,7 +23,6 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.s3.S3FileSystem;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -44,7 +43,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Environment-dependent integration tests for OBS (Huawei Cloud) via {@link S3FileSystem}.
+ * Environment-dependent integration tests for OBS (Huawei Cloud) via {@link ObsFileSystem}.
  */
 @Tag("environment")
 @Tag("obs")
@@ -53,7 +52,7 @@ import java.util.UUID;
 class ObsFileSystemEnvTest {
 
     private static final String PREFIX = "doris-obs-ut-" + UUID.randomUUID() + "/";
-    private static S3FileSystem fs;
+    private static ObsFileSystem fs;
     private static String bucket;
 
     @BeforeAll
@@ -65,7 +64,7 @@ class ObsFileSystemEnvTest {
         props.put("AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OBS_AK"));
         props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OBS_SK"));
         bucket = props.get("AWS_BUCKET");
-        fs = new S3FileSystem(new ObsObjStorage(props));
+        fs = new ObsFileSystem(new ObsObjStorage(props));
     }
 
     @AfterAll

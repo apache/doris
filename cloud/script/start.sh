@@ -58,22 +58,37 @@ custom_start="${DORIS_HOME}/bin/custom_start.sh"
 if [[ -f "${custom_start}" ]]; then
   source "${custom_start}" 
 fi
-enable_hdfs=${enable_hdfs:-1}
 process_name="${process_name:-doris_cloud}"
 
-# export env variables from ${process_name}.conf
-# read from ${process_name}.conf
-while read -r line; do
-    envline="$(echo "${line}" |
-        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
-        sed 's/^[[:blank:]]*//g' |
-        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
-        true)"
-    envline="$(eval "echo ${envline}")"
-    if [[ "${envline}" == *"="* ]]; then
-        eval 'export "${envline}"'
+CONF_FILES="${CONF_FILES:-${process_name}.conf}"
+loaded_conf_env_keys=" "
+for conf_pattern in ${CONF_FILES//,/ }; do
+    if [[ "${conf_pattern}" != /* ]]; then
+        conf_pattern="${DORIS_HOME}/conf/${conf_pattern}"
     fi
-done <"${DORIS_HOME}/conf/${process_name}.conf"
+    for conf_file in ${conf_pattern}; do
+        if [[ ! -f "${conf_file}" ]]; then
+            continue
+        fi
+        while read -r line; do
+            envline="$(echo "${line}" |
+                sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+                sed 's/^[[:blank:]]*//g' |
+                grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+                true)"
+            envline="$(eval "echo ${envline}")"
+            if [[ "${envline}" == *"="* ]]; then
+                key="${envline%%=*}"
+                if [[ "${loaded_conf_env_keys}" != *" ${key} "* ]] && [[ -v ${key} ]]; then
+                    continue
+                fi
+                eval 'export "${envline}"'
+                loaded_conf_env_keys="${loaded_conf_env_keys}${key} "
+            fi
+        done <"${conf_file}"
+    done
+done
+enable_hdfs=${enable_hdfs:-1}
 
 role=''
 if [[ ${RUN_METASERVICE} -eq 0 ]] && [[ ${RUN_RECYCLYER} -eq 0 ]]; then
@@ -117,9 +132,21 @@ if [[ ${enable_hdfs} -eq 1 ]]; then
 
     if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         # add hadoop libs
+        HADOOP_DEPS_JAR=
         for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
+            if [[ "${f}" == *"/hadoop-deps"*".jar" ]]; then
+                HADOOP_DEPS_JAR="${f}"
+                continue
+            fi
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
+        # hadoop-deps carries Doris-patched hadoop classes (org.apache.hadoop.fs.FileSystem with
+        # the credential-aware doris.fs.cache.key cache key). It must precede the vanilla hadoop
+        # jars in this same directory, which the glob above would otherwise order ahead of it
+        # ("hadoop-common-x.y.z.jar" sorts before "hadoop-deps.jar").
+        if [[ -n "${HADOOP_DEPS_JAR}" ]]; then
+            DORIS_CLASSPATH="${HADOOP_DEPS_JAR}:${DORIS_CLASSPATH}"
+        fi
     fi
 
     # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/

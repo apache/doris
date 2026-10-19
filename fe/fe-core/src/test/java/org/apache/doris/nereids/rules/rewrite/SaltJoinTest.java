@@ -136,11 +136,14 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                                         logicalGenerate(
                                                                 logicalUnion())),
                                                 logicalOlapScan()
-                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN
+                                                && join.getJoinReorderContext().isSaltJoinGenerated())
                                 ),
                                 logicalProject(
                                         logicalOlapScan())
-                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2
+                                && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN
+                                && !join.getJoinReorderContext().isSaltJoinGenerated())
                 );
     }
 
@@ -265,11 +268,14 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                                         logicalGenerate(
                                                                 logicalUnion())),
                                                 logicalOlapScan()
-                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN
+                                                && join.getJoinReorderContext().isSaltJoinGenerated())
                                 ),
                                 logicalProject(
                                         logicalOlapScan())
-                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2
+                                && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN
+                                && !join.getJoinReorderContext().isSaltJoinGenerated())
                 );
     }
 

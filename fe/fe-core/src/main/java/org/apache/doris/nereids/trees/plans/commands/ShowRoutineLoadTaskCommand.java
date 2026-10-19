@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -68,14 +69,24 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
             .build();
 
     private final String dbName;
+    private final LabelNameInfo labelNameInfo;
     private final Expression whereClause;
 
     private String jobName;
     private String dbFullName;
 
     public ShowRoutineLoadTaskCommand(String dbName, Expression whereClause) {
+        this(dbName, null, whereClause);
+    }
+
+    public ShowRoutineLoadTaskCommand(LabelNameInfo labelNameInfo) {
+        this(null, labelNameInfo, null);
+    }
+
+    private ShowRoutineLoadTaskCommand(String dbName, LabelNameInfo labelNameInfo, Expression whereClause) {
         super(PlanType.SHOW_ROUTINE_LOAD_TASK_COMMAND);
         this.dbName = dbName;
+        this.labelNameInfo = labelNameInfo;
         this.whereClause = whereClause;
     }
 
@@ -89,11 +100,17 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName)) {
+        dbFullName = labelNameInfo == null ? dbName : labelNameInfo.getDb();
+        if (Strings.isNullOrEmpty(dbFullName)) {
             if (Strings.isNullOrEmpty(ctx.getDatabase())) {
                 throw new AnalysisException("please designate a database in show stmt");
             }
             dbFullName = ctx.getDatabase();
+        }
+
+        if (labelNameInfo != null && !Strings.isNullOrEmpty(labelNameInfo.getLabel())) {
+            jobName = labelNameInfo.getLabel();
+            return;
         }
 
         if (!isWhereClauseValid(whereClause)) {
@@ -156,8 +173,11 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
                     PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                // Two placeholders, two arguments: ERR_DBACCESS_DENIED_ERROR reads "Access denied for user
+                // '%s' to database '%s'", so the extra "LOAD" and remote IP used to shift the user name into
+                // the position of the database and print the privilege as the user.
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(),
                         dbFullName);
             }
             rows.addAll(routineLoadJob.getTasksShowInfo());

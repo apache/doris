@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import io.trino.spi.type.BigintType;
 import io.trino.spi.type.BooleanType;
@@ -44,7 +44,7 @@ import java.util.List;
  * Maps Trino SPI types to Doris {@link ConnectorType}.
  *
  * <p>Adapted from {@code TrinoConnectorExternalTable.trinoConnectorTypeToDorisType()}
- * in fe-core, but produces ConnectorType (fe-connector-api) instead of
+ * in fe-core, but produces ConnectorType (fe-connector-spi) instead of
  * Doris Column/Type (fe-core).</p>
  */
 public final class TrinoTypeMapping {
@@ -74,8 +74,11 @@ public final class TrinoTypeMapping {
             return new ConnectorType("CHAR");
         } else if (type instanceof VarcharType) {
             return new ConnectorType("STRING");
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            // Preserve the logical type instead of exposing its physical 16-byte storage.
+            return ConnectorType.of("UUID");
         } else if (type instanceof VarbinaryType) {
-            return new ConnectorType("STRING");
+            return new ConnectorType("VARBINARY");
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return new ConnectorType("DECIMALV3", decimal.getPrecision(), decimal.getScale());
@@ -88,28 +91,30 @@ public final class TrinoTypeMapping {
             return new ConnectorType("DATETIMEV2", precision, -1);
         } else if (type instanceof TimestampWithTimeZoneType) {
             int precision = Math.min(((TimestampWithTimeZoneType) type).getPrecision(), 6);
-            return new ConnectorType("DATETIMEV2", precision, -1);
+            return new ConnectorType("TIMESTAMPTZ", precision, -1);
         } else if (type instanceof io.trino.spi.type.ArrayType) {
-            ConnectorType elementType = toConnectorType(
-                    ((io.trino.spi.type.ArrayType) type).getElementType());
-            List<ConnectorType> children = new ArrayList<>();
-            children.add(elementType);
-            return new ConnectorType("ARRAY", -1, -1, children);
+            return ConnectorType.arrayOf(toConnectorType(
+                    ((io.trino.spi.type.ArrayType) type).getElementType()));
         } else if (type instanceof io.trino.spi.type.MapType) {
-            ConnectorType keyType = toConnectorType(
-                    ((io.trino.spi.type.MapType) type).getKeyType());
-            ConnectorType valueType = toConnectorType(
-                    ((io.trino.spi.type.MapType) type).getValueType());
-            List<ConnectorType> children = new ArrayList<>();
-            children.add(keyType);
-            children.add(valueType);
-            return new ConnectorType("MAP", -1, -1, children);
+            return ConnectorType.mapOf(
+                    toConnectorType(((io.trino.spi.type.MapType) type).getKeyType()),
+                    toConnectorType(((io.trino.spi.type.MapType) type).getValueType()));
         } else if (type instanceof RowType) {
-            List<ConnectorType> children = new ArrayList<>();
-            for (RowType.Field field : ((RowType) type).getFields()) {
-                children.add(toConnectorType(field.getType()));
+            // Carry the field NAMES, not just the field types: Doris resolves STRUCT sub-field access by
+            // name, so a nameless STRUCT makes fe-core invent "col0"/"col1" and every `s.a` written against
+            // the real schema fails analysis with "field name a was not found".
+            List<RowType.Field> rowFields = ((RowType) type).getFields();
+            List<String> names = new ArrayList<>(rowFields.size());
+            List<ConnectorType> fieldTypes = new ArrayList<>(rowFields.size());
+            for (int i = 0; i < rowFields.size(); i++) {
+                RowType.Field field = rowFields.get(i);
+                // Trino ROW fields may be anonymous (RowType.anonymousRow). Name them BY POSITION so each
+                // one still gets a distinct, resolvable name; the legacy fe-core mapping named every
+                // anonymous field "col", which collides and is unaddressable once there is more than one.
+                names.add(field.getName().orElse("col" + i));
+                fieldTypes.add(toConnectorType(field.getType()));
             }
-            return new ConnectorType("STRUCT", -1, -1, children);
+            return ConnectorType.structOf(names, fieldTypes);
         } else {
             throw new IllegalArgumentException("Cannot transform unknown Trino type: " + type);
         }

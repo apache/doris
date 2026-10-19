@@ -62,7 +62,7 @@ suite("test_compaction_dup_keys") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             DUPLICATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

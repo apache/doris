@@ -16,86 +16,107 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
-import groovy.json.JsonSlurper
-import org.awaitility.Awaitility;
-import static java.util.concurrent.TimeUnit.SECONDS;
-import org.apache.doris.regression.util.NodeType
 
 suite('test_read_from_peer', 'docker') {
     if (!isCloudMode()) {
-        return;
+        return
     }
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
+        'cloud_tablet_rebalancer_interval_second=1',
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
-        'workload_group_check_interval_ms=1'
+        'auto_check_statistics_in_minutes=60',
     ]
     options.beConfigs += [
+        'report_tablet_interval_seconds=1',
+        'schedule_sync_tablets_interval_s=18000',
+        'disable_auto_compaction=true',
+        'enable_cache_read_from_peer=true',
+        'enable_peer_s3_race=true',
+        'max_concurrent_peer_races=64',
         'file_cache_each_block_size=131072',
-        // 'sys_log_verbose_modules=*',
-        'enable_cache_read_from_peer=true'
+        'file_cache_enter_disk_resource_limit_mode_percent=99',
+        'file_cache_exit_disk_resource_limit_mode_percent=98',
+        'file_cache_enter_need_evict_cache_in_advance_percent=99',
+        'file_cache_exit_need_evict_cache_in_advance_percent=98',
     ]
+    options.beConfigs.removeAll { it.startsWith('sys_log_verbose_modules=') }
     options.setFeNum(1)
     options.setBeNum(1)
     options.cloudMode = true
     options.enableDebugPoints()
-    
-    def tableName = "test_read_from_table"
 
-    def clusterBe = { clusterName ->
-        def bes = sql_return_maparray "show backends"
-        def clusterBes = bes.findAll { be -> be.Tag.contains(clusterName) }
-        logger.info("cluster {}, bes {}", clusterName, clusterBes)
-        clusterBes[0]
-    }
-
-    def testCase = { String clusterName, String runType ->
-        def startTime = System.currentTimeMillis()
-        GetDebugPoint().enableDebugPointForAllBEs("CachedRemoteFileReader.read_at_impl.change_type", [type: runType])
-        
-        try {
-            sql """
-                use @$clusterName
-            """
-
-            def be = clusterBe(clusterName)
-            def haveCacheBe = clusterBe("compute_cluster")
-
-            switch (runType) {
-                case "peer":
-                    GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "PeerFileCacheReader::_fetch_from_peer_cache_blocks", 
-                        [host: haveCacheBe.Host, port: haveCacheBe.BrpcPort])
-                    break
-                case "s3":
-                    break
-                default:
-                    throw new IllegalArgumentException("Invalid type: $runType. Expected: peer, s3")
-            }
-            
-            // Execute the query and measure time
-            def queryStartTime = System.currentTimeMillis()
-            def ret = sql """
-                select count(*) from $tableName
-            """
-            logger.info("select ret={}", ret)
-            def queryTime = System.currentTimeMillis() - queryStartTime
-            logger.info("Test completed - Type:{}, Cluster: {}, Query execution time: {}ms", runType, clusterName, queryTime)
-        } catch (Exception e) {
-            def totalTime = System.currentTimeMillis() - startTime
-            logger.info("Test failed after {}ms - Type: {}, Cluster: {} Error: {}", totalTime, runType, clusterName, e.message)
-            throw e
+    def getBrpcMetric = { ip, port, name ->
+        def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") +
+                " --cert " + context.config.otherConfigs.get("trustCert") +
+                " --cacert " + context.config.otherConfigs.get("trustCACert") +
+                " --key " + context.config.otherConfigs.get("trustCAKey")
         }
+        def metrics = new URL(url).text
+        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
+        if (matcher.find()) {
+            return matcher[0][1] as long
+        }
+        return 0L
     }
 
     docker(options) {
-        // 添加一个新的cluster, 只从s3上读
-        cluster.addBackend(1, "readS3cluster")
+        def tableName = "test_read_from_table"
 
-        // 添加一个新的cluster, 只从peer上读
+        def clusterBe = { clusterName ->
+            def be = sql_return_maparray("show backends").find { backend ->
+                backend.Tag.contains(clusterName)
+            }
+            assertTrue(be != null, "backend for ${clusterName} should exist")
+            be
+        }
+
+        def insertFreshRowsOnCompute = { List<String> rows ->
+            sql "use @compute_cluster"
+            sql "INSERT INTO ${tableName} VALUES ${rows.join(', ')}"
+        }
+
+        def queryFreshRows = { clusterName, List<Long> ticketNumbers ->
+            sql "use @${clusterName}"
+            sql """
+                SELECT ss_ticket_number
+                FROM ${tableName}
+                WHERE ss_ticket_number IN (${ticketNumbers.join(',')})
+                ORDER BY ss_ticket_number
+            """
+        }
+
+        def scanCountRows = { clusterName ->
+            sql "use @${clusterName}"
+            sql "set enable_push_down_no_group_agg=false"
+            sql "SELECT count(ss_ticket_number) FROM ${tableName}"
+        }
+
+        def warmFreshRowsOnCompute = { List<Long> ticketNumbers ->
+            def rows = queryFreshRows("compute_cluster", ticketNumbers)
+            assertEquals(ticketNumbers.size(), rows.size(), "compute_cluster should read all expected fresh rows")
+        }
+
+        cluster.addBackend(1, "readS3cluster")
         cluster.addBackend(1, "readPeercluster")
 
+        awaitUntil(120) {
+            def backends = sql_return_maparray("show backends")
+            backends.size() == 3 && backends.every { backend ->
+                backend.Alive.toString() == "true" && backend.TabletNum.toInteger() > 0
+            }
+        }
+
+        def beS3 = clusterBe("readS3cluster")
+        def bePeer = clusterBe("readPeercluster")
+
+        sql "use @compute_cluster"
+        sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 ss_sold_date_sk bigint,
@@ -130,28 +151,12 @@ suite('test_read_from_peer', 'docker') {
             )
         """
 
-        sql """
-            use @compute_cluster
-        """
-
-        // in compute_cluster be-1, cache all data in file cache
-        def txnId = -1;
-        // version 2
         streamLoad {
             table "${tableName}"
-
-            // default label is UUID:
-            // set 'label' UUID.randomUUID().toString()
-
-            // default column_separator is specify in doris fe config, usually is '\t'.
-            // this line change to ','
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
-
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
-            // file """store_sales.dat.gz"""
-
-            time 10000 // limit inflight 10s
+            time 10000
             setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
             check { res, exception, startTime, endTime ->
@@ -166,13 +171,46 @@ suite('test_read_from_peer', 'docker') {
             }
         }
 
-        def ret = sql """
-            select count(*) from $tableName
-        """
-        logger.info("ret after load, ret {}", ret)
+        def computeCount = scanCountRows("compute_cluster")
+        logger.info("count on compute_cluster={}", computeCount)
+        assertTrue((computeCount[0][0] as long) > 0L, "compute_cluster should have loaded rows")
 
-        testCase("compute_cluster", "s3")
-        testCase("readS3cluster", "s3")
-        testCase("readPeercluster", "peer")
+        logger.info("=== readS3cluster: first cold read succeeds ===")
+        def s3Read = scanCountRows("readS3cluster")
+        assertEquals(computeCount, s3Read, "readS3cluster should read loaded source data")
+
+        logger.info("=== readPeercluster: baseline read succeeds and populates peer candidates ===")
+        def peerLazyBefore = getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_lazy_fetch_success")
+        def baselinePeerRead = scanCountRows("readPeercluster")
+        assertEquals(computeCount, baselinePeerRead, "readPeercluster baseline read should succeed")
+        awaitUntil(30) {
+            getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_lazy_fetch_success") > peerLazyBefore
+        }
+
+        logger.info("=== readPeercluster: fresh rowset should read from peer ===")
+        def freshTicketNumbers = [900000000001L, 900000000002L]
+        def freshRows = [
+            "(900001, 1, 1, 900001, 1, 1, 1, 1, 1, 900000000001, 1, 1.00, 2.00, 2.00, 0.00, 2.00, 1.00, 2.00, 0.10, 0.00, 2.10, 2.10, 1.10)",
+            "(900002, 2, 2, 900002, 2, 2, 2, 2, 2, 900000000002, 2, 2.00, 3.00, 3.00, 0.00, 6.00, 4.00, 6.00, 0.20, 0.00, 6.20, 6.20, 2.20)"
+        ]
+        insertFreshRowsOnCompute(freshRows)
+        warmFreshRowsOnCompute(freshTicketNumbers)
+
+        def peerWinBefore = getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_race_peer_win")
+        def crossCgBefore = getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_cross_compute_group_read")
+
+        def peerRead = queryFreshRows("readPeercluster", freshTicketNumbers)
+        assertEquals(freshTicketNumbers.size(), peerRead.size(), "readPeercluster should read fresh rows")
+
+        def peerWinAfter = getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_race_peer_win")
+        def crossCgAfter = getBrpcMetric(bePeer.Host, bePeer.BrpcPort, "peer_cross_compute_group_read")
+        assertTrue(
+            peerWinAfter > peerWinBefore || crossCgAfter > crossCgBefore,
+            "peer read counters should increase on readPeercluster " +
+            "(peer_race_peer_win ${peerWinBefore}->${peerWinAfter}, " +
+            "peer_cross_compute_group_read ${crossCgBefore}->${crossCgAfter})")
+
+        logger.info("=== readPeercluster PASS ===")
+        logger.info("readS3cluster brpc={}, readPeercluster brpc={}", beS3.BrpcPort, bePeer.BrpcPort)
     }
 }

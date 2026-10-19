@@ -22,7 +22,7 @@
 #include <string>
 
 #include "common/metrics/metrics.h"
-#include "service/http/http_handler_with_auth.h"
+#include "service/http/http_handler.h"
 
 namespace doris {
 
@@ -31,7 +31,7 @@ class Status;
 class StreamLoadContext;
 class HttpRequest;
 
-class StreamLoadAction : public HttpHandlerWithAuth {
+class StreamLoadAction : public HttpHandler {
 public:
     StreamLoadAction(ExecEnv* exec_env);
     ~StreamLoadAction() override;
@@ -59,6 +59,8 @@ private:
     void _send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
 
 private:
+    ExecEnv* _exec_env;
+
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;
     IntCounter* streaming_load_duration_ms;

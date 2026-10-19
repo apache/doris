@@ -16,15 +16,20 @@
 // under the License.
 
 #include <cstddef>
+#include <cstring>
 #include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
@@ -98,6 +103,14 @@ private:
                         const std::vector<ColumnPtr>& argument_columns,
                         const std::vector<uint8_t>& is_const, ColumnString::Chars& res_data,
                         ColumnString::Offsets& res_offset) const {
+        if constexpr (std::is_same_v<Impl, MD5Sum>) {
+            if (argument_columns.size() == 1) {
+                const auto* col = assert_cast<const ColumnType*>(argument_columns[0].get());
+                vector_execute_single_md5(col, input_rows_count, is_const[0], res_data, res_offset);
+                return;
+            }
+        }
+
         using ObjectData = typename Impl::ObjectData;
         for (size_t i = 0; i < input_rows_count; ++i) {
             ObjectData digest;
@@ -113,6 +126,42 @@ private:
             StringOP::push_value_string(std::string_view(digest.hex().c_str(), digest.hex().size()),
                                         i, res_data, res_offset);
         }
+    }
+
+    template <typename ColumnType>
+    void vector_execute_single_md5(const ColumnType* col, size_t input_rows_count, bool is_const,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offset) const {
+        ColumnString::check_chars_length(input_rows_count * MD5_HEX_LENGTH, input_rows_count);
+        res_data.resize(input_rows_count * MD5_HEX_LENGTH);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            res_offset[i] = (i + 1) * MD5_HEX_LENGTH;
+        }
+        if (input_rows_count == 0) {
+            return;
+        }
+
+        if (is_const) {
+            StringRef data_ref = col->get_data_at(0);
+            const unsigned char* input = reinterpret_cast<const unsigned char*>(data_ref.data);
+            size_t length = data_ref.size;
+            char digest[MD5_HEX_LENGTH];
+            md5_hex_batch(&input, &length, digest, 1);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                std::memcpy(res_data.data() + i * MD5_HEX_LENGTH, digest, MD5_HEX_LENGTH);
+            }
+            return;
+        }
+
+        std::vector<const unsigned char*> inputs(input_rows_count);
+        std::vector<size_t> lengths(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef data_ref = col->get_data_at(i);
+            inputs[i] = reinterpret_cast<const unsigned char*>(data_ref.data);
+            lengths[i] = data_ref.size;
+        }
+        md5_hex_batch(inputs.data(), lengths.data(), reinterpret_cast<char*>(res_data.data()),
+                      input_rows_count);
     }
 };
 
@@ -174,17 +223,56 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        // use_default_implementation_for_nulls() is disabled below, so, unlike the usual
+        // get_return_type_impl contract, arguments here keep their original nullability and the
+        // wrapping is not automatic: replicate it by hand from every argument.
+        bool nullable = arguments[0]->is_nullable() || arguments[1]->is_nullable();
+        DataTypePtr base = std::make_shared<DataTypeString>();
+        return nullable ? make_nullable(base) : base;
     }
+
+    // the digest length is validated below before the NULL check propagates it like an ordinary
+    // value, so the generic nullable-argument shortcut must not run first and silently return
+    // NULL for it.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK(!is_column_const(*block.get_by_position(arguments[0]).column));
+        const ColumnWithTypeAndName& data_with_type = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& length_with_type = block.get_by_position(arguments[1]);
+        bool data_nullable = data_with_type.type->is_nullable();
+        bool length_nullable = length_with_type.type->is_nullable();
+        NullableColumnInfo data_info =
+                data_nullable ? data_with_type.get_nullable_column_info() : NullableColumnInfo {};
+        NullableColumnInfo length_info = length_nullable
+                                                 ? length_with_type.get_nullable_column_info()
+                                                 : NullableColumnInfo {};
 
-        ColumnPtr data_col = block.get_by_position(arguments[0]).column;
+        // the digest length is a constant checked in FE: either a literal or a value only BE can
+        // evaluate. A literal NULL is rejected by FE, so a BE-evaluated NULL is rejected here too,
+        // instead of silently propagating NULL through the generic nullable-argument shortcut.
+        if (length_nullable && length_info.only_null) {
+            return Status::InvalidArgument(
+                    "sha2's digest length only support 224/256/384/512 but meet NULL");
+        }
+
+        if (data_nullable && data_info.only_null) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
+        // The digest length may be evaluated by BE as a full column while the input remains const.
+        ColumnWithTypeAndName unnested_data =
+                data_nullable ? data_with_type.unnest_nullable(data_info, false) : data_with_type;
+        ColumnWithTypeAndName unnested_length =
+                length_nullable ? length_with_type.unnest_nullable(length_info, false)
+                                : length_with_type;
+        const auto& [data_col, data_const] = unpack_if_const(unnested_data.column);
 
         [[maybe_unused]] const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+                unpack_if_const(unnested_length.column);
         auto digest_length = assert_cast<const ColumnInt32*>(right_column.get())->get_data()[0];
 
         auto res_col = ColumnString::create();
@@ -193,30 +281,38 @@ public:
         res_offset.resize(input_rows_count);
 
         if (digest_length == 224) {
-            execute_base<SHA224Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA224Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 256) {
-            execute_base<SHA256Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA256Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 384) {
-            execute_base<SHA384Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA384Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 512) {
-            execute_base<SHA512Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA512Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else {
             return Status::InvalidArgument(
                     "sha2's digest length only support 224/256/384/512 but meet {}", digest_length);
         }
 
-        block.replace_by_position(result, std::move(res_col));
+        block.replace_by_position(
+                result, (data_nullable || length_nullable)
+                                ? wrap_in_nullable(ColumnPtr(std::move(res_col)), block, arguments,
+                                                   input_rows_count)
+                                : ColumnPtr(std::move(res_col)));
         return Status::OK();
     }
 
 private:
     template <typename T>
-    void execute_base(ColumnPtr data_col, int input_rows_count, ColumnString::Chars& res_data,
-                      ColumnString::Offsets& res_offset) const {
+    void execute_base(const ColumnPtr& data_col, bool data_const, int input_rows_count,
+                      ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
         if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
-            vector_execute<T>(str_col, input_rows_count, res_data, res_offset);
+            vector_execute<T>(str_col, data_const, input_rows_count, res_data, res_offset);
         } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
-            vector_execute<T>(vb_col, input_rows_count, res_data, res_offset);
+            vector_execute<T>(vb_col, data_const, input_rows_count, res_data, res_offset);
         } else {
             throw Exception(ErrorCode::RUNTIME_ERROR,
                             "Illegal column {} of argument of function {}", data_col->get_name(),
@@ -225,11 +321,11 @@ private:
     }
 
     template <typename DigestType, typename ColumnType>
-    void vector_execute(const ColumnType* col, size_t input_rows_count,
+    void vector_execute(const ColumnType* col, bool data_const, size_t input_rows_count,
                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
         DigestType digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            StringRef data_ref = col->get_data_at(i);
+            StringRef data_ref = col->get_data_at(index_check_const(i, data_const));
             digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 

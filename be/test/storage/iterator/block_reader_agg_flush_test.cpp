@@ -24,11 +24,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #include "storage/iterator/block_reader.h"
-#undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -72,7 +68,8 @@ std::unique_ptr<Block> make_source_block(size_t n_rows, int64_t key_value) {
 // struct of the source block, pre-filled with `n_rows` default rows so that
 // non-variable-length agg columns can be written via replace_column_data.
 MutableColumns make_stored_columns(const Block& src_block, size_t n_rows) {
-    return src_block.create_same_struct_block(n_rows)->mutate_columns();
+    auto block = src_block.create_same_struct_block(n_rows);
+    return std::move(*block).mutate_columns();
 }
 
 MutableColumns make_target_columns() {
@@ -91,9 +88,7 @@ void configure_reader_for_int64_sum(BlockReader& reader, const Block& src_block,
     config::enable_adaptive_batch_size = false;
 
     // Column layout: [0]=key, [1]=agg value. Output layout matches input.
-    reader._normal_columns_idx = {0};
     reader._agg_columns_idx = {1};
-    reader._return_columns_loc = {0, 1};
 
     reader._stored_data_columns = make_stored_columns(src_block, batch_max_rows);
     reader._stored_has_null_tag.assign(reader._stored_data_columns.size(), false);

@@ -18,6 +18,7 @@
 #include "io/fs/file_reader.h"
 
 #include <bthread/bthread.h>
+#include <butil/iobuf.h>
 #include <glog/logging.h>
 
 #include "io/cache/cached_remote_file_reader.h"
@@ -36,6 +37,28 @@ Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
         LOG(WARNING) << st;
     }
     return st;
+}
+
+Status FileReader::read_at_iobuf(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                 size_t* bytes_read, const IOContext* io_ctx) {
+    DCHECK(bthread_self() == 0);
+    Status st = read_at_iobuf_impl(offset, bytes_req, out, bytes_read, io_ctx);
+    if (!st) {
+        LOG(WARNING) << st;
+    }
+    return st;
+}
+
+Status FileReader::read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                      size_t* bytes_read, const IOContext* io_ctx) {
+    if (out == nullptr || bytes_read == nullptr) {
+        return Status::InvalidArgument("read_at_iobuf requires non-null out and bytes_read");
+    }
+    *bytes_read = 0;
+    (void)offset;
+    (void)bytes_req;
+    (void)io_ctx;
+    return Status::NotSupported("read_at_iobuf is not supported by current FileReader");
 }
 
 Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,

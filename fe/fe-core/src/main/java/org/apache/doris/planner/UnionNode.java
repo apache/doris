@@ -37,7 +37,7 @@ public class UnionNode extends SetOperationNode {
     // If it is a union without children which means it will output some constant values, we should use a serial union
     // to output non-duplicated data.
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return children.isEmpty();
     }
 }

@@ -40,6 +40,7 @@ suite("test_tvf_error_column", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
+    sql "set enable_insert_value_auto_cast=false"
     // Step1: date length  overflow
     test {
         sql """       
@@ -59,6 +60,7 @@ suite("test_tvf_error_column", "p0") {
 
 
     // Step2: column with wrong type 
+    sql "set enable_strict_cast=true"
     test {
         sql """       
                 INSERT INTO ${tableName}
@@ -109,7 +111,7 @@ suite("test_tvf_error_column", "p0") {
     }
     */
 
-    // Step5: error compression type
+    // V2 schema discovery must reject CSV bytes as an invalid Parquet footer.
     test {
         sql """       
                 INSERT INTO ${tableName}
@@ -122,7 +124,7 @@ suite("test_tvf_error_column", "p0") {
                                 "region" = "${region}"
                                 );
         """
-        exception "Invalid magic number in parquet file"
+        exception "Invalid Parquet v2 footer magic"
     }
 
 

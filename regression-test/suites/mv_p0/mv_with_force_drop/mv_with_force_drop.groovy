@@ -38,8 +38,7 @@ suite("mv_with_force_drop") {
         "replication_allocation"="tag.location.default:1",
         "is_being_synced"="false",
         "storage_format"="V2",
-        "disable_auto_compaction"="false",
-        "enable_single_replica_compaction"="false"
+        "disable_auto_compaction"="false"
         );
     """
 

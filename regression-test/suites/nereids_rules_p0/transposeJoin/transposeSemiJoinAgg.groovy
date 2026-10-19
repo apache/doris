@@ -16,6 +16,7 @@
 // under the License.
 
 suite("transposeSemiJoinAgg") {
+    sql "set parallel_pipeline_task_num=2"
     // filter about invisible column "DORIS_DELETE_SIGN = 0" has no impaction on partition pruning
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
@@ -44,7 +45,6 @@ suite("transposeSemiJoinAgg") {
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000"
         ); """
     
@@ -65,7 +65,6 @@ suite("transposeSemiJoinAgg") {
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000"
         );
         """

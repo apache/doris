@@ -37,6 +37,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -94,7 +95,7 @@ public class UserManager implements Writable {
         rlock.lock();
         try {
             List<User> users = nameToUsers.get(name);
-            return users == null ? Collections.EMPTY_LIST : users;
+            return users == null ? Collections.emptyList() : new ArrayList<>(users);
         } finally {
             rlock.unlock();
         }
@@ -108,6 +109,16 @@ public class UserManager implements Writable {
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
+    }
+
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, remotePasswd, randomString, null, currentUser, false);
+    }
+
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, null, null, remotePasswd, currentUser, true);
     }
 
     private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
@@ -133,6 +144,10 @@ public class UserManager implements Writable {
             if (!user.isAnyHost() && !user.getHostPattern().match(remoteHost)) {
                 continue;
             }
+            if (getAuthenticationUser(user).isAuthenticationBound()) {
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        hasRemotePasswd(plain, remotePasswd));
+            }
             UserIdentity curUser = user.getDomainUserIdentity();
             if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
                 passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
@@ -154,6 +169,31 @@ public class UserManager implements Writable {
         }
         throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                 hasRemotePasswd(plain, remotePasswd));
+    }
+
+    private void checkPasswordInternalForUser(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        User user = getUserByUserIdentity(userIdentity);
+        if (user == null || getAuthenticationUser(user).isAuthenticationBound()) {
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
+                    hasRemotePasswd(plain, remotePasswd));
+        }
+        UserIdentity currentIdentity = user.getDomainUserIdentity();
+        if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
+            passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(currentIdentity);
+            if (currentUser != null) {
+                currentUser.add(currentIdentity);
+            }
+            return;
+        }
+        passwdPolicyMgr.onFailedLogin(currentIdentity);
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
+                hasRemotePasswd(plain, remotePasswd));
+    }
+
+    public User getAuthenticationUser(User user) {
+        return user.isSetByDomainResolver() ? getUserByUserIdentity(user.getDomainUserIdentity()) : user;
     }
 
     public List<UserIdentity> getUserIdentityUncheckPasswd(String remoteUser, String remoteHost) {
@@ -205,6 +245,7 @@ public class UserManager implements Writable {
                 while (iter.hasNext()) {
                     User user = iter.next();
                     if (user.isSetByDomainResolver()) {
+                        Env.getCurrentEnv().getAuth().getPasswdPolicyManager().dropUser(user.getUserIdentity());
                         iter.remove();
                     }
                 }
@@ -240,9 +281,14 @@ public class UserManager implements Writable {
                 // we should not override it, just return
                 return userByUserIdentity;
             }
+            if (userByUserIdentity.isSetByDomainResolver() && !setByResolver) {
+                // An explicit account starts a new policy lifetime, independent of the domain.
+                Env.getCurrentEnv().getAuth().getPasswdPolicyManager().dropUser(userIdent);
+            }
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
+            userByUserIdentity.setDomainUserIdentity(domainUserIdent);
             userByUserIdentity.setUserIdentity(userIdent);
             return userByUserIdentity;
         }
@@ -296,7 +342,11 @@ public class UserManager implements Writable {
             Iterator<User> iter = nameToLists.iterator();
             while (iter.hasNext()) {
                 User user = iter.next();
-                if (user.getUserIdentity().equals(userIdent)) {
+                if (user.getUserIdentity().equals(userIdent)
+                        || (user.isSetByDomainResolver() && userIdent.equals(user.getDomainUserIdentity()))) {
+                    if (user.isSetByDomainResolver()) {
+                        Env.getCurrentEnv().getAuth().getPasswdPolicyManager().dropUser(user.getUserIdentity());
+                    }
                     iter.remove();
                 }
             }
@@ -330,6 +380,49 @@ public class UserManager implements Writable {
         user.setPassword(password);
     }
 
+    /** Keep already resolved domain entries consistent with the account's binding, TLS and manual lock. */
+    public void refreshAuthenticationBinding(UserIdentity identity) {
+        wlock.lock();
+        try {
+            User domain = getUserByUserIdentityWithoutLock(identity);
+            PasswordPolicyManager policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+            for (User user : nameToUsers.get(identity.getQualifiedUser())) {
+                if (user.isSetByDomainResolver() && identity.equals(user.getDomainUserIdentity())) {
+                    user.setAuthenticationBinding(domain.getAuthIntegration(), domain.getAuthIdentity());
+                    user.setPassword(domain.getPassword().getPassword());
+                    user.setUserIdentity(createResolvedUserIdentity(identity.getQualifiedUser(),
+                            user.getUserIdentity().getHost(), domain.getUserIdentity()));
+                    user.setDomainUserIdentity(domain.getUserIdentity());
+                    if (policies.isAccountLocked(identity)) {
+                        policies.lockUser(user.getUserIdentity());
+                    } else {
+                        policies.unlockUser(user.getUserIdentity());
+                    }
+                }
+            }
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public void checkDomainAuthenticationBinding(UserIdentity identity) throws DdlException {
+        if (!identity.isDomain()) {
+            return;
+        }
+        List<UserIdentity> ambiguous = new ArrayList<>();
+        for (User user : getUserByName(identity.getQualifiedUser())) {
+            if (!user.getUserIdentity().isDomain() && !user.hasKnownDomainResolverOrigin()
+                    && InetAddressValidator.getInstance().isValid(user.getUserIdentity().getHost())) {
+                ambiguous.add(user.getUserIdentity());
+            }
+        }
+        if (!ambiguous.isEmpty()) {
+            throw new DdlException("Cannot bind domain account " + identity
+                    + ": legacy image does not record resolver origin for " + ambiguous
+                    + "; drop stale aliases or recreate these IP accounts explicitly before binding");
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         rlock.lock();
         try {
@@ -360,16 +453,26 @@ public class UserManager implements Writable {
                     // this user ident will be saved along with each resolved "IP" user ident, so that when checking
                     // password, this "domain" user ident will be returned as "current user".
                     for (String newIP : entry.getValue()) {
-                        UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
                         UserIdentity domainUserIdent = domainUser.getUserIdentity();
-                        userIdent.setSan(domainUserIdent.getSan());
-                        userIdent.setIssuer(domainUserIdent.getIssuer());
-                        userIdent.setCipher(domainUserIdent.getCipher());
-                        userIdent.setSubject(domainUserIdent.getSubject());
+                        UserIdentity userIdent = createResolvedUserIdentity(userEntry.getKey(), newIP, domainUserIdent);
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {
-                            createUserWithoutLock(userIdent, password, domainUser.getUserIdentity(), true, "");
+                            User resolved = createUserWithoutLock(userIdent, password,
+                                    domainUser.getUserIdentity(), true, "");
+                            if (resolved.isSetByDomainResolver()) {
+                                resolved.setAuthenticationBinding(domainUser.getAuthIntegration(),
+                                        domainUser.getAuthIdentity());
+                                if (domainUser.isAuthenticationBound()) {
+                                    PasswordPolicyManager policies = Env.getCurrentEnv().getAuth()
+                                            .getPasswdPolicyManager();
+                                    if (policies.isAccountLocked(domainUserIdent)) {
+                                        policies.lockUser(userIdent);
+                                    } else {
+                                        policies.unlockUser(userIdent);
+                                    }
+                                }
+                            }
                         } catch (PatternMatcherException e) {
                             LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                         }
@@ -379,6 +482,15 @@ public class UserManager implements Writable {
         } finally {
             wlock.unlock();
         }
+    }
+
+    private UserIdentity createResolvedUserIdentity(String userName, String ip, UserIdentity domainIdentity) {
+        UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp(userName, ip);
+        identity.setSan(domainIdentity.getSan());
+        identity.setIssuer(domainIdentity.getIssuer());
+        identity.setCipher(domainIdentity.getCipher());
+        identity.setSubject(domainIdentity.getSubject());
+        return identity;
     }
 
     private User getDomainUser(List<User> users, String domain) {

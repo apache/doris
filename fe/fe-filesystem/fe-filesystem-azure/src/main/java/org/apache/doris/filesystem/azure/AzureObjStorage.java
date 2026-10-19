@@ -17,16 +17,15 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.identity.ClientSecretCredentialBuilder;
-import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
@@ -49,6 +48,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -57,50 +57,32 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 
 /**
  * Azure Blob Storage implementation of {@link ObjStorage}.
  *
- * <p>No dependency on fe-core, fe-common, or fe-catalog.
- * Accepts a {@code Map<String, String>} of properties with the following keys:
- * <ul>
- *   <li>{@code AZURE_ACCOUNT_NAME} / {@code azure.account_name} / {@code AWS_ACCESS_KEY}
- *       — storage account name</li>
- *   <li>{@code AZURE_ACCOUNT_KEY} / {@code azure.account_key} / {@code AWS_SECRET_KEY}
- *       — storage account key (shared key auth)</li>
- *   <li>{@code AZURE_ENDPOINT} / {@code AWS_ENDPOINT} — custom endpoint (optional)</li>
- *   <li>{@code AZURE_CLIENT_ID} / {@code azure.oauth2_client_id} — service principal client ID</li>
- *   <li>{@code AZURE_CLIENT_SECRET} / {@code azure.oauth2_client_secret} — service principal secret</li>
- *   <li>{@code AZURE_TENANT_ID} / {@code azure.oauth2_client_tenant_id} — AAD tenant ID</li>
- * </ul>
+ * <p>No dependency on fe-core, fe-common, or fe-catalog. Raw aliases are resolved by
+ * {@link AzureFileSystemProperties}; client construction and authentication consume the
+ * typed properties directly.
  */
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
 
-    static final String PROP_ACCOUNT_NAME = "AZURE_ACCOUNT_NAME";
-    static final String PROP_ACCOUNT_NAME_ALT = "azure.account_name";
-    static final String PROP_ACCOUNT_KEY = "AZURE_ACCOUNT_KEY";
-    static final String PROP_ACCOUNT_KEY_ALT = "azure.account_key";
-    static final String PROP_ENDPOINT = "AZURE_ENDPOINT";
-    static final String PROP_ENDPOINT_ALT = "AWS_ENDPOINT";
-    static final String PROP_CLIENT_ID = "AZURE_CLIENT_ID";
-    static final String PROP_CLIENT_ID_ALT = "azure.oauth2_client_id";
-    static final String PROP_CLIENT_SECRET = "AZURE_CLIENT_SECRET";
-    static final String PROP_CLIENT_SECRET_ALT = "azure.oauth2_client_secret";
-    static final String PROP_TENANT_ID = "AZURE_TENANT_ID";
-    static final String PROP_TENANT_ID_ALT = "azure.oauth2_client_tenant_id";
-
-    private static final String DEFAULT_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
     private static final int HTTP_NOT_FOUND = 404;
     /** Validity period for presigned (SAS) URLs, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
-    private final Map<String, String> properties;
+    private final AzureFileSystemProperties properties;
     private volatile BlobServiceClient client;
 
     public AzureObjStorage(Map<String, String> properties) {
-        this.properties = Collections.unmodifiableMap(properties);
+        this(AzureFileSystemProperties.of(properties));
+    }
+
+    public AzureObjStorage(AzureFileSystemProperties properties) {
+        this.properties = properties;
     }
 
     @Override
@@ -116,70 +98,26 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     protected BlobServiceClient buildClient() throws IOException {
-        String accountName = resolveAccountName();
-        String endpoint = resolveEndpoint(accountName);
-        String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
-        if (accountKey == null || accountKey.isEmpty()) {
-            // Fall back to AWS_SECRET_KEY for S3-compat configurations
-            accountKey = properties.get("AWS_SECRET_KEY");
-        }
-        String clientId = resolve(PROP_CLIENT_ID, PROP_CLIENT_ID_ALT, null);
-        String clientSecret = resolve(PROP_CLIENT_SECRET, PROP_CLIENT_SECRET_ALT, null);
-        String tenantId = resolve(PROP_TENANT_ID, PROP_TENANT_ID_ALT, null);
-
+        String endpoint = requireProperty(
+                properties.getEndpoint(), AzureFileSystemProperties.ENDPOINT, "Azure endpoint");
         BlobServiceClientBuilder builder = new BlobServiceClientBuilder().endpoint(endpoint);
 
-        if (accountKey != null && !accountKey.isEmpty()) {
+        if (properties.isSharedKeyAuth()) {
+            String accountName = requireProperty(
+                    properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
+            String accountKey = requireProperty(
+                    properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
             builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
-        } else if (clientId != null && !clientId.isEmpty()
-                && clientSecret != null && !clientSecret.isEmpty()
-                && tenantId != null && !tenantId.isEmpty()) {
+        } else {
+            String tenantId = properties.resolveTenantId()
+                    .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
             builder.credential(new ClientSecretCredentialBuilder()
                     .tenantId(tenantId)
-                    .clientId(clientId)
-                    .clientSecret(clientSecret)
+                    .clientId(properties.getClientId())
+                    .clientSecret(properties.getClientSecret())
                     .build());
-        } else {
-            builder.credential(new DefaultAzureCredentialBuilder().build());
         }
         return builder.buildClient();
-    }
-
-    private String resolveAccountName() throws IOException {
-        String name = resolve(PROP_ACCOUNT_NAME, PROP_ACCOUNT_NAME_ALT, null);
-        if (name == null || name.isEmpty()) {
-            // Fall back to AWS_ACCESS_KEY for S3-compat configurations
-            name = properties.get("AWS_ACCESS_KEY");
-        }
-        if (name == null || name.isEmpty()) {
-            throw new IOException("Azure account name is required. Set " + PROP_ACCOUNT_NAME);
-        }
-        return name;
-    }
-
-    private String resolveEndpoint(String accountName) {
-        String endpoint = resolve(PROP_ENDPOINT, PROP_ENDPOINT_ALT, null);
-        if (endpoint != null && !endpoint.isEmpty()) {
-            if (!endpoint.startsWith("http")) {
-                endpoint = "https://" + endpoint;
-            }
-            return endpoint;
-        }
-        return String.format(DEFAULT_ENDPOINT_TEMPLATE, accountName);
-    }
-
-    private String resolve(String primaryKey, String altKey, String defaultValue) {
-        String value = properties.get(primaryKey);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        if (altKey != null) {
-            value = properties.get(altKey);
-            if (value != null && !value.isEmpty()) {
-                return value;
-            }
-        }
-        return defaultValue;
     }
 
     @Override
@@ -282,9 +220,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        // Azure block blobs don't have an explicit "initiate" API.
-        // Return the path itself as the upload ID; block IDs are derived from part numbers.
-        return remotePath;
+        // Azure has no multipart session; this local UUID only namespaces the writer's block IDs.
+        return UUID.randomUUID().toString();
     }
 
     @Override
@@ -294,7 +231,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             AzureUri uri = AzureUri.parse(remotePath);
             BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key()).getBlockBlobClient();
-            String blockId = toBlockId(partNum);
+            String blockId = multipartBlockId(uploadId, partNum);
             blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
             return new UploadPartResult(partNum, blockId);
         } catch (BlobStorageException e) {
@@ -308,15 +245,20 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             List<UploadPartResult> parts) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(uri.key()).getBlockBlobClient();
+            BlobContainerClient containerClient = getClient().getBlobContainerClient(uri.container());
             List<String> blockIds = new ArrayList<>();
             List<UploadPartResult> sorted = new ArrayList<>(parts);
             sorted.sort((a, b) -> Integer.compare(a.partNumber(), b.partNumber()));
             for (UploadPartResult part : sorted) {
-                blockIds.add(toBlockId(part.partNumber()));
+                // Guessing a legacy ID cannot recover an old BE payload and can select another writer's block.
+                if (part.etag() == null || part.etag().isEmpty()) {
+                    throw new IOException("Azure multipart completion requires the exact staged block ID "
+                            + "for part " + part.partNumber());
+                }
+                blockIds.add(part.etag());
             }
-            blockBlobClient.commitBlockList(blockIds);
+            // Put Block List is the atomic publication point and does not expose a staging blob to scans.
+            containerClient.getBlobClient(uri.key()).getBlockBlobClient().commitBlockList(blockIds);
         } catch (BlobStorageException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
@@ -325,41 +267,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        // Azure has no native "abort multipart upload" API; the closest equivalent is to
-        // commit an empty block list (which atomically discards any uncommitted blocks
-        // for that blob) and then delete the resulting empty blob so no trace remains.
-        //
-        // SAFETY: commitBlockList(empty) overwrites whatever is at the target blob, so we
-        // MUST refuse to run when a committed blob already exists at this path — otherwise
-        // an abort call could destroy real user data. In that case the staged blocks are
-        // left to expire on their own (Azure GCs them after the service-side timeout).
-        try {
-            AzureUri uri = AzureUri.parse(remotePath);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(uri.key()).getBlockBlobClient();
-            boolean committedBlobExists;
-            try {
-                blockBlobClient.getProperties();
-                committedBlobExists = true;
-            } catch (BlobStorageException e) {
-                if (e.getStatusCode() != HTTP_NOT_FOUND) {
-                    throw e;
-                }
-                committedBlobExists = false;
-            }
-            if (committedBlobExists) {
-                LOG.warn("abortMultipartUpload skipped for {}: a committed blob already exists; "
-                        + "uncommitted blocks will expire automatically.", remotePath);
-                return;
-            }
-            blockBlobClient.commitBlockList(Collections.emptyList());
-            blockBlobClient.delete();
-        } catch (BlobStorageException e) {
-            // Best-effort: log and swallow rather than mask the original failure that
-            // triggered the abort path. Uncommitted blocks will be GC'd by the service.
-            LOG.warn("abortMultipartUpload best-effort cleanup failed for {}: {}",
-                    remotePath, e.getMessage());
-        }
+        // Azure cannot selectively remove one writer's uncommitted blocks. They are isolated by
+        // upload UUID and left for the service to garbage-collect without touching published data.
     }
 
     /**
@@ -383,7 +292,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Opens an InputStream starting at {@code fromByte} using an HTTP Range request.
      */
-    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
@@ -403,7 +313,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Returns the last-modified time of the blob in milliseconds since epoch.
      */
-    long headObjectLastModified(String remotePath) throws IOException {
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobProperties props = getClient().getBlobContainerClient(uri.container())
@@ -415,11 +326,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             }
             throw new IOException("getProperties failed for " + remotePath + ": " + e.getMessage(), e);
         }
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     // -------------------------------------------------------------------------
@@ -439,12 +345,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
      */
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String accountName = resolveAccountName();
-        String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
-        if (accountKey == null || accountKey.isEmpty()) {
-            // Fall back to AWS_SECRET_KEY for S3-compat configurations
-            accountKey = properties.get("AWS_SECRET_KEY");
-        }
+        String accountName = requireProperty(
+                properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
+        String accountKey = properties.getAccountKey();
         if (accountKey == null || accountKey.isEmpty()) {
             throw new IOException(
                     "getPresignedUrl requires a storage account key (AZURE_ACCOUNT_KEY)");
@@ -455,7 +358,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } catch (Exception e) {
             throw new IOException("Cannot parse Azure object key: " + objectKey, e);
         }
-        String endpoint = resolveEndpoint(accountName);
+        String endpoint = properties.getEndpoint();
         StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
         return generateSasUrl(endpoint, uri.container(), uri.key(), credential,
                 OffsetDateTime.now().plusSeconds(SESSION_EXPIRE_SECONDS));
@@ -579,12 +482,22 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         // releases the pool on JVM shutdown.
     }
 
-    /**
-     * Converts a part number to a Base64-encoded block ID using little-endian byte order,
-     * consistent with the existing fe-core Azure multipart upload implementation.
-     */
-    private static String toBlockId(int partNum) {
-        byte[] bytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(partNum).array();
-        return Base64.getEncoder().encodeToString(bytes);
+    private static String requireProperty(String value, String key, String description) throws IOException {
+        if (value == null || value.isEmpty()) {
+            throw new IOException(description + " is required; set " + key + " in properties");
+        }
+        return value;
+    }
+
+    static String multipartBlockId(String uploadId, int partNum) {
+        byte[] uploadBytes = uploadId.getBytes(StandardCharsets.UTF_8);
+        // Keep the full upload UUID in every block ID so independent writers cannot stage the
+        // same block IDs even though Azure has no per-upload multipart namespace.
+        byte[] rawId = ByteBuffer.allocate(uploadBytes.length + Integer.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .put(uploadBytes)
+                .putInt(partNum)
+                .array();
+        return Base64.getEncoder().encodeToString(rawId);
     }
 }

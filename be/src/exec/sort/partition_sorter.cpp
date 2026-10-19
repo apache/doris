@@ -100,8 +100,9 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
     auto& queue = _state->get_queue();
     size_t num_columns = _state->unsorted_block()->columns();
 
-    MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_state->unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
     size_t merged_rows = 0;
 
@@ -121,9 +122,11 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
         if (current->impl->is_last(step) && current->impl->pos == 0) {
             if (merged_rows != 0) {
                 // return directly for next time's read swap whole block
+                scoped_mutable_block.restore();
                 return Status::OK();
             }
             // swap and return block directly when we should get all data from cursor
+            scoped_mutable_block.restore();
             output_block->swap(*current->impl->block);
             merged_rows += step;
             _output_total_rows += step;
@@ -151,19 +154,15 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
 }
 
 Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch_size) {
+    *eos = false;
     auto& queue = _state->get_queue();
     size_t num_columns = _state->unsorted_block()->columns();
 
-    MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_state->unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
     size_t merged_rows = 0;
-
-    Defer defer {[&]() {
-        if (merged_rows == 0 || _get_enough_data()) {
-            *eos = true;
-        }
-    }};
 
     while (queue.is_valid() && merged_rows < batch_size) {
         auto [current, current_rows] = queue.current();
@@ -178,6 +177,8 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 // rank() maybe need check when have get a distinct row
                 // so when the cmp_res is get a distinct row, need check have output all rows num
                 if (_get_enough_data()) {
+                    *eos = true;
+                    scoped_mutable_block.restore();
                     return Status::OK();
                 }
                 *_previous_row = *current;
@@ -196,6 +197,9 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
         }
     }
 
+    // A full batch can end inside the last qualifying peer group. Continue reading
+    // until the next group exceeds the rank limit or the merge queue is exhausted.
+    *eos = !queue.is_valid();
     return Status::OK();
 }
 

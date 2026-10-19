@@ -24,6 +24,18 @@ namespace doris {
 
 CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
+bool CompactionPermitLimiter::try_request(int64_t permits) {
+    const int64_t total_permits = config::total_permits_for_compaction_score;
+    std::unique_lock<std::mutex> lock(_permits_mutex);
+    if (_used_permits + permits > total_permits) {
+        return false;
+    }
+
+    _used_permits += permits;
+    DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);
+    return true;
+}
+
 void CompactionPermitLimiter::request(int64_t permits) {
     DorisMetrics::instance()->compaction_waitting_permits->set_value(permits);
     // 1. config::total_permits_for_compaction_score = 20000

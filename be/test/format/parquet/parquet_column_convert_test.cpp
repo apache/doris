@@ -20,24 +20,75 @@
 #include <cctz/time_zone.h>
 
 #include <chrono>
+#include <cstring>
+#include <string>
 #include <vector>
 
+#include "core/assert_cast.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "util/timezone_utils.h"
 
 namespace doris::parquet {
 
-static FieldSchema make_timestamp_field_schema(bool is_adjusted_to_utc) {
+enum class TestTimestampUnit { MILLIS, MICROS, NANOS };
+
+static FieldSchema make_timestamp_field_schema(bool is_adjusted_to_utc,
+                                               TestTimestampUnit unit = TestTimestampUnit::MICROS) {
     FieldSchema field_schema;
     field_schema.parquet_schema.__set_name("ts");
     field_schema.parquet_schema.__set_logicalType(tparquet::LogicalType());
     field_schema.parquet_schema.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
     field_schema.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(is_adjusted_to_utc);
     field_schema.parquet_schema.logicalType.TIMESTAMP.__set_unit(tparquet::TimeUnit());
-    field_schema.parquet_schema.logicalType.TIMESTAMP.unit.__set_MICROS(tparquet::MicroSeconds());
+    auto& parquet_unit = field_schema.parquet_schema.logicalType.TIMESTAMP.unit;
+    switch (unit) {
+    case TestTimestampUnit::MILLIS:
+        parquet_unit.__set_MILLIS(tparquet::MilliSeconds());
+        break;
+    case TestTimestampUnit::MICROS:
+        parquet_unit.__set_MICROS(tparquet::MicroSeconds());
+        break;
+    case TestTimestampUnit::NANOS:
+        parquet_unit.__set_NANOS(tparquet::NanoSeconds());
+        break;
+    }
     return field_schema;
 }
 
+static void expect_int64_timestamp(int64_t timestamp, TestTimestampUnit unit,
+                                   const std::string& expected, bool is_adjusted_to_utc = false,
+                                   const cctz::time_zone* timezone = nullptr) {
+    auto field_schema = make_timestamp_field_schema(is_adjusted_to_utc, unit);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT64);
+    field_schema.data_type =
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, field_schema.data_type, timezone);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_column = ColumnInt64::create();
+    src_column->insert_value(timestamp);
+    ColumnPtr src = std::move(src_column);
+    ColumnPtr dst = field_schema.data_type->create_column();
+    ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+    ASSERT_EQ(dst->size(), 1);
+    EXPECT_EQ(field_schema.data_type->to_string(*dst, 0), expected);
+}
+
+static ColumnPtr make_int96_column(const ParquetInt96& timestamp) {
+    auto column = ColumnInt8::create();
+    auto& data = column->get_data();
+    data.resize(sizeof(timestamp));
+    std::memcpy(data.data(), &timestamp, sizeof(timestamp));
+    return column;
+}
+
 TEST(ParquetColumnConvertTest, InitFixedOffsetDetection) {
+    TimezoneUtils::load_timezones_to_cache();
+
     cctz::time_zone utc_tz;
     cctz::time_zone plus8_tz;
     cctz::time_zone shanghai_tz;
@@ -117,6 +168,346 @@ TEST(ParquetColumnConvertTest, LookupPathMatchesOriginal) {
         original_value.from_unixtime(timestamp, new_york_tz);
         EXPECT_EQ(original_value.to_date_int_val(), lookup_value.to_date_int_val());
     }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsInt64TimestampsAcrossEpoch) {
+    struct TestCase {
+        int64_t timestamp;
+        TestTimestampUnit unit;
+        const char* expected;
+    };
+    const std::vector<TestCase> test_cases {
+            {-1, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.999000"},
+            {-500, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.500000"},
+            {-1000, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.000000"},
+            {-1500, TestTimestampUnit::MILLIS, "1969-12-31 23:59:58.500000"},
+            {-1, TestTimestampUnit::MICROS, "1969-12-31 23:59:59.999999"},
+            {-500000, TestTimestampUnit::MICROS, "1969-12-31 23:59:59.500000"},
+            {-500000000, TestTimestampUnit::NANOS, "1969-12-31 23:59:59.500000"},
+            {0, TestTimestampUnit::MICROS, "1970-01-01 00:00:00.000000"},
+            {500000123, TestTimestampUnit::NANOS, "1970-01-01 00:00:00.500000"},
+    };
+
+    for (const auto& test_case : test_cases) {
+        SCOPED_TRACE(testing::Message()
+                     << "timestamp=" << test_case.timestamp << ", expected=" << test_case.expected);
+        expect_int64_timestamp(test_case.timestamp, test_case.unit, test_case.expected);
+    }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt64TimestampWithTimezone) {
+    const auto plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    expect_int64_timestamp(-500000, TestTimestampUnit::MICROS, "1970-01-01 07:59:59.500000", true,
+                           &plus_eight);
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt96TimestampsBeforeEpoch) {
+    auto field_schema = make_timestamp_field_schema(false);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT96);
+    const ParquetInt96 timestamp {
+            .lo = 86399500000000,
+            .hi = ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS - 1,
+    };
+
+    for (const auto primitive_type : {TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ}) {
+        field_schema.data_type =
+                DataTypeFactory::instance().create_data_type(primitive_type, false, 0, 6);
+        auto converter = PhysicalToLogicalConverter::get_converter(
+                &field_schema, field_schema.data_type, field_schema.data_type, nullptr);
+        ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+        ColumnPtr src = make_int96_column(timestamp);
+        ColumnPtr dst = field_schema.data_type->create_column();
+        ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+        ASSERT_EQ(dst->size(), 1);
+
+        if (primitive_type == TYPE_DATETIMEV2) {
+            EXPECT_EQ(field_schema.data_type->to_string(*dst, 0), "1969-12-31 23:59:59.500000");
+        } else {
+            const auto& column = assert_cast<const ColumnTimeStampTz&>(*dst);
+            EXPECT_EQ(column.get_data()[0].utc_dt().to_string(6), "1969-12-31 23:59:59.500000");
+        }
+    }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt64TimestampTzBeforeEpoch) {
+    auto field_schema = make_timestamp_field_schema(true);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT64);
+    field_schema.data_type =
+            DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, field_schema.data_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_column = ColumnInt64::create();
+    src_column->insert_value(-500000);
+    ColumnPtr src = std::move(src_column);
+    ColumnPtr dst = field_schema.data_type->create_column();
+    ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+    ASSERT_EQ(dst->size(), 1);
+
+    const auto& column = assert_cast<const ColumnTimeStampTz&>(*dst);
+    EXPECT_EQ(column.get_data()[0].utc_dt().to_string(6), "1969-12-31 23:59:59.500000");
+}
+
+TEST(ParquetColumnConvertTest, AlignNullMapUsesAppendedSourceSlice) {
+    auto dst_nested_column = ColumnFloat64::create();
+    dst_nested_column->insert_value(1);
+    dst_nested_column->insert_value(2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+
+    auto src_nested_column = ColumnInt64::create();
+    for (int i = 0; i < 5; ++i) {
+        src_nested_column->insert_value(i);
+    }
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    align_null_map(src_column, dst_column, 2, 3, 2);
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    const auto& null_map = nullable_column->get_null_map_data();
+    ASSERT_EQ(null_map.size(), 5);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+    EXPECT_EQ(null_map[4], 1);
+}
+
+TEST(ParquetColumnConvertTest, AlignNullMapUsesNullablePrefixForCachedReadColumn) {
+    auto dst_nested_column = ColumnFloat64::create();
+    dst_nested_column->insert_value(1);
+    dst_nested_column->insert_value(2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+
+    auto src_nested_column = ColumnInt64::create();
+    src_nested_column->insert_value(8);
+    src_nested_column->insert_value(9);
+    src_nested_column->insert_value(10);
+    src_nested_column->insert_value(11);
+    src_nested_column->insert_value(12);
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    align_null_map(src_column, dst_column, get_null_map_size_or_inner_column_size(dst_column), 3,
+                   get_appended_null_map_start(src_column, 3));
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    const auto& null_map = nullable_column->get_null_map_data();
+    ASSERT_EQ(null_map.size(), 5);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+    EXPECT_EQ(null_map[4], 1);
+}
+
+TEST(ParquetColumnConvertTest, ConvertNullableFloatToDoubleUsesCurrentSourceNullMapSlice) {
+    FieldSchema field_schema;
+    field_schema.name = "float_col";
+    field_schema.parquet_schema.__set_name("float_col");
+    field_schema.parquet_schema.__set_type(tparquet::Type::FLOAT);
+    field_schema.data_type = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, true);
+
+    const auto dst_type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, dst_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_nested_column = ColumnFloat32::create();
+    src_nested_column->insert_value(1.5F);
+    src_nested_column->insert_value(2.5F);
+    src_nested_column->insert_value(3.5F);
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    ColumnPtr dst_column = dst_type->create_column();
+    ColumnPtr dst_alias = dst_column;
+
+    ASSERT_TRUE(converter->convert(src_column, field_schema.data_type, dst_type, dst_column, false)
+                        .ok());
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    ASSERT_EQ(nullable_column->size(), 3);
+    const auto& null_map = nullable_column->get_null_map_data();
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 1);
+    EXPECT_EQ(null_map[2], 0);
+
+    const auto& nested_column =
+            assert_cast<const ColumnFloat64&>(nullable_column->get_nested_column());
+    EXPECT_DOUBLE_EQ(nested_column.get_data()[0], 1.5);
+    EXPECT_DOUBLE_EQ(nested_column.get_data()[2], 3.5);
+
+    const auto* original_dst = assert_cast<const ColumnNullable*>(dst_alias.get());
+    EXPECT_EQ(original_dst->size(), 0);
+}
+
+TEST(ParquetColumnConvertTest,
+     ConvertNullableFixedLengthStringToVarbinaryPreservesExistingDstPrefix) {
+    FieldSchema field_schema;
+    field_schema.name = "fixed_binary_col";
+    field_schema.parquet_schema.__set_name("fixed_binary_col");
+    field_schema.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field_schema.parquet_schema.__set_type_length(2);
+    field_schema.data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+
+    const auto dst_type = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, dst_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_nested_column = ColumnFixedLengthObject::create(2);
+    src_nested_column->insert_data("aa", 2);
+    src_nested_column->insert_data("bb", 2);
+    src_nested_column->insert_data("cc", 2);
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    auto dst_nested_column = ColumnVarbinary::create();
+    dst_nested_column->insert_data("zz", 2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+    ColumnPtr dst_alias = dst_column;
+
+    ASSERT_TRUE(converter->convert(src_column, field_schema.data_type, dst_type, dst_column, false)
+                        .ok());
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    ASSERT_EQ(nullable_column->size(), 4);
+    const auto& null_map = nullable_column->get_null_map_data();
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+
+    const auto& nested_column =
+            assert_cast<const ColumnVarbinary&>(nullable_column->get_nested_column());
+    ASSERT_EQ(nested_column.size(), 4);
+    EXPECT_EQ(nested_column.get_data_at(0).to_string(), "zz");
+    EXPECT_EQ(nested_column.get_data_at(1).to_string(), "aa");
+    EXPECT_EQ(nested_column.get_data_at(3).to_string(), "cc");
+
+    const auto* original_dst = assert_cast<const ColumnNullable*>(dst_alias.get());
+    ASSERT_EQ(original_dst->size(), 1);
+    EXPECT_EQ(original_dst->get_data_at(0).to_string(), "zz");
+}
+
+TEST(ParquetColumnConvertTest, RejectInvalidUuidPhysicalWidth) {
+    FieldSchema field;
+    field.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field.parquet_schema.__set_type_length(15);
+    tparquet::LogicalType logical_type;
+    logical_type.__set_UUID(tparquet::UUIDType());
+    field.parquet_schema.__set_logicalType(logical_type);
+    field.data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(&field, field.data_type,
+                                                               field.data_type, nullptr);
+    EXPECT_FALSE(converter->support());
+}
+
+TEST(ParquetColumnConvertTest, UuidTextAndBinaryCarriersPreserveNullsAcrossBatches) {
+    FieldSchema field;
+    field.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field.parquet_schema.__set_type_length(16);
+    tparquet::LogicalType logical_type;
+    logical_type.__set_UUID(tparquet::UUIDType());
+    field.parquet_schema.__set_logicalType(logical_type);
+    field.data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+    const std::vector<std::string> raw_values = {std::string(16, '\0'),
+                                                 std::string(16, '\x7f'),
+                                                 std::string("\x80", 1) + std::string(15, '\0'),
+                                                 std::string(16, '\xff'),
+                                                 "abcDeFGhijkLmnOp",
+                                                 std::string(16, '\0')};
+    const std::vector<std::string> text_values = {
+            "00000000-0000-0000-0000-000000000000", "7f7f7f7f-7f7f-7f7f-7f7f-7f7f7f7f7f7f",
+            "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff",
+            "61626344-6546-4768-696a-6b4c6d6e4f70", "00000000-0000-0000-0000-000000000000"};
+    for (const bool preserve_binary : {false, true}) {
+        auto converter = PhysicalToLogicalConverter::get_converter(
+                &field, field.data_type, field.data_type, nullptr, false, preserve_binary);
+        ASSERT_TRUE(converter->support());
+        ColumnPtr dst = field.data_type->create_column();
+        for (size_t batch = 0; batch < 2; ++batch) {
+            auto values = ColumnFixedLengthObject::create(16);
+            auto nulls = ColumnUInt8::create();
+            for (size_t i = batch * 3; i < (batch + 1) * 3; ++i) {
+                values->insert_data(raw_values[i].data(), 16);
+                nulls->insert_value(i == 5);
+            }
+            ColumnPtr src = ColumnNullable::create(std::move(values), std::move(nulls));
+            ASSERT_TRUE(converter->convert(src, field.data_type, field.data_type, dst, false).ok());
+            EXPECT_EQ(dst->size(), (batch + 1) * 3);
+        }
+        const auto& nullable = assert_cast<const ColumnNullable&>(*dst);
+        for (size_t i = 0; i < raw_values.size(); ++i) {
+            EXPECT_EQ(nullable.get_null_map_data()[i], i == 5);
+            EXPECT_EQ(nullable.get_nested_column().get_data_at(i).to_string(),
+                      preserve_binary ? raw_values[i] : text_values[i]);
+        }
+    }
+}
+
+TEST(ParquetColumnConvertTest, NativeUuidPreservesNetworkByteOrderAndNulls) {
+    FieldSchema field;
+    field.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field.parquet_schema.__set_type_length(16);
+    tparquet::LogicalType logical_type;
+    logical_type.__set_UUID(tparquet::UUIDType());
+    field.parquet_schema.__set_logicalType(logical_type);
+    field.data_type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(&field, field.data_type,
+                                                               field.data_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+    auto values = ColumnFixedLengthObject::create(16);
+    const std::string bytes = "0123456789abcdef";
+    values->insert_data(bytes.data(), 16);
+    values->insert_data(bytes.data(), 16);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    ColumnPtr src = ColumnNullable::create(std::move(values), std::move(nulls));
+    ColumnPtr dst = field.data_type->create_column();
+    ASSERT_TRUE(converter->convert(src, field.data_type, field.data_type, dst, false).ok());
+    EXPECT_EQ(field.data_type->to_string(*dst, 0), "30313233-3435-3637-3839-616263646566");
+    EXPECT_TRUE(dst->is_null_at(1));
+    // A UUID annotation cannot make malformed fixed-width storage a valid UUID.
+    field.parquet_schema.__set_type_length(15);
+    EXPECT_FALSE(PhysicalToLogicalConverter::get_converter(&field, field.data_type, field.data_type,
+                                                           nullptr)
+                         ->support());
 }
 
 } // namespace doris::parquet

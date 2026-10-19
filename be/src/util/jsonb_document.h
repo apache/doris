@@ -67,10 +67,13 @@
 #define JSONB_JSONBDOCUMENT_H
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -316,10 +319,65 @@ public:
     unsigned int get_leg_len() const { return leg_len; }
 
     void remove_escapes() {
-        int new_len = 0;
-        for (int i = 0; i < leg_len; i++) {
-            if (leg_ptr[i] != '\\') {
+        unsigned int new_len = 0;
+        for (unsigned int i = 0; i < leg_len; ++i) {
+            if (leg_ptr[i] != ESCAPE) {
                 leg_ptr[new_len++] = leg_ptr[i];
+                continue;
+            }
+
+            ++i;
+            if (i >= leg_len) {
+                break;
+            }
+
+            switch (leg_ptr[i]) {
+            case 'b':
+                leg_ptr[new_len++] = '\b';
+                break;
+            case 'f':
+                leg_ptr[new_len++] = '\f';
+                break;
+            case 'n':
+                leg_ptr[new_len++] = '\n';
+                break;
+            case 'r':
+                leg_ptr[new_len++] = '\r';
+                break;
+            case 't':
+                leg_ptr[new_len++] = '\t';
+                break;
+            case 'u': {
+                if (i + 4 >= leg_len || leg_ptr[i + 1] != '0' || leg_ptr[i + 2] != '0') {
+                    leg_ptr[new_len++] = leg_ptr[i];
+                    break;
+                }
+
+                auto hex_to_int = [](char c) -> int {
+                    if (c >= '0' && c <= '9') {
+                        return c - '0';
+                    }
+                    if (c >= 'a' && c <= 'f') {
+                        return c - 'a' + 10;
+                    }
+                    if (c >= 'A' && c <= 'F') {
+                        return c - 'A' + 10;
+                    }
+                    return -1;
+                };
+                int high = hex_to_int(leg_ptr[i + 3]);
+                int low = hex_to_int(leg_ptr[i + 4]);
+                if (high < 0 || low < 0) {
+                    leg_ptr[new_len++] = leg_ptr[i];
+                    break;
+                }
+                leg_ptr[new_len++] = static_cast<char>((high << 4) | low);
+                i += 4;
+                break;
+            }
+            default:
+                leg_ptr[new_len++] = leg_ptr[i];
+                break;
             }
         }
         leg_ptr[new_len] = '\0';
@@ -360,32 +418,76 @@ struct leg_info {
     ///type: 0 is member 1 is array
     unsigned int type;
 
+    ///true only for an unquoted `*` member leg or a `[*]` array leg; a quoted "*" member leg
+    ///is the literal key `*`
+    bool is_wildcard = false;
+
+    // NOLINTNEXTLINE(readability-non-const-parameter): str is an output parameter.
     bool to_string(std::string* str) const {
         if (type == MEMBER_CODE) {
             str->push_back(BEGIN_MEMBER);
-            bool contains_space = false;
+            // JsonbPath::parse_member reads an unquoted member leg until the next '.' or '[',
+            // rejects unquoted whitespace, treats a leading '*' as a wildcard and rejects an
+            // unquoted empty leg. A key that would not read back as this same single leg must be
+            // double-quoted so the emitted path can be parsed again (for example by
+            // JSON_EXTRACT on the result of JSON_SEARCH). A parsed wildcard leg stays `*`.
+            bool needs_quotes = leg_len == 0 || (!is_wildcard && *leg_ptr == WILDCARD);
             std::string tmp;
             for (auto* it = leg_ptr; it != (leg_ptr + leg_len); ++it) {
-                if (std::isspace(*it)) {
-                    contains_space = true;
-                } else if (*it == '"' || *it == ESCAPE || *it == '\r' || *it == '\n' ||
-                           *it == '\b' || *it == '\t') {
-                    tmp.push_back(ESCAPE);
+                auto c = static_cast<unsigned char>(*it);
+                if (std::isspace(c) || *it == BEGIN_MEMBER || *it == BEGIN_ARRAY) {
+                    needs_quotes = true;
                 }
-                tmp.push_back(*it);
+
+                switch (*it) {
+                case '"':
+                    tmp.append("\\\"");
+                    break;
+                case ESCAPE:
+                    tmp.append("\\\\");
+                    break;
+                case '\b':
+                    tmp.append("\\b");
+                    break;
+                case '\f':
+                    tmp.append("\\f");
+                    break;
+                case '\n':
+                    tmp.append("\\n");
+                    break;
+                case '\r':
+                    tmp.append("\\r");
+                    break;
+                case '\t':
+                    tmp.append("\\t");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        constexpr char hex[] = "0123456789abcdef";
+                        tmp.append("\\u00");
+                        tmp.push_back(hex[c >> 4]);
+                        tmp.push_back(hex[c & 0x0F]);
+                    } else {
+                        tmp.push_back(*it);
+                    }
+                    break;
+                }
             }
-            if (contains_space) {
+            if (needs_quotes) {
                 str->push_back(DOUBLE_QUOTE);
             }
             str->append(tmp);
-            if (contains_space) {
+            if (needs_quotes) {
                 str->push_back(DOUBLE_QUOTE);
             }
             return true;
         } else if (type == ARRAY_CODE) {
             str->push_back(BEGIN_ARRAY);
-            std::string int_str = std::to_string(array_index);
-            str->append(int_str);
+            if (is_wildcard) {
+                str->push_back(WILDCARD);
+            } else {
+                str->append(std::to_string(array_index));
+            }
             str->push_back(END_ARRAY);
             return true;
         } else {
@@ -411,6 +513,7 @@ public:
 
     void pop_leg_from_leg_vector() { leg_vector.pop_back(); }
 
+    // NOLINTNEXTLINE(readability-non-const-parameter): res is an output parameter.
     bool to_string(std::string* res) const {
         res->push_back(SCOPE);
         for (const auto& leg : leg_vector) {
@@ -888,7 +991,8 @@ struct ObjectVal : public ContainerVal {
     }
 
     const_iterator search(const char* key, unsigned int klen) const {
-        if (!key || !klen) {
+        // An empty key is a valid object key, so klen == 0 is still searched.
+        if (!key) {
             return end();
         }
         return internalSearch(key, klen);
@@ -928,6 +1032,16 @@ struct ObjectVal : public ContainerVal {
         return kv->value();
     }
 
+    // find the JSONB value by a key id, as stored when klen() == 0 (sMaxKeyId is the empty key)
+    const JsonbValue* find_by_key_id(JsonbKeyValue::keyid_type key_id) const {
+        for (auto it = begin(); it != end(); ++it) {
+            if (it->klen() == 0 && it->getKeyId() == key_id) {
+                return it->value();
+            }
+        }
+        return nullptr;
+    }
+
     const_iterator begin() const { return const_iterator((pointer)payload); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
@@ -941,7 +1055,10 @@ private:
 
         while (pch < fence) {
             const auto* pkey = (const JsonbKeyValue*)(pch);
-            if (klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
+            // A key id entry is also stored with klen() == 0, so an empty name only matches
+            // the sMaxKeyId sentinel that JsonbWriter writes for an empty key.
+            if (klen == 0 ? pkey->klen() == 0 && pkey->getKeyId() == JsonbKeyValue::sMaxKeyId
+                          : klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
                 return const_iterator(pkey);
             }
             pch += pkey->numPackedBytes();
@@ -1002,6 +1119,218 @@ struct ArrayVal : public ContainerVal {
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
+namespace jsonb_detail {
+
+struct JsonbScaledDecimal {
+    wide::Int256 value;
+    uint32_t scale;
+};
+
+inline void validate_decimal_scale(uint32_t scale) {
+    if (scale > static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE)) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Invalid JSONB decimal scale: {}, max allowed scale: {}", scale,
+                        BeConsts::MAX_DECIMALV3_SCALE);
+    }
+}
+
+inline bool is_numeric(const JsonbValue* value) {
+    return value->isInt() || value->isDouble() || value->isFloat() || value->isDecimal();
+}
+
+inline double floating_value(const JsonbValue* value) {
+    if (value->isDouble()) {
+        return value->unpack<JsonbDoubleVal>()->val();
+    }
+    return value->unpack<JsonbFloatVal>()->val();
+}
+
+inline JsonbScaledDecimal get_scaled_decimal(const JsonbValue* value) {
+    switch (value->type) {
+    case JsonbType::T_Decimal32: {
+        const auto* decimal = value->unpack<JsonbDecimal32>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal64: {
+        const auto* decimal = value->unpack<JsonbDecimal64>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal128: {
+        const auto* decimal = value->unpack<JsonbDecimal128>();
+        validate_decimal_scale(decimal->scale);
+        return {wide::Int256(decimal->val()), decimal->scale};
+    }
+    case JsonbType::T_Decimal256: {
+        const auto* decimal = value->unpack<JsonbDecimal256>();
+        validate_decimal_scale(decimal->scale);
+        return {decimal->val(), decimal->scale};
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB decimal value type: {}",
+                        static_cast<int32_t>(value->type));
+    }
+}
+
+inline bool scaled_decimal_equal_decimal(const JsonbScaledDecimal& lhs,
+                                         const JsonbScaledDecimal& rhs) {
+    if (lhs.scale == rhs.scale) {
+        return lhs.value == rhs.value;
+    }
+
+    if (lhs.scale < rhs.scale) {
+        const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(rhs.scale - lhs.scale);
+        return rhs.value % scale_multiplier == 0 && lhs.value == rhs.value / scale_multiplier;
+    }
+
+    const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(lhs.scale - rhs.scale);
+    return lhs.value % scale_multiplier == 0 && lhs.value / scale_multiplier == rhs.value;
+}
+
+inline bool scaled_decimal_equal_integer(const JsonbScaledDecimal& decimal, int128_t integer) {
+    const auto integer_value = wide::Int256(integer);
+    if (decimal.scale == 0) {
+        return decimal.value == integer_value;
+    }
+
+    const auto scale_multiplier = decimal_scale_multiplier<wide::Int256>(decimal.scale);
+    return decimal.value % scale_multiplier == 0 &&
+           decimal.value / scale_multiplier == integer_value;
+}
+
+inline constexpr auto kPowersOfFive = [] {
+    std::array<wide::Int256, BeConsts::MAX_DECIMALV3_SCALE + 1> powers {};
+    powers[0] = 1;
+    for (size_t i = 1; i < powers.size(); ++i) {
+        powers[i] = powers[i - 1] * 5;
+    }
+    return powers;
+}();
+
+inline wide::Int256 power_of_five(uint32_t exponent) {
+    validate_decimal_scale(exponent);
+    return kPowersOfFive[exponent];
+}
+
+inline bool scaled_binary_equal(wide::Int256 value, int exponent, wide::Int256 significand) {
+    if (exponent < 0) {
+        const int divisor_exponent = -exponent;
+        if (divisor_exponent >= std::numeric_limits<int64_t>::digits) {
+            return false;
+        }
+        const auto divisor = wide::Int256(1) << divisor_exponent;
+        return significand % divisor == 0 && value == significand / divisor;
+    }
+    constexpr int max_positive_int256_shift = std::numeric_limits<wide::Int256>::digits;
+    // wide::Int256 is signed, so shifting 1 by 255 reaches the sign bit.
+    if (exponent >= max_positive_int256_shift) {
+        return false;
+    }
+    const auto multiplier = wide::Int256(1) << exponent;
+    return value % multiplier == 0 && value / multiplier == significand;
+}
+
+inline bool floating_equal_integer(const JsonbValue* floating, int128_t integer) {
+    const double value = floating_value(floating);
+    int exponent = 0;
+    std::frexp(value, &exponent);
+    if (!std::isfinite(value) || std::trunc(value) != value) {
+        return false;
+    }
+    if (exponent >= 128) {
+        return value == -std::ldexp(1.0, 127) && integer == std::numeric_limits<int128_t>::min();
+    }
+    if (exponent <= -1) {
+        return false;
+    }
+    return static_cast<int128_t>(value) == integer;
+}
+
+inline bool floating_equal_decimal(const JsonbValue* floating, const JsonbScaledDecimal& decimal) {
+    const double value = floating_value(floating);
+    if (!std::isfinite(value)) {
+        return false;
+    }
+    if (value == 0) {
+        return decimal.value == 0;
+    }
+
+    int exponent = 0;
+    const double significand_fraction = std::frexp(value, &exponent);
+    const double significand_double =
+            std::ldexp(significand_fraction, std::numeric_limits<double>::digits);
+    auto significand = wide::Int256(static_cast<int64_t>(significand_double));
+    exponent -= std::numeric_limits<double>::digits;
+
+    const auto five_multiplier = power_of_five(decimal.scale);
+    if (decimal.value % five_multiplier != 0) {
+        return false;
+    }
+    const auto binary_scaled_decimal = decimal.value / five_multiplier;
+    return scaled_binary_equal(binary_scaled_decimal, exponent + decimal.scale, significand);
+}
+
+inline bool numeric_equal(const JsonbValue* lhs, const JsonbValue* rhs) {
+    if (!is_numeric(rhs)) {
+        return false;
+    }
+
+    if ((lhs->isDouble() || lhs->isFloat()) && rhs->isInt()) {
+        return floating_equal_integer(lhs, rhs->int_val());
+    }
+
+    if ((rhs->isDouble() || rhs->isFloat()) && lhs->isInt()) {
+        return floating_equal_integer(rhs, lhs->int_val());
+    }
+
+    if ((lhs->isDouble() || lhs->isFloat()) && rhs->isDecimal()) {
+        return floating_equal_decimal(lhs, get_scaled_decimal(rhs));
+    }
+
+    if ((rhs->isDouble() || rhs->isFloat()) && lhs->isDecimal()) {
+        return floating_equal_decimal(rhs, get_scaled_decimal(lhs));
+    }
+
+    if (lhs->isDouble() || lhs->isFloat()) {
+        return (rhs->isDouble() || rhs->isFloat()) && floating_value(lhs) == floating_value(rhs);
+    }
+
+    if (lhs->isDecimal()) {
+        const auto lhs_decimal = get_scaled_decimal(lhs);
+        if (rhs->isDecimal()) {
+            return scaled_decimal_equal_decimal(lhs_decimal, get_scaled_decimal(rhs));
+        }
+        return scaled_decimal_equal_integer(lhs_decimal, rhs->int_val());
+    }
+
+    if (rhs->isDecimal()) {
+        return scaled_decimal_equal_integer(get_scaled_decimal(rhs), lhs->int_val());
+    }
+
+    return lhs->int_val() == rhs->int_val();
+}
+
+inline bool array_contains_value(const ArrayVal* target_array, const JsonbValue* candidate) {
+    for (auto it = target_array->begin(); it < target_array->end(); ++it) {
+        if (it->contains(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool array_contains_array(const ArrayVal* target_array, const ArrayVal* candidate_array) {
+    for (auto it = candidate_array->begin(); it < candidate_array->end(); ++it) {
+        if (!array_contains_value(target_array, &*it)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace jsonb_detail
+
 inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
@@ -1013,6 +1342,9 @@ inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size)
     }
 
     const auto* val = (const JsonbValue*)doc->payload_;
+    // Same as checkAndCreateDocument(), this is intentionally a lightweight structural check for
+    // hot paths. Do not recursively validate container bodies here unless the caller is a clearly
+    // untrusted raw binary boundary and accepts the O(document size) cost.
     if (size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return nullptr;
     }
@@ -1128,18 +1460,14 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
     case JsonbType::T_Int16:
     case JsonbType::T_Int32:
     case JsonbType::T_Int64:
-    case JsonbType::T_Int128: {
-        return rhs->isInt() && this->int_val() == rhs->int_val();
-    }
+    case JsonbType::T_Int128:
     case JsonbType::T_Double:
-    case JsonbType::T_Float: {
-        if (!rhs->isDouble() && !rhs->isFloat()) {
-            return false;
-        }
-        double left = isDouble() ? unpack<JsonbDoubleVal>()->val() : unpack<JsonbFloatVal>()->val();
-        double right = rhs->isDouble() ? rhs->unpack<JsonbDoubleVal>()->val()
-                                       : rhs->unpack<JsonbFloatVal>()->val();
-        return left == right;
+    case JsonbType::T_Float:
+    case JsonbType::T_Decimal32:
+    case JsonbType::T_Decimal64:
+    case JsonbType::T_Decimal128:
+    case JsonbType::T_Decimal256: {
+        return jsonb_detail::numeric_equal(this, rhs);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1153,36 +1481,22 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
         return false;
     }
     case JsonbType::T_Array: {
-        int lhs_num = unpack<ArrayVal>()->numElem();
+        const auto* lhs_array = unpack<ArrayVal>();
         if (rhs->isArray()) {
-            int rhs_num = rhs->unpack<ArrayVal>()->numElem();
-            if (rhs_num > lhs_num) {
-                return false;
-            }
-            int contains_num = 0;
-            for (int i = 0; i < lhs_num; ++i) {
-                for (int j = 0; j < rhs_num; ++j) {
-                    if (unpack<ArrayVal>()->get(i)->contains(rhs->unpack<ArrayVal>()->get(j))) {
-                        contains_num++;
-                        break;
-                    }
-                }
-            }
-            return contains_num == rhs_num;
+            return jsonb_detail::array_contains_array(lhs_array, rhs->unpack<ArrayVal>());
         }
-        for (int i = 0; i < lhs_num; ++i) {
-            if (unpack<ArrayVal>()->get(i)->contains(rhs)) {
-                return true;
-            }
-        }
-        return false;
+        return jsonb_detail::array_contains_value(lhs_array, rhs);
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
             const auto* obj_value1 = unpack<ObjectVal>();
             const auto* obj_value2 = rhs->unpack<ObjectVal>();
             for (auto it = obj_value2->begin(); it != obj_value2->end(); ++it) {
-                const JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
+                // A key stored as an id (including the empty key sentinel) has klen() == 0 and
+                // must be matched by id, not looked up as an empty key name.
+                const JsonbValue* value = it->klen() == 0
+                                                  ? obj_value1->find_by_key_id(it->getKeyId())
+                                                  : obj_value1->find(it->getKeyStr(), it->klen());
                 if (value == nullptr || !value->contains(it->value())) {
                     return false;
                 }
@@ -1199,42 +1513,6 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
     }
     case JsonbType::T_False: {
         return rhs->isFalse();
-    }
-    case JsonbType::T_Decimal32: {
-        if (rhs->isDecimal32()) {
-            return unpack<JsonbDecimal32>()->val() == rhs->unpack<JsonbDecimal32>()->val() &&
-                   unpack<JsonbDecimal32>()->precision ==
-                           rhs->unpack<JsonbDecimal32>()->precision &&
-                   unpack<JsonbDecimal32>()->scale == rhs->unpack<JsonbDecimal32>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal64: {
-        if (rhs->isDecimal64()) {
-            return unpack<JsonbDecimal64>()->val() == rhs->unpack<JsonbDecimal64>()->val() &&
-                   unpack<JsonbDecimal64>()->precision ==
-                           rhs->unpack<JsonbDecimal64>()->precision &&
-                   unpack<JsonbDecimal64>()->scale == rhs->unpack<JsonbDecimal64>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal128: {
-        if (rhs->isDecimal128()) {
-            return unpack<JsonbDecimal128>()->val() == rhs->unpack<JsonbDecimal128>()->val() &&
-                   unpack<JsonbDecimal128>()->precision ==
-                           rhs->unpack<JsonbDecimal128>()->precision &&
-                   unpack<JsonbDecimal128>()->scale == rhs->unpack<JsonbDecimal128>()->scale;
-        }
-        return false;
-    }
-    case JsonbType::T_Decimal256: {
-        if (rhs->isDecimal256()) {
-            return unpack<JsonbDecimal256>()->val() == rhs->unpack<JsonbDecimal256>()->val() &&
-                   unpack<JsonbDecimal256>()->precision ==
-                           rhs->unpack<JsonbDecimal256>()->precision &&
-                   unpack<JsonbDecimal256>()->scale == rhs->unpack<JsonbDecimal256>()->scale;
-        }
-        return false;
     }
     case JsonbType::NUM_TYPES:
         break;
@@ -1264,6 +1542,7 @@ inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
         stream.skip_whitespace();
         stream.clear_leg_ptr();
         stream.clear_leg_len();
+        stream.set_has_escapes(false);
 
         if (!JsonbPath::parsePath(&stream, this)) {
             //path invalid
@@ -1279,6 +1558,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
         return parse_array(stream, path);
     }
     // $.a or $.[0]
+    // Keep $.[0] for backward compatibility: although the dot before an array
+    // leg is non-standard, existing JSONB users may rely on it.
     else if (stream->peek() == BEGIN_MEMBER) {
         // advance past the .
         stream->skip(1);
@@ -1321,7 +1602,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
                 return false;
             }
 
-            // $.[0]
+            // $**.[0]
+            // Keep the dot-array form compatible with the root path behavior.
             if (stream->peek() == BEGIN_ARRAY) {
                 return parse_array(stream, path);
             }
@@ -1356,6 +1638,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         if (stream->peek() == END_ARRAY) {
             std::unique_ptr<leg_info> leg(
                     new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
+            leg->is_wildcard = true;
             path->add_leg_to_leg_vector(std::move(leg));
             stream->skip(1);
             path->_is_wildcard = true;
@@ -1384,6 +1667,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     std::string_view idx_string(stream->get_leg_ptr(), stream->get_leg_len());
     int index = 0;
 
+    // Match "last" case-insensitively for compatibility with existing JSONB
+    // paths such as [Last] and [LAST].
     if (stream->get_leg_len() >= 4 &&
         std::equal(LAST, LAST + 4, stream->get_leg_ptr(),
                    [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); })) {
@@ -1402,6 +1687,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
             idx_string = idx_string.substr(pos + 1);
             idx_string = trim(idx_string);
 
+            // Keep numeric-prefix parsing for last-N offsets as existing JSONB
+            // path behavior.
             auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
                                           index);
             if (result.ec != std::errc()) {
@@ -1419,6 +1706,9 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         return true;
     }
 
+    // Preserve legacy numeric-prefix parsing for array indexes. std::from_chars
+    // may stop before the end (for example [1.5] is parsed as index 1), and
+    // current JSONB path semantics treat that as supported behavior.
     auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
 
     if (result.ec != std::errc()) {
@@ -1444,6 +1734,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->skip(1);
         std::unique_ptr<leg_info> leg(
                 new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+        leg->is_wildcard = true;
         path->add_leg_to_leg_vector(std::move(leg));
         path->_is_wildcard = true;
         return true;
@@ -1490,8 +1781,10 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->add_leg_len();
     }
 
+    // An empty member name is only valid when it is written explicitly as `""`.
     if ((left_quotation_marks != nullptr && right_quotation_marks == nullptr) ||
-        stream->get_leg_ptr() == nullptr || stream->get_leg_len() == 0) {
+        stream->get_leg_ptr() == nullptr ||
+        (left_quotation_marks == nullptr && stream->get_leg_len() == 0)) {
         return false; //invalid json path
     }
 

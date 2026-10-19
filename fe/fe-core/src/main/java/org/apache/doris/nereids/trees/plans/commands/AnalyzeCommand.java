@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
@@ -138,9 +138,15 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
         return analyzeProperties.usingSqlForExternalTable();
     }
 
+    /**
+     * Validate analyze command properties.
+     */
     public void validate(ConnectContext ctx) throws UserException {
         if (analyzeProperties != null) {
             analyzeProperties.check();
+        }
+        if (analyzeProperties.hasCollectHotValue() && getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE) {
+            throw new AnalysisException("Sample analyze does not support WITH HOT VALUE");
         }
     }
 

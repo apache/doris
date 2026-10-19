@@ -37,4 +37,32 @@ suite("test_timestampdiff") {
     qt_select """
         SELECT TIMESTAMPDIFF(second,'2003-02-03 11:00:00','2003-02-03 11:00:40');
     """
+
+    qt_select """
+        SELECT TIMESTAMPDIFF(microsecond,
+                CAST('2024-01-01 10:00:00.123456' AS DATETIMEV2(6)),
+                CAST('2024-01-01 10:00:00.999999' AS DATETIMEV2(6)));
+    """
+
+    sql """drop table if exists test_timestampdiff_microsecond"""
+    sql """
+        create table test_timestampdiff_microsecond (
+            id int,
+            t datetimev2(6)
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1");
+    """
+
+    sql """
+        insert into test_timestampdiff_microsecond values
+            (1, '2024-01-01 10:00:00.123456'),
+            (2, '2024-01-01 10:00:00.999999');
+    """
+
+    qt_select """
+        SELECT MAX(t), MIN(t), TIMESTAMPDIFF(MICROSECOND, MIN(t), MAX(t))
+        FROM test_timestampdiff_microsecond;
+    """
 }

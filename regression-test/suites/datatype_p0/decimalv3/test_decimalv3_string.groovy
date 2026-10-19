@@ -20,7 +20,7 @@ suite("test_decimalv3_string") {
     sql "CREATE DATABASE IF NOT EXISTS ${db}"
     sql "use ${db}"
     sql "drop table if exists replicationtesttable"
-    sql '''CREATE TABLE `replicationtesttable` (   `k1` varchar(144) NOT NULL COMMENT '_key__',   `k2` int(11) NOT NULL COMMENT '_key__',  v4 decimal(18,4) null, ) ENGINE=OLAP UNIQUE KEY(`k1`, `k2`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k1`) BUCKETS 32 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "is_being_synced" = "false", "storage_format" = "V2", "light_schema_change" = "true", "disable_auto_compaction" = "false", "enable_single_replica_compaction" = "false" ); '''
+    sql '''CREATE TABLE `replicationtesttable` (   `k1` varchar(144) NOT NULL COMMENT '_key__',   `k2` int(11) NOT NULL COMMENT '_key__',  v4 decimal(18,4) null, ) ENGINE=OLAP UNIQUE KEY(`k1`, `k2`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k1`) BUCKETS 32 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "is_being_synced" = "false", "storage_format" = "V2", "light_schema_change" = "true", "disable_auto_compaction" = "false" ); '''
     sql "insert into replicationtesttable (k1,k2,v4) select 'aaa',10,22500000900.000000000000000000000000000000"
     sql "insert into replicationtesttable (k1,k2,v4) select 'bbb',20,'22500000900.000000000000000000000000000000'"
 

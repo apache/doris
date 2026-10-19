@@ -41,6 +41,7 @@ enum EncodingTypePB {
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
     PLAIN_ENCODING_V2 = 8; // Binary plain with varuint length prefix
+    PLAIN_ENCODING_V3 = 9; // Binary plain with contiguous data + contiguous varuint lengths trailer
 }
 
 enum CompressionTypePB {
@@ -214,7 +215,7 @@ message ColumnMetaPB {
     optional ColumnPathInfo column_path_info = 13;
 
     // Extra type info to be compatible with tabet schema
-    optional bytes default_value = 14; // ColumnMessage.default_value ?
+    optional bytes DEPRECATED_default_value = 14; // this field is useless, it is added by https://github.com/apache/doris/pull/24170/
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
 

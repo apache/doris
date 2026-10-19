@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+------------------------------------filter(item.i_color IN ('cyan', 'green', 'powder'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))
@@ -51,7 +51,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF4
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+------------------------------------filter(item.i_color IN ('cyan', 'green', 'powder'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))
@@ -75,7 +75,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF8
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+------------------------------------filter(item.i_color IN ('cyan', 'green', 'powder'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))

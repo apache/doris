@@ -223,6 +223,10 @@ public:
                          const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
                          google::protobuf::Closure* done) override;
 
+    void sync_tablet_meta(google::protobuf::RpcController* controller,
+                          const PSyncTabletMetaRequest* request, PSyncTabletMetaResponse* response,
+                          google::protobuf::Closure* done) override;
+
     void delete_dictionary(google::protobuf::RpcController* controller,
                            const PDeleteDictionaryRequest* request,
                            PDeleteDictionaryResponse* response,
@@ -274,6 +278,9 @@ protected:
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
+    // Dedicated pool for cancellation; open/write/close use the heavy pool.
+    FifoThreadPool _load_light_work_pool;
+    FifoThreadPool _peer_fetch_pool;
     FifoThreadPool _light_work_pool;
     FifoThreadPool _arrow_flight_work_pool;
 };
@@ -304,11 +311,6 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
-                                     int64_t txn_id, int64_t tablet_id, int64_t node_id,
-                                     bool is_succeed);
-    Status _multi_get(const PMultiGetRequest& request, PMultiGetResponse* response);
-
     void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
                                        const PFetchColIdsRequest* request,
                                        PFetchColIdsResponse* response,

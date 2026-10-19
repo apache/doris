@@ -17,15 +17,19 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.meta.MetaHeader;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -36,20 +40,23 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 public class EnvTest {
 
     private MockedStatic<MetaContext> mockedMetaContext;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MetaContext metaContext = new MetaContext();
         mockedMetaContext = Mockito.mockStatic(MetaContext.class);
         mockedMetaContext.when(MetaContext::get).thenReturn(metaContext);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMetaContext != null) {
             mockedMetaContext.close();
@@ -141,9 +148,39 @@ public class EnvTest {
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         env = Env.getCurrentEnv();
         long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
-        Assert.assertEquals(checksum1, checksum2);
+        Assertions.assertEquals(checksum1, checksum2);
         dis.close();
 
         deleteDir(dir);
+    }
+
+    @Test
+    public void testSetLdapDefaultRolesConfigRefreshesLdapCache() throws Exception {
+        Env env = Mockito.spy(new Env(false));
+        Auth auth = Mockito.mock(Auth.class);
+        LdapManager ldapManager = Mockito.mock(LdapManager.class);
+        Mockito.doReturn(auth).when(env).getAuth();
+        Mockito.when(auth.getLdapManager()).thenReturn(ldapManager);
+
+        Map<String, Field> oldConfFields = ConfigBase.confFields;
+        Field oldLdapDefaultRolesField = ConfigBase.ldapConfFields.put("ldap_default_roles",
+                LdapConfig.class.getField("ldap_default_roles"));
+        String[] oldLdapDefaultRoles = LdapConfig.ldap_default_roles;
+        try {
+            ConfigBase.confFields = new HashMap<>();
+
+            env.setMutableConfigWithCallback("ldap_default_roles", "role1,role2");
+
+            Assertions.assertArrayEquals(new String[] {"role1", "role2"}, LdapConfig.ldap_default_roles);
+            Mockito.verify(ldapManager).refresh(true, null);
+        } finally {
+            ConfigBase.confFields = oldConfFields;
+            if (oldLdapDefaultRolesField == null) {
+                ConfigBase.ldapConfFields.remove("ldap_default_roles");
+            } else {
+                ConfigBase.ldapConfFields.put("ldap_default_roles", oldLdapDefaultRolesField);
+            }
+            LdapConfig.ldap_default_roles = oldLdapDefaultRoles;
+        }
     }
 }

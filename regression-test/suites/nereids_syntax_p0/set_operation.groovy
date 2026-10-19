@@ -291,6 +291,27 @@ suite("set_operation") {
         select count(*) from (select 1, 2 union select 1,1 ) a;
     """
 
+    // do not push non-injective cast project below UNION DISTINCT.
+    // The two datetime values are distinct before the outer cast, but become
+    // equal after casting to date. The correct result keeps both rows.
+    order_qt_union46 """
+        select cast(dt as date) from (
+            select cast('2020-01-01 00:00:00' as datetime) dt
+            union
+            select cast('2020-01-01 01:00:00' as datetime) dt
+        ) t
+    """
+
+    // The project duplicates one UNION output and drops the other. Pushing it
+    // below UNION DISTINCT would collapse the two rows into one.
+    order_qt_union47 """
+        select cast(a as bigint), cast(a as bigint) from (
+            select 1 a, 2 b
+            union
+            select 1 a, 3 b
+        ) t
+    """
+
     def tables = [
             "dwd_daytable",
     ]

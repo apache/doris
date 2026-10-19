@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -66,7 +67,6 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                                      size_t value_count, size_t null_count,
                                      ColumnIndexMetaPB* index_meta,
                                      bool use_primary_key_bloom_filter = false, double fpp = 0.05) {
-    const auto* type_info = get_scalar_type_info<type>();
     using CppType = typename CppTypeTraits<type>::CppType;
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
@@ -80,10 +80,10 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
         bf_options.fpp = fpp; // Set the expected FPP
         if (use_primary_key_bloom_filter) {
             RETURN_IF_ERROR(PrimaryKeyBloomFilterIndexWriterImpl::create(
-                    bf_options, type_info, &bloom_filter_index_writer));
+                    bf_options, type, &bloom_filter_index_writer));
         } else {
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(bf_options, type_info,
-                                                           &bloom_filter_index_writer));
+            RETURN_IF_ERROR(
+                    BloomFilterIndexWriter::create(bf_options, type, &bloom_filter_index_writer));
         }
 
         const CppType* vals = (const CppType*)values;
@@ -477,6 +477,48 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_write_read_filter) {
+    size_t num = 1024 * 3;
+    std::vector<int64_t> values(num);
+    for (size_t i = 0; i < num; ++i) {
+        values[i] = -1'000'000'000 + static_cast<int64_t>(i);
+    }
+
+    const std::string file_name = "bloom_filter_timestamp_ns";
+    int64_t not_exist_value = -1'000'000'001;
+    auto st =
+            test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>(
+                    file_name, values.data(), num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_all_null_page) {
+    const std::string file_name = "bloom_filter_timestamp_ns_all_null";
+    const std::string file_path = dname + "/" + file_name;
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(file_path, &file_writer).ok());
+
+    BloomFilterOptions options;
+    std::unique_ptr<BloomFilterIndexWriter> writer;
+    ASSERT_TRUE(BloomFilterIndexWriter::create(options, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+                                               &writer)
+                        .ok());
+    writer->add_nulls(1024);
+    ASSERT_TRUE(writer->flush().ok());
+
+    ColumnIndexMetaPB meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+    std::unique_ptr<BloomFilter> bloom_filter;
+    ASSERT_TRUE(iter->read_bloom_filter(0, &bloom_filter).ok());
+    EXPECT_TRUE(bloom_filter->test_bytes(nullptr, 1));
+    delete reader;
+}
+
 TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
     size_t num = 1024 * 3;
     auto base_dt = make_timestamptz(2025, 11, 14, 14, 37, 30, 999998);
@@ -614,9 +656,25 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_uuid) {
+    size_t num = 1024 * 3;
+    uint128_t* val = new uint128_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(i);
+    }
+
+    std::string file_name = "bloom_filter_uuid";
+    uint128_t not_exist_value = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(999999);
+
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_UUID>(
+            file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
 template <FieldType type>
 Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* values,
-                                           size_t num_values, const TypeInfo* type_info,
+                                           size_t num_values,
                                            BloomFilterIndexWriter* bf_index_writer,
                                            ColumnIndexMetaPB* meta) {
     auto fs = io::global_local_filesystem();
@@ -685,16 +743,15 @@ template <FieldType type>
 Status test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
                                                    size_t num_values, uint8_t gram_size,
                                                    uint16_t bf_size) {
-    const auto* type_info = get_scalar_type_info<type>();
     ColumnIndexMetaPB meta;
 
     BloomFilterOptions bf_options;
     std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
-    RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size,
-                                                            bf_size, &bf_index_writer));
+    RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(bf_options, type, gram_size, bf_size,
+                                                            &bf_index_writer));
 
-    RETURN_IF_ERROR(write_ngram_bloom_filter_index_file<type>(
-            file_name, values, num_values, type_info, bf_index_writer.get(), &meta));
+    RETURN_IF_ERROR(write_ngram_bloom_filter_index_file<type>(file_name, values, num_values,
+                                                              bf_index_writer.get(), &meta));
 
     std::vector<std::string> test_patterns = {"ngram15", "ngram1000", "ngram1499",
                                               "non-existent-string"};
@@ -734,7 +791,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }
 void test_ngram_bloom_filter_with_size(uint16_t bf_size) {
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     ColumnIndexMetaPB meta;
 
     BloomFilterOptions bf_options;
@@ -751,13 +808,13 @@ void test_ngram_bloom_filter_with_size(uint16_t bf_size) {
     uint8_t gram_size = 5;
 
     std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
-    auto st = NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size, bf_size,
+    auto st = NGramBloomFilterIndexWriterImpl::create(bf_options, type, gram_size, bf_size,
                                                       &bf_index_writer);
     EXPECT_TRUE(st.ok());
 
     std::string file_name = "bloom_filter_ngram_varchar_size_" + std::to_string(bf_size);
-    st = write_ngram_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
-            file_name, slices.data(), num, type_info, bf_index_writer.get(), &meta);
+    st = write_ngram_bloom_filter_index_file<type>(file_name, slices.data(), num,
+                                                   bf_index_writer.get(), &meta);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(bf_index_writer->size(), static_cast<uint64_t>(bf_size) * total_pages);
 }
@@ -770,10 +827,10 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter_size) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
-    auto type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_FLOAT>();
     BloomFilterOptions bf_options;
     std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
-    auto st = BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
+    auto st = BloomFilterIndexWriter::create(bf_options, FieldType::OLAP_FIELD_TYPE_FLOAT,
+                                             &bloom_filter_index_writer);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }

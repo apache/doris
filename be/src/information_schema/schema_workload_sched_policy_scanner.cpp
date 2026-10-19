@@ -20,6 +20,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
@@ -127,7 +128,8 @@ Status SchemaWorkloadSchedulePolicyScanner::get_next_block_internal(Block* block
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    MutableBlock mblock = MutableBlock::build_mutable_block(block);
+    ScopedMutableBlock scoped_mblock(block);
+    auto& mblock = scoped_mblock.mutable_block();
     RETURN_IF_ERROR(mblock.add_rows(_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

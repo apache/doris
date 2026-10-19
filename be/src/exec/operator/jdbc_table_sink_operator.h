@@ -45,7 +45,7 @@ public:
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class JdbcTableSinkLocalState;
@@ -57,5 +57,8 @@ private:
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>;
 
 } // namespace doris

@@ -23,6 +23,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string_view>
@@ -41,6 +42,7 @@
 #include "exprs/aggregate/aggregate_function_rpc.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sort.h"
+#include "exprs/aggregate/aggregate_function_state_combine.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "exprs/vexpr.h"
@@ -103,9 +105,10 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     // Child arguments contains [real arguments, order by arguments], we pass the arguments
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
-        agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
-                                                         sort_info.is_asc_order[i] ? 1 : -1,
-                                                         sort_info.nulls_first[i] ? -1 : 1);
+        const int direction = sort_info.is_asc_order[i] ? 1 : -1;
+        agg_fn_evaluator->_sort_description.emplace_back(
+                real_arguments_size + i, direction,
+                sort_info.nulls_first[i] ? -direction : direction);
     }
 
     // Pass the real arguments to get functions
@@ -174,46 +177,81 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
-        if (argument_types.size() != 1) {
-            return Status::InternalError("Agg state Function must input 1 argument but get {}",
-                                         argument_types.size());
-        }
-        if (argument_types[0]->is_nullable()) {
-            return Status::InternalError("Agg state function input type must be not nullable");
-        }
-        if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
-            return Status::InternalError(
-                    "Agg state function input type must be agg_state but get {}",
-                    argument_types[0]->get_family_name());
-        }
-
-        std::string type_function_name =
-                assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_function_name();
-        if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
+        if (match_suffix(_fn.name.function_name, AGG_COMBINE_SUFFIX)) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
-                        "Union function return type must be not nullable, real={}",
+                        "Combine function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
             if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
-                        "Union function return type must be AGG_STATE, real={}",
+                        "Combine function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
             }
-            _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
-        } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
-            auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
-                                ->get_nested_function()
-                                ->get_return_type();
-            if (!type->equals(*_data_type)) {
-                return Status::InternalError("{}'s expect return type is {}, but input {}",
-                                             argument_types[0]->get_name(), type->get_name(),
+            const auto* state_type = assert_cast<const DataTypeAggState*>(_data_type.get());
+            if (state_type->get_function_name() + AGG_COMBINE_SUFFIX != _fn.name.function_name) {
+                return Status::InternalError("{} not match return type {}", _fn.name.function_name,
                                              _data_type->get_name());
             }
-            _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
+            const auto& expected_argument_types = state_type->get_sub_types();
+            if (argument_types.size() != expected_argument_types.size()) {
+                return Status::InternalError("Combine function {} expects {} arguments but gets {}",
+                                             _fn.name.function_name, expected_argument_types.size(),
+                                             argument_types.size());
+            }
+            for (size_t i = 0; i < argument_types.size(); ++i) {
+                if (!argument_types[i]->equals(*expected_argument_types[i])) {
+                    return Status::InternalError(
+                            "Combine function {} argument {} expects {}, but gets {}",
+                            _fn.name.function_name, i, expected_argument_types[i]->get_name(),
+                            argument_types[i]->get_name());
+                }
+            }
+            _function = AggregateStateCombine::create(state_type->get_nested_function(),
+                                                      argument_types, _data_type);
         } else {
-            return Status::InternalError("{} not match function {}", argument_types[0]->get_name(),
-                                         _fn.name.function_name);
+            if (argument_types.size() != 1) {
+                return Status::InternalError("Agg state Function must input 1 argument but get {}",
+                                             argument_types.size());
+            }
+            if (argument_types[0]->is_nullable()) {
+                return Status::InternalError("Agg state function input type must be not nullable");
+            }
+            if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                return Status::InternalError(
+                        "Agg state function input type must be agg_state but get {}",
+                        argument_types[0]->get_family_name());
+            }
+
+            std::string type_function_name =
+                    assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                            ->get_function_name();
+            if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
+                if (_data_type->is_nullable()) {
+                    return Status::InternalError(
+                            "Union function return type must be not nullable, real={}",
+                            _data_type->get_name());
+                }
+                if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                    return Status::InternalError(
+                            "Union function return type must be AGG_STATE, real={}",
+                            _data_type->get_name());
+                }
+                _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
+            } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
+                auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                                    ->get_nested_function()
+                                    ->get_return_type();
+                if (!type->equals(*_data_type)) {
+                    return Status::InternalError("{}'s expect return type is {}, but input {}",
+                                                 argument_types[0]->get_name(), type->get_name(),
+                                                 _data_type->get_name());
+                }
+                _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
+            } else {
+                return Status::InternalError("{} not match function {}",
+                                             argument_types[0]->get_name(), _fn.name.function_name);
+            }
         }
     } else {
         const bool is_foreach =
@@ -287,6 +325,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -294,6 +333,7 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena& arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
@@ -301,6 +341,7 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -308,17 +349,46 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
 }
 
+void AggFnEvaluator::add_range_single_place(int64_t partition_start, int64_t partition_end,
+                                            int64_t frame_start, int64_t frame_end,
+                                            AggregateDataPtr place, const IColumn** columns,
+                                            Arena& arena, UInt8* use_null_result,
+                                            UInt8* could_use_previous_result) {
+    _function->check_input_columns_type(columns);
+    _function->add_range_single_place(partition_start, partition_end, frame_start, frame_end, place,
+                                      columns, arena, use_null_result, could_use_previous_result);
+}
+
+void AggFnEvaluator::execute_function_with_incremental(
+        int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
+        AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
+        bool end_is_nul, bool has_null, UInt8* use_null_result, UInt8* could_use_previous_result) {
+    _function->check_input_columns_type(columns);
+    _function->execute_function_with_incremental(
+            partition_start, partition_end, frame_start, frame_end, place, columns, arena,
+            previous_is_nul, end_is_nul, has_null, use_null_result, could_use_previous_result);
+}
+
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
+    _function->check_result_column_type(*column);
     _function->insert_result_into(place, *column);
 }
 
 void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>& places,
                                             size_t offset, IColumn* column, const size_t num_rows) {
+    _function->check_result_column_type(*column);
     _function->insert_result_into_vec(places, offset, *column, num_rows);
+}
+
+void AggFnEvaluator::insert_result_info_range(ConstAggregateDataPtr place, IColumn* column,
+                                              size_t start, size_t end) {
+    _function->check_result_column_type(*column);
+    _function->insert_result_into_range(place, *column, start, end);
 }
 
 void AggFnEvaluator::reset(AggregateDataPtr place) {
@@ -407,7 +477,7 @@ Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
     for (uint32_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
         auto&& [name, column_type] = name_and_types[i];
-        auto agg_return_type = agg_fn[j]->function()->get_return_type();
+        auto agg_return_type = agg_fn[j]->get_return_type();
         if (!column_type->equals(*agg_return_type)) {
             if (!column_type->is_nullable() || agg_return_type->is_nullable() ||
                 !remove_nullable(column_type)->equals(*agg_return_type)) {
@@ -425,6 +495,16 @@ bool AggFnEvaluator::is_blockable() const {
     return _function->is_blockable() ||
            std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
+}
+
+bool AggFnEvaluator::is_simple_count() const {
+    // The inline count path never evaluates the arguments, so it is only valid when
+    // skipping the evaluation cannot change the result, e.g. COUNT(assert_true(...)).
+    return _function->is_simple_count() &&
+           std::all_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](const VExprContextSPtr& ctx) {
+                           return ctx->root()->is_slot_ref() || ctx->root()->is_literal();
+                       });
 }
 
 } // namespace doris

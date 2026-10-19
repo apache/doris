@@ -55,12 +55,15 @@ public:
     // Get merge file segment index information
     // This method should be called after close(true) to get the index information
     // Returns empty index if file is not in merge file
-    Status get_packed_slice_location(PackedSliceLocation* location) const;
+    Status get_packed_slice_location(PackedSliceLocation* location) const override;
 
-    // Returns true if this file's data was written to a packed file (not direct write)
-    bool is_in_packed_file() const override { return !_is_direct_write; }
+#ifdef BE_TEST
+    size_t buffer_capacity_for_test() const { return _buffer.capacity(); }
+#endif
 
 private:
+    void _release_buffer();
+
     // Async close: submit data without waiting
     Status _close_async();
 
@@ -83,9 +86,10 @@ private:
     std::string _buffer;
     size_t _bytes_appended = 0;
     State _state = State::OPENED;
-    bool _is_direct_write = false;                      // Whether to use direct write mode
-    PackedFileManager* _packed_file_manager = nullptr;  // Packed file manager instance
-    mutable PackedSliceLocation _packed_slice_location; // Packed slice info (mutable for lazy init)
+    bool _is_direct_write = false;                     // Whether to use direct write mode
+    PackedFileManager* _packed_file_manager = nullptr; // Packed file manager instance
+    // Handle to this file's slice, shared with PackedFileManager
+    PackedSliceHandlePtr _packed_slice_handle;
     PackedAppendContext _append_info;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;

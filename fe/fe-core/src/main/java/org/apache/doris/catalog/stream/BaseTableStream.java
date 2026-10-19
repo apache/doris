@@ -23,8 +23,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
@@ -34,27 +36,41 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 public abstract class BaseTableStream extends Table {
-    public enum StreamConsumeType {
-        DEFAULT,
+    public enum StreamScanType {
         APPEND_ONLY,
         MIN_DELTA,
+        DETAIL,
         UNKNOWN;
-        public static StreamConsumeType getType(String typeName) {
+        public static StreamScanType getType(String typeName) {
             if (typeName == null) {
                 return UNKNOWN;
             }
             typeName = typeName.toLowerCase();
             switch (typeName) {
-                case "default":
-                    return DEFAULT;
                 case "append_only":
                     return APPEND_ONLY;
                 case "min_delta":
                     return MIN_DELTA;
+                case "detail":
+                    return DETAIL;
                 default:
                     return UNKNOWN;
+            }
+        }
+
+        public static TBinlogScanType toThrift(StreamScanType streamScanType) {
+            switch (streamScanType) {
+                case MIN_DELTA:
+                    return TBinlogScanType.MIN_DELTA;
+                case APPEND_ONLY:
+                    return TBinlogScanType.APPEND_ONLY;
+                case DETAIL:
+                    return TBinlogScanType.DETAIL;
+                default:
+                    return TBinlogScanType.UNKNOWN;
             }
         }
     }
@@ -62,13 +78,13 @@ public abstract class BaseTableStream extends Table {
     private static ImmutableList<TableType> supportedTableTypeList = ImmutableList.of(TableType.OLAP);
 
     @SerializedName("sct")
-    protected StreamConsumeType streamConsumeType = StreamConsumeType.DEFAULT;
+    protected StreamScanType streamScanType = StreamScanType.MIN_DELTA;
 
     @SerializedName("sir")
     protected boolean showInitialRows;
 
-    @SerializedName("sti")
-    protected StreamTableInfo streamTableInfo;
+    @SerializedName("bti")
+    protected TableStreamBaseTableInfo baseTableInfo;
 
     @SerializedName("d")
     private boolean disabled;
@@ -79,45 +95,87 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sr")
     private String staleReason = "N/A";
 
-    protected volatile TableIf baseTable;
-
     // for persist
     public BaseTableStream() {
         super(TableType.STREAM);
     }
 
-    public BaseTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, TableType.STREAM, fullSchema);
-        this.streamTableInfo = new StreamTableInfo(baseTable);
-        this.baseTable = baseTable;
+    public BaseTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, TableType.STREAM, null);
+        this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
         this.disabled = false;
         this.stale = false;
     }
 
-    public BaseTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public BaseTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable == null) {
-            baseTable = streamTableInfo.getTableNullable();
+        return  baseTableInfo.getTableNullable();
+    }
+
+    // Dynamically generate the stream schema from the base table so that base table schema
+    // changes are reflected automatically. The returned list is immutable, allowing schema
+    // reading interfaces below to return it directly without extra copies.
+    protected abstract List<Column> generateDynamicSchema();
+
+    @Override
+    public List<Column> getFullSchema() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        List<Column> schema = generateDynamicSchema();
+        if (full) {
+            return schema;
         }
-        return baseTable;
+        return schema.stream().filter(Column::isVisible).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public Column getColumn(String colName) {
+        if (colName == null) {
+            return null;
+        }
+        for (Column column : generateDynamicSchema()) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                return column;
+            }
+        }
+        return null;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
-        showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
-                false);
-        streamConsumeType = PropertyAnalyzer.analyzeStreamType(properties);
+        showInitialRows = false;
+        String key = PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS;
+        if (properties != null && properties.containsKey(key)) {
+            try {
+                showInitialRows = Util.parseBooleanProperty(properties.get(key), key);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new org.apache.doris.common.AnalysisException(key + " must be `true` or `false`", e);
+            }
+            properties.remove(key);
+        }
+        streamScanType = PropertyAnalyzer.analyzeStreamType(properties);
     }
 
     public String getTableStreamType() {
         return "BASE_STREAM";
     }
 
-    public String getConsumeType() {
-        return streamConsumeType.name();
+    public String getScanTypeString() {
+        return streamScanType.name();
+    }
+
+    public StreamScanType getStreamScanType() {
+        return streamScanType;
     }
 
     public boolean isDisabled() {
@@ -150,7 +208,7 @@ public abstract class BaseTableStream extends Table {
 
     public void appendProperties(StringBuilder sb) {
         sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STREAM_TYPE)
-                .append("\" = \"").append(streamConsumeType).append("\"");
+                .append("\" = \"").append(streamScanType).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS)
                 .append("\" = \"").append(showInitialRows).append("\"\n");
     }
@@ -163,13 +221,17 @@ public abstract class BaseTableStream extends Table {
     // fill table_stream_consumption info
     // @param dataBatch the data batch to fill
     // DB_NAME, STREAM_NAME, STREAM_ID, UNIT, CONSUMPTION_STATUS, LAG, LAST_CONSUMPTION_TIME
-    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch);
+    void fillTableStreamConsumptionInfo(List<TRow> dataBatch) {
+        fillTableStreamConsumptionInfo(dataBatch, unit -> true);
+    }
+
+    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch, Predicate<String> unitSelector);
 
     public <E extends Exception> TableIf getBaseTableOrException(java.util.function.Function<String, E> e)
             throws E {
         TableIf table = getBaseTableNullable();
         if (table == null) {
-            throw e.apply(streamTableInfo.getTableName());
+            throw e.apply(baseTableInfo.getTableName());
         }
         return table;
     }
@@ -180,7 +242,15 @@ public abstract class BaseTableStream extends Table {
     }
 
     public List<String> getBaseTableFullQualifiers() {
-        return streamTableInfo.getFullQualifiers();
+        return baseTableInfo.getFullQualifiers();
+    }
+
+    public TableStreamBaseTableInfo getBaseTableInfo() {
+        return baseTableInfo;
+    }
+
+    public boolean isShowInitialRows() {
+        return showInitialRows;
     }
 
     public abstract void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)

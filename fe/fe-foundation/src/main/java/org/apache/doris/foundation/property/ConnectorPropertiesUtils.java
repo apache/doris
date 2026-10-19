@@ -23,12 +23,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Utility class for handling fields annotated with {@link ConnectorProperty}.
  * Provides methods to extract supported connector properties from a class and bind them to an object instance.
  */
 public class ConnectorPropertiesUtils {
+    private static final Map<Class<? extends ConnectorPropertyValidator>, ConnectorPropertyValidator> VALIDATORS =
+            new ConcurrentHashMap<>();
 
     /**
      * Retrieves all fields annotated with {@link ConnectorProperty} from the given class and its superclasses,
@@ -74,6 +77,7 @@ public class ConnectorPropertiesUtils {
                 try {
                     Object rawValue = props.get(matchedName);
                     Object convertedValue = convertValue(rawValue, field.getType());
+                    validateValue(target, field, matchedName, convertedValue, props);
                     field.set(target, convertedValue);
                 } catch (Exception e) {
                     throw new IllegalArgumentException(
@@ -82,6 +86,25 @@ public class ConnectorPropertiesUtils {
                     );
                 }
             }
+        }
+    }
+
+    private static void validateValue(Object target, Field field, String propertyName, Object value,
+            Map<String, String> props) {
+        Class<? extends ConnectorPropertyValidator> validatorClass =
+                field.getAnnotation(ConnectorProperty.class).validator();
+        ConnectorPropertyValidator validator = VALIDATORS.computeIfAbsent(
+                validatorClass, ConnectorPropertiesUtils::createValidator);
+        validator.validate(target, field, propertyName, value, props);
+    }
+
+    private static ConnectorPropertyValidator createValidator(
+            Class<? extends ConnectorPropertyValidator> validatorClass) {
+        try {
+            return validatorClass.getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException(
+                    "Failed to create connector property validator " + validatorClass.getName(), e);
         }
     }
 
@@ -145,6 +168,27 @@ public class ConnectorPropertiesUtils {
         throw new IllegalArgumentException("Unsupported property type: " + targetType.getName());
     }
 
+    /** Parses the legacy boolean spellings accepted by DLF configuration without silently coercing typos. */
+    public static boolean parseBooleanProperty(String value, String propertyName) {
+        if (value == null) {
+            return false;
+        }
+        switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true":
+            case "yes":
+            case "y":
+            case "on":
+                return true;
+            case "false":
+            case "no":
+            case "n":
+            case "off":
+                return false;
+            default:
+                throw new IllegalArgumentException(propertyName + " must be a boolean, got: '" + value + "'");
+        }
+    }
+
     /**
      * Return the sensitive keys of the give properties
      *
@@ -163,6 +207,45 @@ public class ConnectorPropertiesUtils {
             }
         }
         return keys;
+    }
+
+    /**
+     * Renders a {@code @ConnectorProperty}-annotated object as a diagnostic string with sensitive
+     * field values masked.
+     *
+     * <p>The {@code sensitive} flag on each {@link ConnectorProperty} is the single source of truth:
+     * sensitive fields render as {@code ***} (or {@code <empty>} when blank) so that logging a
+     * properties object via {@code LOG.xxx("props=" + props)} can never leak credentials. Keeping the
+     * masking driven by the annotation means new sensitive fields are protected automatically without
+     * having to maintain a hand-written {@code toString()}.
+     *
+     * @param target the annotated object to render
+     * @return a masked, human-readable representation
+     */
+    public static String toMaskedString(Object target) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(target.getClass().getSimpleName()).append('{');
+        boolean first = true;
+        for (Field field : getConnectorProperties(target.getClass())) {
+            Object value;
+            try {
+                value = field.get(target);
+            } catch (IllegalAccessException e) {
+                value = "<inaccessible>";
+            }
+            String rendered;
+            if (field.getAnnotation(ConnectorProperty.class).sensitive()) {
+                rendered = isNotBlank(value == null ? null : value.toString()) ? "***" : "<empty>";
+            } else {
+                rendered = String.valueOf(value);
+            }
+            if (!first) {
+                sb.append(", ");
+            }
+            sb.append(field.getName()).append('=').append(rendered);
+            first = false;
+        }
+        return sb.append('}').toString();
     }
 
     /**

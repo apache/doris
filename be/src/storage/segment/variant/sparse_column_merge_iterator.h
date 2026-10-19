@@ -31,22 +31,20 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_variant.h"
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
@@ -55,7 +53,7 @@ namespace doris::segment_v2 {
 // Implementation for merge processor
 class SparseColumnMergeIterator : public BaseBinaryColumnProcessor {
 public:
-    SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
+    SparseColumnMergeIterator(const VariantCompactionPaths& path_set_info,
                               BinaryColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
                               const StorageReadOptions* opts)
@@ -72,8 +70,7 @@ public:
             return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
         }));
         // then read sparse column
-        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
-                              dst);
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, dst);
     }
 
     // RowID-based read using template method
@@ -85,7 +82,7 @@ public:
         }));
         // then read sparse column
         return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
-                              count, dst);
+                              dst);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;

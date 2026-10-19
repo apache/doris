@@ -32,6 +32,22 @@ namespace doris {
 
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 
+static ColumnPtr create_nullable_gender_column() {
+    auto column_f1 = ColumnString::create();
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert_default();
+    column_f1->insert_default();
+
+    auto null_map = ColumnUInt8::create();
+    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
+    for (int i = 0; i < offs.size(); ++i) {
+        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
+    }
+    return ColumnNullable::create(std::move(column_f1), std::move(null_map));
+}
+
 class VCountByEnumTest : public testing::Test {
 public:
     AggregateFunctionPtr agg_function;
@@ -126,21 +142,58 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
     agg_function->destroy(place2);
 }
 
+TEST_F(VCountByEnumTest, testNulInStringKey) {
+    Arena arena;
+    auto column = ColumnString::create();
+    column->insert_data("A\0B", 3);
+    column->insert_data("A", 1);
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* columns[1] = {column.get()};
+    agg_function->add(place, columns, 0, arena);
+    agg_function->add(place, columns, 1, arena);
+
+    auto result_column = std::make_shared<DataTypeString>()->create_column();
+    agg_function->insert_result_into(place, *result_column);
+    auto& result = assert_cast<ColumnString&>(*result_column);
+
+    rapidjson::Document document;
+    document.Parse(result.get_data_at(0).to_string().c_str());
+    ASSERT_TRUE(document.IsArray());
+    ASSERT_EQ(document.Size(), 1);
+    const rapidjson::Value& cbe = document[0]["cbe"];
+    ASSERT_TRUE(cbe.IsObject());
+    ASSERT_EQ(cbe.MemberCount(), 2);
+
+    bool found_nul_key = false;
+    bool found_plain_key = false;
+    for (auto member = cbe.MemberBegin(); member != cbe.MemberEnd(); ++member) {
+        if (member->name.GetStringLength() == 3 && member->name.GetString()[1] == '\0') {
+            found_nul_key = true;
+            EXPECT_EQ(std::string(member->name.GetString(), member->name.GetStringLength()),
+                      std::string("A\0B", 3));
+            EXPECT_EQ(member->value.GetInt(), 1);
+        } else if (member->name.GetStringLength() == 1) {
+            found_plain_key = true;
+            EXPECT_EQ(member->name.GetString()[0], 'A');
+            EXPECT_EQ(member->value.GetInt(), 1);
+        }
+    }
+    EXPECT_TRUE(found_nul_key);
+    EXPECT_TRUE(found_plain_key);
+    EXPECT_EQ(document[0]["notnull"].GetInt(), 2);
+    EXPECT_EQ(document[0]["null"].GetInt(), 0);
+    EXPECT_EQ(document[0]["all"].GetInt(), 2);
+
+    agg_function->destroy(place);
+}
+
 TEST_F(VCountByEnumTest, testNullableSample) {
     Arena arena;
     const int batch_size = 5;
-    auto column_f1 = ColumnString::create();
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
-    ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnUInt8::create();
-    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
-    for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
-    }
-
-    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
+    auto nullable_column_f1 = create_nullable_gender_column();
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -176,18 +229,7 @@ TEST_F(VCountByEnumTest, testNullableSample) {
 TEST_F(VCountByEnumTest, testNoMerge) {
     Arena arena;
     const int batch_size = 5;
-    auto column_f1 = ColumnString::create();
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
-    ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnUInt8::create();
-    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
-    for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
-    }
-
-    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
+    auto nullable_column_f1 = create_nullable_gender_column();
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -216,17 +258,7 @@ TEST_F(VCountByEnumTest, testNoMerge) {
 TEST_F(VCountByEnumTest, testSerialize) {
     Arena arena;
     const int batch_size = 5;
-    auto column_f1 = ColumnString::create();
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
-    ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnUInt8::create();
-    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
-    for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
-    }
-    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
+    auto nullable_column_f1 = create_nullable_gender_column();
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -262,17 +294,7 @@ TEST_F(VCountByEnumTest, testSerialize) {
     EXPECT_EQ(item0["null"].GetInt(), 2);
     EXPECT_EQ(item0["all"].GetInt(), 5);
 
-    auto column_f1_2 = ColumnString::create();
-    column_f1_2->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1_2->insert(Field::create_field<TYPE_STRING>("F"));
-    column_f1_2->insert(Field::create_field<TYPE_STRING>("M"));
-    ColumnPtr column_f1_2_ptr = std::move(column_f1_2);
-    auto null_map_2 = ColumnUInt8::create();
-    std::vector<uint8_t> offs_2 = {0, 0, 0, 1, 1};
-    for (int i = 0; i < offs.size(); ++i) {
-        null_map_2->insert(Field::create_field<TYPE_BOOLEAN>(offs_2[i]));
-    }
-    auto nullable_column_f1_2 = ColumnNullable::create(column_f1_2_ptr, std::move(null_map_2));
+    auto nullable_column_f1_2 = create_nullable_gender_column();
 
     std::unique_ptr<char[]> memory3(new char[agg_function->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();

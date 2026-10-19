@@ -77,6 +77,10 @@ class TestBlockSerializer final : public MySQLResultBlockBuffer {
 public:
     TestBlockSerializer(RuntimeState* state) : MySQLResultBlockBuffer(state) {}
     ~TestBlockSerializer() override = default;
+    size_t queue_size() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _result_batch_queue.size();
+    }
     std::shared_ptr<TFetchDataResult> get_block() {
         std::lock_guard<std::mutex> l(_lock);
         DCHECK_EQ(_result_batch_queue.size(), 1);
@@ -86,7 +90,7 @@ public:
     }
 };
 
-void serialize_and_deserialize_mysql_test() {
+void serialize_and_deserialize_mysql_test(bool dry_run) {
     Block block;
     //    create_descriptor_tablet();
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols {
@@ -317,12 +321,25 @@ void serialize_and_deserialize_mysql_test() {
     auto serializer = std::make_shared<TestBlockSerializer>(&state);
     VMysqlResultWriter mysql_writer(serializer, _output_vexpr_ctxs, nullptr, false);
 
-    Status st = mysql_writer.write(&runtime_stat, block);
+    TQueryOptions query_options;
+    query_options.__set_dry_run_query(dry_run);
+    runtime_stat.set_query_options(query_options);
+
+    Status st = mysql_writer.init(&runtime_stat);
     EXPECT_TRUE(st.ok());
+
+    st = mysql_writer.write(&runtime_stat, block);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(mysql_writer.get_written_rows(), row_num);
+    EXPECT_EQ(serializer->queue_size(), dry_run ? 0 : 1);
 }
 
 TEST(DataTypeSerDeMysqlTest, ScalaSerDeTest) {
-    serialize_and_deserialize_mysql_test();
+    serialize_and_deserialize_mysql_test(false);
+}
+
+TEST(DataTypeSerDeMysqlTest, DryRunSkipsSerialization) {
+    serialize_and_deserialize_mysql_test(true);
 }
 
 } // namespace doris

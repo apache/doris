@@ -43,14 +43,16 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/debug_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace io {
+class S3FileSystem;
+} // namespace io
 class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
@@ -73,6 +75,39 @@ class QueryContext;
 class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
 class TaskExecutionContext;
+
+// Keep RuntimeState self-contained without importing the full frontend Thrift service header.
+class TReportExecStatusParams;
+class RuntimeState;
+
+// Owns a share of the external-file report budget until the prepared commit messages are
+// published. Destruction releases an unpublished reservation automatically.
+class ExternalFileReportReservation {
+public:
+    ExternalFileReportReservation() = default;
+    ~ExternalFileReportReservation();
+
+    ExternalFileReportReservation(const ExternalFileReportReservation&) = delete;
+    ExternalFileReportReservation& operator=(const ExternalFileReportReservation&) = delete;
+
+private:
+    friend class RuntimeState;
+
+    RuntimeState* _state = nullptr;
+    size_t _reserved_bytes = 0;
+};
+
+class ExternalFileReportState {
+    friend class RuntimeState;
+
+private:
+    std::mutex mutex;
+    size_t serialized_commit_bytes = 0;
+    bool ownership_may_have_transferred = false;
+    std::vector<std::function<void()>> rejected_report_cleanups;
+};
+
+enum class ExternalFileReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -213,7 +248,6 @@ public:
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
-    const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine
@@ -243,16 +277,10 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    bool enable_common_expr_pushdown() const {
-        return _query_options.__isset.enable_common_expr_pushdown &&
-               _query_options.enable_common_expr_pushdown;
+    bool enable_segment_limit_pushdown() const {
+        return !_query_options.__isset.enable_segment_limit_pushdown ||
+               _query_options.enable_segment_limit_pushdown;
     }
-
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_common_expr_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
 
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
@@ -330,7 +358,7 @@ public:
 
     std::string get_error_log_file_path();
 
-    std::string get_first_error_msg() const { return _first_error_msg; }
+    std::string get_first_error_msg() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -421,8 +449,11 @@ public:
                BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
-    bool enable_local_shuffle() const {
-        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    bool plan_local_shuffle() const {
+        // If local shuffle is enabled and not planned by local shuffle planner, we should plan local shuffle in BE.
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle &&
+               (!_query_options.__isset.enable_local_shuffle_planner ||
+                !_query_options.enable_local_shuffle_planner);
     }
 
     MOCK_FUNCTION bool enable_local_exchange() const {
@@ -527,14 +558,41 @@ public:
         _hive_partition_updates.emplace_back(hive_partition_update);
     }
 
-    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+    void append_iceberg_commit_datas(std::vector<TIcebergCommitData>* output) const {
         std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        return _iceberg_commit_datas;
+        output->insert(output->end(), _iceberg_commit_datas.begin(), _iceberg_commit_datas.end());
     }
 
-    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
-        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
+    Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
+
+    // Reserve report space before closing the Paimon writer, then either publish the prepared
+    // messages after a clean close or let the reservation release itself while aborting the writer.
+    Status reserve_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages,
+                                          ExternalFileReportReservation* reservation);
+
+    void publish_reserved_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages,
+                                                 ExternalFileReportReservation* reservation);
+
+    void append_paimon_commit_messages(std::vector<TPaimonCommitMessage>* output) const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        output->insert(output->end(), _paimon_commit_messages.begin(),
+                       _paimon_commit_messages.end());
+    }
+
+    size_t coordinator_thrift_message_limit() const;
+
+    void append_external_file_commit_data(TReportExecStatusParams* params, bool final_report) const;
+
+    void add_rejected_external_file_report_cleanup(std::function<void()> cleanup);
+
+    void finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome);
+
+    void set_external_file_report_state(std::shared_ptr<ExternalFileReportState> report_state) {
+        _external_file_report_state = std::move(report_state);
+    }
+
+    const std::shared_ptr<ExternalFileReportState>& external_file_report_state() const {
+        return _external_file_report_state;
     }
 
     std::vector<TMCCommitData> mc_commit_datas() const {
@@ -591,6 +649,11 @@ public:
                _query_options.enable_local_exchange_before_agg;
     }
 
+    bool enable_local_exchange_before_streaming_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_streaming_agg &&
+               _query_options.enable_local_exchange_before_streaming_agg;
+    }
+
     bool enable_distinct_streaming_agg_force_passthrough() const {
         return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
                _query_options.enable_distinct_streaming_agg_force_passthrough;
@@ -619,6 +682,11 @@ public:
     bool enable_aggregate_function_null_v2() const {
         return _query_options.__isset.enable_aggregate_function_null_v2 &&
                _query_options.enable_aggregate_function_null_v2;
+    }
+
+    bool enable_prune_nested_column() const {
+        return _query_options.__isset.enable_prune_nested_column &&
+               _query_options.enable_prune_nested_column;
     }
 
     bool is_read_csv_empty_line_as_null() const {
@@ -849,6 +917,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 
@@ -862,6 +938,10 @@ public:
     void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
+    friend class ExternalFileReportReservation;
+
+    void release_external_file_report_reservation(size_t reserved_bytes);
+
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;
@@ -898,9 +978,6 @@ private:
 
     // _error_log[_unreported_error_idx+] has been not reported to the coordinator.
     int _unreported_error_idx;
-
-    // Username of user that is executing the query to which this RuntimeState belongs.
-    std::string _user;
 
     //Query-global timestamp_ms
     int64_t _timestamp_ms;
@@ -965,9 +1042,14 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
+    std::shared_ptr<ExternalFileReportState> _external_file_report_state =
+            std::make_shared<ExternalFileReportState>();
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _paimon_commit_messages_mutex;
+    std::vector<TPaimonCommitMessage> _paimon_commit_messages;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
@@ -986,6 +1068,9 @@ private:
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    // Protects the load error log stream, paths, and first error message.
+    mutable std::mutex _load_error_log_lock;
+    // Serializes S3 upload and presigned URL publication.
     std::mutex _s3_error_log_file_lock;
 
     // used for encoding the global lazy materialize

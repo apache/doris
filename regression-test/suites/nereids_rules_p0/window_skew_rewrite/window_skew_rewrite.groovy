@@ -16,6 +16,7 @@
 // under the License.
 
 suite("window_skew_rewrite") {
+    sql "set parallel_pipeline_task_num=2"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "drop table if exists test_skew_window"
     sql """create table test_skew_window(a int, c varchar(100), b int, d varchar(20)) distributed by hash(a) buckets 32 properties("replication_num"="1");"""

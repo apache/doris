@@ -19,6 +19,20 @@ import java.util.concurrent.ThreadLocalRandom
 
 suite("hive_on_hms_and_dlf", "p2,external") {
 
+    // DLF 1.0 is no longer an HMS metastore. Check its explicit rejection without cloud
+    // credentials, while retaining the HMS storage and authentication matrix below.
+    sql """DROP CATALOG IF EXISTS hive_dlf_unsupported_catalog"""
+    test {
+        sql """
+            CREATE CATALOG hive_dlf_unsupported_catalog PROPERTIES (
+                'type' = 'hms',
+                'hive.metastore.type' = 'dlf'
+            )
+        """
+        exception "hive.metastore.type = dlf is no longer supported: " +
+                "Alibaba Cloud DLF 1.0 as an HMS thrift metastore has been removed. Supported types: hms."
+    }
+
     // Keep generated identifiers under the FE 64-character limit for long prefixes.
     def buildDbName = { String prefix ->
         def suffix = String.format("_db%d%03d", System.currentTimeMillis(), ThreadLocalRandom.current().nextInt(1000))
@@ -228,6 +242,52 @@ suite("hive_on_hms_and_dlf", "p2,external") {
 
         def table_name = buildTableName(prefix, "_overwrite_table")
 
+        def refreshOverwriteTable = { String stage ->
+            logger.info("refresh insert overwrite target after ${stage}, catalog=${catalog_name}, " +
+                    "db=${db_name}, table=${table_name}, location=${dbLocation}")
+            sql """
+                refresh catalog ${catalog_name};
+            """
+            sql """
+                switch ${catalog_name};
+            """
+            sql """
+                use ${db_name};
+            """
+            sql """
+                refresh table ${db_name}.${table_name};
+            """
+        }
+
+        def logOverwriteDebugInfo = { String stage, Object actualResult ->
+            logger.info("insert overwrite check failed after ${stage}, catalog=${catalog_name}, " +
+                    "db=${db_name}, table=${table_name}, location=${dbLocation}, actualResult=${actualResult}")
+            try {
+                def countResult = sql """
+                    SELECT COUNT(*) FROM ${table_name};
+                """
+                logger.info("insert overwrite debug count after ${stage}: ${countResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug count failed after ${stage}: ${t.getMessage()}")
+            }
+            try {
+                def showCreateResult = sql """
+                    SHOW CREATE TABLE ${table_name};
+                """
+                logger.info("insert overwrite debug show create table after ${stage}: ${showCreateResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug show create table failed after ${stage}: ${t.getMessage()}")
+            }
+            try {
+                def explainResult = sql """
+                    EXPLAIN SELECT * FROM ${table_name};
+                """
+                logger.info("insert overwrite debug explain select after ${stage}: ${explainResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug explain select failed after ${stage}: ${t.getMessage()}")
+            }
+        }
+
         // Create non-partitioned table for insert overwrite test
         sql """
             CREATE TABLE ${table_name} (
@@ -253,9 +313,13 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         sql """
             insert overwrite table ${table_name} values (3, 'charlie', 30);
         """
+        refreshOverwriteTable("first overwrite")
         def result2 = sql """
-            SELECT * FROM ${table_name};
+            SELECT * FROM ${table_name} ORDER BY id;
         """
+        if (result2.size() != 1 || result2[0][0] != 3) {
+            logOverwriteDebugInfo("first overwrite", result2)
+        }
         assert result2.size() == 1
         assert result2[0][0] == 3
 
@@ -263,15 +327,22 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         sql """
             insert overwrite table ${table_name} values (4, 'david', 35), (5, 'eve', 28), (6, 'frank', 40);
         """
+        refreshOverwriteTable("second overwrite")
         def result3 = sql """
             SELECT COUNT(*) FROM ${table_name};
         """
+        if (result3[0][0] != 3) {
+            logOverwriteDebugInfo("second overwrite count", result3)
+        }
         assert result3[0][0] == 3
 
         // Test 4: Verify data integrity after overwrite
         def result4 = sql """
             SELECT * FROM ${table_name} ORDER BY id;
         """
+        if (result4.size() != 3 || result4[0][0] != 4 || result4[1][0] != 5 || result4[2][0] != 6) {
+            logOverwriteDebugInfo("second overwrite rows", result4)
+        }
         assert result4.size() == 3
         assert result4[0][0] == 4
         assert result4[1][0] == 5
@@ -424,6 +495,10 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     // kerberos
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos",
              
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
@@ -431,22 +506,15 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     """
     String hdfs_new_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
     
-    String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
-    String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
-    /**************** DLF *******************/
-
-    String dlf_oss_properties = """
-               "oss.endpoint" = "${oss_endpoint}",
-               "oss.access_key" = "${dlf_access_key}",
-               "oss.secret_key" = "${dlf_secret_key}",
-    """
-
-
     String hms_kerberos_old_prop = """
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "hadoop.security.authentication" = "kerberos",
@@ -484,8 +552,6 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     String db_location = "obs://${obs_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + obs_storage_properties, "hive_hms_obs_test", db_location)
     testQueryAndInsert(hms_properties + obs_region_param + obs_storage_properties, "hive_hms_obs_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_new", db_location)
 
     //OBS - Partition table tests
     db_location = "obs://${obs_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
@@ -498,8 +564,6 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         db_location = "gs://${gcs_parent_path}/hive/hms/" + System.currentTimeMillis()
         testQueryAndInsert(hms_properties + gcs_storage_old_properties, "hive_hms_gcs_test", db_location)
         testQueryAndInsert(hms_properties + gcs_storage_new_properties, "hive_hms_gcs_test_new", db_location)
-        testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + gcs_storage_old_properties, "hive_hms_on_gcs_kerberos_old", db_location)
-        testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + gcs_storage_new_properties, "hive_hms_on_gcs_kerberos_new", db_location)
         //GCS - Insert overwrite tests
         db_location = "gs://${gcs_parent_path}/hive/hms/overwrite/" + System.currentTimeMillis()
         testInsertOverwrite(hms_properties + gcs_storage_new_properties, "hive_hms_gcs_overwrite_test", db_location)
@@ -509,8 +573,6 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     db_location = "cosn://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + cos_storage_properties, "hive_hms_cos_test", db_location)
     testQueryAndInsert(hms_properties + cos_region_param + cos_storage_properties, "hive_hms_cos_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_new", db_location)
 
     //COS - Partition table tests
     db_location = "cosn://${cos_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
@@ -526,8 +588,6 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     db_location = "oss://${oss_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + oss_storage_properties, "hive_hms_oss_test", db_location)
     testQueryAndInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_new", db_location)
 
     //OSS - Partition table tests (fix for partition path scheme mismatch)
     db_location = "oss://${oss_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
@@ -569,31 +629,4 @@ suite("hive_on_hms_and_dlf", "p2,external") {
 
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "hive_hms_hdfs_new_kerberos_test", db_location)
-
-    /**************** DLF *******************/
-    String dlf_warehouse = "oss://selectdb-qa-datalake-test/hive-dlf-oss-warehouse"
-    String hive_dlf_catalog_base_properties = """
-            'type'='hms',
-            'hive.metastore.type'='dlf',
-            "dlf.uid" = "203225413946383283",
-            "dlf.catalog.id" = "p2_regression_case",
-            "dlf.access_key" = "${dlf_access_key}",
-            "dlf.secret_key" = "${dlf_secret_key}"
-   """
-    String dlf_region = "cn-beijing"
-    String dlf_region_param = """
-            "dlf.region" = "${dlf_region}",
-    """
-    String dlf_endpoint = context.config.otherConfigs.get("dlf_endpoint")
-    String dlf_endpoint_properties = """
-             "dlf.endpoint" = "${dlf_endpoint}",
-    """
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param + dlf_oss_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test_with_oss", db_location)
- 
-    // not has region param
-    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
-    testQueryAndInsert(dlf_endpoint_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
 }

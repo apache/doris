@@ -135,6 +135,7 @@ doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
 oceanbase_port=2881
+oceanbase_cdc_port=2883
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -159,6 +160,17 @@ hive3PgPort=5732
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableKafkaTest=false
 kafka_port=19193
+
+// fluss catalog test config
+// to enable fluss test, you need firstly to start fluss containers
+// See `docker/thirdparties/run-thirdparties-docker.sh -c fluss`
+enableFlussTest=false
+fluss_coordinator_port=19123
+// The object store the fluss lake lives in. Fluss removes every lake option whose
+// name holds key, secret or password before it hands a table's properties to a
+// client, so a suite that reads the lake has to tell its own catalog how to reach
+// that store; the credentials are the minio defaults and are spelled out there.
+fluss_minio_port=19125
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/run-thirdparties-docker.sh`
@@ -238,6 +250,7 @@ extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
+iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
@@ -260,6 +273,11 @@ max_failure_num=0
 s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
+
+// Optional Trino JDBC regressions use the Trino service in the Iceberg Docker stack.
+// Match trino_jdbc_port to its published TRINO_JDBC_PORT and externalEnvIp to the Docker host.
+enableTrinoJdbcTest = false
+trino_jdbc_port = 8080
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
@@ -302,7 +320,7 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
-// The path of the cert configuration file for the testing framework 
+// The path of the cert configuration file for the testing framework
 // is consistent with the path of the cert file for the cluster
 enableTLS=false
 tlsVerifyMode="strict"
@@ -332,7 +350,6 @@ hudiHmsPort=19083
 hudiMinioPort=19100
 hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
-
 icebergDlfRestCatalog="'type' = 'iceberg', 'warehouse' = 'new_dlf_iceberg_catalog', 'iceberg.catalog.type' = 'rest', 'iceberg.rest.uri' = 'http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg', 'iceberg.rest.sigv4-enabled' = 'true', 'iceberg.rest.signing-name' = 'DlfNext', 'iceberg.rest.access-key-id' = 'ak', 'iceberg.rest.secret-access-key' = 'sk', 'iceberg.rest.signing-region' = 'cn-beijing', 'iceberg.rest.vended-credentials-enabled' = 'true', 'io-impl' = 'org.apache.iceberg.rest.DlfFileIO', 'fs.oss.support' = 'true'"
 
 // For python UDF test, set the runtime version of python, default: 3.8.10

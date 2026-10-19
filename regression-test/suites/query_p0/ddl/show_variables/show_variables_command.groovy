@@ -20,7 +20,15 @@ suite("show_variables_command") {
     checkNereidsExecute("""show variables like 'li_ense'""")
     checkNereidsExecute("""show variables where variable_name like 'li_ense'""")
     checkNereidsExecute("""show variables where variable_name = 'license'""")
+    checkNereidsExecute("""show variables where changed = 1""")
+    checkNereidsExecute("""show global variables where variable_name = 'license'""")
     qt_cmd("""show variables like 'li_ense'""")
     qt_cmd("""show variables where variable_name like 'li_ense'""")
     qt_cmd("""show variables where variable_name = 'license'""")
+
+    sql "set enable_profile = true"
+    qt_changed("""show variables where changed = 1 and variable_name = 'enable_profile'""")
+    qt_not_changed("""show variables where changed = 1 and variable_name = 'license'""")
+    qt_global("""show global variables where variable_name = 'license'""")
+    sql "UNSET VARIABLE ALL"
 }

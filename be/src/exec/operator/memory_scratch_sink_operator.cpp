@@ -86,7 +86,7 @@ Status MemoryScratchSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status MemoryScratchSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (nullptr == input_block || 0 == input_block->rows()) {
@@ -102,16 +102,15 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block,
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_vexpr_ctxs, *input_block, &block));
     }
-    std::shared_ptr<arrow::Schema> block_arrow_schema;
+    ArrowFlightArrowBlockConvertor converter(block, state->timezone(), _timezone_obj);
     {
         SCOPED_TIMER(local_state._get_arrow_schema_timer);
         // After expr executed, use recaculated schema as final schema
-        RETURN_IF_ERROR(get_arrow_schema_from_block(block, &block_arrow_schema, state->timezone()));
+        RETURN_IF_ERROR(converter.init());
     }
     {
         SCOPED_TIMER(local_state._convert_block_to_arrow_batch_timer);
-        RETURN_IF_ERROR(convert_to_arrow_batch(
-                block, block_arrow_schema, arrow::default_memory_pool(), &result, _timezone_obj));
+        RETURN_IF_ERROR(converter.convert_to_arrow(block, arrow::default_memory_pool(), &result));
     }
     local_state._queue->blocking_put(result);
     if (local_state._queue->size() > config::max_memory_sink_batch_count) {

@@ -54,9 +54,6 @@ public:
     static constexpr PrimitiveType PType = TYPE_DATEV2;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
-    }
     const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
@@ -107,13 +104,8 @@ public:
 
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIMEV2; }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        scalar_type->set_scale(_scale);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
-    }
     const std::string get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override {
         return "DateTimeV2(" + std::to_string(_scale) + ")";

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -38,6 +39,18 @@ public interface ExpressionTrait extends TreeNode<Expression> {
         return !nullable();
     }
 
+    /**
+     * Prepare the expression before type coercion: called once its children are bound, before
+     * checkLegalityBeforeTypeCoercion and before the signature is computed. Unlike the checkLegality methods,
+     * it may replace children and return a rebuilt expression. Override it only when the signature depends on
+     * the value of an argument, e.g. the precision of now(1 + 2), and fold that argument with
+     * {@link org.apache.doris.nereids.util.ExpressionUtils#foldConstantArgument}.
+     */
+    @Developing
+    default Expression prepareBeforeTypeCoercion() {
+        return (Expression) this;
+    }
+
     // check legality before do type coercion.
     // maybe we should merge checkInputDataTypes and checkLegality later.
     @Developing
@@ -46,10 +59,16 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     @Developing
     default void checkLegalityAfterRewrite() {}
 
+    /**
+     * getArguments.
+     */
     default List<Expression> getArguments() {
         return children();
     }
 
+    /**
+     * getArgument.
+     */
     default Expression getArgument(int index) {
         return child(index);
     }
@@ -76,7 +95,7 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     /**
      * foldable() mainly use in fold expression. Udf and UniqueFunction are not foldable.
      * But if want to check an expression contains non-idempotent, such as `rand()`, `uuid()`, etc.,
-     * you should use Expression::containsUniqueFunction instead.
+     * you should use Expression::containsVolatileExpression instead.
      */
     default boolean foldable() {
         return true;
@@ -94,5 +113,22 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default boolean containsNondeterministic() {
         return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
+    }
+
+    /**
+     * Identify whether the expression itself needs volatile identity.
+     * Only VolatileExpression is allowed to override this method.
+     */
+    default boolean isVolatile() {
+        return false;
+    }
+
+    default boolean containsVolatileExpression() {
+        return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
+    }
+
+    default boolean containsVolatileOrNoneMovableExpression() {
+        return containsType(VolatileExpression.class, NoneMovableFunction.class)
+                && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile() || expr instanceof NoneMovableFunction);
     }
 }

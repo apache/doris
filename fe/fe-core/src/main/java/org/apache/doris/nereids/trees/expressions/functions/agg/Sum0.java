@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
@@ -53,11 +52,12 @@ import java.util.List;
 
 /**
  * AggregateFunction 'sum0'. sum0 returns the sum of the values which go into it like sum.
- * It differs in that when no non null values are applied zero is returned instead of null.
+ * when all input values are null, it returns zero instead of null.
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard {
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -98,15 +98,6 @@ public class Sum0 extends NotNullableAggregateFunction
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_sum because there is no distinct args");
         return new MultiDistinctSum0(false, child());
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("sum0 requires a numeric, boolean or string parameter: " + this.toSql());
-        }
     }
 
     /**

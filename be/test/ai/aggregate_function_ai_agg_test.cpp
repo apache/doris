@@ -20,8 +20,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
@@ -66,7 +69,7 @@ public:
         _agg_function->set_query_context(_query_ctx.get());
     }
 
-    void TearDown() override { AggregateFunctionAIAggData::_ctx = nullptr; }
+    void TearDown() override { unsetenv("AI_TEST_RESULT"); }
 
 protected:
     std::unique_ptr<MockRuntimeState> _runtime_state;
@@ -424,6 +427,56 @@ TEST_F(AggregateFunctionAIAggTest, ai_context_window_size_session_variable_test)
     _agg_function->destroy(place);
 }
 
+TEST_F(AggregateFunctionAIAggTest, query_context_is_isolated_between_function_instances_test) {
+    TQueryOptions first_query_options = create_fake_query_options();
+    first_query_options.__set_ai_context_window_size(8);
+    auto first_query_ctx =
+            MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), first_query_options);
+    first_query_ctx->set_mock_ai_resource();
+
+    TQueryOptions second_query_options = create_fake_query_options();
+    second_query_options.__set_ai_context_window_size(1024);
+    auto second_query_ctx =
+            MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), second_query_options);
+    second_query_ctx->set_mock_ai_resource();
+
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_ai_agg(factory);
+    auto first_agg_function = factory.get("ai_agg", _data_types, nullptr, false, -1);
+    auto second_agg_function = factory.get("ai_agg", _data_types, nullptr, false, -1);
+    ASSERT_TRUE(first_agg_function != nullptr);
+    ASSERT_TRUE(second_agg_function != nullptr);
+
+    first_agg_function->set_query_context(first_query_ctx.get());
+    second_agg_function->set_query_context(second_query_ctx.get());
+
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("abcd", 4);
+    task_col->insert_data("summarize", 9);
+
+    resource_col->insert_data("mock_resource", 13);
+    text_col->insert_data("efgh", 4);
+    task_col->insert_data("summarize", 9);
+
+    std::unique_ptr<char[]> memory(new char[first_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    first_agg_function->create(place);
+
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+    first_agg_function->add(place, columns, 0, _arena);
+    first_agg_function->add(place, columns, 1, _arena);
+
+    const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
+    std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+    EXPECT_EQ(actual, "this is a mock response\nefgh");
+
+    first_agg_function->destroy(place);
+}
+
 TEST_F(AggregateFunctionAIAggTest, gemini_endpoint_normalize_to_generate_content_test) {
     AIResource resource;
     resource.provider_type = "GEMINI";
@@ -464,6 +517,46 @@ TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     std::string result(result_ref.data, result_ref.size);
 
     _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, openai_responses_preserves_model_output_as_one_result) {
+    TAIResource ai_resource;
+    ai_resource.provider_type = "OPENAI";
+    ai_resource.model_name = "test_model";
+    ai_resource.endpoint = "https://api.openai.com/v1/responses";
+    _query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"openai_response", ai_resource}});
+
+    const std::vector<std::pair<std::string, std::string>> test_cases = {
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[\"north\",\"south\"]"}]}]})",
+             R"(["north","south"])"},
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[]"}]}]})",
+             "[]"}};
+
+    for (const auto& [response, expected] : test_cases) {
+        setenv("AI_TEST_RESULT", response.c_str(), 1);
+
+        auto resource_col = ColumnString::create();
+        auto text_col = ColumnString::create();
+        auto task_col = ColumnString::create();
+        resource_col->insert_data("openai_response", 15);
+        text_col->insert_data("test input", 10);
+        task_col->insert_data("summarize", 9);
+
+        std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        _agg_function->create(place);
+
+        const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+        _agg_function->add(place, columns, 0, _arena);
+
+        ColumnString result_column;
+        _agg_function->insert_result_into(place, result_column);
+        StringRef result_ref = result_column.get_data_at(0);
+        EXPECT_EQ(std::string(result_ref.data, result_ref.size), expected);
+
+        _agg_function->destroy(place);
+    }
 }
 
 TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {

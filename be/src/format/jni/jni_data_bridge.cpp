@@ -29,6 +29,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -38,6 +39,8 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "util/string_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -58,9 +61,11 @@ namespace doris {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMP_NS, ColumnTimeStampNs, Int64)  \
     M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
-    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
+    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)                  \
+    M(PrimitiveType::TYPE_UUID, ColumnUUID, UUIDValueType)
 
 Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
@@ -102,27 +107,29 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
-        // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
+        // org.apache.doris.jni.spi.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
+    auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
     MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        auto* nullable_column =
-                reinterpret_cast<ColumnNullable*>(doris_column->assume_mutable().get());
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(mutable_doris_column.get())) {
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
         null_map.resize(origin_size + num_rows);
         memcpy(null_map.data() + origin_size, static_cast<bool*>(null_map_ptr), num_rows);
     } else {
-        data_column = doris_column->assume_mutable();
+        data_column = mutable_doris_column->get_ptr();
     }
     // Date and DateTime are deprecated and not supported.
+    Status status = Status::OK();
     switch (logical_type) {
-#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
-    case TYPE_INDEX:                                             \
-        return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \
-                data_column, reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr()), num_rows);
+#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                             \
+    case TYPE_INDEX: {                                                                          \
+        auto* data = reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr());                   \
+        status = _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>(data_column, data, num_rows); \
+        break;                                                                                  \
+    }
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
     case PrimitiveType::TYPE_STRING:
@@ -130,19 +137,30 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_CHAR:
         [[fallthrough]];
     case PrimitiveType::TYPE_VARCHAR:
-        return _fill_string_column(address, data_column, num_rows);
+        status = _fill_string_column(address, data_column, num_rows);
+        break;
     case PrimitiveType::TYPE_ARRAY:
-        return _fill_array_column(address, data_column, data_type, num_rows);
+        status = _fill_array_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_MAP:
-        return _fill_map_column(address, data_column, data_type, num_rows);
+        status = _fill_map_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_STRUCT:
-        return _fill_struct_column(address, data_column, data_type, num_rows);
+        status = _fill_struct_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_VARBINARY:
-        return _fill_varbinary_column(address, data_column, num_rows);
+        status = _fill_varbinary_column(address, data_column, num_rows);
+        break;
+    case PrimitiveType::TYPE_VARIANT:
+        status = _fill_variant_v2_column(address, data_column, num_rows);
+        break;
     default:
-        return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
+        status = Status::InvalidArgument("Unsupported type {} in jni scanner",
+                                         data_type->get_name());
+        break;
     }
-    return Status::OK();
+    doris_column = std::move(mutable_doris_column);
+    return status;
 }
 
 Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
@@ -164,6 +182,26 @@ Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
             varbinary_col.insert_data(src, static_cast<size_t>(len));
         }
     }
+    return Status::OK();
+}
+
+Status JniDataBridge::_fill_variant_v2_column(TableMetaAddress& address,
+                                              MutableColumnPtr& doris_column, size_t num_rows) {
+    const auto metadata_count = static_cast<size_t>(address.next_meta_as_long());
+    const auto* metadata_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* metadata_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+    const auto* metadata_ids = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+
+    auto& variant_column = assert_cast<ColumnVariantV2&>(*doris_column);
+    variant_column.insert_encoded_rows({
+            .metadata_bytes = {metadata_bytes, metadata_offsets[metadata_count]},
+            .metadata_offsets = {metadata_offsets, metadata_count + 1},
+            .meta_ids = {metadata_ids, num_rows},
+            .value_bytes = {value_bytes, value_offsets[num_rows]},
+            .value_offsets = {value_offsets, num_rows + 1},
+    });
     return Status::OK();
 }
 
@@ -280,6 +318,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR:
         [[fallthrough]];
     case TYPE_CHAR:
@@ -298,6 +338,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << type->get_scale() << ")";
         return buffer.str();
@@ -346,6 +388,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     }
     case TYPE_VARBINARY:
         return "varbinary";
+    case TYPE_VARIANT:
+        return "variant";
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
     case TYPE_BITMAP:
         [[fallthrough]];
@@ -384,6 +428,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR: {
         buffer << "varchar("
                << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
@@ -402,6 +448,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         buffer << "datetimev2(" << data_type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();
@@ -421,6 +469,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
                << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
                << ")";
         return buffer.str();
+    case TYPE_VARIANT:
+        return "variant";
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
@@ -480,6 +530,55 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
     }
 }
 
+std::string JniDataBridge::encode_schema_values(const std::vector<std::string>& values) {
+    std::vector<std::string> encoded_values;
+    encoded_values.reserve(values.size());
+    for (const auto& value : values) {
+        std::string encoded;
+        base64_encode(value, &encoded);
+        // Prefix every element so an empty Base64 token remains distinct from an empty list.
+        encoded_values.emplace_back("$" + encoded);
+    }
+    return join(encoded_values, ",");
+}
+
+std::string JniDataBridge::get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type) {
+    switch (data_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto* type_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        std::ostringstream buffer;
+        buffer << "struct<";
+        for (int i = 0; i < type_struct->get_elements().size(); ++i) {
+            if (i != 0) {
+                buffer << ",";
+            }
+            std::string encoded_name;
+            base64_encode(type_struct->get_element_name(i), &encoded_name);
+            // '$' versions the nested-name token and cannot collide with Base64 or grammar
+            // delimiters; Java rejects an unversioned name in the encoded schema path.
+            buffer << "$" << encoded_name << ":"
+                   << get_jni_type_with_encoded_struct_fields(type_struct->get_element(i));
+        }
+        buffer << ">";
+        return buffer.str();
+    }
+    case TYPE_ARRAY: {
+        const auto* type_array =
+                assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
+        return "array<" + get_jni_type_with_encoded_struct_fields(type_array->get_nested_type()) +
+               ">";
+    }
+    case TYPE_MAP: {
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
+        return "map<" + get_jni_type_with_encoded_struct_fields(type_map->get_key_type()) + "," +
+               get_jni_type_with_encoded_struct_fields(type_map->get_value_type()) + ">";
+    }
+    default:
+        return get_jni_type_with_different_string(data_type);
+    }
+}
+
 Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                         std::vector<long>& meta_data) {
     auto logical_type = data_type->get_primitive_type();
@@ -496,10 +595,9 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
 
     // insert null map address
     const IColumn* data_column = nullptr;
-    if (column->is_nullable()) {
-        const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-        data_column = &(nullable_column.get_nested_column());
-        const auto& null_map = nullable_column.get_null_map_data();
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column)) {
+        data_column = &(nullable_column->get_nested_column());
+        const auto& null_map = nullable_column->get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);

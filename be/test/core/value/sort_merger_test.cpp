@@ -17,8 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/sort/vsorted_run_merger.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -32,6 +37,16 @@ public:
     void SetUp() override {}
     void TearDown() override {}
 };
+
+static Block create_int_string_block(const std::vector<int64_t>& keys,
+                                     const std::vector<std::string>& values) {
+    DCHECK_EQ(keys.size(), values.size());
+    auto key_column = ColumnHelper::create_column<DataTypeInt64>(keys);
+    auto value_column = ColumnHelper::create_column<DataTypeString>(values);
+    Block block({ColumnWithTypeAndName(key_column, std::make_shared<DataTypeInt64>(), "key"),
+                 ColumnWithTypeAndName(value_column, std::make_shared<DataTypeString>(), "value")});
+    return block;
+}
 
 TEST(SortMergerTest, NULL_FIRST_ASC) {
     /**
@@ -474,6 +489,190 @@ TEST(SortMergerTest, TEST_SINGLE_STREAM) {
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({0}, {1});
         EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_block));
+        EXPECT_TRUE(eos);
+    }
+}
+
+TEST(SortMergerTest, CONTINUE_MERGE_WHEN_NEXT_BLOCK_READY) {
+    const int batch_size = 4;
+    std::vector<std::vector<std::vector<int64_t>>> input_blocks = {{{1}, {3}}, {{2}, {4}}};
+    std::vector<size_t> next_block_index(input_blocks.size(), 0);
+
+    std::unique_ptr<VSortedRunMerger> merger;
+    auto profile = std::make_shared<RuntimeProfile>("");
+    auto ordering_expr = MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+    {
+        std::vector<bool> is_asc_order = {true};
+        std::vector<bool> nulls_first = {true};
+        const int limit = -1;
+        const int offset = 0;
+        merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size,
+                                          limit, offset, profile.get()));
+    }
+    {
+        std::vector<BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplierReadyChecker> ready_checkers;
+        for (size_t child_idx = 0; child_idx < input_blocks.size(); child_idx++) {
+            BlockSupplier block_supplier = [&, id = child_idx](Block* block, bool* eos) {
+                if (next_block_index[id] >= input_blocks[id].size()) {
+                    *eos = true;
+                    return Status::OK();
+                }
+                *block = ColumnHelper::create_block<DataTypeInt64>(
+                        input_blocks[id][next_block_index[id]++]);
+                *eos = false;
+                return Status::OK();
+            };
+            child_block_suppliers.push_back(block_supplier);
+            ready_checkers.emplace_back([] { return true; });
+        }
+        EXPECT_TRUE(merger->prepare(child_block_suppliers, ready_checkers).ok());
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        auto expect_block = ColumnHelper::create_column<DataTypeInt64>({1, 2, 3, 4});
+        EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_block));
+        EXPECT_EQ(block.rows(), batch_size);
+        EXPECT_FALSE(eos);
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        EXPECT_EQ(block.rows(), 0);
+        EXPECT_TRUE(eos);
+    }
+}
+
+TEST(SortMergerTest, CONTINUE_MERGE_WITH_STRING_COLUMN_WHEN_NEXT_BLOCK_READY) {
+    const int batch_size = 4;
+    std::vector<std::vector<Block>> input_blocks;
+    input_blocks.emplace_back(
+            std::vector<Block> {create_int_string_block({1, 3}, {"old-1", "old-3"}),
+                                create_int_string_block({5, 7}, {"new-5", "new-7"})});
+    input_blocks.emplace_back(
+            std::vector<Block> {create_int_string_block({2, 4}, {"other-2", "other-4"})});
+    std::vector<size_t> next_block_index(input_blocks.size(), 0);
+
+    std::unique_ptr<VSortedRunMerger> merger;
+    auto profile = std::make_shared<RuntimeProfile>("");
+    auto ordering_expr = MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+    {
+        std::vector<bool> is_asc_order = {true};
+        std::vector<bool> nulls_first = {true};
+        const int limit = -1;
+        const int offset = 0;
+        merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size,
+                                          limit, offset, profile.get()));
+    }
+    {
+        std::vector<BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplierReadyChecker> ready_checkers;
+        for (size_t child_idx = 0; child_idx < input_blocks.size(); child_idx++) {
+            BlockSupplier block_supplier = [&, id = child_idx](Block* block, bool* eos) {
+                if (next_block_index[id] >= input_blocks[id].size()) {
+                    *eos = true;
+                    return Status::OK();
+                }
+                block->swap(input_blocks[id][next_block_index[id]++]);
+                *eos = false;
+                return Status::OK();
+            };
+            child_block_suppliers.push_back(block_supplier);
+            ready_checkers.emplace_back([] { return true; });
+        }
+        EXPECT_TRUE(merger->prepare(child_block_suppliers, ready_checkers).ok());
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        auto expect_key_column = ColumnHelper::create_column<DataTypeInt64>({1, 2, 3, 4});
+        auto expect_value_column = ColumnHelper::create_column<DataTypeString>(
+                {"old-1", "other-2", "old-3", "other-4"});
+        EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_key_column));
+        EXPECT_TRUE(
+                ColumnHelper::column_equal(block.get_by_position(1).column, expect_value_column));
+        EXPECT_EQ(block.rows(), batch_size);
+        EXPECT_FALSE(eos);
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        auto expect_key_column = ColumnHelper::create_column<DataTypeInt64>({5, 7});
+        auto expect_value_column = ColumnHelper::create_column<DataTypeString>({"new-5", "new-7"});
+        EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_key_column));
+        EXPECT_TRUE(
+                ColumnHelper::column_equal(block.get_by_position(1).column, expect_value_column));
+        EXPECT_EQ(block.rows(), 2);
+        EXPECT_FALSE(eos);
+    }
+}
+
+TEST(SortMergerTest, KEEP_PENDING_CURSOR_WHEN_NEXT_BLOCK_NOT_READY) {
+    const int batch_size = 4;
+    std::vector<std::vector<std::vector<int64_t>>> input_blocks = {{{1}, {3}}, {{2}, {4}}};
+    std::vector<size_t> next_block_index(input_blocks.size(), 0);
+    std::vector<bool> ready(input_blocks.size(), false);
+
+    std::unique_ptr<VSortedRunMerger> merger;
+    auto profile = std::make_shared<RuntimeProfile>("");
+    auto ordering_expr = MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+    {
+        std::vector<bool> is_asc_order = {true};
+        std::vector<bool> nulls_first = {true};
+        const int limit = -1;
+        const int offset = 0;
+        merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size,
+                                          limit, offset, profile.get()));
+    }
+    {
+        std::vector<BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplierReadyChecker> ready_checkers;
+        for (size_t child_idx = 0; child_idx < input_blocks.size(); child_idx++) {
+            BlockSupplier block_supplier = [&, id = child_idx](Block* block, bool* eos) {
+                if (next_block_index[id] >= input_blocks[id].size()) {
+                    *eos = true;
+                    return Status::OK();
+                }
+                *block = ColumnHelper::create_block<DataTypeInt64>(
+                        input_blocks[id][next_block_index[id]++]);
+                *eos = false;
+                return Status::OK();
+            };
+            child_block_suppliers.push_back(block_supplier);
+            ready_checkers.emplace_back([&, id = child_idx] { return ready[id]; });
+        }
+        EXPECT_TRUE(merger->prepare(child_block_suppliers, ready_checkers).ok());
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        auto expect_block = ColumnHelper::create_column<DataTypeInt64>({1});
+        EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_block));
+        EXPECT_EQ(block.rows(), 1);
+        EXPECT_FALSE(eos);
+    }
+    {
+        ready[0] = true;
+        ready[1] = true;
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        auto expect_block = ColumnHelper::create_column<DataTypeInt64>({2, 3, 4});
+        EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_block));
+        EXPECT_EQ(block.rows(), 3);
+        EXPECT_FALSE(eos);
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(merger->get_next(&block, &eos).ok());
+        EXPECT_EQ(block.rows(), 0);
         EXPECT_TRUE(eos);
     }
 }

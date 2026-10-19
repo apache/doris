@@ -32,12 +32,13 @@
 #include "core/string_ref.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
-#include "storage/field.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "storage/utils.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
 
@@ -45,6 +46,21 @@ namespace doris {
 struct uint24_t;
 
 namespace segment_v2 {
+namespace {
+
+// Only FLOAT and DOUBLE can come out reversed: any value of any other type moves both bounds.
+bool is_reversed(const Field& min_value, const Field& max_value, FieldType field_type) {
+    if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
+        return min_value.get<TYPE_FLOAT>() > max_value.get<TYPE_FLOAT>();
+    }
+    if (FieldType::OLAP_FIELD_TYPE_DOUBLE == field_type) {
+        return min_value.get<TYPE_DOUBLE>() > max_value.get<TYPE_DOUBLE>();
+    }
+    return false;
+}
+
+} // namespace
+
 Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                            ZoneMap& zone_map_info) {
     zone_map_info.has_null = zone_map.has_null();
@@ -54,9 +70,52 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     zone_map_info.has_positive_inf = zone_map.has_positive_inf();
     zone_map_info.has_nan = zone_map.has_nan();
 
+    // A bound that fails to parse makes the zone map invalid: mark it pass_all so it prunes
+    // nothing, instead of failing the scan that loads it.
+    auto parse_bound = [&](const std::string& bound, Field& value) {
+        if (!data_type->get_serde()->from_zonemap_string(bound, value).ok()) {
+            zone_map_info.pass_all = true;
+        }
+    };
+
     auto field_type = data_type->get_storage_field_type();
+
+    // has_nan arrived with NaN-aware float/double zone maps, so its absence means the writer could
+    // not report NaN and the bounds came from a comparison that never selects one: a hidden NaN
+    // cannot be ruled out. Doris orders NaN above every other value, so `x > c` can be true for a
+    // row that these bounds say cannot exist. Treat such a zone map as covering everything instead
+    // of as NaN-free. A zone with no non-null value never received one, so it has no NaN to hide;
+    // leaving it usable keeps the three ColumnPredicate checks that start from has_not_null: the
+    // null predicates, each comparison predicate's early return, and the in-list one's.
+    if ((field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+         field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE) &&
+        zone_map.has_not_null() && !zone_map.has_has_nan()) {
+        zone_map_info.pass_all = true;
+    }
+
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
+        if (!zone_map_info.pass_all) {
+            parse_bound(zone_map.min(), zone_map_info.min_value);
+            parse_bound(zone_map.max(), zone_map_info.max_value);
+        }
+
+        // A max of all 0xff carries past its first byte and ends up all zero, which stands above
+        // nothing. Give up the range instead of ruling out rows with it.
+        if (!zone_map_info.pass_all && is_string_type(field_type) &&
+            zone_map.max().size() == MAX_ZONE_MAP_INDEX_SIZE &&
+            zone_map.max().find_first_not_of('\0') == std::string::npos) {
+            zone_map_info.pass_all = true;
+        }
+
+        // NaN and infinity only set the flags below, never min/max, so a page holding nothing
+        // else leaves both at the values add_values() starts from: min = DBL_MAX and
+        // max = -DBL_MAX, neither of which is a value in the page.
+        if (!zone_map_info.pass_all &&
+            is_reversed(zone_map_info.min_value, zone_map_info.max_value, field_type)) {
+            zone_map_info.pass_all = true;
+        }
+
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
@@ -66,11 +125,6 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
                 zone_map_info.min_value = Field::create_field<TYPE_DOUBLE>(double_neg_inf);
             } else {
                 return Status::InternalError("invalid zone map with negative Infinity");
-            }
-        } else {
-            if (!zone_map_info.pass_all) {
-                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
-                        zone_map.min(), zone_map_info.min_value));
             }
         }
 
@@ -93,11 +147,6 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
                 zone_map_info.max_value = Field::create_field<TYPE_DOUBLE>(double_pos_inf);
             } else {
                 return Status::InternalError("invalid zone map with positive Infinity");
-            }
-        } else {
-            if (!zone_map_info.pass_all) {
-                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
-                        zone_map.max(), zone_map_info.max_value));
             }
         }
     }
@@ -206,11 +255,18 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
     // slightly larger than any real string that shares the same 512-byte prefix, ensuring no false negatives —
     // the zone map will never incorrectly skip a page that contains matching data.
     //
-    // In UTF8 encoding, here do not appear 0xff in last byte
+    // A string column holds arbitrary bytes, so the last byte can be 0xff. Adding one to it wraps
+    // to 0x00 and leaves a max below the data, so carry into the byte before it.
     if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
         auto& str = zone_map.max_value.get<Type>();
         if (str.size() == MAX_ZONE_MAP_INDEX_SIZE) {
-            str[str.size() - 1] += 1;
+            for (size_t i = str.size(); i > 0; --i) {
+                auto byte = static_cast<uint8_t>(str[i - 1]) + 1;
+                str[i - 1] = static_cast<char>(byte);
+                if (static_cast<uint8_t>(byte) != 0) {
+                    break;
+                }
+            }
         }
     }
 }
@@ -278,14 +334,15 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
+    // Zone map page always uses PLAIN_ENCODING. Do not change.
+    options.encoding = PLAIN_ENCODING;
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, type_info, file_writer);
+    IndexedColumnWriter writer(options, type, file_writer);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
@@ -296,20 +353,22 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                OlapReaderStatistics* index_load_stats) {
+                                OlapReaderStatistics* index_load_stats,
+                                const io::IOContext* io_ctx) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats, io_ctx] {
         return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
-                     index_load_stats);
+                     index_load_stats, io_ctx);
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                  std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
-                                 OlapReaderStatistics* index_load_stats) {
+                                 OlapReaderStatistics* index_load_stats,
+                                 const io::IOContext* io_ctx) {
     IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
-    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats));
-    IndexedColumnIterator iter(&reader, index_load_stats);
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats, io_ctx));
+    IndexedColumnIterator iter(&reader, index_load_stats, io_ctx);
 
     _page_zone_maps.resize(reader.num_values());
 
@@ -355,9 +414,11 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMP_NS)         \
     M(TYPE_TIMESTAMPTZ)          \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \
+    M(TYPE_UUID)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \
@@ -365,9 +426,9 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DECIMAL128I)          \
     M(TYPE_DECIMAL256)
 
-Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
+Status ZoneMapIndexWriter::create(DataTypePtr data_type, const TabletColumn* column,
                                   std::unique_ptr<ZoneMapIndexWriter>& res) {
-    switch (field->type()) {
+    switch (column->type()) {
 #define M(NAME)                                                             \
     case FieldType::OLAP_FIELD_##NAME: {                                    \
         res.reset(new TypedZoneMapIndexWriter<NAME>(std::move(data_type))); \

@@ -36,6 +36,7 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableParallelResultSink(false);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
     }
 
     @Test

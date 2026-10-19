@@ -21,15 +21,25 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.transaction.TxnUtil;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+import org.apache.doris.thrift.TLoadSourceType;
+import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionException;
@@ -40,8 +50,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.kafka.common.PartitionInfo;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -50,6 +61,27 @@ import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
+    @Test
+    public void testFirstErrorMsgInTxnCommitAttachment() {
+        String overlongFirstErrorMsg = Strings.repeat("x", Config.first_error_msg_max_length + 1);
+        TRLTaskTxnCommitAttachment thriftAttachment = new TRLTaskTxnCommitAttachment();
+        thriftAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
+        thriftAttachment.setId(new TUniqueId(1, 2));
+        thriftAttachment.setJobId(3);
+        thriftAttachment.setKafkaRLTaskProgress(new TKafkaRLTaskProgress(Maps.newHashMap()));
+        thriftAttachment.setErrorLogUrl("http://127.0.0.1/error_log");
+        thriftAttachment.setFirstErrorMsg(overlongFirstErrorMsg);
+
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment(thriftAttachment);
+        Assertions.assertEquals(Config.first_error_msg_max_length, attachment.getFirstErrorMsg().length());
+        Assertions.assertTrue(attachment.getFirstErrorMsg().endsWith("..."));
+
+        RLTaskTxnCommitAttachment cloudAttachment = TxnUtil.rtTaskTxnCommitAttachmentFromPb(
+                TxnUtil.rlTaskTxnCommitAttachmentToPb(attachment));
+        Assertions.assertEquals("http://127.0.0.1/error_log", cloudAttachment.getErrorLogUrl());
+        Assertions.assertEquals(attachment.getFirstErrorMsg(), cloudAttachment.getFirstErrorMsg());
+    }
+
     @Test
     public void testAfterAbortedReasonOffsetOutOfRange() throws UserException {
         Env env = Mockito.mock(Env.class);
@@ -74,7 +106,7 @@ public class RoutineLoadJobTest {
             routineLoadJob.writeLock();
             routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
-            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         }
     }
 
@@ -92,6 +124,8 @@ public class RoutineLoadJobTest {
         tKafkaRLTaskProgress.partitionCmtOffset = Maps.newHashMap();
         KafkaProgress kafkaProgress = new KafkaProgress(tKafkaRLTaskProgress);
         Deencapsulation.setField(attachment, "progress", kafkaProgress);
+        Deencapsulation.setField(attachment, "errorLogUrl", "http://127.0.0.1/error_log");
+        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
 
         KafkaProgress currentProgress = new KafkaProgress(tKafkaRLTaskProgress);
 
@@ -109,8 +143,10 @@ public class RoutineLoadJobTest {
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
         RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
-        Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
-        Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
+        Assertions.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
+        Assertions.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
+        Assertions.assertEquals("http://127.0.0.1/error_log", routineLoadJob.getErrorLogUrls().peek());
+        Assertions.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
     }
 
     @Test
@@ -132,7 +168,7 @@ public class RoutineLoadJobTest {
             routineLoadJob.writeLock();
             routineLoadJob.afterCommitted(transactionState, true);
         } catch (TransactionException e) {
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
@@ -150,10 +186,13 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         Deencapsulation.setField(routineLoadJob, "userIdentity", userIdentity);
+        Deencapsulation.setField(routineLoadJob, "firstErrorMsg", "invalid source row");
 
         List<String> showInfo = routineLoadJob.getShowInfo();
-        Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
+        Assertions.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
                 .anyMatch(entity -> entity.equals(errorReason.toString())));
+        Assertions.assertEquals(24, showInfo.size());
+        Assertions.assertEquals("invalid source row", showInfo.get(23));
     }
 
     @Test
@@ -176,7 +215,7 @@ public class RoutineLoadJobTest {
             RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
             routineLoadJob.update();
 
-            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+            Assertions.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
         }
     }
 
@@ -202,7 +241,7 @@ public class RoutineLoadJobTest {
             RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
             routineLoadJob.update();
 
-            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+            Assertions.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
         }
     }
 
@@ -227,11 +266,12 @@ public class RoutineLoadJobTest {
             Mockito.doReturn(table).when(database).getTableNullable(Mockito.anyLong());
 
             kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(1, 2, 3));
 
             kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList(),
+                    Mockito.nullable(String.class)))
                     .thenAnswer(inv -> {
                         List<Pair<Integer, Long>> pairList = new ArrayList<>();
                         pairList.add(Pair.of(1, 0L));
@@ -242,7 +282,7 @@ public class RoutineLoadJobTest {
             Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
             routineLoadJob.update();
 
-            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+            Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
         }
     }
 
@@ -260,7 +300,7 @@ public class RoutineLoadJobTest {
             Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
             Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 1L, 1L, 0L, 1L, 1L, false);
 
-            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, Deencapsulation.getField(routineLoadJob, "state"));
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, Deencapsulation.getField(routineLoadJob, "state"));
         }
     }
 
@@ -273,11 +313,17 @@ public class RoutineLoadJobTest {
         RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
         Deencapsulation.setField(jobStatistic, "currentErrorRows", 1);
         Deencapsulation.setField(jobStatistic, "currentTotalRows", 99);
+        Deencapsulation.setField(routineLoadJob, "otherMsg", "previous warning");
+        routineLoadJob.getErrorLogUrls().add("http://127.0.0.1/error_log");
+        Deencapsulation.setField(routineLoadJob, "firstErrorMsg", "invalid source row");
         Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, 1L, false);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
+        Assertions.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
+        Assertions.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
+        Assertions.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
+        Assertions.assertEquals("", Deencapsulation.getField(routineLoadJob, "otherMsg"));
+        Assertions.assertTrue(routineLoadJob.getErrorLogUrls().isEmpty());
+        Assertions.assertEquals("", routineLoadJob.getFirstErrorMsg());
 
     }
 
@@ -296,7 +342,7 @@ public class RoutineLoadJobTest {
         Mockito.when(routineLoadTaskInfo1.getBeId()).thenReturn(1L);
 
         Map<Long, Integer> beIdConcurrentTasksNum = routineLoadJob.getBeCurrentTasksNumMap();
-        Assert.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));
+        Assertions.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));
     }
 
     @Test
@@ -330,49 +376,49 @@ public class RoutineLoadJobTest {
                 + "\"kafka_topic\" = \"test_topic\"\n"
                 + ");";
         System.out.println(showCreateInfo);
-        Assert.assertEquals(expect, showCreateInfo);
+        Assertions.assertEquals(expect, showCreateInfo);
     }
 
     @Test
     public void testParseUniqueKeyUpdateMode() {
         // Test valid mode strings
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPSERT,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("UPSERT"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPSERT,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("upsert"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("UPDATE_FIXED_COLUMNS"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("update_fixed_columns"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("UPDATE_FLEXIBLE_COLUMNS"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
                 CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("Update_Flexible_Columns"));
 
         // Test invalid mode strings
-        Assert.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(null));
-        Assert.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("INVALID"));
-        Assert.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(""));
-        Assert.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("PARTIAL_UPDATE"));
+        Assertions.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(null));
+        Assertions.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("INVALID"));
+        Assertions.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(""));
+        Assertions.assertNull(CreateRoutineLoadInfo.parseUniqueKeyUpdateMode("PARTIAL_UPDATE"));
     }
 
     @Test
     public void testParseAndValidateUniqueKeyUpdateMode() throws Exception {
         // Test valid mode strings
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPSERT,
                 CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode("UPSERT"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
                 CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode("UPDATE_FIXED_COLUMNS"));
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
                 CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode("UPDATE_FLEXIBLE_COLUMNS"));
 
         // Test invalid mode string throws exception
         try {
             CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode("INVALID_MODE");
-            Assert.fail("Expected AnalysisException");
+            Assertions.fail("Expected AnalysisException");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("unique_key_update_mode"));
-            Assert.assertTrue(e.getMessage().contains("INVALID_MODE"));
+            Assertions.assertTrue(e.getMessage().contains("unique_key_update_mode"));
+            Assertions.assertTrue(e.getMessage().contains("INVALID_MODE"));
         }
     }
 
@@ -385,7 +431,7 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(job, "jobProperties", jobProperties);
         Deencapsulation.setField(job, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
 
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, job.getUniqueKeyUpdateMode());
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, job.getUniqueKeyUpdateMode());
     }
 
     @Test
@@ -413,8 +459,8 @@ public class RoutineLoadJobTest {
         }
 
         // Verify the backward compatibility logic
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, uniqueKeyUpdateMode);
-        Assert.assertTrue(isPartialUpdate);
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, uniqueKeyUpdateMode);
+        Assertions.assertTrue(isPartialUpdate);
     }
 
     @Test
@@ -451,9 +497,91 @@ public class RoutineLoadJobTest {
         }
 
         // unique_key_update_mode should take precedence
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
+        Assertions.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
         // isPartialUpdate should be false for UPDATE_FLEXIBLE_COLUMNS
-        Assert.assertFalse(isPartialUpdate);
+        Assertions.assertFalse(isPartialUpdate);
+    }
+
+    // When a job is cancelled, the CANCELLED operation persisted to edit log must carry the error reason,
+    // so that followers replaying the log (and a promoted new master) keep the cancel reason.
+    @Test
+    public void testCancelledOperationCarriesReason() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            // db has been deleted, update() will cancel the job with a DB_ERR reason
+            Mockito.doReturn(null).when(catalog).getDbNullable(Mockito.anyLong());
+
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJob.update();
+
+            Assertions.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+
+            ArgumentCaptor<RoutineLoadOperation> captor = ArgumentCaptor.forClass(RoutineLoadOperation.class);
+            Mockito.verify(editLog).logOpRoutineLoadJob(captor.capture());
+            RoutineLoadOperation operation = captor.getValue();
+            Assertions.assertEquals(RoutineLoadJob.JobState.CANCELLED, operation.getJobState());
+            Assertions.assertNotNull(operation.getErrorReason(),
+                    "cancel reason must be carried in the edit log operation");
+        }
+    }
+
+    // On deserialize failure in gsonPostProcess, an active job should be terminalized via executeCancel:
+    // state becomes CANCELLED, endTimestamp gets set (not -1) and a cancel reason is recorded.
+    @Test
+    public void testGsonPostProcessCancelOnDeserializeFailure() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            // return empty so the orElseThrow inside gsonPostProcess fires and drops into the catch block
+            Mockito.doReturn(java.util.Optional.empty()).when(catalog).getDb(Mockito.anyLong());
+
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+            // a non-parsable origin statement guarantees the parsing fails and falls into the catch block,
+            // and also keeps origStmt non-null so the catch block's logging does not NPE
+            Deencapsulation.setField(routineLoadJob, "origStmt", new OriginStatement("invalid stmt", 0));
+            routineLoadJob.gsonPostProcess();
+
+            Assertions.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+            Assertions.assertTrue(routineLoadJob.getEndTimestamp() != -1,
+                    "endTimestamp must be set when terminalizing the job");
+            Assertions.assertNotNull(Deencapsulation.getField(routineLoadJob, "cancelReason"));
+        }
+    }
+
+    // A final job whose endTimestamp is not yet set (e.g. cleanup racing with an in-progress
+    // cancel/stop) must not be expired this round, and must not throw and break cleanup.
+    @Test
+    public void testIsExpiredSkipsWhenEndTimestampMissing() {
+        RoutineLoadJob missingEndTs = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(missingEndTs, "state", RoutineLoadJob.JobState.CANCELLED);
+        // endTimestamp keeps its default value -1
+        Assertions.assertFalse(missingEndTs.isExpired());
+
+        // a non-final job is never expired
+        RoutineLoadJob running = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(running, "state", RoutineLoadJob.JobState.RUNNING);
+        Assertions.assertFalse(running.isExpired());
+
+        // a final job that ended long ago (epoch) is expired via the normal path
+        RoutineLoadJob oldJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(oldJob, "state", RoutineLoadJob.JobState.CANCELLED);
+        Deencapsulation.setField(oldJob, "endTimestamp", 0L);
+        Assertions.assertTrue(oldJob.isExpired());
     }
 
 }

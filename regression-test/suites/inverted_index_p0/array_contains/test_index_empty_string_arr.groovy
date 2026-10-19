@@ -25,8 +25,7 @@ suite("test_index_empty_string_arr", "array_contains_inverted_index"){
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def indexTblName = "test_index_empty_string_arr"
 
@@ -47,12 +46,12 @@ suite("test_index_empty_string_arr", "array_contains_inverted_index"){
  	    "replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
-    sql """ 
+
+    sql """
         INSERT INTO $indexTblName VALUES
         (1, [''], ['1']),
         (2, ['2'], ['']);
-    """ 
+    """
 
     qt_sql "SELECT count() FROM $indexTblName WHERE array_contains(a,'');"
     qt_sql "SELECT count() FROM $indexTblName WHERE array_contains(b,'');"

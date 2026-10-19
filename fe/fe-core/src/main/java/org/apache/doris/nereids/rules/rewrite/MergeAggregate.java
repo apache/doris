@@ -196,10 +196,12 @@ public class MergeAggregate implements RewriteRuleFactory {
 
     private boolean canMergeAggregateWithoutProject(LogicalAggregate<LogicalAggregate<Plan>> outerAgg) {
         LogicalAggregate<Plan> innerAgg = outerAgg.child();
-        if (!new HashSet<>(innerAgg.getGroupByExpressions()).containsAll(outerAgg.getGroupByExpressions())) {
+        Set<Expression> innerGroupByExpressions = new HashSet<>(innerAgg.getGroupByExpressions());
+        Set<Expression> outerGroupByExpressions = new HashSet<>(outerAgg.getGroupByExpressions());
+        if (!innerGroupByExpressions.containsAll(outerGroupByExpressions)) {
             return false;
         }
-        boolean sameGroupBy = (innerAgg.getGroupByExpressions().size() == outerAgg.getGroupByExpressions().size());
+        boolean sameGroupBy = innerGroupByExpressions.equals(outerGroupByExpressions);
 
         return commonCheck(outerAgg, innerAgg, sameGroupBy, Optional.empty());
     }
@@ -210,15 +212,17 @@ public class MergeAggregate implements RewriteRuleFactory {
 
         List<Expression> outerAggGroupByKeys = PlanUtils.replaceExpressionByProjections(project.getProjects(),
                 outerAgg.getGroupByExpressions());
-        if (!new HashSet<>(innerAgg.getGroupByExpressions()).containsAll(outerAggGroupByKeys)) {
+        Set<Expression> innerGroupByExpressions = new HashSet<>(innerAgg.getGroupByExpressions());
+        Set<Expression> outerGroupByExpressions = new HashSet<>(outerAggGroupByKeys);
+        if (!innerGroupByExpressions.containsAll(outerGroupByExpressions)) {
             return false;
         }
         // project cannot have expressions like a+1
-        if (ExpressionUtils.deapAnyMatch(project.getProjects(),
+        if (ExpressionUtils.deepAnyMatch(project.getProjects(),
                 expr -> !(expr instanceof SlotReference) && !(expr instanceof Alias))) {
             return false;
         }
-        boolean sameGroupBy = (innerAgg.getGroupByExpressions().size() == outerAgg.getGroupByExpressions().size());
+        boolean sameGroupBy = innerGroupByExpressions.equals(outerGroupByExpressions);
         return commonCheck(outerAgg, innerAgg, sameGroupBy, Optional.of(project));
     }
 

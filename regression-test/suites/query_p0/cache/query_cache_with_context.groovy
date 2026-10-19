@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
 // under the License.
 
 suite("query_cache_with_context") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql """
         set enable_sql_cache=false;
         set enable_query_cache=false;
@@ -53,6 +54,7 @@ suite("query_cache_with_context") {
     def test_udf_function = {
         def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
         scp_udf_file_to_all_be(jarPath)
+        scp_udf_file_to_all_fe(jarPath)
         sql("DROP FUNCTION IF EXISTS test_udf_with_query_cache(string, int, int);")
         sql """ CREATE FUNCTION test_udf_with_query_cache(string, int, int) RETURNS string PROPERTIES (
                                 "file"="file://${jarPath}",

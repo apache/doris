@@ -30,6 +30,20 @@
 
 namespace doris {
 
+TEST(VDateTimeValueTest, LegacyDefaultsHaveValidTimeTypes) {
+    EXPECT_EQ(VecDateTimeValue::FIRST_DAY.type(), TIME_DATETIME);
+    EXPECT_EQ(VecDateTimeValue::DATE_DEFAULT_VALUE.type(), TIME_DATE);
+    EXPECT_EQ(VecDateTimeValue::DATETIME_DEFAULT_VALUE.type(), TIME_DATETIME);
+
+    char buffer[64];
+    VecDateTimeValue::FIRST_DAY.to_string(buffer);
+    EXPECT_STREQ(buffer, "0001-01-01 00:00:00");
+    VecDateTimeValue::DATE_DEFAULT_VALUE.to_string(buffer);
+    EXPECT_STREQ(buffer, "1970-01-01");
+    VecDateTimeValue::DATETIME_DEFAULT_VALUE.to_string(buffer);
+    EXPECT_STREQ(buffer, "1970-01-01 00:00:00");
+}
+
 TEST(VDateTimeValueTest, date_v2_to_uint32_test) {
     uint16_t year = 2022;
     uint8_t month = 5;
@@ -1534,6 +1548,57 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
         EXPECT_EQ(dt.day(), 30);
         EXPECT_EQ(dt.hour(), 0);
     }
+}
+
+// `date_add_days` (the DAY/WEEK fast path) must be observationally identical to the generic
+// `date_add_interval<DAY>`: same success/failure, same date part, time part untouched.
+// GTest assertions in this exhaustive differential test expand to nested control flow that
+// clang-tidy counts as test-body complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(VDateTimeValueTest, date_add_days_matches_date_add_interval) {
+    const int64_t deltas[] = {0,     1,      -1,      28,     -28,     29,      -29,     59,   -59,
+                              60,    -60,    61,      -61,    365,     -365,    366,     -366, 1000,
+                              -1000, 100000, -100000, 719528, -719528, 3652424, -3652424};
+    int64_t compared = 0;
+    // every 97th day of the whole domain, plus the first 120 days (year-0 quirk window)
+    for (int64_t daynr = 1; daynr <= DATE_MAX_DAYNR; daynr += (daynr < 120 ? 1 : 97)) {
+        DateV2Value<DateV2ValueType> base_date;
+        ASSERT_TRUE(base_date.get_date_from_daynr(daynr)) << daynr;
+        DateV2Value<DateTimeV2ValueType> base_dt;
+        ASSERT_TRUE(base_dt.get_date_from_daynr(daynr)) << daynr;
+        ASSERT_TRUE(base_dt.check_range_and_set_time(0, 0, 0, 23, 59, 58, 999999, true));
+        for (int64_t delta : deltas) {
+            {
+                auto expected = base_date;
+                auto actual = base_date;
+                const bool ok_expected = expected.date_add_interval<TimeUnit::DAY>(
+                        TimeInterval(TimeUnit::DAY, delta < 0 ? -delta : delta, delta < 0));
+                const bool ok_actual = actual.date_add_days(delta);
+                ASSERT_EQ(ok_actual, ok_expected) << base_date << " + " << delta;
+                if (ok_expected) {
+                    ASSERT_EQ(actual.to_int64(), expected.to_int64())
+                            << base_date << " + " << delta;
+                }
+            }
+            {
+                auto expected = base_dt;
+                auto actual = base_dt;
+                const bool ok_expected = expected.date_add_interval<TimeUnit::DAY>(
+                        TimeInterval(TimeUnit::DAY, delta < 0 ? -delta : delta, delta < 0));
+                const bool ok_actual = actual.date_add_days(delta);
+                ASSERT_EQ(ok_actual, ok_expected) << base_dt << " + " << delta;
+                if (ok_expected) {
+                    ASSERT_EQ(actual.to_int64(), expected.to_int64()) << base_dt << " + " << delta;
+                    ASSERT_EQ(actual.hour(), 23);
+                    ASSERT_EQ(actual.minute(), 59);
+                    ASSERT_EQ(actual.second(), 58);
+                    ASSERT_EQ(actual.microsecond(), 999999);
+                }
+            }
+            ++compared;
+        }
+    }
+    EXPECT_GT(compared, 900000);
 }
 
 } // namespace doris

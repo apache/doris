@@ -209,6 +209,10 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
+// UTC 9999-12-31 23:59:59 plus one day for time zone offsets. Reject larger inputs
+// before narrowing the civil year; the converted date still needs its exact range check.
+static constexpr int64_t MAX_UNIX_TIMESTAMP_WITH_TIMEZONE =
+        253402300799LL + HOUR_PER_DAY * SECOND_PER_HOUR;
 static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;
@@ -219,7 +223,9 @@ static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
 static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
-static RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
+// One shared instance program-wide (was `static`, i.e. one copy constructed
+// per including TU). Visiting is thread-safe.
+inline RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
 
 uint8_t mysql_week_mode(uint32_t mode);
 
@@ -286,7 +292,8 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
-    const static VecDateTimeValue DEFAULT_VALUE;
+    const static VecDateTimeValue DATE_DEFAULT_VALUE;
+    const static VecDateTimeValue DATETIME_DEFAULT_VALUE;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -691,9 +698,8 @@ public:
     uint32_t to_date_v2() const { return (year() << 9 | month() << 5 | day()); }
 
     uint64_t to_datetime_v2() const {
-        return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
-                          ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
-                          ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
+        return (((uint64_t)year() << 46) | ((uint64_t)month() << 42) | ((uint64_t)day() << 37) |
+                ((uint64_t)hour() << 32) | ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
     }
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
@@ -723,7 +729,7 @@ public:
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
-    void set_type(int type);
+    void set_type(TimeType type);
 
     int type() const { return _type; }
 
@@ -762,7 +768,7 @@ public:
     bool get_date_from_daynr(uint64_t);
 
     // reset 0
-    void reset_zero_by_type(int type) { set_zero(type); }
+    void reset_zero_by_type(TimeType type) { set_zero(type); }
 
 private:
     // Used to make sure sizeof VecDateTimeValue
@@ -789,7 +795,7 @@ private:
                              bool disable_lut = false);
 
     // Helper to set max, min, zero
-    void set_zero(int type);
+    void set_zero(TimeType type);
     void set_max_time(bool neg);
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
@@ -805,7 +811,7 @@ private:
     uint8_t _month;
     uint16_t _year;
 
-    VecDateTimeValue(uint8_t neg, uint8_t type, uint8_t hour, uint8_t minute, uint8_t second,
+    VecDateTimeValue(uint8_t neg, TimeType type, uint8_t hour, uint8_t minute, uint8_t second,
                      uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
@@ -821,9 +827,11 @@ static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial destructible");
 static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial copyable");
-inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
-inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
-                                                              1, 1);
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TIME_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATE_DEFAULT_VALUE(false, TIME_DATE, 0, 0, 0, 1970,
+                                                                   1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATETIME_DEFAULT_VALUE(false, TIME_DATETIME, 0, 0,
+                                                                       0, 1970, 1, 1);
 
 template <typename T>
 class DateV2Value {
@@ -906,7 +914,7 @@ public:
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
     bool to_format_string_conservative(const char* format, size_t len, char* to,
-                                       size_t max_valid_length) const;
+                                       size_t max_valid_length, int nanosecond = -1) const;
 
     bool from_date_format_str(const char* format, size_t format_len, const char* value,
                               size_t value_len) {
@@ -1087,6 +1095,12 @@ public:
 
     template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
+
+    // Fast path for DAY / WEEK intervals: only the date part moves (daynr +- days), the time part
+    // is untouched. Defined inline below `calc_daynr` so that per-row callers fully inline it;
+    // falls back to the generic `date_add_interval<DAY>` outside the day-offset dictionary.
+    template <bool need_check = true>
+    bool date_add_days(int64_t days);
 
     template <TimeUnit unit>
     bool date_set_interval(const TimeInterval& interval);
@@ -1763,13 +1777,51 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
     return delsum + y / 4 - y / 100 + y / 400;
 }
 
+// DAY / WEEK fast path. Real workloads hold dates that cluster in a narrow range, so the two
+// dictionary lookups below (`daynr(y, m, d)` and `daynr -> date`) are L1-resident; measured about
+// 3x faster than the generic `date_add_interval<DAY>` (no TimeInterval, no second-level
+// arithmetic, fully inlined into the caller's loop). Closed-form calendar arithmetic was tried
+// and is ~2.5x SLOWER than the generic path: its chain of constant divisions costs far more than
+// two warm table loads. Everything outside the dictionary (years < 1900 or > 2039, results
+// outside it, and year 0 with its MySQL daynr quirk) takes the generic path unchanged.
+template <typename T>
+template <bool need_check>
+inline bool DateV2Value<T>::date_add_days(int64_t days) {
+    if constexpr (need_check) {
+        if (!is_valid_date()) [[unlikely]] {
+            return false;
+        }
+    } else {
+        DCHECK(is_valid_date());
+    }
+    if (date_day_offset_dict::can_speed_up_calc_daynr(date_v2_value_.year_) &&
+        LIKELY(date_day_offset_dict::get_dict_init())) [[likely]] {
+        const int64_t day_nr =
+                date_day_offset_dict::get().daynr(date_v2_value_.year_, date_v2_value_.month_,
+                                                  date_v2_value_.day_) +
+                days;
+        // range-check before narrowing: `days` may be up to INT32 * 7
+        if (day_nr > 0 && day_nr <= DATE_MAX_DAYNR &&
+            date_day_offset_dict::can_speed_up_daynr_to_date(static_cast<int>(day_nr))) [[likely]] {
+            const auto to = date_day_offset_dict::get()[date_day_offset_dict::get_offset_by_daynr(
+                    static_cast<int>(day_nr))];
+            date_v2_value_.year_ = to.year();
+            date_v2_value_.month_ = to.month();
+            date_v2_value_.day_ = to.day();
+            return true;
+        }
+    }
+    return date_add_interval<TimeUnit::DAY, need_check>(
+            TimeInterval(TimeUnit::DAY, days < 0 ? -days : days, days < 0));
+}
+
 class DatetimeValueUtil {
 public:
     template <bool only_time>
     static bool to_format_string_without_check(const char* format, size_t len, char* to,
                                                size_t max_valid_length, int16_t year, int8_t month,
                                                int8_t day, int hour, int minute, int second,
-                                               int ms);
+                                               int microsecond, int nanosecond = -1);
 
 private:
     static uint8_t week(int16_t year, int8_t month, int8_t day, uint8_t mode);
@@ -1803,6 +1855,11 @@ struct DateTraits<uint64_t> {
     using DateType = DataTypeDateTimeV2;
 };
 #include "common/compile_check_avoid_end.h"
+
+/// Instantiated once in vdatetime_value.cpp; suppresses per-TU implicit instantiation.
+extern template class DateV2Value<DateV2ValueType>;
+extern template class DateV2Value<DateTimeV2ValueType>;
+
 } // namespace doris
 
 template <>

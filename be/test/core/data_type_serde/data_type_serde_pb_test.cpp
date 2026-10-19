@@ -54,6 +54,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
@@ -547,7 +548,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
-    Tuple t1, t2;
+    Struct t1, t2;
     t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
     t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
     t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
@@ -578,7 +579,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct2) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
-    Tuple t1, t2;
+    Struct t1, t2;
     t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
     t1.push_back(Field::create_field<TYPE_BIGINT>(37));
     t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
@@ -644,6 +645,17 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
         block.insert(type_and_name);
         check_pb_col(data_type, *vec.get());
     }
+}
+
+TEST(DataTypeSerDePbTest, DataTypeTimeStampTzToProtobufKeepsScale) {
+    DataTypePtr data_type(std::make_shared<DataTypeTimeStampTz>(6));
+    PTypeDesc type_desc;
+    data_type->to_protobuf(&type_desc);
+
+    ASSERT_EQ(type_desc.types_size(), 1);
+    const auto& scalar_type = type_desc.types(0).scalar_type();
+    EXPECT_EQ(scalar_type.type(), TPrimitiveType::TIMESTAMPTZ);
+    EXPECT_EQ(scalar_type.scale(), 6);
 }
 
 TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {

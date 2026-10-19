@@ -160,6 +160,24 @@ public class JsonMetricVisitor extends MetricVisitor {
             }
         }
         final String fullName = prefix + String.join("_", names);
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    @Override
+    public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
+        if (histogramOrdinal++ == 0) {
+            sb.append(",\n");
+        }
+
+        final String fullName = prefix + name.replace('.', '_');
+        List<String> tags = new ArrayList<>();
+        for (MetricLabel label : labels) {
+            tags.add(String.format("\"%s\":\"%s\"", label.getKey(), label.getValue()));
+        }
+        appendHistogram(fullName, histogram, tags);
+    }
+
+    private void appendHistogram(String fullName, Histogram histogram, List<String> tags) {
         Snapshot snapshot = histogram.getSnapshot();
         setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.75\"", tags, snapshot.get75thPercentile());
         setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.95\"", tags, snapshot.get95thPercentile());

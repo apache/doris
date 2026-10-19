@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -42,8 +43,15 @@ public class RuntimeFilterTypeHelper {
     public static final long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
             | TRuntimeFilterType.BLOOM.getValue()
             | TRuntimeFilterType.MIN_MAX.getValue()
-            | TRuntimeFilterType.IN_OR_BLOOM.getValue()
-            | TRuntimeFilterType.BITMAP.getValue());
+            | TRuntimeFilterType.IN_OR_BLOOM.getValue());
+
+    private static final long DEPRECATED_MASK = TRuntimeFilterType.BITMAP.getValue();
+
+    private static final List<TRuntimeFilterType> SUPPORTED_RUNTIME_FILTER_TYPES = ImmutableList.of(
+            TRuntimeFilterType.IN,
+            TRuntimeFilterType.BLOOM,
+            TRuntimeFilterType.MIN_MAX,
+            TRuntimeFilterType.IN_OR_BLOOM);
 
     private static final Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
@@ -52,15 +60,24 @@ public class RuntimeFilterTypeHelper {
         varValueSet.put("BLOOM_FILTER", (long) TRuntimeFilterType.BLOOM.getValue());
         varValueSet.put("MIN_MAX", (long) TRuntimeFilterType.MIN_MAX.getValue());
         varValueSet.put("IN_OR_BLOOM_FILTER", (long) TRuntimeFilterType.IN_OR_BLOOM.getValue());
-        varValueSet.put("BITMAP_FILTER", (long) TRuntimeFilterType.BITMAP.getValue());
     }
 
     public static boolean allowedRuntimeFilterType(long runtimeFilterType, TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) != 0;
+        return SUPPORTED_RUNTIME_FILTER_TYPES.contains(type)
+                && (normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType) & type.getValue()) != 0;
+    }
+
+    public static long normalizeDeprecatedRuntimeFilterTypes(long runtimeFilterType) {
+        return runtimeFilterType & ~DEPRECATED_MASK;
+    }
+
+    public static List<TRuntimeFilterType> getSupportedRuntimeFilterTypes() {
+        return SUPPORTED_RUNTIME_FILTER_TYPES;
     }
 
     // convert long type variable value to string type that user can read
     public static String decode(Long varValue) throws DdlException {
+        varValue = normalizeDeprecatedRuntimeFilterTypes(varValue);
         // 0 parse to empty string
         if (varValue == 0) {
             return "";
@@ -89,7 +106,7 @@ public class RuntimeFilterTypeHelper {
         for (String key : names) {
             long code = 0;
             if (StringUtils.isNumeric(key)) {
-                code |= Long.parseLong(key);
+                code |= normalizeDeprecatedRuntimeFilterTypes(Long.parseLong(key));
             } else {
                 code = getCodeFromString(key);
                 if (code == 0) {

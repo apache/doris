@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -110,6 +111,11 @@ public class DeleteHandler implements Writable {
         try {
             targetTbl.readLock();
             try {
+                if (targetTbl.needRowBinlog()) {
+                    throw new AnalysisException(
+                            "DELETE with predicates is not supported when binlog<row> is enabled because it cannot "
+                                    + "produce row-level DELETE events.");
+                }
                 if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
                     // table under alter operation can also do delete.
                     // just add a comment here to notice.

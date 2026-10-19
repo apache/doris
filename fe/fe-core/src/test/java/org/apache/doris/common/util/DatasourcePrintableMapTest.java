@@ -36,6 +36,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.accessKeySecret"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.session_token"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.sessionToken"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.securityToken"));
 
         // Verify other common sensitive keys
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("password"));
@@ -43,6 +44,13 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
+        // All four iceberg REST secret keys must stay masked. These are enumerated explicitly in
+        // DatasourcePrintableMap (formerly reflected off the now-removed fe-core IcebergRestProperties);
+        // a dropped key is a silent SHOW CREATE CATALOG secret leak, so pin the full set.
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.secret-access-key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.session-token"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
@@ -91,6 +99,17 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("username = admin"));
         Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("dlf.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testCanonicalDlfSecurityTokenIsMaskedWithoutProviderRegistration() {
+        String secret = "canonical-dlf-token";
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(
+                Map.of("dlf.catalog.securityToken", secret), "=", false, false, true);
+
+        String result = printableMap.toString();
+        Assertions.assertEquals("dlf.catalog.securityToken = " + DatasourcePrintableMap.PASSWORD_MASK, result);
+        Assertions.assertFalse(result.contains(secret), result);
     }
 
     @Test
@@ -156,6 +175,8 @@ public class DatasourcePrintableMapTest {
         testMap.put("dlf.secret_key", "dlf_secret_value");
         testMap.put("s3.secret_key", "s3_secret_value");
         testMap.put("kerberos_keytab_content", "kerberos_content");
+        testMap.put("iceberg.rest.oauth2.credential", "iceberg_rest_credential");
+        testMap.put("iceberg.rest.oauth2.token", "iceberg_rest_token");
 
         DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
@@ -165,6 +186,10 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("dlf.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("s3.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("kerberos_keytab_content = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("iceberg.rest.oauth2.credential = "
+                + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("iceberg.rest.oauth2.token = "
+                + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
     @Test
@@ -180,6 +205,29 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("PASSWORD = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("Password = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testFlussNamespacedCredentialsAreMaskedWithoutEnumeratingProviders() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fluss.client.security.sasl.username", "alice");
+        properties.put("fluss.client.security.sasl.password", "client-password");
+        properties.put("fluss.client.security.sasl.jaas.config", "jaas-secret");
+        properties.put("fluss.lake.paimon.s3.access-key", "s3-key");
+        properties.put("fluss.lake.paimon.oss.secret-key", "oss-secret");
+        properties.put("fluss.lake.paimon.azure.oauth2_client_secret", "azure-secret");
+        properties.put("fluss.lake.paimon.rest.token", "rest-token");
+        properties.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
+
+        String result = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
+        Assertions.assertFalse(result.contains("alice"), result);
+        Assertions.assertFalse(result.contains("client-password"), result);
+        Assertions.assertFalse(result.contains("jaas-secret"), result);
+        Assertions.assertFalse(result.contains("s3-key"), result);
+        Assertions.assertFalse(result.contains("oss-secret"), result);
+        Assertions.assertFalse(result.contains("azure-secret"), result);
+        Assertions.assertFalse(result.contains("rest-token"), result);
+        Assertions.assertTrue(result.contains("fluss.lake.paimon.s3.endpoint = http://minio:9000"), result);
     }
 
     @Test
@@ -257,5 +305,23 @@ public class DatasourcePrintableMapTest {
     @Test
     public void testPasswordMaskConstant() {
         Assertions.assertEquals("*XXX", DatasourcePrintableMap.PASSWORD_MASK);
+    }
+
+    @Test
+    public void testRegisterSensitiveKeysMasksNewlyRegisteredKey() {
+        // Simulates a filesystem provider contributing its sensitive alias at startup.
+        DatasourcePrintableMap.registerSensitiveKeys(
+                java.util.Collections.singleton("PROVIDER_CONTRIBUTED_SECRET_KEY"));
+
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("PROVIDER_CONTRIBUTED_SECRET_KEY", "super_secret_value");
+
+        DatasourcePrintableMap<String, String> printableMap =
+                new DatasourcePrintableMap<>(testMap, "=", false, false, true);
+        String result = printableMap.toString();
+
+        Assertions.assertFalse(result.contains("super_secret_value"));
+        Assertions.assertTrue(result.contains(
+                "PROVIDER_CONTRIBUTED_SECRET_KEY = " + DatasourcePrintableMap.PASSWORD_MASK));
     }
 }

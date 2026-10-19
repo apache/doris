@@ -22,12 +22,15 @@
 
 #include "common/exception.h"
 #include "core/column/column_vector.h"
+#include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -103,10 +106,10 @@ static void merge_agg_states(AggregateDataPtr& dst_ref, AggregateDataPtr src, bo
     } else {
         const size_t num_fns = evaluators.size();
         for (size_t i = 0; i < num_fns; ++i) {
-            evaluators[i]->function()->merge(dst_ref + offsets[i], src + offsets[i], arena);
+            evaluators[i]->merge(dst_ref + offsets[i], src + offsets[i], arena);
         }
         for (size_t i = 0; i < num_fns; ++i) {
-            evaluators[i]->function()->destroy(src + offsets[i]);
+            evaluators[i]->destroy(src + offsets[i]);
         }
     }
 }
@@ -157,8 +160,19 @@ Status BucketedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
     _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
     _merge_timer = ADD_TIMER(custom_profile(), "MergeTime");
+    _memory_usage_merge_arena =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergeArena", TUnit::BYTES);
+    _memory_usage_merged_hash_tables =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergedHashTables", TUnit::BYTES);
 
     return Status::OK();
+}
+
+void BucketedAggLocalState::_update_memusage(Arena& merge_arena) {
+    int64_t arena_memory_usage = merge_arena.size();
+    COUNTER_SET(_memory_usage_merge_arena, arena_memory_usage);
+    COUNTER_SET(_memory_usage_merged_hash_tables, _hash_table_merge_growth);
+    COUNTER_SET(_memory_used_counter, arena_memory_usage + _hash_table_merge_growth);
 }
 
 Status BucketedAggLocalState::close(RuntimeState* state) {
@@ -204,6 +218,10 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
     SCOPED_TIMER(_merge_timer);
     auto& shared_state = *_shared_state;
     auto& bs = shared_state.bucket_states[bucket];
+    // Other source instances may merge other buckets at the same time, so aggregate
+    // function merges must allocate from this source instance's own arena.
+    DCHECK_LT(_task_idx, shared_state.source_merge_arenas.size());
+    auto& merge_arena = *shared_state.source_merge_arenas[_task_idx];
 
     // Merge target's bucket is the destination.
     auto& dst_agg_data = *shared_state.per_instance_data[merge_target].bucket_agg_data[bucket];
@@ -217,6 +235,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                     [&](auto& dst_method) -> void {
                         using AggMethodType = std::decay_t<decltype(dst_method)>;
                         auto& dst_data = *dst_method.hash_table;
+                        const int64_t dst_bytes_before = dst_data.get_buffer_size_in_bytes();
 
                         // Merge all finished sink instances (except merge_target itself)
                         // into the merge target's bucket.
@@ -259,6 +278,10 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                     // allocating intermediate vectors (keys,
                                                     // mappeds, hashes) and eliminates the separate
                                                     // null-out traversal.
+                                                    // The source slot is cleared only after the
+                                                    // state is owned by dst: emplace and merge can
+                                                    // throw, and then shared-state cleanup must
+                                                    // still find and destroy the source state.
                                                     const bool use_simple_count =
                                                             shared_state.use_simple_count;
                                                     src_data.for_each([&](const auto& key,
@@ -266,8 +289,6 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                         if (!mapped) {
                                                             return;
                                                         }
-                                                        auto src_mapped = mapped;
-                                                        mapped = nullptr;
 
                                                         typename std::remove_reference_t<
                                                                 decltype(dst_data)>::LookupResult
@@ -278,20 +299,31 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
 
                                                         if (inserted) {
                                                             *::lookup_result_get_mapped(dst_it) =
-                                                                    src_mapped;
+                                                                    mapped;
                                                         } else {
                                                             auto& dst_mapped =
                                                                     *::lookup_result_get_mapped(
                                                                             dst_it);
+                                                            DBUG_EXECUTE_IF(
+                                                                    "BucketedAggLocalState._merge_"
+                                                                    "bucket.fail_merge",
+                                                                    {
+                                                                        throw Exception(
+                                                                                ErrorCode::
+                                                                                        INTERNAL_ERROR,
+                                                                                "injected merge "
+                                                                                "failure");
+                                                                    });
                                                             merge_agg_states(
-                                                                    dst_mapped, src_mapped,
+                                                                    dst_mapped, mapped,
                                                                     use_simple_count,
                                                                     shared_state
                                                                             .aggregate_evaluators,
                                                                     shared_state
                                                                             .offsets_of_aggregate_states,
-                                                                    *src_inst.arena);
+                                                                    merge_arena);
                                                         }
+                                                        mapped = nullptr;
                                                     });
 
                                                     merge_null_key(
@@ -299,7 +331,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                             shared_state.aggregate_evaluators,
                                                             shared_state
                                                                     .offsets_of_aggregate_states,
-                                                            *src_inst.arena);
+                                                            merge_arena);
 
                                                     // Mark this instance as merged for this bucket.
                                                     bs.merged_instances[inst_idx] = true;
@@ -307,9 +339,16 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                             }},
                                     src_agg_data.method_variant);
                         }
+                        // Emplacing the source entries can rehash the destination bucket.
+                        _hash_table_merge_growth +=
+                                static_cast<int64_t>(dst_data.get_buffer_size_in_bytes()) -
+                                dst_bytes_before;
                     }},
             dst_agg_data.method_variant);
 
+    if (merged_count > 0) {
+        _update_memusage(merge_arena);
+    }
     return merged_count;
 }
 
@@ -323,12 +362,13 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
     if (p._needs_finalize) {
-        auto columns_with_schema =
-                VectorizedUtils::create_columns_with_type_and_name(p.row_descriptor());
+        auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
+                p.operator_row_desc_before_projection());
         MutableColumns value_columns;
         for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
             if (mem_reuse) {
-                value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+                value_columns.emplace_back(
+                        IColumn::mutate(std::move(block->get_by_position(i).column)));
             } else {
                 value_columns.emplace_back(columns_with_schema[i].type->create_column());
             }
@@ -362,6 +402,15 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
                                             columns_with_schema[key_size + i].type, "");
             }
             *block = Block(result_columns);
+        } else {
+            MutableColumns columns(block->columns());
+            for (size_t i = 0; i < key_size; ++i) {
+                columns[i] = std::move(key_columns[i]);
+            }
+            for (size_t i = 0; i < agg_size; ++i) {
+                columns[key_size + i] = std::move(value_columns[i]);
+            }
+            block->set_columns(std::move(columns));
         }
     } else {
         // Serialize path. simple_count should always finalize.
@@ -370,15 +419,14 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
         DataTypes value_data_types(agg_size);
 
         for (size_t i = 0; i < agg_size; ++i) {
-            value_data_types[i] =
-                    shared_state.aggregate_evaluators[i]->function()->get_serialized_type();
+            value_data_types[i] = shared_state.aggregate_evaluators[i]->get_serialized_type();
             if (mem_reuse) {
-                value_columns[i] = std::move(*block->get_by_position(key_size + i).column).mutate();
-            } else {
                 value_columns[i] =
-                        shared_state.aggregate_evaluators[i]->function()->create_serialize_column();
+                        IColumn::mutate(std::move(block->get_by_position(key_size + i).column));
+            } else {
+                value_columns[i] = shared_state.aggregate_evaluators[i]->create_serialize_column();
             }
-            shared_state.aggregate_evaluators[i]->function()->serialize_to_column(
+            shared_state.aggregate_evaluators[i]->serialize_to_column(
                     values, shared_state.offsets_of_aggregate_states[i], value_columns[i],
                     num_rows);
         }
@@ -394,6 +442,15 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
                 result_columns.emplace_back(std::move(value_columns[i]), value_data_types[i], "");
             }
             *block = Block(result_columns);
+        } else {
+            MutableColumns columns(block->columns());
+            for (size_t i = 0; i < key_size; ++i) {
+                columns[i] = std::move(key_columns[i]);
+            }
+            for (size_t i = 0; i < agg_size; ++i) {
+                columns[key_size + i] = std::move(value_columns[i]);
+            }
+            block->set_columns(std::move(columns));
         }
     }
 }
@@ -452,8 +509,8 @@ Status BucketedAggLocalState::_output_bucket(RuntimeState* state, Block* block, 
                           MutableColumns key_columns;
                           for (size_t i = 0; i < key_size; ++i) {
                               if (mem_reuse) {
-                                  key_columns.emplace_back(
-                                          std::move(*block->get_by_position(i).column).mutate());
+                                  key_columns.emplace_back(IColumn::mutate(
+                                          std::move(block->get_by_position(i).column)));
                               } else {
                                   key_columns.emplace_back(shared_state.probe_expr_ctxs[i]
                                                                    ->root()
@@ -535,8 +592,8 @@ Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, B
                             MutableColumns key_columns;
                             for (size_t i = 0; i < key_size; ++i) {
                                 if (mem_reuse) {
-                                    key_columns.emplace_back(
-                                            std::move(*block->get_by_position(i).column).mutate());
+                                    key_columns.emplace_back(IColumn::mutate(
+                                            std::move(block->get_by_position(i).column)));
                                 } else {
                                     key_columns.emplace_back(shared_state.probe_expr_ctxs[i]
                                                                      ->root()
@@ -710,9 +767,18 @@ BucketedAggSourceOperatorX::BucketedAggSourceOperatorX(ObjectPool* pool, const T
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.bucketed_agg_node.need_finalize) {}
 
-Status BucketedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+bool BucketedAggSourceOperatorX::is_blockable(RuntimeState* state) const {
+    return Base::is_blockable(state) ||
+           (_sink_operator != nullptr && _sink_operator->has_blockable_aggregate());
+}
+
+Status BucketedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    // Merging finished sinks (hash table rehash, aggregate merge() allocations) happens
+    // inside _get_results, so let the pipeline task reserve what the last round needed
+    // instead of only the minimum operator memory (see OperatorX::get_reserve_mem_size).
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
 
     RETURN_IF_ERROR(local_state._get_results(state, block, eos));
 

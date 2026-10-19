@@ -241,7 +241,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
 
         std::vector<TUniqueId> ids;
         ids.push_back(source_ins);
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(), op->row_desc(),
+        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
+                                             op->operator_row_desc_after_projection(),
                                              _next_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
@@ -509,7 +510,7 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     DescriptorTbl* desc;
     OperatorPtr op;
     _build_fragment_context();
-    EXPECT_EQ(_runtime_state.front()->enable_local_shuffle(), true);
+    EXPECT_EQ(_runtime_state.front()->plan_local_shuffle(), true);
     auto cur_pipe = _build_pipeline(parallelism);
     {
         auto tnode = TPlanNodeBuilder(_next_node_id(), TPlanNodeType::EXCHANGE_NODE)
@@ -575,7 +576,8 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
 
         std::vector<TUniqueId> ids;
         ids.push_back(source_ins);
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(), op->row_desc(),
+        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
+                                             op->operator_row_desc_after_projection(),
                                              _next_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
@@ -584,11 +586,12 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     }
     {
         cur_pipe->init_data_distribution(_runtime_state.back().get());
-        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::HASH_SHUFFLE);
+        EXPECT_EQ(cur_pipe->data_distribution().distribution_type,
+                  TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
         EXPECT_EQ(cur_pipe->sink()
                           ->required_data_distribution(_runtime_state.back().get())
                           .distribution_type,
-                  ExchangeType::NOOP);
+                  TLocalPartitionType::NOOP);
         EXPECT_EQ(cur_pipe->need_to_local_exchange(
                           cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
                           1),
@@ -597,11 +600,11 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     {
         cur_pipe->operators().front()->set_serial_operator();
         cur_pipe->init_data_distribution(_runtime_state.back().get());
-        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::NOOP);
+        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, TLocalPartitionType::NOOP);
         EXPECT_EQ(cur_pipe->sink()
                           ->required_data_distribution(_runtime_state.back().get())
                           .distribution_type,
-                  ExchangeType::PASSTHROUGH);
+                  TLocalPartitionType::PASSTHROUGH);
         EXPECT_EQ(cur_pipe->need_to_local_exchange(
                           cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
                           1),
@@ -620,7 +623,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     // Build pipeline
     DescriptorTbl* desc;
     _build_fragment_context();
-    EXPECT_EQ(_runtime_state.front()->enable_local_shuffle(), true);
+    EXPECT_EQ(_runtime_state.front()->plan_local_shuffle(), true);
     {
         TTupleDescriptor tuple0 = TTupleDescriptorBuilder().set_id(0).build();
         TSlotDescriptor slot0 =
@@ -889,9 +892,10 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         for (int i = 0; i < parallelism; i++) {
             ids.push_back(_next_ins_id());
         }
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
-                                             _pipelines.back()->operators().back()->row_desc(),
-                                             _next_sink_op_id(), stream_sink, destinations, ids));
+        sink.reset(new ExchangeSinkOperatorX(
+                _runtime_state.back().get(),
+                _pipelines.back()->operators().back()->operator_row_desc_after_projection(),
+                _next_sink_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
         EXPECT_EQ(cur_pipe->sink()->set_child(cur_pipe->operators().back()), Status::OK());
@@ -903,12 +907,12 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         if (pip_idx == 1) {
             // Pipeline(ExchangeOperator(id=1, HASH_PARTITIONED) -> HashJoinBuildOperator(id=0))
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]
                               ->sink()
                               ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->sink()->required_data_distribution(
                                       _runtime_state.back().get()),
@@ -919,7 +923,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             _pipelines[pip_idx]->set_data_distribution(
                     _pipelines[pip_idx]->children().front()->data_distribution());
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->sink()->required_data_distribution(
                                       _runtime_state.back().get()),
@@ -930,7 +934,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                               .back()
                               ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->operators().back()->required_data_distribution(
                                       _runtime_state.back().get()),

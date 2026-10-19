@@ -65,6 +65,10 @@ public class SlotDescriptor {
         this.id = id;
         this.parentId = parentId;
         this.isNullable = true;
+        this.allAccessPaths = Collections.emptyList();
+        this.predicateAccessPaths = Collections.emptyList();
+        this.displayAllAccessPaths = Collections.emptyList();
+        this.displayPredicateAccessPaths = Collections.emptyList();
     }
 
     public SlotId getId() {

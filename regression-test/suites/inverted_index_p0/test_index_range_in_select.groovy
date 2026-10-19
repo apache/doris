@@ -153,7 +153,7 @@ suite("test_index_range_in_select", "inverted_index_select"){
                 wait_for_build_index_on_partition_finish(indexTbName1, timeout)
             }
         }
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // case1: select in
         // case1.0: select in specific condition
@@ -221,7 +221,7 @@ suite("test_index_range_in_select", "inverted_index_select"){
                 ${char_colume1} in ("tall:150cm, weight: 40kg, hobbies: sing, dancing, running",  "tall:100cm, weight: 30kg, hobbies:")
             order by name
             """
-        
+
         // case2.3: string inverted colume mix select
         // case2.3.0: standard inverted colume(different type) mix select
         qt_sql """

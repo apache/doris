@@ -40,8 +40,12 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -53,11 +57,15 @@ import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.ColumnsUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.proto.OlapCommon;
@@ -67,6 +75,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
@@ -82,11 +91,13 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class CloudInternalCatalog extends InternalCatalog {
@@ -94,6 +105,202 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public CloudInternalCatalog() {
         super();
+    }
+
+    @Override
+    protected void setTableStreamProperties(BaseTableStream stream, Map<String, String> properties)
+            throws AnalysisException {
+        if (stream instanceof OlapTableStream) {
+            ((OlapTableStream) stream).setPropertiesWithoutOffsetInitialization(properties);
+            return;
+        }
+        super.setTableStreamProperties(stream, properties);
+    }
+
+    @Override
+    protected void beforeCreateTableStream(Database streamDb, BaseTableStream stream, TableIf baseTable,
+            List<Long> basePartitionIds)
+            throws DdlException {
+        if (!(stream instanceof OlapTableStream) || !(baseTable instanceof OlapTable)) {
+            throw new DdlException("Cloud Table Stream requires an OLAP base table");
+        }
+        OlapTableStream olapStream = (OlapTableStream) stream;
+        OlapTable olapBaseTable = (OlapTable) baseTable;
+        List<Cloud.TableStreamOffsetPB> initialOffsets = captureTableStreamInitialOffsets(
+                olapStream, olapBaseTable, basePartitionIds);
+        Set<Long> basePartitionIdSet = new HashSet<>(basePartitionIds);
+        Set<Long> offsetPartitionIds = initialOffsets.stream()
+                .map(Cloud.TableStreamOffsetPB::getPartitionId)
+                .collect(Collectors.toSet());
+        if (initialOffsets.size() != offsetPartitionIds.size()
+                || !basePartitionIdSet.equals(offsetPartitionIds)) {
+            throw new DdlException("Cloud Table Stream initial offsets do not match base table partitions");
+        }
+
+        long baseDbId = olapStream.getBaseTableInfo().getDbId();
+        prepareTableStream(baseDbId, olapBaseTable.getId(), streamDb.getId(), olapStream.getId());
+        int batchSize = Config.cloud_table_stream_create_partition_batch_size;
+        if (batchSize <= 0) {
+            throw new DdlException("cloud_table_stream_create_partition_batch_size must be positive");
+        }
+        for (int start = 0; start < initialOffsets.size(); start += batchSize) {
+            int end = Math.min(start + batchSize, initialOffsets.size());
+            commitTableStreamPartitions(baseDbId, olapBaseTable.getId(), streamDb.getId(),
+                    olapStream.getId(), initialOffsets.subList(start, end));
+        }
+    }
+
+    @Override
+    protected void afterCreateTableStream(Database streamDb, BaseTableStream stream, TableIf baseTable)
+            throws DdlException {
+        OlapTableStream olapStream = (OlapTableStream) stream;
+        OlapTable olapBaseTable = (OlapTable) baseTable;
+        long baseDbId = olapStream.getBaseTableInfo().getDbId();
+        commitTableStream(baseDbId, olapBaseTable.getId(), streamDb.getId(), olapStream.getId());
+    }
+
+    /** Captures authoritative versions and commit TSOs for the recorded base partitions. */
+    protected List<Cloud.TableStreamOffsetPB> captureTableStreamInitialOffsets(
+            OlapTableStream stream, OlapTable baseTable, List<Long> basePartitionIds) throws DdlException {
+        List<Cloud.TableStreamOffsetPB> offsets = new ArrayList<>(basePartitionIds.size());
+        if (basePartitionIds.isEmpty()) {
+            return offsets;
+        }
+
+        long baseDbId = stream.getBaseTableInfo().getDbId();
+        Cloud.GetVersionRequest.Builder request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(-1)
+                .setTableId(-1)
+                .setPartitionId(-1)
+                .setBatchMode(true)
+                .setWaitForPendingTxn(true);
+        for (long partitionId : basePartitionIds) {
+            request.addDbIds(baseDbId)
+                    .addTableIds(baseTable.getId())
+                    .addPartitionIds(partitionId);
+        }
+
+        Cloud.GetVersionResponse response;
+        try {
+            response = VersionHelper.getVersionFromMeta(request.build());
+        } catch (RpcException e) {
+            throw new DdlException("Failed to capture Cloud Table Stream initial offsets", e);
+        }
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new DdlException("Failed to capture Cloud Table Stream initial offsets: "
+                    + response.getStatus());
+        }
+        if (response.getVersionsCount() != basePartitionIds.size()
+                || response.getCommitTsosCount() != basePartitionIds.size()) {
+            throw new DdlException(
+                    "Cloud Table Stream version response size does not match requested partitions");
+        }
+
+        for (int i = 0; i < basePartitionIds.size(); i++) {
+            long partitionId = basePartitionIds.get(i);
+            long version = response.getVersions(i);
+            long commitTso = response.getCommitTsos(i);
+            boolean emptyPartition = version == Partition.PARTITION_INIT_VERSION;
+            if ((emptyPartition && commitTso != -1)
+                    || (!emptyPartition
+                    && (version <= Partition.PARTITION_INIT_VERSION || commitTso <= 0))) {
+                throw new DdlException("Invalid version or commit TSO for base partition " + partitionId
+                        + ": version=" + version + ", commit_tso=" + commitTso);
+            }
+
+            Cloud.TableStreamOffsetStatePB state = stream.isShowInitialRows() && !emptyPartition
+                    ? Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
+                    : Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED;
+            offsets.add(Cloud.TableStreamOffsetPB.newBuilder()
+                    .setPartitionId(partitionId)
+                    .setState(state)
+                    .setOffsetTso(commitTso)
+                    .build());
+        }
+        return offsets;
+    }
+
+    private void prepareTableStream(long baseDbId, long baseTableId, long streamDbId, long streamId)
+            throws DdlException {
+        Cloud.IndexRequest request = Cloud.IndexRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(baseDbId)
+                .setTableId(baseTableId)
+                .setStreamDbId(streamDbId)
+                .addIndexIds(streamId)
+                .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
+                .setExpiration(0)
+                .build();
+        executeMetaServiceRpc("prepare Cloud Table Stream",
+                () -> MetaServiceProxy.getInstance().prepareIndex(request), Cloud.IndexResponse::getStatus);
+    }
+
+    private void commitTableStreamPartitions(long baseDbId, long baseTableId, long streamDbId,
+            long streamId, List<Cloud.TableStreamOffsetPB> offsets) throws DdlException {
+        Cloud.PartitionRequest request = Cloud.PartitionRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(baseDbId)
+                .setTableId(baseTableId)
+                .setStreamDbId(streamDbId)
+                .addIndexIds(streamId)
+                .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
+                .addAllPartitionIds(offsets.stream()
+                        .map(Cloud.TableStreamOffsetPB::getPartitionId)
+                        .collect(Collectors.toList()))
+                .addAllTableStreamOffsets(offsets)
+                .build();
+        executeMetaServiceRpc("commit Cloud Table Stream partitions",
+                () -> MetaServiceProxy.getInstance().commitPartition(request), Cloud.PartitionResponse::getStatus);
+    }
+
+    private void commitTableStream(long baseDbId, long baseTableId, long streamDbId, long streamId)
+            throws DdlException {
+        Cloud.IndexRequest request = Cloud.IndexRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(baseDbId)
+                .setTableId(baseTableId)
+                .setStreamDbId(streamDbId)
+                .addIndexIds(streamId)
+                .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
+                .build();
+        executeMetaServiceRpc("commit Cloud Table Stream",
+                () -> MetaServiceProxy.getInstance().commitIndex(request), Cloud.IndexResponse::getStatus);
+    }
+
+    @FunctionalInterface
+    private interface MetaServiceRpc<T> {
+        T call() throws RpcException;
+    }
+
+    private <T> T executeMetaServiceRpc(String operation, MetaServiceRpc<T> rpc,
+            Function<T, Cloud.MetaServiceResponseStatus> getStatus) throws DdlException {
+        T response = null;
+        for (int attempt = 1; attempt <= Config.metaServiceRpcRetryTimes(); attempt++) {
+            try {
+                response = rpc.call();
+                if (getStatus.apply(response).getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("{} RPC failed, attempt={}", operation, attempt, e);
+                if (attempt == Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage(), e);
+                }
+            }
+            sleepSeveralMs();
+        }
+        if (response == null) {
+            throw new DdlException(operation + " returned no response");
+        }
+        Cloud.MetaServiceResponseStatus status = getStatus.apply(response);
+        if (status.getCode() != Cloud.MetaServiceCode.OK) {
+            throw new DdlException(operation + " failed: " + status.getMsg());
+        }
+        return response;
     }
 
     // BEGIN CREATE TABLE
@@ -119,6 +326,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat =
+                tbl.getPartitionInvertedIndexFileStorageFormat();
 
         LOG.info("begin create cloud partition");
         // create partition with base index
@@ -126,7 +335,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 distributionInfo, dbId, tbl.getId());
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = Maps.newHashMap();
+        // Use LinkedHashMap so the base index is processed before the row-binlog companion index.
+        Map<Long, MaterializedIndex> indexMap = Maps.newLinkedHashMap();
         indexMap.put(tbl.getBaseIndexId(), baseIndex);
 
         // create rollup index if has
@@ -136,6 +346,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
+            rollup.setIsRowBinlog(indexIdToMeta.get(indexId).isRowBinlogIndex());
             indexMap.put(indexId, rollup);
         }
 
@@ -146,18 +357,24 @@ public class CloudInternalCatalog extends InternalCatalog {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
             MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+            boolean isRowBinlogIndex = indexMeta.isRowBinlogIndex();
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
-                    indexId, schemaHash, dataProperty.getStorageMedium());
-            createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                    tabletMeta, tabletIdSet);
+                    indexId, schemaHash, dataProperty.getStorageMedium(), isRowBinlogIndex);
+            if (isRowBinlogIndex) {
+                createCloudRowBinlogTablets(index, baseIndex, version, tabletMeta, tabletIdSet);
+            } else {
+                createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
+                        tabletMeta, tabletIdSet);
+            }
 
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             // TStorageType storageType = indexMeta.getStorageType();
             List<Column> columns = indexMeta.getSchema();
             KeysType keysType = indexMeta.getKeysType();
+            boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
 
             List<Index> indexes;
             if (index.getId() == tbl.getBaseIndexId()) {
@@ -165,6 +382,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            OlapFile.TabletRolePB tabletRole = isRowBinlogIndex
+                    ? OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG : OlapFile.TabletRolePB.TABLET_ROLE_DATA;
             List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
                 // only base and shadow index need cluster key unique column ids
@@ -180,21 +399,21 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
-                        tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                        enableUniqueKeyMergeOnWrite, tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        binlogConfig, tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                        tbl.getVerticalCompactionNumColumnsPerGroup(), tabletRole);
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -220,7 +439,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+            boolean storeRowColumn, int schemaVersion, BinlogConfig binlogConfig, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
@@ -229,7 +448,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
-            int verticalCompactionNumColumnsPerGroup) throws DdlException {
+            int verticalCompactionNumColumnsPerGroup, OlapFile.TabletRolePB tabletRole) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -243,6 +462,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setIsInMemory(isInMemory);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
+        builder.setTabletRole(tabletRole);
+        if (binlogConfig != null) {
+            builder.setBinlogConfig(binlogConfig.toProtobuf());
+        }
 
         UUID uuid = UUID.randomUUID();
         Types.PUniqueId tabletUid = Types.PUniqueId.newBuilder()
@@ -258,7 +481,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setReplicaId(tablet.getReplicas().get(0).getId());
         builder.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        builder.setCompactionPolicy(compactionPolicy);
+        builder.setCompactionPolicy(tabletRole == OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG
+                ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         builder.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         builder.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
@@ -281,10 +505,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setNumShortKeyColumns(shortKeyColumnCount);
         schemaBuilder.setNumRowsPerRowBlock(1024);
         schemaBuilder.setCompressKind(OlapCommon.CompressKind.COMPRESS_LZ4);
-        schemaBuilder.setBfFpp(bfFpp);
+        if (bfColumns != null && !bfColumns.isEmpty()) {
+            schemaBuilder.setBfFpp(bfFpp);
+        }
 
         int deleteSign = -1;
         int sequenceCol = -1;
+        int commitTsoCol = -1;
+        int rowLsnCol = -1;
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
             if (column.isDeleteSignColumn()) {
@@ -293,9 +521,17 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isCommitTsoColumn()) {
+                commitTsoCol = i;
+            }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         schemaBuilder.setDeleteSignIdx(deleteSign);
         schemaBuilder.setSequenceColIdx(sequenceCol);
+        schemaBuilder.setCommitTsoColIdx(commitTsoCol);
+        schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
@@ -331,15 +567,20 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
         }
 
-        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        // Persist the storage format directly on the schema so the BE doesn't have to
+        // derive it from the three legacy flags below on the way back from MS. The flags
+        // are still written for backward-compat with BEs that predate the storage_format
+        // schema field; both representations agree on every V3 tablet.
         switch (storageFormat) {
             case V3:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V3);
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
                 schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
                 schemaBuilder.setBinaryPlainEncodingDefaultImpl(
                         OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
             default:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V2);
                 break;
         }
 
@@ -372,11 +613,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
                 if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
                 } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
                 } else {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
                 }
@@ -406,6 +651,12 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
+        // schema KV is shared by (index_id, schema_version). Persist the physical tablet format
+        // separately only after partition-level format rollout is enabled.
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            builder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         if (createInitialRowset) {
             // rowset
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
@@ -442,17 +693,26 @@ public class CloudInternalCatalog extends InternalCatalog {
         rowsetBuilder.setRowsetIdV2(rowsetIdV2Str);
 
         rowsetBuilder.setTabletSchema(schema);
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            rowsetBuilder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         return rowsetBuilder;
     }
 
     private void createCloudTablets(MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
             TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (see
+        // InternalCatalog.createTablets for rationale).
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             Tablet tablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             long replicaId = Env.getCurrentEnv().getNextId();
@@ -461,6 +721,30 @@ public class CloudInternalCatalog extends InternalCatalog {
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
             tablet.addReplica(replica);
         }
+        index.appendTablets(bucketTablets);
+    }
+
+    private void createCloudRowBinlogTablets(MaterializedIndex rowBinlogIndex, MaterializedIndex baseIndex,
+            long version, TabletMeta tabletMeta, Set<Long> tabletIdSet) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> baseTablets = baseIndex.getTablets();
+        List<Tablet> rowBinlogTablets = new ArrayList<>(baseTablets.size());
+        for (int i = 0; i < baseTablets.size(); ++i) {
+            Tablet baseTablet = baseTablets.get(i);
+            Tablet rowBinlogTablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
+            baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+            rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+            invertedIndex.addTablet(rowBinlogTablet.getId(), tabletMeta);
+            rowBinlogTablets.add(rowBinlogTablet);
+            tabletIdSet.add(rowBinlogTablet.getId());
+
+            long replicaId = Env.getCurrentEnv().getNextId();
+            Replica replica = new CloudReplica(replicaId, null, ReplicaState.NORMAL, version,
+                    tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
+            rowBinlogTablet.addReplica(replica);
+        }
+        rowBinlogIndex.appendTablets(rowBinlogTablets);
     }
 
     @Override
@@ -492,15 +776,17 @@ public class CloudInternalCatalog extends InternalCatalog {
     public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
             boolean isCreateTable, boolean isBatchCommit, OlapTable olapTable)
             throws DdlException {
+        boolean enableTso = olapTable != null && olapTable.enableTso();
         if (isBatchCommit) {
-            long tableVersion = commitMaterializedIndex(dbId, tableId, indexIds, partitionIds, isCreateTable);
+            long tableVersion = commitMaterializedIndex(
+                    dbId, tableId, indexIds, partitionIds, isCreateTable, enableTso);
             if (olapTable != null && isCreateTable && tableVersion > 0) {
                 olapTable.setCachedTableVersion(tableVersion);
                 ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
                         .pushVersionAsync(dbId, olapTable, tableVersion);
             }
         } else {
-            long tableVersion = commitPartition(dbId, tableId, partitionIds, indexIds);
+            long tableVersion = commitPartition(dbId, tableId, partitionIds, indexIds, enableTso);
             if (olapTable != null && tableVersion > 0) {
                 olapTable.setCachedTableVersion(tableVersion);
                 ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
@@ -575,6 +861,11 @@ public class CloudInternalCatalog extends InternalCatalog {
      */
     public long commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        return commitPartition(dbId, tableId, partitionIds, indexIds, false);
+    }
+
+    private long commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+            boolean enableTso) throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip committing partitions in check compatibility mode");
             return 0;
@@ -586,32 +877,15 @@ public class CloudInternalCatalog extends InternalCatalog {
         partitionRequestBuilder.addAllIndexIds(indexIds);
         partitionRequestBuilder.setDbId(dbId);
         partitionRequestBuilder.setTableId(tableId);
+        partitionRequestBuilder.setEnableTso(enableTso);
         if (partitionIds != null) {
             partitionRequestBuilder.addAllPartitionIds(partitionIds);
         }
         final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
 
-        Cloud.PartitionResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().commitPartition(partitionRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, commitPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitPartition response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        Cloud.PartitionResponse response = executeMetaServiceRpc("commit partitions",
+                () -> MetaServiceProxy.getInstance().commitPartition(partitionRequest),
+                Cloud.PartitionResponse::getStatus);
         if (response.hasTableVersion()) {
             return response.getTableVersion();
         }
@@ -633,27 +907,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setExpiration(expiration);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().prepareIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, prepareIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("prepareIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        executeMetaServiceRpc("prepare materialized index",
+                () -> MetaServiceProxy.getInstance().prepareIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
     }
 
     /**
@@ -662,6 +918,11 @@ public class CloudInternalCatalog extends InternalCatalog {
     public long commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, List<Long> partitionIds,
             boolean isCreateTable)
             throws DdlException {
+        return commitMaterializedIndex(dbId, tableId, indexIds, partitionIds, isCreateTable, false);
+    }
+
+    private long commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, List<Long> partitionIds,
+            boolean isCreateTable, boolean enableTso) throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip committing materialized index in checking compatibility mode");
             return 0;
@@ -674,6 +935,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setDbId(dbId);
         indexRequestBuilder.setTableId(tableId);
         indexRequestBuilder.setIsNewTable(isCreateTable);
+        indexRequestBuilder.setEnableTso(enableTso);
         if (partitionIds != null) {
             indexRequestBuilder.addAllPartitionIds(partitionIds);
         }
@@ -681,27 +943,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                 tableId, partitionIds, indexIds);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().commitIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, commitIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        Cloud.IndexResponse response = executeMetaServiceRpc("commit materialized index",
+                () -> MetaServiceProxy.getInstance().commitIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
         if (isCreateTable && response.hasTableVersion()) {
             return response.getTableVersion();
         }
@@ -827,6 +1071,25 @@ public class CloudInternalCatalog extends InternalCatalog {
     // BEGIN DROP TABLE
 
     @Override
+    public void beforeEraseTable(long dbId, Table table, boolean isReplay) throws DdlException {
+        if (isReplay || !(table instanceof BaseTableStream)) {
+            return;
+        }
+        BaseTableStream stream = (BaseTableStream) table;
+        Cloud.IndexRequest request = Cloud.IndexRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(stream.getBaseTableInfo().getDbId())
+                .setTableId(stream.getBaseTableInfo().getTableId())
+                .setStreamDbId(dbId)
+                .addIndexIds(stream.getId())
+                .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
+                .build();
+        executeMetaServiceRpc("drop Cloud Table Stream",
+                () -> MetaServiceProxy.getInstance().dropIndex(request), Cloud.IndexResponse::getStatus);
+    }
+
+    @Override
     public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
@@ -834,7 +1097,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         List<Long> indexs = Lists.newArrayList();
         for (Partition partition : olapTable.getAllPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL, true);
             for (MaterializedIndex materializedIndex : allIndices) {
                 long indexId = materializedIndex.getId();
                 indexs.add(indexId);
@@ -879,7 +1142,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         Set<Long> indexIds = new HashSet<>();
         boolean needUpdateTableVersion = false;
         for (Partition partition : partitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 indexIds.add(index.getId());
                 if (tableId == -1) {
                     tableId = ((CloudTablet) index.getTablets().get(0)).getCloudReplica().getTableId();
@@ -931,6 +1194,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.addAllTableStreams(
+                Env.getCurrentEnv().getTableStreamManager()
+                        .getCloudTableStreamsForBaseTable(dbId, tableId));
         partitionRequestBuilder.setNeedUpdateTableVersion(needUpdateTableVersion);
         if (dbId > 0) {
             partitionRequestBuilder.setDbId(dbId);
@@ -1036,6 +1302,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    @Override
+    public void onCreateTableConflict(long dbId, OlapTable table) throws DdlException {
+        dropMaterializedIndex(dbId, table.getId(), table.getIndexIdList(true), true);
+    }
+
     public void dropMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean dropTable)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
@@ -1051,27 +1322,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setDbId(dbId);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().dropIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        executeMetaServiceRpc("drop materialized index",
+                () -> MetaServiceProxy.getInstance().dropIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
     }
 
     /**
@@ -1144,6 +1397,83 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    // The three private helpers below are each independently callable (one per catalog level), so this
+    // guard is checked in every one of them rather than once at the top -- a config flip mid-sweep then
+    // takes effect at the next db/table/partition boundary instead of only on the next whole-catalog call.
+    private static boolean routeCleanupDisabled() {
+        return Config.isNotCloudMode() || !Config.enable_cloud_replica_stale_route_clean
+                || FeConstants.runningUnitTest;
+    }
+
+    /**
+     * @param systemInfo the backend set to judge staleness against. Must come from the same Env this
+     *                    catalog belongs to (the serving Env during replay/rebalancing, or the checkpoint's
+     *                    private Env while generating an image) -- never resolved internally via
+     *                    Env.getCurrentSystemInfo(), so a caller cannot accidentally sweep this catalog's
+     *                    replicas against a different Env's backend set.
+     */
+    public long removeInvalidCloudReplicaRoutes(SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long start = System.currentTimeMillis();
+        long removed = 0;
+        for (Long dbId : getDbIds()) {
+            Database db = getDbNullable(dbId);
+            if (db == null) {
+                continue; // The database can be dropped concurrently on the serving Env.
+            }
+            removed += removeInvalidCloudReplicaRoutes(db, systemInfo);
+        }
+        LOG.info("swept stale cloud routes, entries dropped {}, cost {} ms",
+                removed, System.currentTimeMillis() - start);
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Database db, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long removed = 0;
+        for (Table table : db.getTables()) {
+            removed += removeInvalidCloudReplicaRoutes(table, systemInfo);
+        }
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Table table, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled() || !table.isManagedTable()) {
+            return 0;
+        }
+        long removed = 0;
+        table.readLock();
+        try {
+            for (Partition partition : ((OlapTable) table).getAllPartitions()) {
+                removed += removeInvalidCloudReplicaRoutes(partition, systemInfo);
+            }
+        } finally {
+            table.readUnlock();
+        }
+        return removed;
+    }
+
+    private static long removeInvalidCloudReplicaRoutes(Partition partition, SystemInfoService systemInfo) {
+        if (routeCleanupDisabled()) {
+            return 0;
+        }
+        long removed = 0;
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica instanceof CloudReplica) {
+                        removed += ((CloudReplica) replica).removeInvalidRoutes(systemInfo);
+                    }
+                }
+            }
+        }
+        return removed;
+    }
+
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
         Partition partition = olapTable.getPartition(info.getPartitionId());
         if (partition == null) {
@@ -1163,15 +1493,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
                 Preconditions.checkNotNull(replica, info);
 
+                CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
                 String clusterId = info.getClusterId();
-                String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getCloudClusterIdByName(clusterId);
+                String realClusterId = systemInfo.getCloudClusterIdByName(clusterId);
                 LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
                 if (!Strings.isNullOrEmpty(realClusterId)) {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
+                ((CloudReplica) replica).replayUpdateClusterToPrimaryBe(clusterId, info.getBeId(), systemInfo);
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1187,9 +1517,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                     }
                     Preconditions.checkNotNull(replica, info);
 
+                    CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
                     String clusterId = info.getClusterId();
-                    String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getCloudClusterIdByName(clusterId);
+                    String realClusterId = systemInfo.getCloudClusterIdByName(clusterId);
                     LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
                     if (!Strings.isNullOrEmpty(realClusterId)) {
                         clusterId = realClusterId;
@@ -1197,7 +1527,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
+                    ((CloudReplica) replica).replayUpdateClusterToPrimaryBe(clusterId, info.getBeIds().get(i),
+                            systemInfo);
                 }
             }
         } catch (Exception e) {

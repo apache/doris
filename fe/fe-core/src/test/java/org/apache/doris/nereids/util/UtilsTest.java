@@ -32,4 +32,21 @@ public class UtilsTest {
         String en = "database123";
         Assertions.assertFalse(Utils.containChinese(en));
     }
+
+    @Test
+    public void testAddOverflows() {
+        // sums that fit in the long range do not overflow
+        Assertions.assertFalse(Utils.addOverflows(0, 0));
+        Assertions.assertFalse(Utils.addOverflows(1, 2));
+        Assertions.assertFalse(Utils.addOverflows(Long.MAX_VALUE, 0));
+        Assertions.assertFalse(Utils.addOverflows(0, Long.MAX_VALUE));
+        Assertions.assertFalse(Utils.addOverflows(Long.MAX_VALUE - 1, 1));
+
+        // limit + offset that exceeds the long range overflows. This is the case (e.g. LIMIT and
+        // OFFSET both BIGINT_MAX) that previously produced a negative, illegal child limit when
+        // pushing TopN/Limit down; callers now skip the rewrite instead.
+        Assertions.assertTrue(Utils.addOverflows(Long.MAX_VALUE, 1));
+        Assertions.assertTrue(Utils.addOverflows(Long.MAX_VALUE, Long.MAX_VALUE));
+        Assertions.assertTrue(Utils.addOverflows(Long.MAX_VALUE - 1, 2));
+    }
 }

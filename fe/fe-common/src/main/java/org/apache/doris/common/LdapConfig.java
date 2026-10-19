@@ -73,6 +73,12 @@ public class LdapConfig extends ConfigBase {
     public static String ldap_group_filter = "";
 
     /**
+     * Default Doris roles granted to every LDAP-authenticated user.
+     */
+    @ConfigBase.ConfField(mutable = true)
+    public static String[] ldap_default_roles = {};
+
+    /**
      * The user LDAP information cache time.
      * After timeout, the user information will be retrieved from the LDAP service again.
      */
@@ -192,6 +198,16 @@ public class LdapConfig extends ConfigBase {
      */
     @ConfigBase.ConfField
     public static boolean ldap_use_ssl = false;
+
+    /**
+     * Allow LDAP users to log in with an empty password. Disabled by default: LDAP reports a bind
+     * with an empty password as a successful unauthenticated bind, so enabling this lets anyone
+     * who knows a valid LDAP user name log in without a password. Applies to the legacy LDAP
+     * authentication path only; the fe-authentication LDAP plugin always rejects empty passwords.
+     * Not runtime-mutable - changing it requires an FE restart.
+     */
+    @ConfigBase.ConfField
+    public static boolean ldap_allow_empty_pass = false;
 
     /**
      * The method constructs the correct URL connection string for the specified host and port depending on

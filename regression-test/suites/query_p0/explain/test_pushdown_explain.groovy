@@ -49,8 +49,7 @@ suite("test_pushdown_explain") {
         "colocate_with" = "groupa1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
     ); """
     sql """ insert into test_lineorder values(1,2,"asd"),(2,3,"bsd"),(3,4,"csd"),(4,5,"dsd"); """
     // Disable REWRITE_SIMPLE_AGG_TO_CONSTANT to prevent the optimizer from folding
@@ -101,8 +100,7 @@ suite("test_pushdown_explain") {
         "colocate_with" = "groupa1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
     ); """
     sql """ insert into test_null_columns values(1, NULL, "value1"),(2, NULL, "value2"),(3, "not_null", "value3"),(4, "also_null", "value4"); """
     

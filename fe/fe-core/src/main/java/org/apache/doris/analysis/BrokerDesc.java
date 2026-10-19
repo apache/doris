@@ -21,8 +21,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
@@ -84,14 +83,14 @@ public class BrokerDesc extends StorageDesc implements Writable {
         // Try to determine the actual storage type from properties if available
         if (MapUtils.isNotEmpty(this.properties)) {
             try {
-                // Create primary storage properties from the given configuration
-                this.storageProperties = StorageProperties.createPrimary(this.properties);
+                // Bind the primary storage adapter from the given configuration
+                this.storageAdapter = StorageAdapter.of(this.properties);
                 // Override the storage type based on property configuration
-                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageProperties.getStorageName());
+                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageAdapter.getStorageName());
             } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
-                // Just keep the storage type as BROKER, and try to create BrokerProperties
-                this.storageProperties = BrokerProperties.of(name, properties);
+                // Just keep the storage type as BROKER, and bind a broker adapter
+                this.storageAdapter = StorageAdapter.ofBroker(name, this.properties);
                 this.storageType = StorageBackend.StorageType.BROKER;
             }
         }
@@ -109,17 +108,17 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.properties.putAll(properties);
         }
         if (StorageType.BROKER.equals(storageType)) {
-            this.storageProperties = BrokerProperties.of(name, properties);
+            this.storageAdapter = StorageAdapter.ofBroker(name, properties);
             return;
         }
         if (MapUtils.isNotEmpty(this.properties) && StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
+            this.storageAdapter = StorageAdapter.of(properties);
         }
 
     }
 
     public String getFileLocation(String location) throws UserException {
-        return (null != storageProperties) ? storageProperties.validateAndNormalizeUri(location) : location;
+        return (null != storageAdapter) ? storageAdapter.validateAndNormalizeUri(location) : location;
     }
 
     public static BrokerDesc createForStreamLoad() {

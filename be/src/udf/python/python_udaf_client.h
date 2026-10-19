@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arrow/record_batch.h>
 #include <arrow/status.h>
 
 #include "udf/python/python_client.h"
@@ -173,8 +174,17 @@ public:
      */
     Status close();
 
+#ifdef BE_TEST
+    static Status make_udaf_failure_status_for_test(
+            const std::shared_ptr<arrow::RecordBatch>& response, const char* operation,
+            int64_t place_id);
+#endif
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PythonUDAFClient);
+
+    static Status make_udaf_failure_status(const std::shared_ptr<arrow::RecordBatch>& response,
+                                           const char* operation, int64_t place_id);
 
     /**
      * Send RecordBatch request to Python server with app_metadata

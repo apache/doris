@@ -32,6 +32,7 @@
 #include "storage/rowset/pending_rowset_helper.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_fwd.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 
@@ -66,27 +67,29 @@ public:
         return Status::NotSupported("BaseRowsetBuilder::commit_txn not implemented");
     }
 
-    Status cancel();
+    virtual Status cancel(const Status& st = Status::Cancelled("rowset builder cancelled"));
 
     const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 
     const BaseTabletSPtr& tablet() const { return _tablet; }
 
-    const RowsetSharedPtr& rowset() const { return _rowset; }
+    virtual const BaseTabletSPtr& tablet_sptr() const { return _tablet; }
 
-    const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
+    virtual const RowsetSharedPtr& rowset() const { return _rowset; }
+
+    virtual const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // For UT
     const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
 
-    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
+    virtual const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
         return _partial_update_info;
     }
 
     bool is_data_builder() const { return _req.write_req_type == WriteRequestType::DATA; }
 
-    // Attach an extra rowset (e.g. binlog rowset) to the same txn.
-    Status attach_rowset_to_txn(const RowsetSharedPtr& rowset);
+    // Attach the binlog rowset and its independent binlog tablet to the same txn.
+    Status attach_row_binlog_to_txn(const RowBinlogTxnInfo& attach_row_binlog);
 
     // Attach an extra pending rowset id so that PendingLocalRowsets can be
     // cleaned up together with the primary rowset.
@@ -111,8 +114,8 @@ protected:
     WriteRequest _req;
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
-    // Extra rowsets attached to the same txn (e.g. binlog rowsets).
-    std::vector<RowsetSharedPtr> _attach_rowsets;
+    // The binlog rowset and its independent binlog tablet attached to the same txn.
+    RowBinlogTxnInfo _attach_row_binlog;
     std::shared_ptr<RowsetWriter> _rowset_writer;
     PendingRowsetGuard _pending_rs_guard;
     // Extra rowset ids that share the same PendingRowsetGuard.
@@ -160,14 +163,12 @@ private:
 
     void _garbage_collection(bool cancel_txn);
 
-    TabletSharedPtr tablet_sptr();
-
     StorageEngine& _engine;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };
 
-// Rowset builder dedicated for row_binlog rowset, it shares the same tablet
-// but uses an independent row_binlog tablet schema.
+// Rowset builder dedicated for row_binlog rowset. It writes to the independent
+// row_binlog tablet while being attached to the base tablet txn by GroupRowsetBuilder.
 class RowBinlogRowsetBuilder : public RowsetBuilder {
 public:
     RowBinlogRowsetBuilder(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile);
@@ -183,18 +184,19 @@ public:
     // the owner of rowset will be changed, so cleaning rowset is handed to the
     // data(txn) rowset builder.
     Status commit_txn() override {
+        std::lock_guard<std::mutex> l(_lock);
         _is_committed = true;
         return Status::OK();
     }
 };
 
-// manage one transaction with multiple rowset_builder
-// eg. normal data rowset + row_binlog rowset
-// Now only support one tablet
+// Manage one transaction with multiple rowset_builders.
+// eg. normal data rowset + row_binlog rowset.
 class GroupRowsetBuilder : public BaseRowsetBuilder {
 public:
-    GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
-                       const WriteRequest& row_binlog_req, RuntimeProfile* profile);
+    GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& group_build_req,
+                       const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                       RuntimeProfile* profile);
 
     Status init() override;
 
@@ -204,7 +206,21 @@ public:
 
     Status wait_calc_delete_bitmap() override;
 
+    Status cancel(const Status& st) override;
+
     Status commit_txn() override;
+
+    const BaseTabletSPtr& tablet_sptr() const override { return _txn_rs_builder->tablet_sptr(); }
+
+    const RowsetSharedPtr& rowset() const override { return _txn_rs_builder->rowset(); }
+
+    const TabletSchemaSPtr& tablet_schema() const override {
+        return _txn_rs_builder->tablet_schema();
+    }
+
+    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const override {
+        return _txn_rs_builder->get_partial_update_info();
+    }
 
     RowsetBuilder* txn_rowset_builder() { return _txn_rs_builder.get(); }
     RowsetBuilder* row_binlog_builder() { return _row_binlog_rowset_builder.get(); }
@@ -212,6 +228,8 @@ public:
 private:
     // txn rowset builder will manage txn; other builders will add their
     // rowsets into here.
+    StorageEngine& _engine;
+    int64_t _row_binlog_tablet_id;
     std::shared_ptr<RowsetBuilder> _txn_rs_builder;
     std::shared_ptr<RowsetBuilder> _row_binlog_rowset_builder;
 };

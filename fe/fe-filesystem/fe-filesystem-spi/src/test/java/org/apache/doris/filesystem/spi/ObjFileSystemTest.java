@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,6 @@ import org.junit.jupiter.api.Test;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -241,7 +241,7 @@ class ObjFileSystemTest {
     private static class TestObjFileSystem extends ObjFileSystem {
 
         TestObjFileSystem(ObjStorage<?> storage) {
-            super("test", storage);
+            super(storage);
         }
 
         // Expose the protected method for white-box testing.
@@ -338,11 +338,6 @@ class ObjFileSystemTest {
 
         @Override
         public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Map<String, String> getProperties() {
             throw new UnsupportedOperationException();
         }
 

@@ -34,6 +34,7 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
             .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
             .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
             .add("InconsistentTablets").add("OversizeTablets")
+            .add("RowBinlogMismatchTablets").add("RowBinlogRedundantTablets")
             .build();
     private static final Joiner JOINER = Joiner.on(",");
 
@@ -59,7 +60,9 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
                 JOINER.join(statistic.unrecoverableTabletIds),
                 JOINER.join(statistic.replicaCompactionTooSlowTabletIds),
                 JOINER.join(statistic.inconsistentTabletIds),
-                JOINER.join(statistic.oversizeTabletIds)
+                JOINER.join(statistic.oversizeTabletIds),
+                JOINER.join(statistic.rowBinlogMismatchTabletIds),
+                JOINER.join(statistic.rowBinlogRedundantTabletIds)
         )));
     }
 

@@ -66,7 +66,7 @@ suite("test_primary_key_simple_case", "inverted_index") {
     sql """ INSERT INTO ${tableName} VALUES
             (5, '2017-10-01', 'Beijing', 10, 1, NULL, NULL, '2020-01-05', 1, 34, 20)
         """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     def result = sql """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     assertTrue(result.size() == 5)
@@ -104,7 +104,7 @@ suite("test_primary_key_simple_case", "inverted_index") {
     result = sql """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     assertTrue(result.size() == 6)
 
-    // insert batch key 
+    // insert batch key
     sql """ INSERT INTO ${tableName} VALUES
             (7, '2017-10-01', 'Beijing', 10, 1, NULL, NULL, '2020-01-05', 1, 34, 22),
             (7, '2017-10-01', 'Beijing', 10, 1, NULL, NULL, '2020-01-05', 1, 34, 23),

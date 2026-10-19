@@ -19,12 +19,11 @@ package org.apache.doris.cdcclient.source.deserialize;
 
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.utils.SchemaChangeHelper;
+import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
 
+import org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
-import org.apache.flink.util.Preconditions;
-import org.apache.kafka.connect.data.Field;
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.Struct;
+import org.apache.flink.cdc.connectors.postgres.source.schema.PostgresSchemaRecord;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
@@ -34,241 +33,214 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static io.debezium.connector.AbstractSourceInfo.SCHEMA_NAME_KEY;
-import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
-
-import io.debezium.data.Envelope;
 import io.debezium.relational.Column;
-import io.debezium.relational.TableEditor;
+import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * PostgreSQL-specific deserializer that detects schema changes (ADD/DROP column only) by comparing
- * the record's Kafka Connect schema field names with stored tableSchemas.
+ * PostgreSQL-specific deserializer with event-driven schema change handling.
  *
- * <p>Because PostgreSQL does not emit DDL events in the WAL stream, schema detection is done by
- * comparing the "after" struct field names in each DML record against the known column set.
+ * <p>Schema changes are detected from pgoutput Relation messages, which flink-cdc surfaces as
+ * {@link PostgresSchemaRecord} when the source emits schema changes. The carried Debezium {@link
+ * Table} is the full post-change schema and is diffed against the stored source schema baseline,
+ * loaded from FE, to derive ADD/DROP column DDL. Regular DML records are emitted directly without
+ * per-record schema comparison.
  *
- * <p>Type comparison is intentionally skipped to avoid false positives caused by Kafka Connect type
- * ambiguity (e.g. text/varchar/json/uuid all appear as STRING). When a column add or drop is
- * detected, the accurate column types are fetched directly from PostgreSQL via the injected {@link
- * #pgSchemaRefresher} callback.
+ * <p>The baseline is also established by Relation events: when a table first appears (e.g. a stream
+ * started directly from an offset without a snapshot), pgoutput sends its Relation before the first
+ * DML, and the {@code stored == null} branch of {@link #handleSchemaChangeEvent} adopts the current
+ * schema as the baseline (no DDL). No JDBC fallback is needed — a DML can only reach this
+ * deserializer after Debezium has resolved its Relation (otherwise Debezium drops it as a
+ * NoopMessage), and that Relation has already established the baseline.
  *
- * <p>MODIFY column type is not supported — users must manually execute ALTER TABLE ... MODIFY
- * COLUMN in Doris when a PG column type changes.
+ * <p>In evolve mode, only ADD and DROP column are emitted. Unsupported changes require manual
+ * RESUME and target-column verification before accepting the new baseline. In ignore mode, only the
+ * source schema baseline is updated.
+ *
+ * <p>The emitted DDL is only applied on the from-to (at-least-once) write path; the TVF
+ * (exactly-once) fetch path consumes DML only and does not execute schema-change records, so
+ * automatic schema change is effective for from-to mode.
  */
 public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG =
             LoggerFactory.getLogger(PostgresDebeziumJsonDeserializer.class);
 
-    /**
-     * Callback to fetch the current PG table schema for a single table via JDBC. Injected by {@link
-     * org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader} after initialization.
-     */
-    private transient Function<TableId, TableChanges.TableChange> pgSchemaRefresher;
-
-    public void setPgSchemaRefresher(Function<TableId, TableChanges.TableChange> refresher) {
-        this.pgSchemaRefresher = refresher;
-    }
-
     @Override
     public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
+        // 1. Schema change event (pgoutput Relation -> PostgresSchemaRecord).
+        if (SourceRecordUtils.isSchemaChangeEvent(record)) {
+            if (!isSchemaChangeEnabled(context)) {
+                LOG.info("[SCHEMA-CHANGE-SKIPPED] Postgres schema change is disabled.");
+                return DeserializeResult.empty();
+            }
+            return handleSchemaChangeEvent(context, record);
+        }
+        // 2. Non-DML (heartbeat / watermark / etc.).
         if (!RecordUtils.isDataChangeRecord(record)) {
             return DeserializeResult.empty();
         }
-
-        Schema valueSchema = record.valueSchema();
-        if (valueSchema == null) {
-            return super.deserialize(context, record);
-        }
-
-        Field afterField = valueSchema.field(Envelope.FieldName.AFTER);
-        if (afterField == null) {
-            return super.deserialize(context, record);
-        }
-
-        Schema afterSchema = afterField.schema();
-        TableId tableId = extractTableId(record);
-        TableChanges.TableChange stored = tableSchemas != null ? tableSchemas.get(tableId) : null;
-
-        // No baseline schema available — cannot detect changes, fall through to normal
-        // deserialization
-        if (stored == null || stored.getTable() == null) {
-            LOG.debug(
-                    "No stored schema for table {}, skipping schema change detection.",
-                    tableId.identifier());
-            return super.deserialize(context, record);
-        }
-
-        // First pass: name-only diff — fast, in-memory, no type comparison, no false positives
-        SchemaChangeHelper.SchemaDiff nameDiff =
-                SchemaChangeHelper.diffSchemaByName(afterSchema, stored);
-        if (nameDiff.isEmpty()) {
-            return super.deserialize(context, record);
-        }
-
-        Preconditions.checkNotNull(
-                pgSchemaRefresher,
-                "pgSchemaRefresher callback is not set. Cannot fetch fresh PG schema for change detection.");
-
-        // the last fresh schema
-        TableChanges.TableChange fresh = pgSchemaRefresher.apply(tableId);
-        if (fresh == null || fresh.getTable() == null) {
-            // Cannot proceed: DDL must be executed before the triggering DML record is written,
-            // otherwise new column data in this record would be silently dropped.
-            // Throwing here causes the batch to be retried from the same offset.
-            throw new IOException(
-                    "Failed to fetch fresh schema for table "
-                            + tableId.identifier()
-                            + "; cannot apply schema change safely. Will retry.");
-        }
-
-        // Second diff: use afterSchema as the source of truth for which columns the current WAL
-        // record is aware of. Only process additions/drops visible in afterSchema — columns that
-        // exist in fresh (JDBC) but are absent from afterSchema belong to a later DDL that has not
-        // yet produced a DML record, and will be processed when that DML record arrives.
-        //
-        // pgAdded: present in afterSchema but absent from stored → look up Column in fresh for
-        //          accurate PG type metadata. If fresh doesn't have the column yet (shouldn't
-        //          happen normally), skip it.
-        // pgDropped: present in stored but absent from afterSchema.
-        List<Column> pgAdded = new ArrayList<>();
-        List<String> pgDropped = new ArrayList<>();
-
-        for (Field field : afterSchema.fields()) {
-            if (stored.getTable().columnWithName(field.name()) == null) {
-                Column freshCol = fresh.getTable().columnWithName(field.name());
-                if (freshCol != null) {
-                    pgAdded.add(freshCol);
-                }
-            }
-        }
-
-        for (Column col : stored.getTable().columns()) {
-            if (afterSchema.field(col.name()) == null) {
-                pgDropped.add(col.name());
-            }
-        }
-
-        // Second diff is empty: nameDiff was a false positive (PG schema unchanged vs stored).
-        // This happens when pgSchemaRefresher returns a schema ahead of the current WAL position
-        // (e.g. a later DDL was already applied in PG while we're still consuming older DML
-        // records).
-        // No DDL needed, no tableSchema update, no extra stream load — just process the DML
-        // normally.
-        if (pgAdded.isEmpty() && pgDropped.isEmpty()) {
-            return super.deserialize(context, record);
-        }
-
-        // Build updatedSchemas from fresh filtered to afterSchema columns only, so that the stored
-        // cache does not jump ahead to include columns not yet seen by any DML record. Those
-        // unseen columns will trigger their own schema change when their first DML record arrives.
-        TableEditor editor = fresh.getTable().edit();
-        for (Column col : fresh.getTable().columns()) {
-            if (afterSchema.field(col.name()) == null) {
-                editor.removeColumn(col.name());
-            }
-        }
-        TableChanges.TableChange filteredChange =
-                new TableChanges.TableChange(TableChanges.TableChangeType.ALTER, editor.create());
-        Map<TableId, TableChanges.TableChange> updatedSchemas = new HashMap<>();
-        updatedSchemas.put(tableId, filteredChange);
-
-        // Rename guard: simultaneous ADD+DROP may be a column RENAME — skip DDL to avoid data loss.
-        // Users must manually RENAME the column in Doris.
-        if (!pgAdded.isEmpty() && !pgDropped.isEmpty()) {
-            LOG.warn(
-                    "[SCHEMA-CHANGE-SKIPPED] Table: {}\n"
-                            + "Potential RENAME detected (simultaneous DROP+ADD).\n"
-                            + "Dropped columns: {}\n"
-                            + "Added columns:   {}\n"
-                            + "No DDL emitted to prevent data loss.\n"
-                            + "Action required: manually RENAME column(s) in Doris,"
-                            + " then data will resume.",
-                    tableId.identifier(),
-                    pgDropped,
-                    pgAdded.stream().map(Column::name).collect(Collectors.toList()));
-            List<String> dmlRecords = super.deserialize(context, record).getRecords();
-            return DeserializeResult.schemaChange(
-                    Collections.emptyList(), updatedSchemas, dmlRecords);
-        }
-
-        // Generate DDLs using accurate PG column types
-        String db = context.get(Constants.DORIS_TARGET_DB);
-        List<String> ddls = new ArrayList<>();
-        Set<String> excludedCols =
-                excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
-
-        for (String colName : pgDropped) {
-            if (excludedCols.contains(colName)) {
-                // The column is excluded from sync — skip DDL; updatedSchemas already
-                // reflects the drop since it is built from afterSchema.
-                LOG.info(
-                        "[SCHEMA-CHANGE] Table {}: dropped column '{}' is excluded from sync,"
-                                + " skipping DROP DDL",
-                        tableId.identifier(),
-                        colName);
-                continue;
-            }
-            ddls.add(
-                    SchemaChangeHelper.buildDropColumnSql(
-                            db, resolveTargetTable(tableId.table()), colName));
-        }
-
-        for (Column col : pgAdded) {
-            if (excludedCols.contains(col.name())) {
-                // The column is excluded from sync — Doris table does not have it,
-                // so skip the ADD DDL.
-                // case: An excluded column was dropped and then re-added.
-                LOG.info(
-                        "[SCHEMA-CHANGE] Table {}: added column '{}' is excluded from sync,"
-                                + " skipping ADD DDL",
-                        tableId.identifier(),
-                        col.name());
-                continue;
-            }
-            String colType = SchemaChangeHelper.columnToDorisType(col);
-            String nullable = col.isOptional() ? "" : " NOT NULL";
-            // pgAdded only contains columns present in afterSchema, so field lookup is safe.
-            // afterSchema.defaultValue() returns an already-deserialized Java object
-            // (e.g. String "hello", Integer 42) — no PG SQL cast suffix to strip.
-            // PG WAL DML records do not carry column comment metadata.
-            Object defaultObj = afterSchema.field(col.name()).schema().defaultValue();
-            ddls.add(
-                    SchemaChangeHelper.buildAddColumnSql(
-                            db,
-                            resolveTargetTable(tableId.table()),
-                            col.name(),
-                            colType + nullable,
-                            defaultObj != null ? String.valueOf(defaultObj) : null,
-                            null));
-        }
-
-        List<String> dmlRecords = super.deserialize(context, record).getRecords();
-
-        LOG.info(
-                "Postgres schema change detected for table {}: added={}, dropped={}. DDLs: {}",
-                tableId.identifier(),
-                pgAdded.stream().map(Column::name).collect(Collectors.toList()),
-                pgDropped,
-                ddls);
-
-        return DeserializeResult.schemaChange(ddls, updatedSchemas, dmlRecords);
+        return super.deserialize(context, record);
     }
 
-    private TableId extractTableId(SourceRecord record) {
-        Struct value = (Struct) record.value();
-        Struct source = value.getStruct(Envelope.FieldName.SOURCE);
-        String schemaName = source.getString(SCHEMA_NAME_KEY);
-        String tableName = source.getString(TABLE_NAME_KEY);
-        return new TableId(null, schemaName, tableName);
+    /**
+     * Handle a pgoutput Relation-driven schema change: diff the post-change PG schema (carried by
+     * {@link PostgresSchemaRecord}) against the stored source baseline and emit ADD/DROP column
+     * DDL. When no baseline exists yet (first appearance of the table), adopt the fresh schema as
+     * the baseline without emitting any DDL.
+     */
+    private DeserializeResult handleSchemaChangeEvent(
+            Map<String, String> context, SourceRecord record) {
+        Table freshTable = ((PostgresSchemaRecord) record).getTable();
+        // Debezium PG TableId is (catalog=null, schema, table) — matches the tableSchemas key.
+        TableId tableId = freshTable.id();
+        TableChanges.TableChange stored = tableSchemas != null ? tableSchemas.get(tableId) : null;
+        LOG.info(
+                "[SCHEMA-CHANGE] Postgres deserializer received schema change, table={},"
+                        + " baselineSchemas={}, hasStoredSchema={}",
+                tableId.identifier(),
+                tableSchemas == null ? 0 : tableSchemas.size(),
+                stored != null && stored.getTable() != null);
+
+        // Relation events use ALTER uniformly, including when establishing the initial baseline.
+        TableChanges.TableChange freshChange =
+                new TableChanges.TableChange(TableChanges.TableChangeType.ALTER, freshTable);
+        Map<TableId, TableChanges.TableChange> updatedSchemas = new HashMap<>();
+        updatedSchemas.put(tableId, freshChange);
+
+        // No baseline yet: adopt the fresh schema as baseline, no DDL.
+        if (stored == null || stored.getTable() == null) {
+            LOG.info(
+                    "[SCHEMA-CHANGE] Table {}: no baseline, adopting fresh schema as baseline (no"
+                            + " DDL)",
+                    tableId.identifier());
+            return DeserializeResult.schemaChange(Collections.emptyList(), updatedSchemas);
+        }
+
+        // Debezium equality does not compare native type IDs.
+        if (stored.getTable().equals(freshTable)
+                && stored.getTable().columns().stream()
+                        .allMatch(
+                                column ->
+                                        column.nativeType()
+                                                == freshTable
+                                                        .columnWithName(column.name())
+                                                        .nativeType())) {
+            return DeserializeResult.empty();
+        }
+        if (isSchemaChangeIgnored(context)) {
+            LOG.info(
+                    "[SCHEMA-CHANGE-IGNORED] Postgres target DDL skipped for table {}",
+                    tableId.identifier());
+            return DeserializeResult.schemaChange(Collections.emptyList(), updatedSchemas);
+        }
+
+        Set<String> excludedCols =
+                excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
+        String unsupportedReason =
+                unsupportedChangeReason(stored.getTable(), freshTable, excludedCols);
+        if (unsupportedReason != null) {
+            return unsupportedSchemaChange(updatedSchemas, unsupportedReason);
+        }
+
+        List<Column> added = new ArrayList<>();
+        List<String> dropped = new ArrayList<>();
+        for (Column col : freshTable.columns()) {
+            if (stored.getTable().columnWithName(col.name()) == null) {
+                added.add(col);
+            }
+        }
+        for (Column col : stored.getTable().columns()) {
+            if (freshTable.columnWithName(col.name()) == null) {
+                dropped.add(col.name());
+            }
+        }
+
+        // Relation messages cannot distinguish a rename from simultaneous ADD/DROP.
+        // Detect it before filtering so renames across excluded columns cannot emit partial DDL.
+        boolean hasAddedAndDropped = !added.isEmpty() && !dropped.isEmpty();
+        added.removeIf(col -> excludedCols.contains(col.name()));
+        dropped.removeIf(excludedCols::contains);
+        if (hasAddedAndDropped && (!added.isEmpty() || !dropped.isEmpty())) {
+            return unsupportedSchemaChange(
+                    updatedSchemas,
+                    "Cannot distinguish a column rename from simultaneous ADD/DROP");
+        }
+
+        String db = context.get(Constants.DORIS_TARGET_DB);
+        List<SchemaChangeOperation> schemaChanges = new ArrayList<>();
+        String targetTable = resolveTargetTable(tableId.table());
+
+        for (String colName : dropped) {
+            schemaChanges.add(
+                    SchemaChangeOperation.dropColumn(
+                            targetTable,
+                            colName,
+                            SchemaChangeHelper.buildDropColumnSql(db, targetTable, colName)));
+        }
+
+        for (Column col : added) {
+            String colType = SchemaChangeHelper.columnToDorisType(col);
+            // Do not propagate source DEFAULT expressions or NOT NULL. PostgreSQL evaluates
+            // defaults before writing new rows to WAL, so subsequent DML carries the actual value.
+            // Existing Doris rows are not backfilled and must remain valid with NULL in this
+            // column.
+            schemaChanges.add(
+                    SchemaChangeOperation.addColumn(
+                            targetTable,
+                            col.name(),
+                            SchemaChangeHelper.buildAddColumnSql(
+                                    db, targetTable, col.name(), colType)));
+        }
+
+        LOG.info(
+                "Postgres schema change (event-driven) for table {}: added={}, dropped={}. DDLs:"
+                        + " {}",
+                tableId.identifier(),
+                added.stream().map(Column::name).collect(Collectors.toList()),
+                dropped,
+                schemaChanges.stream()
+                        .map(SchemaChangeOperation::getSql)
+                        .collect(Collectors.toList()));
+        return DeserializeResult.schemaChange(schemaChanges, updatedSchemas);
+    }
+
+    private DeserializeResult unsupportedSchemaChange(
+            Map<TableId, TableChanges.TableChange> updatedSchemas, String reason) {
+        return DeserializeResult.unsupportedSchemaChange(reason, tableSchemas, updatedSchemas);
+    }
+
+    private static String unsupportedChangeReason(
+            Table before, Table after, Set<String> excludedColumns) {
+        if (!before.primaryKeyColumnNames().equals(after.primaryKeyColumnNames())) {
+            return "Primary key changes are not supported";
+        }
+        // Compare native IDs only; modifier detection needs consistent source metadata.
+        for (Column column : before.columns()) {
+            if (excludedColumns.contains(column.name())) {
+                continue;
+            }
+            Column freshColumn = after.columnWithName(column.name());
+            if (freshColumn != null && column.nativeType() != freshColumn.nativeType()) {
+                return "Column '"
+                        + column.name()
+                        + "' changes its source type from "
+                        + column.typeName()
+                        + " to "
+                        + freshColumn.typeName()
+                        + " (OID "
+                        + column.nativeType()
+                        + " -> "
+                        + freshColumn.nativeType()
+                        + ")";
+            }
+        }
+        return null;
     }
 }

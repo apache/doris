@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -42,7 +43,6 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
 const static std::string PERSIST_PARAM = "persist";
 const std::string CONF_ITEM = "conf_item";
 

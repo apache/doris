@@ -27,8 +27,12 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <new>
+#include <set>
 #include <string>
+#include <tuple>
+#include <vector>
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
@@ -79,10 +83,98 @@ public:
         LOG(INFO) << "TearDown";
     }
 
+protected:
+    RowsetMetaSharedPtr create_rowset_meta(int64_t rowset_id, RowsetStatePB state, Version version,
+                                           bool is_row_binlog = false) {
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        EXPECT_TRUE(rowset_meta->init_from_json(_json_rowset_meta));
+        RowsetId rs_id;
+        rs_id.init(rowset_id);
+        rowset_meta->set_rowset_id(rs_id);
+        rowset_meta->set_tablet_uid(_tablet_uid);
+        rowset_meta->set_rowset_state(state);
+        rowset_meta->set_version(version);
+        if (is_row_binlog) {
+            rowset_meta->mark_row_binlog();
+        }
+        return rowset_meta;
+    }
+
+    RowsetMetaPB to_rowset_meta_pb(const RowsetMetaSharedPtr& rowset_meta) {
+        std::string serialized;
+        EXPECT_TRUE(rowset_meta->serialize(&serialized));
+        RowsetMetaPB rowset_meta_pb;
+        EXPECT_TRUE(rowset_meta_pb.ParseFromString(serialized));
+        return rowset_meta_pb;
+    }
+
+    OlapMeta* meta() { return _meta; }
+    TabletUid tablet_uid() const { return _tablet_uid; }
+
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
     TabletUid _tablet_uid {0, 0};
 };
+
+TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
+    auto base_rowset_meta = create_rowset_meta(20000, RowsetStatePB::COMMITTED, Version {7, 7});
+    auto attach_rowset_meta =
+            create_rowset_meta(20001, RowsetStatePB::COMMITTED, Version {7, 7}, true);
+
+    auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
+                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
+                                      to_rowset_meta_pb(attach_rowset_meta));
+    ASSERT_TRUE(st.ok()) << st;
+
+    RowsetMetaSharedPtr loaded_base_meta = std::make_shared<RowsetMeta>();
+    st = RowsetMetaManager::get_rowset_meta(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
+                                            loaded_base_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(loaded_base_meta->rowset_id(), base_rowset_meta->rowset_id());
+    EXPECT_EQ(loaded_base_meta->tablet_uid().to_string(), tablet_uid().to_string());
+    EXPECT_EQ(loaded_base_meta->version(), base_rowset_meta->version());
+
+    RowsetMetaSharedPtr loaded_attach_meta = std::make_shared<RowsetMeta>();
+    st = RowsetMetaManager::get_rowset_meta(meta(), tablet_uid(), attach_rowset_meta->rowset_id(),
+                                            loaded_attach_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(loaded_attach_meta->rowset_id(), attach_rowset_meta->rowset_id());
+    EXPECT_EQ(loaded_attach_meta->tablet_uid().to_string(), tablet_uid().to_string());
+    EXPECT_EQ(loaded_attach_meta->version(), attach_rowset_meta->version());
+    EXPECT_TRUE(loaded_attach_meta->is_row_binlog());
+}
+
+TEST_F(RowsetMetaManagerTest, Remove) {
+    auto base_rowset_meta = create_rowset_meta(20010, RowsetStatePB::VISIBLE, Version {9, 9});
+    auto attach_rowset_meta =
+            create_rowset_meta(20011, RowsetStatePB::VISIBLE, Version {9, 9}, true);
+
+    auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
+                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
+                                      to_rowset_meta_pb(attach_rowset_meta));
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = RowsetMetaManager::remove(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id())
+                        .is<ErrorCode::META_KEY_NOT_FOUND>());
+
+    auto base_rowset_meta_2 = create_rowset_meta(20012, RowsetStatePB::VISIBLE, Version {10, 10});
+    auto attach_rowset_meta_2 =
+            create_rowset_meta(20013, RowsetStatePB::VISIBLE, Version {10, 10}, true);
+    st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta_2->rowset_id(),
+                                 to_rowset_meta_pb(base_rowset_meta_2), BinlogFormatPB::ROW,
+                                 to_rowset_meta_pb(attach_rowset_meta_2));
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = RowsetMetaManager::remove(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id());
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id())
+                        .is<ErrorCode::META_KEY_NOT_FOUND>());
+}
 
 } // namespace doris

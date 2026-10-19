@@ -21,6 +21,7 @@
 
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/query_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
@@ -38,12 +39,12 @@ bool QueryTaskController::is_cancelled() const {
     return query_ctx->is_cancelled();
 }
 
-bool QueryTaskController::cancel_impl(const Status& reason, int fragment_id) {
+bool QueryTaskController::cancel_impl(const Status& reason) {
     auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
         return false;
     }
-    query_ctx->cancel(reason, fragment_id);
+    query_ctx->cancel(reason);
     return true;
 }
 
@@ -224,6 +225,19 @@ std::vector<PipelineTask*> QueryTaskController::get_revocable_tasks() {
         tasks.insert(tasks.end(), tasks_of_fragment.cbegin(), tasks_of_fragment.cend());
     }
     return tasks;
+}
+
+bool QueryTaskController::get_user(std::string* user) {
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return false;
+    }
+    // Only expose user metadata when it is explicitly attached to the query context.
+    if (query_ctx->set_rsc_info) {
+        *user = query_ctx->user;
+        return true;
+    }
+    return false;
 }
 
 void QueryTaskController::add_total_task_num(int delta) {

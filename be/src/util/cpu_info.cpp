@@ -377,6 +377,17 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 #endif
 }
 
+long CpuInfo::get_l2_cache_size() {
+    static const long l2_cache_size = [] {
+        long cache_sizes[NUM_CACHE_LEVELS] = {};
+        long cache_line_sizes[NUM_CACHE_LEVELS] = {};
+        _get_cache_info(cache_sizes, cache_line_sizes);
+        constexpr long DEFAULT_L2_CACHE_SIZE = 256 * 1024;
+        return cache_sizes[L2_CACHE] > 0 ? cache_sizes[L2_CACHE] : DEFAULT_L2_CACHE_SIZE;
+    }();
+    return l2_cache_size;
+}
+
 std::string CpuInfo::debug_string() {
     DCHECK(initialized_);
     std::stringstream stream;

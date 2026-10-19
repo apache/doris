@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -76,17 +77,21 @@ void close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext*
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
     if (!exec_status.ok()) {
-        ctx->cancel(exec_status);
+        // Always enter cancellation through QueryContext. The status passed while closing a task
+        // may be the query's existing cancellation status rather than a new task failure; the
+        // QueryContext first-error-wins guard makes that case a no-op and prevents repeated
+        // fragment-local cancellation work.
+        ctx->get_query_ctx()->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                     print_id(ctx->get_query_id()), exec_status.to_string());
     }
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        ctx->cancel(status);
+        ctx->get_query_ctx()->cancel(status);
     }
     status = task->finalize();
     if (!status.ok()) {
-        ctx->cancel(status);
+        ctx->get_query_ctx()->cancel(status);
     }
 }
 
@@ -146,7 +151,11 @@ void TaskScheduler::_do_work(int index) {
         }
 
         // Main logics of execution
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = task->execute(&done), status);
+        try {
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = task->execute(&done), status);
+        } catch (const std::exception& e) {
+            status = Status::InternalError("Catch std::exception: {}", e.what());
+        }
         fragment_context->trigger_report_if_necessary();
     }
 }
@@ -168,7 +177,15 @@ void TaskScheduler::stop() {
 }
 
 Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
-    if (task->is_blockable()) {
+    bool blockable = false;
+    {
+        std::unique_lock<std::mutex> blockable_check_lock(task->_blockable_check_lock);
+        if (!task->_accept_submit) {
+            return Status::OK();
+        }
+        blockable = task->is_blockable();
+    }
+    if (blockable) {
         return _blocking_scheduler.submit(task);
     } else {
         return _simple_scheduler.submit(task);

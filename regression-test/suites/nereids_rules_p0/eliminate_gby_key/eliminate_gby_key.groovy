@@ -84,7 +84,7 @@ suite("eliminate_gby_key") {
         select t2_c2
         from   temp;
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[c1#13, c3#18]")
     }
 
     explain {
@@ -144,7 +144,7 @@ suite("eliminate_gby_key") {
         select t2_c2, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[c1#13, c3#18]")
     }
 
     explain {
@@ -184,7 +184,7 @@ suite("eliminate_gby_key") {
         select c3, t2_c2
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[c1#13, c3#18]")
     }	
 
     explain {
@@ -264,7 +264,7 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[c1#13, c3#18]")
     }
 
     explain {
@@ -284,7 +284,7 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18,")
+	contains("groupByExpr=[c1#13, c3#18]")
     }
 
 	sql "drop table if exists eli_gbk_t"

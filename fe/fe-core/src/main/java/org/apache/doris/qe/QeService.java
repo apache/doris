@@ -17,9 +17,10 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.help.HelpModule;
-import org.apache.doris.service.arrowflight.DorisFlightSqlService;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.tls.server.FeServerStarterFactory;
+import org.apache.doris.tls.server.ServerStarter;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -31,23 +32,21 @@ import org.apache.logging.log4j.Logger;
 public class QeService {
     private static final Logger LOG = LogManager.getLogger(QeService.class);
 
-    private int port;
-    // MySQL protocol service
-    private MysqlServer mysqlServer;
-
-    private int arrowFlightSQLPort;
-    private DorisFlightSqlService dorisFlightSqlService;
+    private final int port;
+    private final int arrowFlightSQLPort;
+    private final ServerStarter mysqlStarter;
+    private final ServerStarter flightStarter;
 
     @Deprecated
     public QeService(int port, int arrowFlightSQLPort) {
-        this.port = port;
-        this.arrowFlightSQLPort = arrowFlightSQLPort;
+        this(port, arrowFlightSQLPort, ExecuteEnv.getInstance().getScheduler());
     }
 
     public QeService(int port, int arrowFlightSQLPort, ConnectScheduler scheduler) {
         this.port = port;
         this.arrowFlightSQLPort = arrowFlightSQLPort;
-        this.mysqlServer = new MysqlServer(port, scheduler);
+        this.mysqlStarter = FeServerStarterFactory.createMysqlServerStarter(port, scheduler);
+        this.flightStarter = FeServerStarterFactory.createFlightServerStarter(arrowFlightSQLPort);
     }
 
     public void start() throws Exception {
@@ -60,18 +59,27 @@ public class QeService {
             // We should fix it in the future.
         }
 
-        if (!mysqlServer.start()) {
-            LOG.error("mysql server start failed");
-            System.exit(-1);
-        }
+        mysqlStarter.start();
         if (arrowFlightSQLPort != -1) {
-            this.dorisFlightSqlService = new DorisFlightSqlService(arrowFlightSQLPort);
-            if (!dorisFlightSqlService.start()) {
-                System.exit(-1);
-            }
-        } else {
-            LOG.info("No Arrow Flight SQL service that needs to be started.");
+            flightStarter.start();
         }
         LOG.info("QE service start.");
+    }
+
+    public void stop() {
+        try {
+            if (flightStarter != null) {
+                flightStarter.stop();
+            }
+        } catch (Exception e) {
+            LOG.warn("stop Arrow Flight SQL service failed", e);
+        }
+        try {
+            if (mysqlStarter != null) {
+                mysqlStarter.stop();
+            }
+        } catch (Exception e) {
+            LOG.warn("stop mysql server failed", e);
+        }
     }
 }

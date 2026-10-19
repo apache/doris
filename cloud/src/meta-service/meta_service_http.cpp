@@ -106,15 +106,19 @@ std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode r
 HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
                              std::optional<std::string> body) {
     auto [status_code, status_msg] = convert_ms_code_to_http_code(code);
+    std::string_view response_msg =
+            code == MetaServiceCode::OK && msg.empty() ? status_msg : std::string_view(msg);
     rapidjson::Document d;
     d.SetObject();
     if (code == MetaServiceCode::OK) {
         d.AddMember("code", "OK", d.GetAllocator());
-        d.AddMember("msg", rapidjson::StringRef(msg.data(), msg.size()), d.GetAllocator());
+        d.AddMember("msg", rapidjson::StringRef(response_msg.data(), response_msg.size()),
+                    d.GetAllocator());
     } else {
         d.AddMember("code", rapidjson::StringRef(status_msg.data(), status_msg.size()),
                     d.GetAllocator());
-        d.AddMember("msg", rapidjson::StringRef(msg.data(), msg.size()), d.GetAllocator());
+        d.AddMember("msg", rapidjson::StringRef(response_msg.data(), response_msg.size()),
+                    d.GetAllocator());
     }
 
     rapidjson::Document result;
@@ -134,7 +138,7 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     d.Accept(writer);
-    return {status_code, msg, sb.GetString()};
+    return {.status_code = status_code, .msg = std::string(response_msg), .body = sb.GetString()};
 }
 
 static std::string format_http_request(brpc::Controller* cntl) {

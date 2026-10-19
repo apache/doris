@@ -88,6 +88,7 @@ suite("test_multi_tokenize_index_not_built", "p0") {
     // Instead, it should use non-index matching path (downgrade to slow path)
     // With none analyzer: 'hello' should only match exact 'hello' (row 2)
     // If it wrongly uses standard index, it would match rows 1, 2, 4
+    sql "SET enable_match_without_inverted_index = true"
     qt_keyword_not_built """
         SELECT id FROM ${tableName}
         WHERE title MATCH 'hello' USING ANALYZER none
@@ -123,6 +124,8 @@ suite("test_multi_tokenize_index_not_built", "p0") {
         return false
     }
     assertTrue(waitBuildIndex(tableName), "Build index did not finish in time")
+
+    sql "SET enable_match_without_inverted_index = false"
 
     // Query using keyword analyzer after build - should use idx_title_keyword
     // 'hello' exact match only matches row 2

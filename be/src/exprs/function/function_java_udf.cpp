@@ -19,6 +19,7 @@
 
 #include <bthread/bthread.h>
 
+#include <future>
 #include <memory>
 #include <string>
 
@@ -29,9 +30,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
+#include "util/threadpool.h"
 
-const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
-const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 
@@ -48,7 +49,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         SCOPED_TIMER(context->get_udf_execute_timer());
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
-        context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
+        context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, jni_ctx);
 
         {
             std::string local_location;
@@ -62,19 +63,18 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
                 ctor_params.__set_location(local_location);
             }
 
-            RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
-
-            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
-                                                            &jni_ctx->executor_ctor_id));
-            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
-                    env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
-            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
-                                                            &jni_ctx->executor_close_id));
             Jni::LocalArray ctor_params_bytes;
             RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-            RETURN_IF_ERROR(jni_ctx->executor_cl.new_object(env, jni_ctx->executor_ctor_id)
-                                    .with_arg(ctor_params_bytes)
-                                    .call(&jni_ctx->executor));
+            RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(
+                    env, Jni::plugin::JAVA_UDF_SCALAR, ctor_params_bytes, &jni_ctx->executor,
+                    &jni_ctx->executor_cl));
+            // close before evaluate: the executor object exists from create_udf_executor() on,
+            // so a failure here has to be able to close it, and JniContext::close() can only do
+            // that once this id is bound.
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
+                                                            &jni_ctx->executor_close_id));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
+                    env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
         }
         jni_ctx->open_successes = true;
     }
@@ -87,7 +87,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     auto* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(JniDataBridge::to_java_table(&block, num_rows, arguments, input_table));
@@ -120,7 +120,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     auto close_func = [context]() {
         auto* jni_ctx = reinterpret_cast<JniContext*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         // JNIContext own some resource and its release method depend on JavaFunctionCall
         // has to release the resource before JavaFunctionCall is deconstructed.
         if (jni_ctx) {

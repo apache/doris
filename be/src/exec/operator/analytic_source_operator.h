@@ -46,11 +46,9 @@ public:
 #ifdef BE_TEST
     AnalyticSourceOperatorX() = default;
 #endif
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
-
-    Status prepare(RuntimeState* state) override;
 
 private:
     friend class AnalyticLocalState;

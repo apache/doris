@@ -83,8 +83,19 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                        const IColumn& column, const NullMap* null_map,
+                                        const std::shared_ptr<arrow::Field>& field,
+                                        arrow::ArrayBuilder* array_builder, int64_t start,
+                                        int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>& field,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
@@ -102,7 +113,8 @@ public:
                                    const FormatOptions& options) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;

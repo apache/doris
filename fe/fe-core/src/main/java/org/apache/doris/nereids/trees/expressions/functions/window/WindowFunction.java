@@ -19,9 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -77,6 +80,24 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         if (!param.isConstant()) {
             throw new AnalysisException(
                     "The parameter 2 of LAG/LEAD must be a constant value: " + this.toSql());
+        }
+    }
+
+    protected void checkLeadLagOffset(Expression offset, String functionName) {
+        if (!offset.getDataType().isIntegralType()) {
+            throw new AnalysisException("The offset parameter of " + functionName
+                    + " must be a constant positive integer: " + this.toSql());
+        }
+        if (offset instanceof Literal) {
+            BigDecimal offsetValue = new BigDecimal(((Literal) offset).getStringValue());
+            if (offsetValue.compareTo(BigDecimal.ZERO) < 0) {
+                throw new AnalysisException("The offset parameter of " + functionName
+                        + " must be a constant positive integer: " + this.toSql());
+            }
+            if (offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) > 0) {
+                throw new AnalysisException("The offset parameter of " + functionName
+                        + " must not exceed " + WindowFrame.MAX_ROWS_OFFSET + ": " + this.toSql());
+            }
         }
     }
 }

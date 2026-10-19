@@ -17,14 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -32,6 +34,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -64,6 +68,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     private boolean isWarmUpWithTable;
     private List<Triple<String, String, String>> tables = new ArrayList<>();
     private Map<String, String> properties = new HashMap<>();
+    private List<TableFilterRule> onTablesRules = new ArrayList<>();
 
     /**
      * WarmUpClusterCommand
@@ -87,8 +92,20 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                                 boolean isForce,
                                 boolean isWarmUpWithTable,
                                 Map<String, String> properties) {
+        this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties,
+                new ArrayList<>());
+    }
+
+    public WarmUpClusterCommand(List<WarmUpItem> warmUpItems,
+                                String srcCluster,
+                                String dstCluster,
+                                boolean isForce,
+                                boolean isWarmUpWithTable,
+                                Map<String, String> properties,
+                                List<TableFilterRule> onTablesRules) {
         this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
-        this.properties = properties;
+        this.properties = properties == null ? new HashMap<>() : properties;
+        this.onTablesRules = onTablesRules == null ? new ArrayList<>() : onTablesRules;
     }
 
     public List<WarmUpItem> getWarmUpItems() {
@@ -115,15 +132,27 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         return tables;
     }
 
+    public List<TableFilterRule> getOnTablesRules() {
+        return onTablesRules;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         handleWarmUp(ctx, executor);
     }
 
+    private void checkComputeGroupUsage(ConnectContext ctx, String computeGroup) throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ctx.getCurrentUserIdentity(),
+                computeGroup, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new AnalysisException("USAGE denied to user '" + ctx.getQualifiedUser() + "'@'"
+                    + ctx.getRemoteIP() + "' for compute group '" + computeGroup + "'");
+        }
+    }
+
     private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
         if (!Strings.isNullOrEmpty(srcCluster)) {
-            ComputeGroup srcCg = cloudSys.getComputeGroupByName(srcCluster);
+            CloudComputeGroupMeta srcCg = cloudSys.getComputeGroupByName(srcCluster);
             if (srcCg != null && srcCg.isVirtual()) {
                 throw new AnalysisException("The srcClusterName " + srcCluster
                     + " is a virtual compute group, not support");
@@ -131,7 +160,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         }
 
         if (!Strings.isNullOrEmpty(dstCluster)) {
-            ComputeGroup dstCg = cloudSys.getComputeGroupByName(dstCluster);
+            CloudComputeGroupMeta dstCg = cloudSys.getComputeGroupByName(dstCluster);
             if (dstCg != null && dstCg.isVirtual()) {
                 throw new AnalysisException("The dstClusterName " + dstCluster
                     + " is a virtual compute group, not support");
@@ -140,10 +169,16 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
 
         if (!Strings.isNullOrEmpty(srcCluster) && !Strings.isNullOrEmpty(dstCluster)) {
             String srcMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
-            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
-            if (srcMayOwnedVcg != null && srcMayOwnedVcg.equals(dstMayOwnedVcg)) {
-                throw new AnalysisException("The srcClusterName " + srcCluster + " dstClusterName " + dstCluster
-                    + " is owned by virtual compute group " + srcMayOwnedVcg + " not support");
+            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(dstCluster);
+            if (srcMayOwnedVcg != null && Objects.equals(srcMayOwnedVcg, dstMayOwnedVcg)) {
+                StringBuilder message = new StringBuilder("Cannot create warm up job from source compute group '")
+                        .append(srcCluster).append("' to destination compute group '").append(dstCluster)
+                        .append("': ");
+                message.append("source compute group '").append(srcCluster)
+                        .append("' and destination compute group '").append(dstCluster)
+                        .append("' are both owned by virtual compute group '").append(srcMayOwnedVcg)
+                        .append("', not support");
+                throw new AnalysisException(message.toString());
             }
         }
     }
@@ -154,6 +189,24 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     public void validate(ConnectContext connectContext) throws UserException {
         if (!Config.isCloudMode()) {
             throw new UserException("The sql is just support in cloud mode");
+        }
+
+        boolean hasOnTablesRules = onTablesRules != null && !onTablesRules.isEmpty();
+
+        // check auth. warming up moves data between compute groups, so require USAGE on both ends
+        // instead of global ADMIN. Keep it aligned with UseCloudClusterCommand.
+        checkComputeGroupUsage(connectContext, dstCluster);
+        if (!Strings.isNullOrEmpty(srcCluster)) {
+            checkComputeGroupUsage(connectContext, srcCluster);
+        }
+        if (hasOnTablesRules) {
+            // An ON TABLES job selects tables by pattern over the whole internal catalog and keeps
+            // re-matching in the background (CacheHotspotManager.refreshAllTableFilters), so there is
+            // no fixed table set to authorize here and no identity to re-authorize later matches with.
+            // Require global ADMIN until the job carries its submitter.
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
         }
 
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
@@ -180,6 +233,10 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 + " is same with srcClusterName: " + srcCluster);
         }
 
+        if (hasOnTablesRules && isWarmUpWithTable) {
+            throw new AnalysisException("ON TABLES clause cannot be used with WITH TABLE warmup");
+        }
+
         if (isWarmUpWithTable) {
             for (WarmUpItem warmUpItem : warmUpItems) {
                 TableNameInfo tableNameInfo = warmUpItem.getTableNameInfo();
@@ -188,6 +245,18 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 String dbName = tableNameInfo.getDb();
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR, dbName);
+                }
+                // Warm up only ever resolves and warms the internal catalog (see the lookup below and
+                // the (db, table, partition) triple stored for the job), so authorize the internal
+                // name rather than the catalog written in the SQL. Otherwise SELECT on
+                // 'ext_ctl.db.tbl' would authorize warming up 'internal.db.tbl'.
+                // Checked before the lookup so a denied user learns nothing about what exists.
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(connectContext,
+                        InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableNameInfo.getTbl(),
+                        PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                            connectContext.getQualifiedUser(), connectContext.getRemoteIP(),
+                            dbName + ": " + tableNameInfo.getTbl());
                 }
                 Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
                 if (db == null) {
@@ -201,6 +270,24 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("The partition " + partitionName + " doesn't exist");
                 }
                 tables.add(Triple.of(dbName, tableNameInfo.getTbl(), partitionName));
+            }
+        }
+
+        if (hasOnTablesRules) {
+            boolean hasInclude = onTablesRules.stream()
+                    .anyMatch(r -> r.getRuleType() == TableFilterRule.RuleType.INCLUDE);
+            if (!hasInclude) {
+                throw new AnalysisException("ON TABLES clause must contain at least one INCLUDE rule");
+            }
+            for (TableFilterRule rule : onTablesRules) {
+                if (!rule.getRawPattern().contains(".")) {
+                    throw new AnalysisException("ON TABLES pattern must be in 'db.table' format: '"
+                            + rule.getRawPattern() + "'");
+                }
+            }
+            String syncMode = properties.get("sync_mode");
+            if (!"event_driven".equals(syncMode)) {
+                throw new AnalysisException("ON TABLES clause is only supported with event_driven sync_mode");
             }
         }
     }

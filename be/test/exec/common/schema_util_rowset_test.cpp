@@ -19,6 +19,8 @@
 #include <gtest/gtest.h>
 
 #include "common/consts.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -142,13 +144,17 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
     auto column = type_string->create_column();
     auto column_string = assert_cast<ColumnString*>(column.get());
     fill_string_column_with_test_data(column_string, size, uid);
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = false;
-    variant_util::parse_json_to_variant(*variant_column, *column_string, config);
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions options;
+    for (size_t row = 0; row < column_string->size(); ++row) {
+        auto value = column_string->get_data_at(row);
+        Slice slice(value.data, value.size);
+        EXPECT_TRUE(serde.deserialize_one_cell_from_json(*variant_column, slice, options).ok());
+    }
 }
 
 static void fill_block_with_test_data(Block* block, int size) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
         auto field = Field::create_field<PrimitiveType::TYPE_INT>(i);
@@ -172,6 +178,7 @@ static void fill_block_with_test_data(Block* block, int size) {
         auto v4 = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
+    block->set_columns(std::move(columns));
 }
 static int64_t inc_id = 1000;
 static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
@@ -196,7 +203,7 @@ static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>&
 }
 
 static RowsetSharedPtr create_rowset(auto& rowset_writer, const TabletSchemaSPtr& tablet_schema) {
-    Block block = tablet_schema->create_block();
+    Block block = tablet_schema->create_storage_block();
     fill_block_with_test_data(&block, 1000);
     auto st = rowset_writer->add_block(&block);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -228,7 +235,9 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -278,7 +287,9 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows1");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -328,7 +339,7 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     // 2. create tablet and data dir
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
     // First write a few rowsets with external_segment_meta_used_default = false (old format)
-    tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows_mixed");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -361,7 +372,7 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     }
 
     // 3.2 flip tablet default to enable external column meta for subsequent segments
-    tablet_schema->set_external_segment_meta_used_default(true);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // 3.3 write a few new-format rowsets (external meta enabled)
     for (int i = 0; i < 3; ++i) {
@@ -394,7 +405,9 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 12345;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -518,10 +531,20 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // key3 is in the sparse column, return variant type
-    StorageReadOptions type_opts;
-    type_opts.tablet_schema = out_rowset->tablet_schema();
+    StorageReadOptions type_opts(olap_reader_stats);
     type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
+    TabletColumn non_variant_column;
+    non_variant_column.set_name("non_variant_column");
+    non_variant_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    DataTypePtr expected_read_type = std::make_shared<DataTypeString>();
+    auto data_type = segment->get_data_type_of(non_variant_column, expected_read_type, type_opts);
+    EXPECT_TRUE(data_type->equals(*expected_read_type));
+
+    auto get_data_type = [&](const TabletColumn& column) {
+        return segment->get_data_type_of(column, column.get_vec_type(), type_opts);
+    };
+
+    data_type = get_data_type(subcolumn_in_sparse);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
 
@@ -530,7 +553,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_path_info(PathInData("v1.keya"));
 
     // keya is not in the segment, return string type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
+    data_type = get_data_type(subcolumn_in_sparse);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 
@@ -558,7 +581,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         value_col.set_is_nullable(true);
         sparse_typed_col.add_sub_column(value_col);
     }
-    data_type = segment->get_data_type_of(sparse_typed_col, type_opts);
+    data_type = get_data_type(sparse_typed_col);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_MAP);
 
@@ -568,7 +591,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse._column_path->has_nested = true;
 
     // keyb has nested part, return int type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
+    data_type = get_data_type(subcolumn_in_sparse);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_INT);
 
@@ -576,7 +599,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_name("v1.key1");
     subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     subcolumn_in_sparse.set_path_info(PathInData("v1.key1"));
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
+    data_type = get_data_type(subcolumn_in_sparse);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 
@@ -601,7 +624,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
     std::unique_ptr<DataDir> _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
@@ -641,8 +666,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // 5. check compaction schema
@@ -694,7 +720,9 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     std::cout << compaction_schema->dump_structure() << std::endl;
     // this is v1.key1
     TabletColumn column = compaction_schema->column(2);
-    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, column, opts);
     std::unique_ptr<ColumnWriter> writer;
     EXPECT_TRUE(
             ColumnWriter::create_variant_writer(opts, &column, file_writer.get(), &writer).ok());
@@ -706,9 +734,8 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(0, false);
+    auto insert_object = ColumnVariantV2::create();
     fill_varaint_column(insert_object, 1, 1);
-    std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
     _variant_column_data->column_data = insert_object.get();
     _variant_column_data->row_pos = 0;
@@ -735,7 +762,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     bool external_segment_meta_used_default = rand() % 2 == 0;
     std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
               << std::endl;
-    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_schema->set_storage_format(external_segment_meta_used_default
+                                              ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
+                                              : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -756,8 +785,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
     for (const auto& column : compaction_schema->columns()) {
         if (column->is_extracted_column()) {

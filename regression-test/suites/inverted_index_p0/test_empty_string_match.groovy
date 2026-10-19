@@ -40,7 +40,7 @@ suite("test_empty_string_match", "p0") {
         (4, 'data', 'some text');
     """
 
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     // Test 1: Empty string match on keyword index (index path)
     // Should match rows where keyword_col is empty string (rows 1 and 3)

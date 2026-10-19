@@ -31,10 +31,11 @@
  * - WILDCARD searches '*ith', 'sm*th', 'sm?th' should also match but returned empty
  */
 suite("test_search_variant_wildcard", "p0") {
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_search_variant_wildcard"
 
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -65,9 +66,9 @@ suite("test_search_variant_wildcard", "p0") {
     // Insert test data matching the reported scenario
     // string_8 = firstname, string_17 = lastname
     sql """INSERT INTO ${tableName} VALUES
-        (73095521135, '{"string_8": "John", "string_17": "Smith"}'),
-        (73095446198, '{"string_8": "Jane", "string_17": "Smithson"}'),
-        (73095754047, '{"string_8": "Michael David", "string_17": "Johnson"}')
+        (73095521135, ${variantV2Function}('{"string_8": "John", "string_17": "Smith"}')),
+        (73095446198, ${variantV2Function}('{"string_8": "Jane", "string_17": "Smithson"}')),
+        (73095754047, ${variantV2Function}('{"string_8": "Michael David", "string_17": "Johnson"}'))
     """
 
     sql "sync"
@@ -77,21 +78,21 @@ suite("test_search_variant_wildcard", "p0") {
 
     // Test 1: TERM search for 'smith' on lastname - should return John Smith
     qt_term_smith """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('smith', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 2: TERM search for 'smithson' on lastname - should return Jane Smithson
     qt_term_smithson """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('smithson', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 3: TERM search for 'johnson' on lastname - should return Michael David Johnson
     qt_term_johnson """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('johnson', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
@@ -100,63 +101,63 @@ suite("test_search_variant_wildcard", "p0") {
 
     // Test 4: Leading wildcard '*ith' - should match "Smith" (ends with "ith")
     qt_wildcard_star_ith """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('*ith', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 5: Middle wildcard 'sm*th' - should match "Smith"
     qt_wildcard_sm_star_th """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('sm*th', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 6: Single char wildcard 'sm?th' - should match "Smith"
     qt_wildcard_sm_q_th """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('sm?th', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 7: Trailing wildcard 'smith*' - should match "Smith" and "Smithson"
     qt_wildcard_smith_star """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('smith*', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 8: Wildcard 'sm*' - should match "Smith" and "Smithson"
     qt_wildcard_sm_star """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('sm*', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 9: Wildcard '*son' - should match "Smithson" and "Johnson"
     qt_wildcard_star_son """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('*son', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 10: Wildcard on firstname field 'jo?n' - should match "John"
     qt_wildcard_firstname """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('jo?n', '{"default_field":"props.string_8","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 11: Wildcard combined with AND - 'sm*th AND props.string_8:john'
     qt_wildcard_and_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('props.string_17:sm*th AND props.string_8:john', '{"default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
     // Test 12: Standalone wildcard '*' matches all non-null values
     qt_wildcard_star_all """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id FROM ${tableName}
         WHERE search('*', '{"default_field":"props.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """

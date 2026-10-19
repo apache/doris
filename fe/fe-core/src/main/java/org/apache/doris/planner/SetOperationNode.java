@@ -22,6 +22,10 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -37,6 +41,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -192,5 +197,105 @@ public abstract class SetOperationNode extends PlanNode {
 
     public boolean isBucketShuffle() {
         return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType;
+        // COLOCATE / BUCKET_SHUFFLE: every child is distributed by the basic child's storage
+        // bucket function (basic side scans buckets directly, other sides come from
+        // bucket-shuffle exchanges), so all children must stay aligned by that bucket function
+        // locally. requireBucketHash keeps bucket-distributed children as-is and re-aligns a
+        // serial (NOOP-claim) child with a BUCKET_HASH_SHUFFLE local exchange — same pattern as
+        // HashJoinNode's colocate/bucket-shuffle branch. An execution-hash require here would
+        // locally re-partition one side by a different hash function and break the alignment.
+        boolean bucketAligned = AddLocalExchange.isColocated(this) || isBucketShuffle();
+        if (this instanceof UnionNode) {
+            // Propagate parent's hash requirement to children ONLY when a downstream operator
+            // requires shuffle for correctness (not just performance optimization). Matches BE's
+            // UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
+            // _followed_by_shuffled_operator=true. The flag is propagated by enforceRequire
+            // from operators with requiresShuffleForCorrectness()=true (finalize agg, hash join,
+            // intersect/except) through hash/noop links.
+            // See PlanNode.requiresShuffleForCorrectness() for a chain-propagation example.
+            boolean canPropagateHash = translatorContext.hasShuffleForCorrectnessAncestor(this);
+            if (!canPropagateHash) {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+                outputType = LocalExchangeType.NOOP;
+            } else if (bucketAligned) {
+                // A union does not need its branches aligned for its own semantics — it only
+                // concatenates — but the downstream correctness consumer does, and the generic
+                // hash require cannot deliver that for a bucket-aligned union: the branch that
+                // arrives through a bucket-shuffle exchange already satisfies it and keeps its
+                // bucket placement, while the branch that scans its own buckets is serial under
+                // a pooling scan, claims NOOP, and gets re-partitioned by execution hash. The
+                // same key then sits in two different pipeline tasks and the consumer computes
+                // per-task results — e.g. both rows of a window partition get row_number()=1.
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+            } else {
+                requireChild = parentRequire.autoRequireHash();
+                outputType = AddLocalExchange.resolveExchangeType(requireChild);
+            }
+        } else if (bucketAligned) {
+            // Intersect / Except, colocate or bucket shuffle. Unlike a union these always need
+            // their children aligned, so there is no shuffle-for-correctness gate here.
+            requireChild = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+        } else {
+            // PARTITIONED intersect/except: all children enter via global hash
+            // exchange. Require GLOBAL so any inserted exchange matches the
+            // cross-fragment instance mapping, same as HashJoinNode's partitioned branch.
+            // Exception: a serial source sends to a single BE, so its
+            // shuffle_idx_to_instance_idx has only one entry and GLOBAL would route rows to
+            // indices that do not exist — fall back to the generic hash require, which
+            // resolves to LOCAL.
+            boolean serialSource = fragment != null
+                    && fragment.useSerialSource(translatorContext.getConnectContext());
+            requireChild = serialSource
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            outputType = AddLocalExchange.resolveExchangeType(requireChild);
+        }
+
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        LocalExchangeType branchPlacement = null;
+        boolean branchesAgree = true;
+        for (int i = 0; i < children.size(); i++) {
+            Pair<PlanNode, LocalExchangeType> branch
+                    = enforceRequire(translatorContext, children.get(i), i, requireChild);
+            newChildren.add(branch.first);
+            if (i == 0) {
+                branchPlacement = branch.second;
+            } else if (branchPlacement != branch.second) {
+                branchesAgree = false;
+            }
+        }
+        this.children = newChildren;
+
+        // Only advertise a hash placement the branches really are on. requireBucketHash /
+        // requireGlobalExecutionHash pin the branches to one type, so those branches keep the
+        // outputType computed above; the generic requireHash is satisfied by GLOBAL / LOCAL /
+        // BUCKET alike, so a branch may keep an existing placement and the hardcoded type would
+        // be a claim about data that never moved. Report what the branches actually agreed on,
+        // and NOOP when they did not — a parent that needs one placement then inserts its own
+        // local exchange instead of trusting one branch's placement as the whole output's.
+        if (outputType.isHashShuffle() && !(branchesAgree && branchPlacement == outputType)) {
+            outputType = branchesAgree && branchPlacement != null && branchPlacement.isHashShuffle()
+                    ? branchPlacement
+                    : LocalExchangeType.NOOP;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

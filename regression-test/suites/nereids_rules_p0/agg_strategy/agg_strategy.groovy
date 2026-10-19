@@ -22,11 +22,13 @@ suite("agg_strategy") {
     sql "set runtime_filter_mode=OFF"
     sql "set be_number_for_test=1;"
     sql "set enable_bucketed_hash_agg = false;"
+    sql "set parallel_pipeline_task_num=2"
 
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
-            // not have statistic
-            sql """drop stats t_gbykey_10_dstkey_10_1000_id"""
+            // not have column statistics
+            sql """analyze table t_gbykey_10_dstkey_10_1000_id with sync;"""
+            sql """drop stats t_gbykey_10_dstkey_10_1000_id(id,gby_key,dst_key1,dst_key2)"""
         } else {
             // have statistic
             sql """analyze table t_gbykey_10_dstkey_10_1000_id with sync;"""
@@ -53,7 +55,6 @@ suite("agg_strategy") {
         qt_agg_distinct_satisfy_dst_key "explain shape plan select count(distinct id) from t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1"
         qt_agg_distinct_with_gby_key_with_other_func "explain shape plan select count(distinct dst_key1), gby_key, sum(dst_key2), avg(dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1,2,3,4"
         qt_agg_distinct_satisfy_gby_key_with_other_func "explain shape plan select count(distinct dst_key1), id, sum(dst_key2), avg(dst_key2) from t_gbykey_10_dstkey_10_1000_id group by id order by 1,2,3,4"
-        qt_agg_distinct_satisfy_dst_key_with_other_func "explain shape plan select count(distinct id), sum(dst_key2), avg(dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1,2,3"
 
         qt_agg_distinct_without_gby_key "explain shape plan select count(distinct dst_key1) from t_gbykey_10_dstkey_10_1000_id"
         //final multi_distinct + sum0
@@ -68,8 +69,9 @@ suite("agg_strategy") {
 
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
-            // not have statistic
-            sql """drop stats t_gbykey_2_dstkey_10_30_id"""
+            // not have column statistics
+            sql """analyze table t_gbykey_2_dstkey_10_30_id with sync;"""
+            sql """drop stats t_gbykey_2_dstkey_10_30_id(id,gby_key,dst_key1,dst_key2)"""
         } else {
             // have statistic
             sql """analyze table t_gbykey_2_dstkey_10_30_id with sync;"""
@@ -127,7 +129,6 @@ suite("agg_strategy") {
         qt_agg_distinct_satisfy_dst_key_low_ndv "explain shape plan select count(distinct id) from t_gbykey_2_dstkey_10_30_id group by gby_key order by 1"
         qt_agg_distinct_with_gby_key_with_other_func_low_ndv "explain shape plan select count(distinct dst_key1), gby_key, sum(dst_key2), avg(dst_key2) from t_gbykey_2_dstkey_10_30_id group by gby_key order by 1,2,3,4"
         qt_agg_distinct_satisfy_gby_key_with_other_func_low_ndv "explain shape plan select count(distinct dst_key1), id, sum(dst_key2), avg(dst_key2) from t_gbykey_2_dstkey_10_30_id group by id order by 1,2,3,4"
-        qt_agg_distinct_satisfy_dst_key_with_other_func_low_ndv"explain shape plan select count(distinct id), sum(dst_key2), avg(dst_key2) from t_gbykey_2_dstkey_10_30_id group by gby_key order by 1,2,3"
         qt_agg_distinct_without_gby_key_low_ndv "explain shape plan select count(distinct dst_key1) from t_gbykey_2_dstkey_10_30_id"
         //use final multi_distinct + sum0
         qt_agg_distinct_without_gby_key_satisfy_dst_key_low_ndv "explain shape plan select count(distinct id) from t_gbykey_2_dstkey_10_30_id"

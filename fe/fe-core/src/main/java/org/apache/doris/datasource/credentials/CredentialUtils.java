@@ -17,7 +17,8 @@
 
 package org.apache.doris.datasource.credentials;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -67,16 +68,16 @@ public class CredentialUtils {
     }
 
     /**
-     * Extract backend properties from StorageProperties map
+     * Extract backend properties from StorageAdapter map
      * Reference: CatalogProperty.getBackendStorageProperties()
      *
-     * @param storagePropertiesMap Map of storage properties
+     * @param storagePropertiesMap Map of storage adapters
      * @return Backend properties with null values filtered out
      */
     public static Map<String, String> getBackendPropertiesFromStorageMap(
-            Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
+            Map<StorageTypeId, StorageAdapter> storagePropertiesMap) {
         Map<String, String> result = new HashMap<>();
-        for (StorageProperties sp : storagePropertiesMap.values()) {
+        for (StorageAdapter sp : storagePropertiesMap.values()) {
             Map<String, String> backendProps = sp.getBackendConfigProperties();
             // the backend property's value can not be null, because it will be serialized to thrift,
             // which does not support null value.

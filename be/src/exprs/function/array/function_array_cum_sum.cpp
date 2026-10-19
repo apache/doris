@@ -133,8 +133,7 @@ public:
         auto src_nested_type = assert_cast<const DataTypeArray&>(*src_arg.type).get_nested_type();
 
         // get null map
-        const ColumnNullable* src_nested_nullable_col =
-                check_and_get_column<ColumnNullable>(*src_nested_column);
+        const auto* src_nested_nullable_col = assert_cast<const ColumnNullable*>(src_nested_column);
         src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
         const NullMapType& src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
 
@@ -253,11 +252,15 @@ private:
 
             // handle null value in res_datas for first null value
             auto res_null_map_col = ColumnUInt8::create(size, 0);
-            size_t first_not_null_pos =
-                    VectorizedUtils::find_first_valid_simd(src_null_map, 0, size);
-            VLOG_DEBUG << "first_not_null_pos: " << std::to_string(first_not_null_pos);
-            VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(), 0,
-                                                            first_not_null_pos);
+            size_t prev_offset = 0;
+            for (auto cur_offset : src_offsets) {
+                // The NULLs before the first non-NULL element of each array stay NULL.
+                size_t first_not_null_pos = VectorizedUtils::find_first_valid_simd(
+                        src_null_map, prev_offset, cur_offset);
+                VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(),
+                                                                prev_offset, first_not_null_pos);
+                prev_offset = cur_offset;
+            }
 
             res_nested_ptr = ColumnNullable::create(std::move(res_nested_mut_ptr),
                                                     std::move(res_null_map_col));

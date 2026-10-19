@@ -24,7 +24,7 @@ PhysicalResultSink
 ----------------------------filter((customer.c_region = 'AMERICA'))
 ------------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalProject
-------------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
+------------------------filter(part.p_mfgr IN ('MFGR#1', 'MFGR#2'))
 --------------------------PhysicalOlapScan[part]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[dates]

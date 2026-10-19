@@ -293,9 +293,12 @@ public class ShowFunctionsCommand extends ShowCommand {
         if (!Strings.isNullOrEmpty(function.getRuntimeVersion())) {
             properties.put("RUNTIME_VERSION", function.getRuntimeVersion());
         }
-
         if (function instanceof ScalarFunction) {
             ScalarFunction scalarFunction = (ScalarFunction) function;
+            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF
+                    || function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+                properties.put("VOLATILITY", function.getVolatility().toSql());
+            }
             properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
             if (scalarFunction.getPrepareFnSymbol() != null) {
                 properties.put("PREPARE_FN", scalarFunction.getPrepareFnSymbol());
@@ -307,6 +310,10 @@ public class ShowFunctionsCommand extends ShowCommand {
 
         if (function instanceof AggregateFunction) {
             AggregateFunction aggregateFunction = (AggregateFunction) function;
+            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF
+                    || function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+                properties.put("VOLATILITY", function.getVolatility().toSql());
+            }
             properties.put("INIT_FN", Strings.nullToEmpty(aggregateFunction.getInitFnSymbol()));
             properties.put("UPDATE_FN", Strings.nullToEmpty(aggregateFunction.getUpdateFnSymbol()));
             properties.put("MERGE_FN", Strings.nullToEmpty(aggregateFunction.getMergeFnSymbol()));
@@ -346,6 +353,11 @@ public class ShowFunctionsCommand extends ShowCommand {
         return properties.entrySet().stream()
                 .map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining(", "));
+    }
+
+    @VisibleForTesting
+    String buildPropertiesForTest(Function function) {
+        return buildProperties(function);
     }
 
 }

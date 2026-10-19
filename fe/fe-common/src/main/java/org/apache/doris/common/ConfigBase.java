@@ -52,6 +52,10 @@ public class ConfigBase {
 
         boolean masterOnly() default false;
 
+        // If true, the value is a secret (e.g. a token or password) and is masked in every
+        // config dump API (Config.dump / getConfigInfo), so it is never returned in plaintext.
+        boolean sensitive() default false;
+
         String comment() default "";
 
         VariableAnnotation varType() default VariableAnnotation.NONE;
@@ -61,10 +65,7 @@ public class ConfigBase {
         String callbackClassString() default "";
 
         // description for this config item.
-        // There should be 2 elements in the array.
-        // The first element is the description in Chinese.
-        // The second element is the description in English.
-        String[] description() default {"待补充", "TODO"};
+        String description() default "TODO";
 
         // Enum options for this config item, if it has.
         String[] options() default {};
@@ -81,6 +82,25 @@ public class ConfigBase {
         }
     }
 
+    // The value must be one of the annotation's options; stored as the option's own spelling.
+    public static class OptionsConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            setConfigField(field, checkedOption(field, confVal));
+        }
+
+        // Pure validation shared by startup loading and dynamic updates.
+        private static String checkedOption(Field field, String confVal) throws ConfigException {
+            for (String option : field.getAnnotation(ConfField.class).options()) {
+                if (option.equalsIgnoreCase(confVal.trim())) {
+                    return option;
+                }
+            }
+            throw new ConfigException("Config '" + field.getName() + "' must be one of "
+                    + String.join(", ", field.getAnnotation(ConfField.class).options()));
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {
@@ -92,6 +112,21 @@ public class ConfigBase {
                     + "' must have intersection between the configs");
             }
             setConfigField(field, newVal);
+        }
+    }
+
+    static class PartitionInvertedIndexStorageFormatRolloutConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            confVal = confVal.trim();
+            if (!"true".equalsIgnoreCase(confVal) && !"false".equalsIgnoreCase(confVal)) {
+                throw new IllegalArgumentException("value must be true or false");
+            }
+            boolean enabled = Boolean.parseBoolean(confVal);
+            if (!enabled && field.getBoolean(null)) {
+                throw new IllegalStateException("can only be enabled and cannot be disabled");
+            }
+            setConfigField(field, confVal);
         }
     }
 
@@ -160,6 +195,48 @@ public class ConfigBase {
         }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
+        warnUnknownConfigKeys(confFile, props);
+    }
+
+    // Keys that start with an uppercase letter and consist only of uppercase letters,
+    // digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+    // variables by bin/start_fe.sh and are not Doris config fields, so they must not
+    // be reported as unknown.
+    private static final Pattern ENV_STYLE_KEY_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]*");
+
+    // Emit a warning for every key present in the config file that does not correspond
+    // to a known config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored by setFields(), so without this warning operators would have
+    // no feedback that the value is not taking effect. FE startup is not affected.
+    private void warnUnknownConfigKeys(String confFile, Properties props) {
+        Map<String, Field> fieldMap = isLdapConfig ? ldapConfFields : confFields;
+        if (fieldMap == null) {
+            return;
+        }
+        for (String key : props.stringPropertyNames()) {
+            if (ENV_STYLE_KEY_PATTERN.matcher(key).matches()) {
+                continue;
+            }
+            if (fieldMap.containsKey(key)) {
+                continue;
+            }
+            System.err.println(String.format(
+                    "[WARN] Unknown config '%s' in %s is ignored, please check whether it is a typo "
+                            + "or has been removed in this version.", key, confFile));
+        }
+    }
+
+    // Placeholder returned instead of a sensitive config's real value in any dump API.
+    public static final String SENSITIVE_CONF_MASK = "********";
+
+    // Mask the value of a sensitive config (a non-empty secret) so it is never dumped in plaintext.
+    // An empty value is left as-is: it reveals nothing and keeps "unset" visible.
+    private static String maskIfSensitive(Field field, String value) {
+        ConfField anno = field.getAnnotation(ConfField.class);
+        if (anno != null && anno.sensitive() && !Strings.isNullOrEmpty(value)) {
+            return SENSITIVE_CONF_MASK;
+        }
+        return value;
     }
 
     public static HashMap<String, String> dump() {
@@ -168,7 +245,7 @@ public class ConfigBase {
         for (Field f : fields) {
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno != null) {
-                map.put(f.getName(), getConfValue(f));
+                map.put(f.getName(), maskIfSensitive(f, getConfValue(f)));
             }
         }
         return map;
@@ -240,11 +317,18 @@ public class ConfigBase {
             // ensure that field has property string
             String confKey = f.getName();
             String confVal = props.getProperty(confKey, props.getProperty(anno.varType().getPrefix() + confKey));
-            if (Strings.isNullOrEmpty(confVal)) {
+            if (confVal == null) {
                 continue;
             }
 
             try {
+                // Runtime callbacks can have side effects; only options validation is safe here.
+                if (anno.callback() == OptionsConfHandler.class) {
+                    confVal = OptionsConfHandler.checkedOption(f, confVal);
+                }
+                if (confVal.isEmpty()) {
+                    continue;
+                }
                 setConfigField(f, confVal);
             } catch (Exception e) {
                 String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);
@@ -412,6 +496,7 @@ public class ConfigBase {
                 if (confKey.equals("sys_log_dir") && Strings.isNullOrEmpty(value)) {
                     value = System.getenv("DORIS_HOME") + "/log";
                 }
+                value = maskIfSensitive(f, value);
                 config.add(value);
                 config.add(f.getType().getSimpleName());
                 config.add(String.valueOf(confField.mutable()));

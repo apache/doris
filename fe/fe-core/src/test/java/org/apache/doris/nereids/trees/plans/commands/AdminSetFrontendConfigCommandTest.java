@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -44,6 +45,32 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
         Assertions.assertTrue(((AdminSetFrontendConfigCommand) plan).getLocalSetStmt().originStmt
                 .startsWith("ADMIN SET FRONTEND CONFIG"));
+    }
+
+    @Test
+    public void testCloudAdminCannotSetFrontendConfig() {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        boolean originalEnableUdfInLoad = Config.enable_udf_in_load;
+        UserIdentity originalUserIdentity = connectContext.getCurrentUserIdentity();
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    () -> executeSql("admin set frontend config(\"enable_udf_in_load\" = \"true\");"));
+            Assertions.assertEquals("errCode = 2, detailMessage = Unsupported operation", exception.getMessage());
+
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+            Assertions.assertDoesNotThrow(
+                    () -> executeSql("admin set frontend config(\"enable_udf_in_load\" = \"true\");"));
+        } finally {
+            connectContext.setCurrentUserIdentity(originalUserIdentity);
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.enable_udf_in_load = originalEnableUdfInLoad;
+        }
     }
 
     @Test

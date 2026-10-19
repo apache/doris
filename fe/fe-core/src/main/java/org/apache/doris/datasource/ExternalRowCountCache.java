@@ -21,7 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.BasicAsyncCacheLoader;
+import org.apache.doris.statistics.cache.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -33,11 +33,15 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ExternalRowCountCache {
 
     private static final Logger LOG = LogManager.getLogger(ExternalRowCountCache.class);
     private final AsyncLoadingCache<RowCountKey, Optional<Long>> rowCountCache;
+    // Serialize future publication with explicit invalidation. The read lock ends as soon as Caffeine has
+    // published the future, before this class waits for the row-count result.
+    private final ReentrantReadWriteLock publicationLock = new ReentrantReadWriteLock();
 
     public ExternalRowCountCache(ExecutorService executor) {
         // 1. set expireAfterWrite to 1 day, avoid too many entries
@@ -83,40 +87,55 @@ public class ExternalRowCountCache {
     public static class RowCountCacheLoader extends BasicAsyncCacheLoader<RowCountKey, Optional<Long>> {
         @Override
         protected Optional<Long> doLoad(RowCountKey rowCountKey) {
-            try {
-                TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
-                return Optional.of(table.fetchRowCount());
-            } catch (Exception e) {
-                String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
-                                + "Reason %s",
-                        rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(message, e);
-                } else {
-                    LOG.warn(message);
-                }
+            return loadRowCount(rowCountKey, false);
+        }
+    }
 
-                // Return Optional.empty() will cache this empty value in memory,
-                // so we can't try to load the row count until the cache expire.
-                // Throw an exception here will cause too much stack log in fe.out.
-                // So we return null when exception happen.
-                // Null may raise NPE in caller, but that is expected.
-                // We catch that NPE and return a default value -1 without keep the value in cache,
-                // so we can trigger the load function to fetch row count again next time in this exception case.
-                return null;
+    static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache) {
+        try {
+            ExternalTable table = (ExternalTable) StatisticsUtil.findTable(
+                    rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
+            return Optional.of(table.fetchRowCountWithMetaCache(fillMetaCache));
+        } catch (Exception e) {
+            String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
+                            + "Reason %s",
+                    rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
+            if (LOG.isDebugEnabled()) {
+                LOG.warn(message, e);
+            } else {
+                LOG.warn(message);
             }
+
+            // Return Optional.empty() will cache this empty value in memory,
+            // so we can't try to load the row count until the cache expire.
+            // Throw an exception here will cause too much stack log in fe.out.
+            // So we return null when exception happen.
+            // Null may raise NPE in caller, but that is expected.
+            // We catch that NPE and return a default value -1 without keep the value in cache,
+            // so we can trigger the load function to fetch row count again next time in this exception case.
+            return null;
         }
     }
 
     /**
      * Get cached row count for the given table. Return -1 if cached not loaded or table not exists.
      * Cached will be loaded async.
+     * @param fillMetaCache whether loading the row count may fill external metadata caches
      * @return Cached row count or -1 if not exist
      */
-    public long getCachedRowCount(long catalogId, long dbId, long tableId) {
+    public long getCachedRowCount(long catalogId, long dbId, long tableId, boolean fillMetaCache) {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
-            CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
+            CompletableFuture<Optional<Long>> f;
+            publicationLock.readLock().lock();
+            try {
+                f = fillMetaCache
+                        ? rowCountCache.get(key, (rowCountKey, executor) -> CompletableFuture.supplyAsync(
+                                () -> loadRowCount(rowCountKey, true), executor))
+                        : rowCountCache.get(key);
+            } finally {
+                publicationLock.readLock().unlock();
+            }
             // Get row count synchronously by default.
             if (ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
@@ -151,6 +170,35 @@ public class ExternalRowCountCache {
             LOG.warn("Unexpected exception while returning row count if present", e);
         }
         return -1;
+    }
+
+    // Catalog/db invalidation is O(N): row-count keys are numeric ids, and Caffeine
+    // does not support prefix invalidation by catalog or database id.
+    void invalidateCatalog(long catalogId) {
+        publicationLock.writeLock().lock();
+        try {
+            rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId);
+        } finally {
+            publicationLock.writeLock().unlock();
+        }
+    }
+
+    void invalidateDb(long catalogId, long dbId) {
+        publicationLock.writeLock().lock();
+        try {
+            rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId && key.dbId == dbId);
+        } finally {
+            publicationLock.writeLock().unlock();
+        }
+    }
+
+    void invalidateTable(long catalogId, long dbId, long tableId) {
+        publicationLock.writeLock().lock();
+        try {
+            rowCountCache.synchronous().invalidate(new RowCountKey(catalogId, dbId, tableId));
+        } finally {
+            publicationLock.writeLock().unlock();
+        }
     }
 
 }

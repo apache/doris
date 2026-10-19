@@ -73,10 +73,10 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_index_failure_injection," +
     "test_information_schema_external," +
     "test_profile," +
+    "test_paimon_gcs," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_paimon_gcs," +
-    "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
@@ -139,11 +139,20 @@ hive3PgPort=5732
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=true
 kafka_port=19193
+
+// The external regression pipeline starts the fluss component for these suites.
+enableFlussTest=true
+fluss_coordinator_port=19123
+// The object store the tiered half of a fluss table lives in; the suites give
+// its endpoint and the minio default credentials to their own catalog, because
+// fluss strips every credential-bearing option before answering a client.
+fluss_minio_port=19125
 // refactor params
 enableRefactorParamsTest=true
 
 // iceberg test config
 iceberg_rest_uri_port=18181
+iceberg_scan_planning_rest_uri_port=18182
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
@@ -190,6 +199,7 @@ oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
 oceanbase_port=2881
+oceanbase_cdc_port=2883
 db2_11_port=50000
 
 // trino-connector catalog test config

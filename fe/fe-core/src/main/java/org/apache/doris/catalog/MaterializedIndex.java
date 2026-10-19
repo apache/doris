@@ -19,10 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         public boolean isVisible() {
             return this == IndexState.NORMAL;
         }
+
+        public boolean isShadow() {
+            return this == IndexState.SHADOW;
+        }
     }
 
     public enum IndexExtState {
@@ -56,11 +61,19 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     private IndexState state;
     @SerializedName(value = "rowCount")
     private long rowCount;
+    @SerializedName(value = "isRowBinlog")
+    private boolean isRowBinlog = false;
 
-    private Map<Long, Tablet> idToTablets;
+    // Published as a volatile immutable snapshot in lockstep with `tablets`.
+    // Writers (synchronized) build a fresh HashMap and assign the field; readers
+    // capture the reference once and call get/containsKey on the snapshot.
+    // Invariant: `tablets ⊆ idToTablets` — any tablet visible in the list is also
+    // present in the map. This is preserved by publishing the map BEFORE the list
+    // on add and the list BEFORE the map on clear.
+    private volatile Map<Long, Tablet> idToTablets;
     @SerializedName(value = "tablets")
     // this is for keeping tablet order
-    private List<Tablet> tablets;
+    private volatile List<Tablet> tablets;
 
     // for push after rollup index finished
     @SerializedName(value = "rollupIndexId")
@@ -93,37 +106,76 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.rollupFinishedVersion = -1L;
     }
 
+    public boolean isRowBinlog() {
+        return isRowBinlog;
+    }
+
+    public void setIsRowBinlog(boolean isRowBinlog) {
+        this.isRowBinlog = isRowBinlog;
+    }
+
     public List<Tablet> getTablets() {
-        return tablets;
+        // Volatile read: returns the current immutable snapshot; callers iterate without locking.
+        return Collections.unmodifiableList(tablets);
     }
 
     public List<Long> getTabletIdsInOrder() {
-        List<Long> tabletIds = Lists.newArrayListWithCapacity(tablets.size());
-        for (Tablet tablet : tablets) {
+        List<Tablet> snapshot = tablets; // single volatile read
+        List<Long> tabletIds = new ArrayList<>(snapshot.size());
+        for (Tablet tablet : snapshot) {
             tabletIds.add(tablet.getId());
         }
         return tabletIds;
     }
 
     public Tablet getTablet(long tabletId) {
+        // Single volatile read of the immutable map snapshot.
         return idToTablets.get(tabletId);
     }
 
-    public void clearTabletsForRestore() {
-        idToTablets.clear();
-        tablets.clear();
+    public synchronized void clearTabletsForRestore() {
+        // Drop the list first so iteration stops seeing tablets before
+        // lookup-by-id drops them. Maintains tablets ⊆ idToTablets.
+        tablets = new ArrayList<>();
+        idToTablets = new HashMap<>();
     }
 
     public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
         addTablet(tablet, tabletMeta, false);
     }
 
+    // For bulk creation, prefer appendTablets() so the per-index list is copied
+    // once per batch instead of once per tablet.
     public void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
-        idToTablets.put(tablet.getId(), tablet);
-        tablets.add(tablet);
+        appendTabletsInternal(Collections.singletonList(tablet));
         if (!isRestore) {
             Env.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
         }
+    }
+
+    // Bulk-publish path. Does NOT register tablets in TabletInvertedIndex —
+    // callers do that per tablet (needed before Tablet.addReplica in non-restore paths).
+    public void appendTablets(Collection<Tablet> newTablets) {
+        appendTabletsInternal(newTablets);
+    }
+
+    // Synchronized to prevent concurrent lost-update on the per-index list/map snapshots;
+    // some callers (e.g. InternalCatalog.createTablets) do not hold the OlapTable write lock.
+    private synchronized void appendTabletsInternal(Collection<Tablet> newTablets) {
+        if (newTablets.isEmpty()) {
+            return;
+        }
+        Map<Long, Tablet> nextMap = new HashMap<>(idToTablets);
+        List<Tablet> nextList = new ArrayList<>(tablets.size() + newTablets.size());
+        nextList.addAll(tablets);
+        for (Tablet tablet : newTablets) {
+            nextMap.put(tablet.getId(), tablet);
+            nextList.add(tablet);
+        }
+        // Publish the map first, then the list — so any id that appears in the
+        // visible `tablets` snapshot is already present in `idToTablets`.
+        idToTablets = nextMap;
+        tablets = nextList;
     }
 
     public void setIdForRestore(long idxId) {
@@ -185,11 +237,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public long getBinlogSize() {
-        long binlogDataSize = 0;
-        for (Tablet tablet : getTablets()) {
-            binlogDataSize += tablet.getBinlogDataSize();
-        }
-        return binlogDataSize;
+        return isRowBinlog() ? getDataSize(false, false) : 0;
     }
 
     public long getReplicaCount() {
@@ -241,8 +289,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public int getTabletOrderIdx(long tabletId) {
+        List<Tablet> snapshot = tablets; // single volatile read
         int idx = 0;
-        for (Tablet tablet : tablets) {
+        for (Tablet tablet : snapshot) {
             if (tablet.getId() == tabletId) {
                 return idx;
             }
@@ -274,20 +323,23 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
                 && idToTablets.size() == other.idToTablets.size()
                 && idToTablets.equals(other.idToTablets)
                 && (state.equals(other.state))
+                && (isRowBinlog == other.isRowBinlog)
                 && (rowCount == other.rowCount);
     }
 
     @Override
     public String toString() {
+        List<Tablet> snapshot = tablets; // single volatile read
         StringBuilder buffer = new StringBuilder();
         buffer.append("index id: ").append(id).append("; ");
         buffer.append("index state: ").append(state.name()).append("; ");
+        buffer.append("is row binlog: ").append(isRowBinlog).append("; ");
 
         buffer.append("row count: ").append(rowCount).append("; ");
-        buffer.append("tablets size: ").append(tablets.size()).append("; ");
+        buffer.append("tablets size: ").append(snapshot.size()).append("; ");
         //
         buffer.append("tablets: [");
-        for (Tablet tablet : tablets) {
+        for (Tablet tablet : snapshot) {
             buffer.append("tablet: ").append(tablet.toString()).append(", ");
         }
         buffer.append("]; ");
@@ -300,9 +352,13 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     @Override
     public void gsonPostProcess() {
-        // build "idToTablets" from "tablets"
+        // Build a fresh "idToTablets" snapshot from the deserialized "tablets" list.
+        // Runs single-threaded during gson deserialization, before any concurrent
+        // reader can observe this object.
+        Map<Long, Tablet> map = new HashMap<>(tablets.size());
         for (Tablet tablet : tablets) {
-            idToTablets.put(tablet.getId(), tablet);
+            map.put(tablet.getId(), tablet);
         }
+        idToTablets = map;
     }
 }

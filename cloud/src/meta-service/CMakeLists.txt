@@ -26,6 +26,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/meta-service")
 add_library(MetaService
     meta_server.cpp
     meta_service.cpp
+    meta_service_rate_limit_helper.cpp
     meta_service_http.cpp
     injection_point_http.cpp
     meta_service_job.cpp
@@ -33,6 +34,8 @@ add_library(MetaService
     meta_service_schema.cpp
     meta_service_snapshot.cpp
     meta_service_tablet_stats.cpp
+    meta_service_table_stream.cpp
+    table_stream_metadata_reader.cpp
     meta_service_partition.cpp
     meta_service_txn.cpp
     meta_service_util.cpp

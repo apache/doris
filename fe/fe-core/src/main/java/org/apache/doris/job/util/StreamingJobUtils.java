@@ -18,6 +18,7 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,6 +26,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -49,7 +52,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -101,6 +104,12 @@ public class StreamingJobUtils {
     private static final String SELECT_SPLITS_TABLE_TEMPLATE =
             "SELECT table_name, chunk_list FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
 
+    private static final String SELECT_TABLE_ID_TEMPLATE =
+            "SELECT id FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' AND table_name='%s'";
+
+    private static final String SELECT_MAX_ID_TEMPLATE =
+            "SELECT IFNULL(MAX(id), 0) FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
+
     private static final String DELETE_JOB_META_TEMPLATE =
             "DELETE FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
 
@@ -129,6 +138,13 @@ public class StreamingJobUtils {
     }
 
     public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
+        // Meta table is lazy-created on first upsert; skip the internal SQL when absent.
+        Optional<Database> optionalDatabase =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!optionalDatabase.isPresent()
+                || optionalDatabase.get().getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME) == null) {
+            return new LinkedHashMap<>();
+        }
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
@@ -163,21 +179,52 @@ public class StreamingJobUtils {
         }
     }
 
-    public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
-        List<String> values = new ArrayList<>();
-        int index = 1;
-        for (Map.Entry<String, List<SnapshotSplit>> entry : tableSplits.entrySet()) {
-            Map<String, String> params = new HashMap<>();
-            params.put("id", index + "");
-            params.put("job_id", jobId + "");
-            params.put("table_name", entry.getKey());
-            params.put("chunk_list", objectMapper.writeValueAsString(entry.getValue()));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(INSERT_INTO_META_TABLE_TEMPLATE);
-            values.add(sql);
-            index++;
+    /**
+     * UPSERT a single table's chunk_list. id is reused if the table already has a row,
+     * otherwise allocated as MAX(id)+1. Relies on UNIQUE KEY (id, job_id) for in-place override.
+     */
+    public static void upsertChunkList(Long jobId, String tableName, List<SnapshotSplit> chunks) throws Exception {
+        createMetaTableIfNotExist();
+        Integer id = querySingleTableId(jobId, tableName);
+        if (id == null) {
+            id = queryNextAvailableId(jobId);
         }
-        batchInsert(values);
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        params.put("job_id", String.valueOf(jobId));
+        params.put("table_name", tableName);
+        params.put("chunk_list", objectMapper.writeValueAsString(chunks));
+        StringSubstitutor sub = new StringSubstitutor(params);
+        String sql = sub.replace(INSERT_INTO_META_TABLE_TEMPLATE);
+        batchInsert(Collections.singletonList(sql));
+    }
+
+    /** Returns id of the row matching (jobId, tableName), or null if no such row exists. */
+    private static Integer querySingleTableId(Long jobId, String tableName) throws JobException {
+        String sql = String.format(SELECT_TABLE_ID_TEMPLATE, jobId, tableName);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return Integer.parseInt(rows.get(0).get(0));
+        } catch (Exception e) {
+            throw new JobException("query table id failed: " + e.getMessage());
+        }
+    }
+
+    /** Returns MAX(id) + 1 for this job, or 1 if no rows yet. */
+    private static int queryNextAvailableId(Long jobId) throws JobException {
+        String sql = String.format(SELECT_MAX_ID_TEMPLATE, jobId);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            int max = (rows == null || rows.isEmpty()) ? 0 : Integer.parseInt(rows.get(0).get(0));
+            return max + 1;
+        } catch (Exception e) {
+            throw new JobException("query next available id failed: " + e.getMessage());
+        }
     }
 
     private static void batchInsert(List<String> values) throws Exception {
@@ -230,20 +277,39 @@ public class StreamingJobUtils {
     }
 
     public static Backend selectBackend(String cloudCluster) throws JobException {
+        return selectBackend(cloudCluster, -1);
+    }
+
+    // Prefer preferredBackendId if it is in the cluster's available BEs (also enforces cloud group).
+    public static Backend selectBackend(String cloudCluster, long preferredBackendId) throws JobException {
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
             List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getBackendsByClusterName(cloudCluster)
                     .stream()
                     .filter(Backend::isLoadAvailable)
+                    .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
                     .collect(Collectors.toList());
             if (bes.isEmpty()) {
                 throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG
                         + ", compute_group: " + cloudCluster);
             }
+            if (preferredBackendId > 0) {
+                for (Backend be : bes) {
+                    if (be.getId() == preferredBackendId) {
+                        return be;
+                    }
+                }
+            }
             int idx = getLastSelectedBackendIndexAndUpdate();
             return bes.get(Math.floorMod(idx, bes.size()));
         }
 
+        if (preferredBackendId > 0) {
+            Backend bound = Env.getCurrentSystemInfo().getBackend(preferredBackendId);
+            if (bound != null && bound.isLoadAvailable()) {
+                return bound;
+            }
+        }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
@@ -295,15 +361,15 @@ public class StreamingJobUtils {
      *
      * <p>Returns a {@link LinkedHashMap} whose key is the <b>source</b> (upstream) table name and
      * whose value is the corresponding {@link CreateTableCommand} that creates the Doris target
-     * table (which may have a different name when {@code table.<src>.target_table} is configured).
-     * Callers must use the map key as the PG/MySQL source table identifier for CDC monitoring and
-     * the {@link CreateTableCommand} value for the actual DDL execution.
+     * table (which may have a different name when {@code table.<src>.target_table} is configured),
+     * or empty when the target table already exists. Callers must use the map key as the upstream
+     * source table identifier for CDC monitoring.
      */
-    public static LinkedHashMap<String, CreateTableCommand> generateCreateTableCmds(String targetDb,
+    public static LinkedHashMap<String, Optional<CreateTableCommand>> generateCreateTableCmds(String targetDb,
             DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
-        LinkedHashMap<String, CreateTableCommand> createtblCmds = new LinkedHashMap<>();
+        LinkedHashMap<String, Optional<CreateTableCommand>> createtblCmds = new LinkedHashMap<>();
         String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
@@ -316,98 +382,134 @@ public class StreamingJobUtils {
         }
 
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
-        String database = getRemoteDbName(sourceType, properties);
-        List<String> tablesNameList = jdbcClient.getTablesNameList(database);
-        if (tablesNameList.isEmpty()) {
-            throw new JobException("No tables found in database " + database);
-        }
-        Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+        try {
+            String database = getRemoteDbName(sourceType, properties);
+            String sourceLocation = sourceType == DataSourceType.POSTGRES ? "schema" : "database";
+            List<String> tablesNameList = jdbcClient.getTablesNameList(database);
+            if (tablesNameList.isEmpty()) {
+                throw new JobException("No source tables found in " + sourceLocation + " '" + database + "'");
+            }
+            Database targetDatabase = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
+            Preconditions.checkNotNull(targetDatabase, "target database %s does not exist", targetDb);
+            Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
 
-        List<String> noPrimaryKeyTables = new ArrayList<>();
-        for (String table : tablesNameList) {
-            if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
-                log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
-                        includeTables);
-                continue;
+            List<String> noPrimaryKeyTables = new ArrayList<>();
+            for (String table : tablesNameList) {
+                if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
+                    log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
+                            includeTables);
+                    continue;
+                }
+
+                // if set include_tables, exclude_tables is ignored
+                if (includeTablesList.isEmpty()
+                        && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
+                    log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
+                            excludeTables);
+                    continue;
+                }
+
+                List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
+                if (primaryKeys.isEmpty()) {
+                    noPrimaryKeyTables.add(table);
+                }
+
+                // Resolve target (Doris) table name; defaults to source table name if not configured
+                String targetTableName = new TableNameInfo(targetDb, properties.getOrDefault(
+                        DataSourceConfigKeys.TABLE + "." + table + "."
+                                + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+                        table).trim()).getTbl();
+
+                // Validate and apply exclude_columns for this table
+                Set<String> excludeColumns = parseExcludeColumns(properties, table);
+                if (targetDatabase.isTableExist(targetTableName)) {
+                    if (!excludeColumns.isEmpty()) {
+                        Set<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
+                                .map(field -> field.getColumnName())
+                                .collect(Collectors.toSet());
+                        validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
+                    }
+                    createtblCmds.put(table, Optional.empty());
+                    continue;
+                }
+
+                List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
+                if (!excludeColumns.isEmpty()) {
+                    Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+                    validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
+                    columns = columns.stream()
+                            .filter(col -> !excludeColumns.contains(col.getName()))
+                            .collect(Collectors.toList());
+                }
+
+                // Convert Column to ColumnDefinition
+                List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
+                    DataType dataType = DataType.fromCatalogType(col.getType());
+                    return new ColumnDefinition(col.getName(), dataType, col.isAllowNull(), col.getComment());
+                }).collect(Collectors.toList());
+
+                // Create DistributionDescriptor
+                DistributionDescriptor distribution = new DistributionDescriptor(
+                        true, // isHash
+                        true, // isAutoBucket
+                        FeConstants.default_bucket_num,
+                        primaryKeys
+                );
+
+                // Create CreateTableInfo
+                CreateTableInfo createtblInfo = new CreateTableInfo(
+                        true, // ifNotExists
+                        false, // isExternal
+                        false, // isTemp
+                        InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
+                        targetDb, // dbName
+                        targetTableName, // tableName
+                        columnDefinitions, // columns
+                        ImmutableList.of(), // indexes
+                        "olap", // engineName
+                        KeysType.UNIQUE_KEYS, // keysType
+                        primaryKeys, // keys
+                        "", // comment
+                        PartitionTableInfo.EMPTY, // partitionTableInfo
+                        distribution, // distribution
+                        ImmutableList.of(), // rollups
+                        new HashMap<>(tableCreateProperties), // properties
+                        ImmutableMap.of(), // extProperties
+                        ImmutableList.of() // clusterKeyColumnNames
+                );
+                CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
+                // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
+                createtblCmds.put(table, Optional.of(createtblCmd));
+            }
+            if (createtblCmds.isEmpty()) {
+                throw new JobException("Can not found match table in database " + database);
             }
 
-            // if set include_tables, exclude_tables is ignored
-            if (includeTablesList.isEmpty()
-                    && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
-                log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
-                        excludeTables);
-                continue;
+            if (!noPrimaryKeyTables.isEmpty()) {
+                throw new JobException("Source tables require primary keys: "
+                        + String.join(", ", noPrimaryKeyTables)
+                        + ". Add a primary key or exclude these tables.");
             }
-
-            List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
-            List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
-            if (primaryKeys.isEmpty()) {
-                noPrimaryKeyTables.add(table);
-            }
-
-            // Resolve target (Doris) table name; defaults to source table name if not configured
-            String targetTableName = properties.getOrDefault(
-                    DataSourceConfigKeys.TABLE + "." + table + "."
-                            + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
-                    table).trim();
-
-            // Validate and apply exclude_columns for this table
-            Set<String> excludeColumns = parseExcludeColumns(properties, table);
-            if (!excludeColumns.isEmpty()) {
-                validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
-                columns = columns.stream()
-                        .filter(col -> !excludeColumns.contains(col.getName()))
-                        .collect(Collectors.toList());
-            }
-
-            // Convert Column to ColumnDefinition
-            List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
-                DataType dataType = DataType.fromCatalogType(col.getType());
-                return new ColumnDefinition(col.getName(), dataType, col.isAllowNull(), col.getComment());
-            }).collect(Collectors.toList());
-
-            // Create DistributionDescriptor
-            DistributionDescriptor distribution = new DistributionDescriptor(
-                    true, // isHash
-                    true, // isAutoBucket
-                    FeConstants.default_bucket_num,
-                    primaryKeys
-            );
-
-            // Create CreateTableInfo
-            CreateTableInfo createtblInfo = new CreateTableInfo(
-                    true, // ifNotExists
-                    false, // isExternal
-                    false, // isTemp
-                    InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
-                    targetDb, // dbName
-                    targetTableName, // tableName
-                    columnDefinitions, // columns
-                    ImmutableList.of(), // indexes
-                    "olap", // engineName
-                    KeysType.UNIQUE_KEYS, // keysType
-                    primaryKeys, // keys
-                    "", // comment
-                    PartitionTableInfo.EMPTY, // partitionTableInfo
-                    distribution, // distribution
-                    ImmutableList.of(), // rollups
-                    new HashMap<>(tableCreateProperties), // properties
-                    ImmutableMap.of(), // extProperties
-                    ImmutableList.of() // clusterKeyColumnNames
-            );
-            CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
-            // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
-            createtblCmds.put(table, createtblCmd);
+            return createtblCmds;
+        } finally {
+            jdbcClient.closeClient();
         }
-        if (createtblCmds.isEmpty()) {
-            throw new JobException("Can not found match table in database " + database);
-        }
+    }
 
-        if (!noPrimaryKeyTables.isEmpty()) {
-            throw new JobException("The following tables do not have primary key defined: "
-                    + String.join(", ", noPrimaryKeyTables));
+    public static Type getCdcTransportType(Type sourceType) {
+        // CDC JSON carries Base64 text, which the VARBINARY JSON reader would treat as raw bytes.
+        if (sourceType.isVarbinaryType()) {
+            return ScalarType.createStringType();
         }
-        return createtblCmds;
+        // CDC emits unzoned JSON text, unlike JDBC's instant-aware Arrow/JNI carrier.
+        // Keep both the JSON reader and OLAP target on the existing wall-clock contract.
+        if (sourceType.isTimeStampTz()) {
+            return ScalarType.createDatetimeV2Type(((ScalarType) sourceType).getScalarScale());
+        }
+        if (sourceType.isArrayType()) {
+            return new ArrayType(getCdcTransportType(((ArrayType) sourceType).getItemType()));
+        }
+        return sourceType;
     }
 
     public static List<Column> getColumns(JdbcClient jdbcClient,
@@ -416,8 +518,10 @@ public class StreamingJobUtils {
             List<String> primaryKeys) {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
+            col.setType(getCdcTransportType(col.getType()));
             Preconditions.checkArgument(!col.getType().isUnsupported(),
-                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
+                    "Unsupported column type for source column '%s.%s.%s'",
+                    database, table, col.getName());
             if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
@@ -457,14 +561,6 @@ public class StreamingJobUtils {
         return columns;
     }
 
-    /**
-     * The remoteDB implementation differs for each data source;
-     * refer to the hierarchical mapping in the JDBC catalog.
-     */
-    /**
-     * Populate default resource names into properties, then validate. No-op for sources that
-     * don't need it. Mutates properties: callers should expect default values to be inserted.
-     */
     public static void resolveAndValidateSource(DataSourceType sourceType,
                                                 Map<String, String> properties,
                                                 String jobId,
@@ -528,10 +624,15 @@ public class StreamingJobUtils {
         }
     }
 
+    /**
+     * The remoteDB implementation differs for each data source;
+     * refer to the hierarchical mapping in the JDBC catalog.
+     */
     public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {
             case MYSQL:
+            case OCEANBASE:
                 remoteDb = properties.get(DataSourceConfigKeys.DATABASE);
                 Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "database is required");
                 break;
@@ -559,10 +660,9 @@ public class StreamingJobUtils {
     }
 
     private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
-            List<Column> columns, List<String> primaryKeys) throws JobException {
-        Set<String> colNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+            Set<String> columnNames, List<String> primaryKeys) throws JobException {
         for (String col : excludeColumns) {
-            if (!colNames.contains(col)) {
+            if (!columnNames.contains(col)) {
                 throw new JobException(String.format(
                         "exclude_columns validation failed: column '%s' does not exist in table '%s'",
                         col, tableName));

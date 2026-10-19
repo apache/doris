@@ -20,11 +20,16 @@
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
 
+#include <utility>
+
 #include "common/cast_set.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/value/uuid_value.h"
 
 namespace doris::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
@@ -106,28 +111,38 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
             _cached_src_physical_type = std::make_shared<DataTypeString>();
             break;
         case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY:
-            _cached_src_physical_type = std::make_shared<DataTypeUInt8>();
+            _cached_src_physical_type = std::make_shared<DataTypeFixedLengthObject>();
             break;
         case tparquet::Type::type::INT96:
             _cached_src_physical_type = std::make_shared<DataTypeInt8>();
             break;
         }
-        _cached_src_physical_column = _cached_src_physical_type->create_column();
+        const bool is_fixed_length_byte_array =
+                src_physical_type == tparquet::Type::type::FIXED_LEN_BYTE_ARRAY;
         if (dst_logical_type->is_nullable()) {
+            MutableColumnPtr nested_physical_column;
+            if (is_fixed_length_byte_array) {
+                nested_physical_column = ColumnFixedLengthObject::create(
+                        _convert_params->field_schema->parquet_schema.type_length);
+            } else {
+                nested_physical_column = _cached_src_physical_type->create_column();
+            }
+            _cached_src_physical_column = ColumnNullable::create(std::move(nested_physical_column),
+                                                                 ColumnUInt8::create());
             _cached_src_physical_type = make_nullable(_cached_src_physical_type);
+        } else {
+            if (is_fixed_length_byte_array) {
+                _cached_src_physical_column = ColumnFixedLengthObject::create(
+                        _convert_params->field_schema->parquet_schema.type_length);
+            } else {
+                _cached_src_physical_column = _cached_src_physical_type->create_column();
+            }
         }
     }
     // remove the old cached data
-    _cached_src_physical_column->assume_mutable()->clear();
-
-    if (dst_logical_type->is_nullable()) {
-        // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
-        // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
-        // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column = assert_cast<const ColumnNullable*>(dst_logical_column.get());
-        return ColumnNullable::create(_cached_src_physical_column,
-                                      doris_nullable_column->get_null_map_column_ptr());
-    }
+    auto cached_src_physical_column = IColumn::mutate(std::move(_cached_src_physical_column));
+    cached_src_physical_column->clear();
+    _cached_src_physical_column = std::move(cached_src_physical_column);
 
     return _cached_src_physical_column;
 }
@@ -195,9 +210,46 @@ static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr s
     }
 }
 
+namespace {
+
+class NativeUUIDConverter final : public PhysicalToLogicalConverter {
+public:
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, UUIDValue::BINARY_LENGTH);
+        auto& values =
+                assert_cast<ColumnUUID&>(*get_mutable_inner_column(src_logical_column)).get_data();
+        for (size_t i = 0; i < src_data.rows; ++i) {
+            // File UUIDs use network byte order, unlike the native column's integer layout.
+            values.push_back(UUIDValue::from_big_endian(reinterpret_cast<const uint8_t*>(
+                    src_data.data + i * UUIDValue::BINARY_LENGTH)));
+        }
+        return Status::OK();
+    }
+};
+
+class UUIDStringConverter final : public PhysicalToLogicalConverter {
+public:
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, 16);
+        auto& strings = assert_cast<ColumnString&>(*get_mutable_inner_column(src_logical_column));
+        for (size_t i = 0; i < src_data.rows; ++i) {
+            const auto value = UUIDValue::from_big_endian(
+                    reinterpret_cast<const uint8_t*>(src_data.data + i * 16));
+            const auto text = UUIDValue::to_string(value);
+            strings.insert_data(text.data(), text.size());
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace
+
 std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_converter(
         const FieldSchema* field_schema, DataTypePtr src_logical_type,
-        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter) {
+        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter,
+        bool preserve_binary_uuid) {
     std::unique_ptr<ConvertParams> convert_params = std::make_unique<ConvertParams>();
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     convert_params->init(field_schema, ctz);
@@ -226,9 +278,19 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     } else if (is_parquet_native_type(src_logical_primitive)) {
         bool is_string_logical_type = is_string_type(src_logical_primitive);
         if (is_string_logical_type && src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            // for FixedSizeBinary
-            physical_converter =
-                    std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+            if (parquet_schema.logicalType.__isset.UUID && !preserve_binary_uuid) {
+                // Ordinary Parquet scans expose canonical text, as in File Scanner V2.
+                // Iceberg retains its raw 16-byte STRING carrier for equality deletes/defaults.
+                if (parquet_schema.type_length != UUIDValue::BINARY_LENGTH) {
+                    physical_converter = std::make_unique<UnsupportedConverter>(src_physical_type,
+                                                                                src_logical_type);
+                } else {
+                    physical_converter = std::make_unique<UUIDStringConverter>();
+                }
+            } else {
+                physical_converter =
+                        std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+            }
         } else if (src_logical_primitive == TYPE_FLOAT &&
                    src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
                    parquet_schema.logicalType.__isset.FLOAT16) {
@@ -254,6 +316,14 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         } else if (src_physical_type == tparquet::Type::INT64) {
             convert_params->reset_time_scale_if_missing(src_logical_type->get_scale());
             physical_converter = std::make_unique<Int64ToTimestamp>();
+        } else {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        }
+    } else if (src_logical_primitive == TYPE_UUID) {
+        if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+            std::cmp_equal(parquet_schema.type_length, UUIDValue::BINARY_LENGTH)) {
+            physical_converter = std::make_unique<NativeUUIDConverter>();
         } else {
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);

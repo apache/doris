@@ -25,8 +25,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
-import org.apache.doris.datasource.property.storage.LocalProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
@@ -68,6 +68,9 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     private static final String MODE = "mode";
     private static final String COLUMN = "column";
     private static final String VALUE = "value";
+
+    private static final String PROP_FILE_PATH = "file_path";
+    private static final String FS_LOCAL_SUPPORT = "fs.local.support";
 
     private static final String MODE_METADATA = "parquet_metadata";
     private static final String MODE_SCHEMA = "parquet_schema";
@@ -167,7 +170,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         ));
         String rawUri = normalizedParams.get(ExternalFileTableValuedFunction.URI_KEY);
         boolean uriProvided = !Strings.isNullOrEmpty(rawUri);
-        String rawPath = uriProvided ? rawUri : normalizedParams.get(LocalProperties.PROP_FILE_PATH);
+        String rawPath = uriProvided ? rawUri : normalizedParams.get(PROP_FILE_PATH);
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException(
                     "Property 'uri' or 'file_path' is required for parquet_meta");
@@ -214,27 +217,28 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             throw new AnalysisException("Property 'file_path' must not contain a scheme for parquet_meta");
         }
         Map<String, String> storageParams = new HashMap<>(normalizedParams);
-        // StorageProperties detects provider by "uri".
+        // Storage routing detects the provider by "uri".
         if (uriProvided) {
             storageParams.put(ExternalFileTableValuedFunction.URI_KEY, parsedPath);
         } else {
             // Local file path, hint local fs support.
-            storageParams.put(StorageProperties.FS_LOCAL_SUPPORT, "true");
-            storageParams.put(LocalProperties.PROP_FILE_PATH, parsedPath);
+            storageParams.put(FS_LOCAL_SUPPORT, "true");
+            storageParams.put(PROP_FILE_PATH, parsedPath);
         }
-        StorageProperties storageProperties;
+        StorageAdapter storageAdapter;
         try {
-            storageProperties = StorageProperties.createPrimary(storageParams);
+            storageAdapter = StorageAdapter.of(storageParams);
         } catch (RuntimeException e) {
             throw new AnalysisException(
                     "Failed to parse storage properties for parquet_meta: " + e.getMessage(), e);
         }
-        this.fileType = mapToFileType(storageProperties.getType());
-        Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
+        this.fileType = mapToFileType(storageAdapter.getType());
+        Map<String, String> backendProps = storageAdapter.getBackendConfigProperties();
         String normalizedPath;
         try {
-            normalizedPath = storageProperties.validateAndNormalizeUri(parsedPath);
-        } catch (UserException e) {
+            normalizedPath = storageAdapter.validateAndNormalizeUri(parsedPath);
+        } catch (RuntimeException e) {
+            // legacy wrapped checked UserException here; keep the classification and message
             throw new AnalysisException(
                     "Failed to normalize parquet_meta paths: " + e.getMessage(), e);
         }
@@ -242,7 +246,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
 
         // Expand any glob patterns (e.g. *.parquet) to concrete file paths.
         List<String> normalizedPaths =
-                expandGlobPath(normalizedPath, storageProperties, storageParams, this.fileType);
+                expandGlobPath(normalizedPath, storageAdapter, storageParams, this.fileType);
 
         this.paths = ImmutableList.copyOf(normalizedPaths);
         this.bloomColumn = tmpBloomColumn;
@@ -253,7 +257,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
      * Expand a wildcard path to matching files.
      */
     private static List<String> expandGlobPath(String inputPath,
-                                               StorageProperties storageProperties,
+                                               StorageAdapter storageAdapter,
                                                Map<String, String> storageParams,
                                                TFileType fileType) throws AnalysisException {
         if (Strings.isNullOrEmpty(inputPath)) {
@@ -263,7 +267,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             return ImmutableList.of(inputPath);
         }
         List<String> expanded =
-                expandSingleGlob(inputPath, storageProperties, storageParams, fileType);
+                expandSingleGlob(inputPath, storageAdapter, storageParams, fileType);
         if (expanded.isEmpty()) {
             throw new AnalysisException("No files matched parquet_meta path patterns: " + inputPath);
         }
@@ -278,7 +282,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     }
 
     private static List<String> expandSingleGlob(String pattern,
-                                                 StorageProperties storageProperties,
+                                                 StorageAdapter storageAdapter,
                                                  Map<String, String> storageParams,
                                                  TFileType fileType) throws AnalysisException {
         if (fileType == TFileType.FILE_LOCAL) {
@@ -296,7 +300,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (fileType == TFileType.FILE_HTTP) {
             throw new AnalysisException("Glob patterns are not supported for file type: " + fileType);
         }
-        if (storageProperties == null) {
+        if (storageAdapter == null) {
             throw new AnalysisException("Storage properties is required for glob pattern: " + pattern);
         }
         if (fileType == TFileType.FILE_S3 || fileType == TFileType.FILE_HDFS) {
@@ -327,7 +331,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     /**
      * Map FE storage type to BE file type.
      */
-    private static TFileType mapToFileType(StorageProperties.Type type) throws AnalysisException {
+    private static TFileType mapToFileType(StorageTypeId type) throws AnalysisException {
         switch (type) {
             case HDFS:
             case OSS_HDFS:

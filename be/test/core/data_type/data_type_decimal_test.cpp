@@ -28,16 +28,24 @@
 #include <limits>
 #include <type_traits>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "storage/tablet/tablet_schema.h"
 #include "testutil/test_util.h"
 
 namespace doris {
@@ -245,6 +253,87 @@ TEST_F(DataTypeDecimalTest, ctor) {
     EXPECT_THROW(DataTypeDecimalV2(27, 9, 27, 28), Exception);
     EXPECT_THROW(DataTypeDecimalV2(27, 9, 26, 27), Exception);
 }
+
+TEST_F(DataTypeDecimalTest, decimalv2_constructor_normalizes_execution_parameters) {
+    auto check_type = [](const DataTypeDecimalV2& type, UInt32 original_precision,
+                         UInt32 original_scale) {
+        EXPECT_EQ(type.get_precision(), 27);
+        EXPECT_EQ(type.get_scale(), 9);
+        EXPECT_EQ(type.get_original_precision(), original_precision);
+        EXPECT_EQ(type.get_original_scale(), original_scale);
+        EXPECT_EQ(type.get_format_scale(), original_scale);
+        auto column = type.create_column();
+        EXPECT_EQ(assert_cast<const ColumnDecimal128V2&>(*column).get_scale(), 9);
+        DataTypeDecimalV2 copy(type);
+        EXPECT_EQ(copy.get_precision(), 27);
+        EXPECT_EQ(copy.get_scale(), 9);
+        EXPECT_EQ(copy.get_original_precision(), original_precision);
+        EXPECT_EQ(copy.get_original_scale(), original_scale);
+    };
+    check_type(DataTypeDecimalV2(), 27, 9);
+    check_type(DataTypeDecimalV2(18, 2), 18, 2);
+    check_type(DataTypeDecimalV2(1, 0), 1, 0);
+    check_type(DataTypeDecimalV2(27, 9, 18, 2), 18, 2);
+    check_type(DataTypeDecimalV2(18, 2, 12, 4), 12, 4);
+    check_type(DataTypeDecimalV2(27, 9, UINT32_MAX, UINT32_MAX), 27, 9);
+    check_type(DataTypeDecimalV2(18, 2, UINT32_MAX, UINT32_MAX), 18, 2);
+    auto type = create_decimal(18, 2, true);
+    check_type(assert_cast<const DataTypeDecimalV2&>(*type), 18, 2);
+    EXPECT_THROW(DataTypeDecimalV2(0, 0, 18, 2), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(28, 9, 18, 2), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(27, 28, 18, 2), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(1, 2, 18, 2), Exception);
+}
+
+TEST_F(DataTypeDecimalTest, decimalv2_preserves_format_and_column_metadata) {
+    DataTypeDecimalV2 type(18, 2);
+    DecimalV2Value value;
+    ASSERT_EQ(value.parse_from_str("123.45", 6), E_DEC_OK);
+    EXPECT_EQ(type.to_string(value), "123.45");
+
+    PColumnMeta meta;
+    type.to_pb_column_meta(&meta);
+    EXPECT_EQ(meta.decimal_param().precision(), 18);
+    EXPECT_EQ(meta.decimal_param().scale(), 2);
+    auto restored = DataTypeFactory::instance().create_data_type(meta);
+    const auto& decimal = assert_cast<const DataTypeDecimalV2&>(*restored);
+    EXPECT_EQ(decimal.get_precision(), 27);
+    EXPECT_EQ(decimal.get_scale(), 9);
+    EXPECT_EQ(decimal.get_original_precision(), 18);
+    EXPECT_EQ(decimal.get_original_scale(), 2);
+    EXPECT_EQ(decimal.to_string(value), "123.45");
+}
+
+TEST_F(DataTypeDecimalTest, decimalv2_nested_types_preserve_schema_metadata) {
+    auto decimal = std::make_shared<DataTypeDecimalV2>(18, 2);
+    auto array = std::make_shared<DataTypeArray>(decimal);
+    auto map = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(), decimal);
+    auto structure = std::make_shared<DataTypeStruct>(
+            DataTypes {array, map, make_nullable(decimal)}, Strings {"items", "mapping", "amount"});
+    auto nested = make_nullable(structure);
+    PColumnMeta meta;
+    nested->to_pb_column_meta(&meta);
+    auto restored = DataTypeFactory::instance().create_data_type(meta);
+    ASSERT_TRUE(restored->is_nullable());
+    EXPECT_TRUE(nested->equals(*restored));
+    const auto& restored_struct = assert_cast<const DataTypeStruct&>(*remove_nullable(restored));
+    EXPECT_EQ(restored_struct.get_element_name(0), "items");
+    EXPECT_EQ(restored_struct.get_element_name(1), "mapping");
+    EXPECT_EQ(restored_struct.get_element_name(2), "amount");
+    const auto& restored_array = assert_cast<const DataTypeArray&>(*restored_struct.get_element(0));
+    const auto& restored_map = assert_cast<const DataTypeMap&>(*restored_struct.get_element(1));
+    ASSERT_TRUE(restored_array.get_nested_type()->is_nullable());
+    ASSERT_TRUE(restored_struct.get_element(2)->is_nullable());
+    for (const auto& child : {restored_array.get_nested_type(), restored_map.get_value_type(),
+                              restored_struct.get_element(2)}) {
+        const auto& type = assert_cast<const DataTypeDecimalV2&>(*remove_nullable(child));
+        EXPECT_EQ(type.get_precision(), 27);
+        EXPECT_EQ(type.get_scale(), 9);
+        EXPECT_EQ(type.get_original_precision(), 18);
+        EXPECT_EQ(type.get_original_scale(), 2);
+    }
+}
+
 TEST_F(DataTypeDecimalTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
@@ -446,6 +535,7 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
     test_func(dt_decimal256_2, *column_decimal256_2, BeExecVersionManager::max_be_exec_version);
     test_func(dt_decimal256_3, *column_decimal256_3, BeExecVersionManager::max_be_exec_version);
 }
+
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {
         auto col_meta = std::make_shared<PColumnMeta>();

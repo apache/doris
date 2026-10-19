@@ -17,6 +17,7 @@
 
 #include "format/table/equality_delete.h"
 
+#include "core/column/column_nullable.h"
 #include "exprs/create_predicate_function.h"
 
 namespace doris {
@@ -38,7 +39,12 @@ Status SimpleEqualityDelete::_build_set() {
     }
     auto& column_and_type = _delete_block->get_by_position(0);
     auto delete_column_type = remove_nullable(column_and_type.type)->get_primitive_type();
-    _hybrid_set.reset(create_set(delete_column_type, _delete_block->rows(), false));
+    size_t non_null_rows = _delete_block->rows();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column_and_type.column.get());
+        nullable != nullptr) {
+        non_null_rows = std::ranges::count(nullable->get_null_map_data(), UInt8(0));
+    }
+    _hybrid_set.reset(create_set(delete_column_type, non_null_rows, true));
     _hybrid_set->insert_fixed_len(column_and_type.column, 0);
     return Status::OK();
 }
@@ -64,13 +70,10 @@ Status SimpleEqualityDelete::filter_data_block(
         // reset the array capacity and fill all elements using the 0
         _single_filter->assign(rows, UInt8(0));
     }
-    if (column_and_type.column->is_nullable()) {
-        const NullMap& null_map =
-                reinterpret_cast<const ColumnNullable*>(column_and_type.column.get())
-                        ->get_null_map_data();
-        _hybrid_set->find_batch_nullable(
-                remove_nullable(column_and_type.column)->assume_mutable_ref(), rows, null_map,
-                *_single_filter);
+    auto column = column_and_type.column->convert_to_full_column_if_const();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+        const NullMap& null_map = nullable->get_null_map_data();
+        _hybrid_set->find_batch_nullable(*remove_nullable(column), rows, null_map, *_single_filter);
         if (_hybrid_set->contain_null()) {
             auto* filter_data = _single_filter->data();
             for (size_t i = 0; i < rows; ++i) {
@@ -78,8 +81,7 @@ Status SimpleEqualityDelete::filter_data_block(
             }
         }
     } else {
-        _hybrid_set->find_batch(column_and_type.column->assume_mutable_ref(), rows,
-                                *_single_filter);
+        _hybrid_set->find_batch(*column, rows, *_single_filter);
     }
     // should reverse _filter
     auto* filter_data = filter.data();

@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0,external") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -175,6 +178,15 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        // Both legacy and modern drivers must preserve the fixture's UTC instant.
+        order_qt_timestamp_epoch "select unix_timestamp(timestamp_value) from ${ex_tb19}"
+        // CAST stripping must not compare the UTC source value with this +08:00 wall-clock literal.
+        // LIMIT also stays above the local filter so it cannot discard qualifying rows remotely.
+        order_qt_timestamp_wall_clock_literal """
+            SELECT unix_timestamp(timestamp_value) FROM ${ex_tb19}
+            WHERE CAST(timestamp_value AS DATETIMEV2) > CAST('2022-11-27 12:00:00' AS DATETIMEV2)
+            ORDER BY timestamp_value LIMIT 1
+        """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
         order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
         order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
@@ -326,14 +338,18 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         // test insert into internal.db.table select * from all_types
-        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * EXCEPT(`binary`,`varbinary`),"binary_col","varbinary_col" from all_types; """
+        // Materialize binary payloads as hex text so OLAP STRING never decodes arbitrary bytes.
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types}
+                select * REPLACE(concat('0x', hex(`blob`)) AS `blob`) EXCEPT(`binary`,`varbinary`),
+                       "binary_col","varbinary_col" from all_types; """
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
         // test CTAS
+        // Fix the destination text type explicitly; CONCAT otherwise infers a bounded VARCHAR.
         sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}
                 PROPERTIES("replication_num" = "1")
-                AS select * EXCEPT(`binary`,`varbinary`) from all_types;
+                AS select * REPLACE(cast(concat('0x', hex(`blob`)) AS STRING) AS `blob`) EXCEPT(`binary`,`varbinary`) from all_types;
             """
 
         order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
@@ -383,15 +399,49 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
 
             contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
         }
+        // Same projection, no WHERE: the remote query must still carry only the projected column.
+        // Every other remote-query assertion here filters, and a filter is exactly what used to make the
+        // connector rebuild its scan properties -- those are first built during scan init(), which runs
+        // before the project above the scan prunes the tuple, so a WHERE-less query explained (and told
+        // the connector) a full-width read. Keep one assertion on the unfiltered path.
+        explain {
+            sql("select k8 from test1;")
+
+            contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
+        // count(*) asks for no column of its own, but the remote scan still has to read something.
+        // PhysicalPlanTranslator.updateScanSlotsMaterialization keeps exactly ONE (smallest) slot rather
+        // than letting the tuple go empty, and an empty projection is precisely what makes JdbcQueryBuilder
+        // emit `SELECT *` -- i.e. a full 12-column read of test1 just to count rows. That regression is
+        // invisible to every result-comparing test, so it needs an explain assertion. Asserted on the arity
+        // of the select list, not on which column wins: that is getSmallestSlot's business and may
+        // legitimately change with type widths.
+        explain {
+            sql("select count(*) from test1;")
+            check { String explainStr ->
+                def matcher = (explainStr =~ /QUERY: SELECT (.*) FROM `doris_test`\.`test1`/)
+                assertTrue(matcher.find(), "no jdbc remote QUERY for test1 in explain:\n${explainStr}")
+                def selectList = matcher.group(1).trim()
+                assertTrue(selectList.startsWith("`"),
+                        "count(*) must not degrade to a full-width read, got select list: ${selectList}")
+                assertEquals(1, selectList.split(",").size(),
+                        "count(*) must read exactly one column, got select list: ${selectList}")
+            }
+        }
+        // The text projection preserves UTC fields across JDBC drivers with cached server timezones.
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
-            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+            contains "QUERY: SELECT CAST(`timestamp0` AS CHAR) FROM `doris_test`.`dt`"
         }
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
+            // The JDBC session is UTC, while the literal is interpreted in the Doris session zone.
+            contains "QUERY: SELECT CAST(`timestamp0` AS CHAR) FROM `doris_test`.`dt`"
+            notContains "WHERE"
+            contains "PREDICATES:"
+            contains "2021-12-31 16:00:00+00:00"
         }
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")
@@ -526,6 +576,10 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         }
         explain {
             sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
+            // P6.3-T02: jdbc now writes through the unified plan-provider sink, but the connector
+            // restores its write detail in EXPLAIN via ConnectorWritePlanProvider.appendExplainInfo,
+            // so the generated INSERT SQL is still shown (the leading "WRITE TYPE: JDBC_WRITE" line
+            // is the only sink-label change). Covered at unit level by JdbcWritePlanProviderTest.
             contains "INSERT SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
         }
         order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""
@@ -729,4 +783,3 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         }
     }
 }
-

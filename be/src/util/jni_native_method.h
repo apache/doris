@@ -24,7 +24,7 @@
 namespace doris {
 
 /**
- * Java native methods for org.apache.doris.common.jni.utils.JNINativeMethod.
+ * Java native methods for org.apache.doris.jni.spi.utils.JNINativeMethod.
  */
 struct JavaNativeMethods {
     /**
@@ -42,10 +42,6 @@ struct JavaNativeMethods {
 
     // Batch free multiple addresses; addrs is a long[]
     static void memoryFreeBatch(JNIEnv* env, jclass clazz, jlongArray addrs);
-
-    // Request a MaxCompute block id from FE via BE.
-    static jlong requestMaxComputeBlockId(JNIEnv* env, jclass clazz, jlong txn_id,
-                                          jstring write_session_id);
 };
 
 } // namespace doris

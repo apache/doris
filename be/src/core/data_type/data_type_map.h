@@ -56,9 +56,6 @@ public:
 
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_MAP; }
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_MAP;
-    }
 
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
@@ -88,13 +85,7 @@ public:
         return std::make_shared<SerDeType>(key_type->get_serde(nesting_level + 1),
                                            value_type->get_serde(nesting_level + 1), nesting_level);
     };
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        node->set_type(TTypeNodeType::MAP);
-        node->add_contains_nulls(key_type->is_nullable());
-        node->add_contains_nulls(value_type->is_nullable());
-        key_type->to_protobuf(ptype);
-        value_type->to_protobuf(ptype);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         node.type = TTypeNodeType::MAP;

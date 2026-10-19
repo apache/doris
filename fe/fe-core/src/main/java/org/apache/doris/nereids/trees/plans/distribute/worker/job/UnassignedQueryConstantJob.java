@@ -37,6 +37,15 @@ public class UnassignedQueryConstantJob extends AbstractUnassignedJob {
         super(statementContext, fragment, ImmutableList.of(), ArrayListMultimap.create());
     }
 
+    /**
+     * Compute a single assigned job on a randomly selected worker for constant queries
+     * (e.g. SELECT 1, SELECT * FROM VALUES(...)). Such queries have no data scan,
+     * so a single instance with an empty {@link DefaultScanSource} suffices.
+     *
+     * @param distributeContext the distribute context for random worker selection
+     * @param inputJobs unused — constant queries have no child fragments
+     * @return a list containing exactly one assigned job on a random worker
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

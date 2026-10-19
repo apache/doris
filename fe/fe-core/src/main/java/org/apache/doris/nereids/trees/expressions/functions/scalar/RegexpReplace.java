@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -84,17 +83,18 @@ public class RegexpReplace extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children().size() == 3) {
+        List<Expression> arguments = getArguments();
+        if (arguments.size() == 3) {
             return;
         }
-        if (children().size() == 4) {
-            Expression value = child(3);
+        if (arguments.size() == 4) {
+            Expression value = getArgument(3);
             DataType type = value.getDataType();
             if (!type.isStringLikeType()) {
                 throw new AnalysisException(
                         "The fourth param of regexp_replace must be a string type: " + this.toSql());
             }
-            if (!(value instanceof Literal)) {
+            if (!value.isConstant()) {
                 throw new AnalysisException(
                         "The fourth param of regexp_replace must be a constant value: " + this.toSql());
             }

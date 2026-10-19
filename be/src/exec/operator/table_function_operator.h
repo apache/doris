@@ -116,7 +116,7 @@ public:
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::PASSTHROUGH};
+        return {TLocalPartitionType::PASSTHROUGH};
     }
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override {
@@ -181,5 +181,8 @@ private:
 
     std::vector<int> _child_slot_sizes;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<TableFunctionLocalState>;
 
 } // namespace doris

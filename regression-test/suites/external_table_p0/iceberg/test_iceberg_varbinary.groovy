@@ -29,13 +29,18 @@ suite("test_iceberg_varbinary", "p0,external") {
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    // A container-advertised REST URI may differ from the host port-forward address.
+    String restUri = context.config.otherConfigs.get("iceberg_rest_uri")
+    if (restUri == null) {
+        restUri = "http://${externalEnvIp}:${rest_port}"
+    }
     
     sql """drop catalog if exists ${catalog_name_no_mapping}"""
     sql """
     CREATE CATALOG ${catalog_name_no_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -50,7 +55,7 @@ suite("test_iceberg_varbinary", "p0,external") {
     CREATE CATALOG ${catalog_name_with_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -71,7 +76,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         select * from test_ice_uuid_parquet order by id;
     """
 
-    // no mapping orc
+    // The obsolete false value is accepted but must not disable VARBINARY mapping.
     qt_select3 """
         insert into test_ice_uuid_orc_write_no_mapping select * from test_ice_uuid_orc;
     """
@@ -88,7 +93,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         select * from test_ice_uuid_orc_write_no_mapping order by id;
     """
 
-    // no mapping parquet
+    // Parquet follows the same binary-safe mapping regardless of the old property value.
     qt_select7 """
         insert into test_ice_uuid_parquet_write_no_mapping select * from test_ice_uuid_parquet;
     """
@@ -160,5 +165,14 @@ suite("test_iceberg_varbinary", "p0,external") {
 
     qt_select23 """
         select * from binary_partitioned_table where from_hex(partition_bin)="0FF102FDFEFF";
+    """
+
+    sql """ use test_db; """
+    qt_select23 """
+        select id from test_variant_repro;
+    """
+    sql """set enable_file_scanner_v2=true"""
+    qt_select_variant """
+        select id, cast(v as string) from test_variant_repro order by id;
     """
 }

@@ -38,8 +38,10 @@
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "gen_cpp/AgentService_types.h"
 #include "storage/binlog.h"
 #include "storage/binlog_config.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -63,7 +65,6 @@ namespace doris {
 class Tablet;
 class CumulativeCompactionPolicy;
 class CompactionMixin;
-class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
 class TTabletInfo;
@@ -117,14 +118,11 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
     std::string tablet_path() const override { return _tablet_path; }
-    std::string row_binlog_path() const {
-        return fmt::format("{}/{}", _tablet_path, FDRowBinlogSuffix);
-    }
     std::string get_rowset_path(const RowsetMetaSharedPtr& rowset_meta) const {
         if (!rowset_meta->is_local()) {
             return "";
         }
-        return rowset_meta->is_row_binlog() ? row_binlog_path() : tablet_path();
+        return tablet_path();
     }
 
     bool set_tablet_schema_into_rowset_meta();
@@ -174,7 +172,7 @@ public:
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
-    Status add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset = nullptr);
+    Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
@@ -182,6 +180,7 @@ public:
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
     bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
+    // Add a committed rowset.
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
@@ -207,7 +206,7 @@ public:
     Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
     // meta lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
@@ -224,7 +223,7 @@ public:
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    uint32_t calc_compaction_score();
+    uint32_t calc_compaction_score(CompactionType compaction_type);
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -278,19 +277,20 @@ public:
         _last_full_compaction_schedule_millis = millis;
     }
 
-    void set_last_single_compaction_failure_status(std::string status) {
-        _last_single_compaction_failure_status = std::move(status);
-    }
-
-    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
-
     void delete_all_files();
 
     void check_tablet_path_exists();
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction(
+            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
+    // MUST hold shared `_meta_lock`. Use this when the caller already holds the
+    // header lock (e.g. the time-series cumulative score path under
+    // suitable_for_compaction) to avoid recursive shared acquisition.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction(
+            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
             const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
@@ -323,7 +323,6 @@ public:
             std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
     void execute_compaction(CompactionMixin& compaction);
-    void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
@@ -352,13 +351,12 @@ public:
 
     std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
-    std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
+    // TTL requires a confirmed FE-visible version; ordinary compaction retains its legacy fallback.
+    std::tuple<int64_t, int64_t> get_visible_version_and_time(bool allow_unknown = true) const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
         _visible_version.store(visible_version);
     }
-
-    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -387,9 +385,6 @@ public:
     const auto& rowset_map() const { return _rs_version_map; }
     // MUST hold SHARED `_meta_lock`
     const auto& stale_rowset_map() const { return _stale_rs_version_map; }
-    // MUST hold SHARED `_meta_lock`
-    const auto& row_binlog_rowset_map() const { return _row_binlog_rs_version_map; }
-
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -422,6 +417,8 @@ public:
 
     Status remove_all_remote_rowsets();
 
+    // Local-mode only remote rowset GC. Segment-list rowsets are cloud-only and do not use this
+    // path, so GC entries record only contiguous segment indexes [0, num_segments).
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
 
@@ -483,24 +480,12 @@ public:
         return config::enable_feature_binlog && _tablet_meta->binlog_config().is_enable();
     }
     bool enable_ccr_binlog() const {
-        return enable_binlog() && _tablet_meta->binlog_config().isCCRBinlogFormat();
+        return enable_binlog() && _tablet_meta->binlog_config().is_ccr_binlog_format();
     }
-    bool enable_row_binlog() const {
-        return _tablet_meta->binlog_config().is_enable() &&
-               _tablet_meta->binlog_config().isRowBinlogFormat();
-    }
-
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
-    void set_binlog_config(BinlogConfig binlog_config);
-
-    // row_binlog
-    int32_t row_binlog_schema_hash() const { return _tablet_meta->row_binlog_schema_hash(); }
-    TabletSchemaSPtr row_binlog_tablet_schema() {
-        std::shared_lock rdlock(_meta_lock);
-        return _tablet_meta->row_binlog_schema();
-    }
+    Status set_binlog_config(BinlogConfig binlog_config);
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
@@ -534,7 +519,6 @@ private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
-
     // Returns:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
@@ -551,6 +535,9 @@ private:
 
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
+    // MUST hold shared `_meta_lock`.
+    std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction_unlocked(
+            int64_t min_start_version, int64_t max_start_version);
 
     void _init_context_common_fields(RowsetWriterContext& context);
 
@@ -626,10 +613,6 @@ private:
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;
 
-    // single replica compaction status
-    std::string _last_single_compaction_failure_status;
-    Version _last_fetched_version;
-
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
@@ -645,6 +628,9 @@ private:
 
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
+
+    bool _skip_binlog_compaction = false;
+    int64_t _skip_binlog_compaction_ts;
 
     // cooldown related
     CooldownConf _cooldown_conf;

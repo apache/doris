@@ -19,6 +19,10 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include "meta-store/txn_kv.h"
 #include "meta-store/versionstamp.h"
 
@@ -68,9 +72,18 @@ public:
     //
     // If the `version` is not nullptr, it will be filled with the deserialized VersionPB.
     TxnErrorCode get_partition_version(int64_t partition_id, VersionPB* version,
-                                       Versionstamp* versionstamp, bool snapshot = false);
+                                       Versionstamp* versionstamp, bool snapshot = false,
+                                       std::string* source_instance = nullptr);
     TxnErrorCode get_partition_version(Transaction* txn, int64_t partition_id, VersionPB* version,
-                                       Versionstamp* versionstamp, bool snapshot = false);
+                                       Versionstamp* versionstamp, bool snapshot = false,
+                                       std::string* source_instance = nullptr);
+
+    // Get effective offsets for all (stream, partition) pairs in the bindings from the clone chain.
+    TxnErrorCode get_table_stream_offsets(
+            Transaction* txn, const std::vector<TableStreamPartitionSetPB>& bindings,
+            std::unordered_map<int64_t, std::unordered_map<int64_t, TableStreamOffsetPB>>* offsets,
+            std::unordered_map<int64_t, std::unordered_map<int64_t, Versionstamp>>* versionstamps,
+            bool snapshot = false);
 
     // Get the partition versions and versionstamps for the given partition_ids.
     //
@@ -79,14 +92,16 @@ public:
     // - If `versionstamps` is not nullptr, it will be filled with the Versionstamp for each partition_id.
     //
     // If a partition_id does not exists, then it will not be included in the respective map.
-    TxnErrorCode get_partition_versions(const std::vector<int64_t>& partition_ids,
-                                        std::unordered_map<int64_t, VersionPB>* versions,
-                                        std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                        bool snapshot = false);
-    TxnErrorCode get_partition_versions(Transaction* txn, const std::vector<int64_t>& partition_ids,
-                                        std::unordered_map<int64_t, VersionPB>* versions,
-                                        std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                        bool snapshot = false);
+    TxnErrorCode get_partition_versions(
+            const std::vector<int64_t>& partition_ids,
+            std::unordered_map<int64_t, VersionPB>* versions,
+            std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot = false,
+            std::unordered_map<int64_t, std::string>* source_instances = nullptr);
+    TxnErrorCode get_partition_versions(
+            Transaction* txn, const std::vector<int64_t>& partition_ids,
+            std::unordered_map<int64_t, VersionPB>* versions,
+            std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot = false,
+            std::unordered_map<int64_t, std::string>* source_instances = nullptr);
 
     // Get the partition versions from the given partition_ids.
     // If the partition id is not found, it will be set to 1 in the versions map.
@@ -159,6 +174,18 @@ public:
     TxnErrorCode get_tablet_indexes(Transaction* txn, const std::vector<int64_t>& tablet_ids,
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
                                     bool snapshot = false);
+
+    // Get effective Partition Index mappings for the given partition ids from the clone chain.
+    TxnErrorCode get_partition_indexes(
+            Transaction* txn, const std::vector<int64_t>& partition_ids,
+            std::unordered_map<int64_t, PartitionIndexPB>* partition_indexes,
+            bool snapshot = false);
+
+    // Get partition ids whose versioned Partition Meta exists in the clone chain.
+    TxnErrorCode get_existing_partitions(Transaction* txn,
+                                         const std::vector<int64_t>& partition_ids,
+                                         std::unordered_set<int64_t>* existing_partition_ids,
+                                         bool snapshot = false);
 
     // Get the rowset meta for the given tablet_id and end_version.
     //

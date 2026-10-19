@@ -22,6 +22,7 @@ import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.SnapshotInfo;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -51,6 +53,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -154,6 +157,36 @@ public class CloudRestoreJob extends RestoreJob {
             super.run();
         } catch (UserException e) {
             LOG.error("failed to run cloud restore job", e);
+        }
+    }
+
+    @Override
+    protected void updateOlapTablesVersion(Database db, boolean isReplay) {
+        super.updateOlapTablesVersion(db, isReplay);
+        if (isReplay) {
+            return;
+        }
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            if (tbl == null || tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) tbl;
+
+            // sync version
+            List<Pair<OlapTable, Long>> tableVersionMap = Lists.newArrayList(
+                    Pair.of(olapTable, olapTable.getCachedTableVersion()));
+            Map<CloudPartition, Pair<Long, Long>> partitionVersionMap = new HashMap<>(olapTable.getPartitions().size());
+            for (Partition partition : olapTable.getPartitions()) {
+                CloudPartition cloudPartition = (CloudPartition) partition;
+                long version = cloudPartition.getCachedVisibleVersion();
+                partitionVersionMap.put(cloudPartition, Pair.of(version, partition.getVisibleVersionTime()));
+            }
+            ((CloudEnv) env).getCloudFEVersionSynchronizer()
+                    .pushVersionAsync(dbId, tableVersionMap, partitionVersionMap);
+
+            // add active tablets to get stats
+            CloudTabletStatMgr.getInstance().addActiveTablets(olapTable.getAllTabletIds());
         }
     }
 
@@ -333,18 +366,22 @@ public class CloudRestoreJob extends RestoreJob {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
+            // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+            List<Tablet> newTablets = new ArrayList<>(remotetabletSize);
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
                 Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                // add tablet to index, but not add to TabletInvertedIndex
-                remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                newTablets.add(newTablet);
                 // replicas
                 long newReplicaId = Env.getCurrentEnv().getNextId();
                 Replica replica = new CloudReplica(newReplicaId, null, Replica.ReplicaState.NORMAL,
                         visibleVersion, schemaHash, dbId, localTbl.getId(), partitionId, remoteIdx.getId(), i);
                 newTablet.addReplica(replica, true /* is restore */);
             }
+            // add tablets to index in one batch; TabletInvertedIndex registration
+            // is intentionally skipped on the restore path (rebuilt separately).
+            remoteIdx.appendTablets(newTablets);
         }
         return remotePart;
     }
@@ -391,8 +428,10 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                    localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
-                                    localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
+                                    !indexMeta.isRowBinlogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
+                                    localTbl.storeRowColumn(),
+                                    localTbl.getBaseSchemaVersion(), localTbl.getBinlogConfig(),
+                                    localTbl.getCompactionPolicy(),
                                     localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     localTbl.getTimeSeriesCompactionFileCountThreshold(),
                                     localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -405,10 +444,14 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
                                     localTbl.storageDictPageSize(), false,
                                     localTbl.getColumnSeqMapping(),
-                                    localTbl.getVerticalCompactionNumColumnsPerGroup()));
+                                    localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    indexMeta.isRowBinlogIndex()
+                                            ? OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG
+                                            : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD,
+                                indexMeta.isRowBinlogIndex());
                         Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
                                 restoreTablet.getReplicaByBackendId(-1));
@@ -459,6 +502,13 @@ public class CloudRestoreJob extends RestoreJob {
                 partitions.forEach(partition -> {
                     visibleVersions.add(partition.getCachedVisibleVersion());
                     partitionIds.add(partition.getId());
+                    if (partition instanceof CloudPartition) {
+                        ((CloudPartition) partition).setCachedVisibleVersion(partition.getVisibleVersion(),
+                                System.currentTimeMillis());
+                        LOG.info("set cloud partition: {}, version: {}, versionTime: {}",
+                                partition.getId(), partition.getCachedVisibleVersion(),
+                                partition.getVisibleVersionTime());
+                    }
                 });
                 preparePartitions(olapTable, partitionIds, visibleVersions);
                 break;
@@ -500,8 +550,12 @@ public class CloudRestoreJob extends RestoreJob {
 
     private void commitPartitions(OlapTable olapTable, List<Long> partitionIds) throws DdlException {
         try {
-            ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitPartition(
+            long tableVersion = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitPartition(
                     dbId, olapTable.getId(), partitionIds, olapTable.getIndexIdList());
+            if (tableVersion > 0) {
+                olapTable.setCachedTableVersion(tableVersion);
+                LOG.info("set cloud table: {}, version: {}", olapTable.getId(), tableVersion);
+            }
         } catch (Exception e) {
             String errMsg = String.format("cloud restore job failed to commit partitions, table=%s, "
                     + "partitions=%s, errMsg: %s", olapTable.getName(), partitionIds, e.getMessage());

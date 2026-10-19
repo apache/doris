@@ -37,9 +37,17 @@ public final class PluginHandle<F extends PluginFactory> {
     private final ClassLoader classLoader;
     private final F factory;
     private final Instant loadedAt;
+    private final String description;
+    private final String version;
 
     public PluginHandle(String pluginName, Path pluginDir, List<Path> resolvedJars,
             ClassLoader classLoader, F factory, Instant loadedAt) {
+        this(pluginName, pluginDir, resolvedJars, classLoader, factory, loadedAt, "", null);
+    }
+
+    public PluginHandle(String pluginName, Path pluginDir, List<Path> resolvedJars,
+            ClassLoader classLoader, F factory, Instant loadedAt,
+            String description, String version) {
         this.pluginName = requireNonBlank(pluginName, "pluginName");
         this.pluginDir = Objects.requireNonNull(pluginDir, "pluginDir");
         this.resolvedJars = Collections.unmodifiableList(new ArrayList<>(
@@ -47,6 +55,8 @@ public final class PluginHandle<F extends PluginFactory> {
         this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
         this.factory = Objects.requireNonNull(factory, "factory");
         this.loadedAt = Objects.requireNonNull(loadedAt, "loadedAt");
+        this.description = description == null ? "" : description;
+        this.version = version;
     }
 
     public String getPluginName() {
@@ -71,6 +81,16 @@ public final class PluginHandle<F extends PluginFactory> {
 
     public Instant getLoadedAt() {
         return loadedAt;
+    }
+
+    /** Load-time snapshot of {@code factory.description()}; never re-invokes plugin code. */
+    public String getDescription() {
+        return description;
+    }
+
+    /** Plugin version from the Implementation-Version of the jar containing the factory, may be null. */
+    public String getVersion() {
+        return version;
     }
 
     private static String requireNonBlank(String value, String fieldName) {

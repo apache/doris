@@ -16,9 +16,12 @@
 // under the License.
 
 #include "common/exception.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_index_writer.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/snii/snii_bkd_index_writer.h"
+#include "storage/index/inverted/snii/snii_index_writer.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 
 namespace doris::segment_v2 {
 
@@ -45,39 +48,60 @@ bool IndexColumnWriter::check_support_ann_index(const TabletColumn& column) {
 }
 
 // create index writer
-Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<IndexColumnWriter>* res,
+Status IndexColumnWriter::create(const TabletColumn* column,
+                                 std::unique_ptr<IndexColumnWriter>* res,
                                  IndexFileWriter* index_file_writer,
                                  const TabletIndex* index_meta) {
-    const auto* typeinfo = field->type_info();
-    FieldType type = typeinfo->type();
+    FieldType type = column->type();
     std::string field_name;
     auto storage_format = index_file_writer->get_storage_format();
     if (storage_format == InvertedIndexStorageFormatPB::V1) {
-        field_name = field->name();
+        field_name = column->name();
     } else {
-        if (field->is_extracted_column()) {
+        if (column->is_extracted_column()) {
             // variant sub col
             // field_name format: parent_unique_id.sub_col_name
-            field_name = std::to_string(field->parent_unique_id()) + "." + field->name();
+            field_name = std::to_string(column->parent_unique_id()) + "." + column->name();
         } else {
-            field_name = std::to_string(field->unique_id());
+            field_name = std::to_string(column->unique_id());
         }
     }
 
     if (index_meta->is_inverted_index()) {
         bool single_field = true;
         if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
+            bool has_item_subcolumn = column->get_subtype_count() > 0;
             DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_array_typeinfo_is_nullptr",
-                            { array_typeinfo = nullptr; })
-            if (array_typeinfo != nullptr) {
-                typeinfo = array_typeinfo->item_type_info();
-                type = typeinfo->type();
+                            { has_item_subcolumn = false; })
+            if (has_item_subcolumn) {
+                type = column->get_sub_column(0).type();
                 single_field = false;
             } else {
                 return Status::NotSupported("unsupported array type for inverted index: " +
                                             std::to_string(int(type)));
             }
+        }
+
+        if (storage_format == InvertedIndexStorageFormatPB::SNII) {
+            // The two SNII column writers split the same way the two readers do:
+            // text goes to the SPIMI term dictionary, numerics to the native BKD.
+            // Anything else has no representation in either and is refused here
+            // rather than producing an index no query path can serve.
+            if (is_string_type(type)) {
+                *res = std::make_unique<SniiIndexColumnWriter>(index_file_writer, index_meta, type);
+            } else if (field_is_numeric_type(type)) {
+                *res = std::make_unique<SniiBkdIndexColumnWriter>(index_file_writer, index_meta,
+                                                                  type);
+            } else {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "SNII inverted index storage format does not support index type {}", type);
+            }
+            auto st = (*res)->init();
+            if (!st.ok()) {
+                (*res)->close_on_error();
+                return st;
+            }
+            return Status::OK();
         }
 
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",
@@ -102,6 +126,7 @@ Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<Inde
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
             M(FieldType::OLAP_FIELD_TYPE_DATEV2)
             M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+            M(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS)
             M(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
@@ -110,6 +135,7 @@ Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<Inde
             M(FieldType::OLAP_FIELD_TYPE_BOOL)
             M(FieldType::OLAP_FIELD_TYPE_IPV4)
             M(FieldType::OLAP_FIELD_TYPE_IPV6)
+            M(FieldType::OLAP_FIELD_TYPE_UUID)
             M(FieldType::OLAP_FIELD_TYPE_FLOAT)
             M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
 #undef M

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 
@@ -64,7 +65,7 @@ public class IndicesProcDir implements ProcDirInterface {
         olapTable.readLock();
         try {
             result.setNames(TITLE_NAMES);
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 List<Comparable> indexInfo = new ArrayList<Comparable>();
                 indexInfo.add(materializedIndex.getId());
                 indexInfo.add(olapTable.getIndexNameById(materializedIndex.getId()));
@@ -119,7 +120,8 @@ public class IndicesProcDir implements ProcDirInterface {
             if (materializedIndex == null) {
                 throw new AnalysisException("Index[" + indexId + "] does not exist.");
             }
-            return new TabletsProcDir(olapTable, materializedIndex);
+            long partitionCachedVisibleVersion = Config.isCloudMode() ? partition.getCachedVisibleVersion() : -1L;
+            return new TabletsProcDir(olapTable, materializedIndex, partitionCachedVisibleVersion);
         } finally {
             olapTable.readUnlock();
         }

@@ -68,7 +68,7 @@ public class ArrayMap extends ScalarFunction
     public DataType getDataType() {
         Preconditions.checkArgument(children.get(0) instanceof Lambda,
                 "The first arg of array_map must be lambda");
-        return ArrayType.of(((Lambda) children.get(0)).getRetType(), true);
+        return ArrayType.of(((Lambda) children.get(0)).getRetType());
     }
 
     @Override

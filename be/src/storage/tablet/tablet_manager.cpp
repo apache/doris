@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <string_view>
 
@@ -43,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -226,6 +228,7 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
+    _engine.register_row_binlog_tablet(tablet);
     _add_tablet_to_partition(tablet);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
@@ -262,11 +265,12 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // if there have create rollup tablet C(assume on shard-2) from tablet D(assume on shard-1) at the same time, we will meet deadlock
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
     bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
-    bool is_schema_change_or_atomic_restore =
-            request.__isset.base_tablet_id && request.base_tablet_id > 0;
-    bool need_two_lock =
-            is_schema_change_or_atomic_restore &&
-            ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id));
+    bool has_base_tablet = request.__isset.base_tablet_id && request.base_tablet_id > 0;
+    bool is_colocated_row_binlog = has_base_tablet && request.__isset.tablet_role &&
+                                   request.tablet_role == TTabletRole::TABLET_ROLE_ROW_BINLOG;
+    bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_row_binlog;
+    bool need_two_lock = has_base_tablet && ((_tablets_shards_mask & request.base_tablet_id) !=
+                                             (_tablets_shards_mask & tablet_id));
     if (need_two_lock) {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTwoTableLock"));
         two_tablet_lock.lock();
@@ -285,17 +289,19 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // same) already exist, then just return true(an duplicate request). But if
     // tablet_id exist but with different schema_hash, return an error(report task will
     // eventually trigger its deletion).
+    bool tablet_exists = false;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTabletUnlocked"));
-        if (_get_tablet_unlocked(tablet_id) != nullptr) {
+        tablet_exists = _get_tablet_unlocked(tablet_id) != nullptr;
+        if (tablet_exists && !is_colocated_row_binlog) {
             LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
             return Status::OK();
         }
     }
 
     TabletSharedPtr base_tablet = nullptr;
-    // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
-    if (is_schema_change_or_atomic_restore) {
+    // base_tablet_id is used by alter/restore and colocated row-binlog creation.
+    if (has_base_tablet) {
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
         if (need_two_lock) {
             SCOPED_TIMER(ADD_TIMER(profile, "GetBaseTablet"));
@@ -317,7 +323,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         // entering this method
         //
         // ATTN: Since all restored replicas will be saved to HDD, so no storage_medium check here.
-        if (in_restore_mode ||
+        // Row-binlog tablet must be on the same disk as its base tablet.
+        if (in_restore_mode || is_colocated_row_binlog ||
             request.storage_medium == base_tablet->data_dir()->storage_medium()) {
             LOG(INFO) << "create tablet use the base tablet data dir. tablet_id=" << tablet_id
                       << ", base tablet_id=" << request.base_tablet_id
@@ -327,13 +334,34 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
     }
 
-    // set alter type to schema-change. it is useless
+    auto persist_row_binlog_pair = [&]() {
+        CHECK(is_colocated_row_binlog);
+        std::lock_guard base_tablet_wlock(base_tablet->get_header_lock());
+        CHECK(base_tablet->tablet_meta()->binlog_tablet_id() == 0 ||
+              base_tablet->tablet_meta()->binlog_tablet_id() == tablet_id)
+                << "base tablet " << base_tablet->tablet_id()
+                << " is already paired with row-binlog tablet "
+                << base_tablet->tablet_meta()->binlog_tablet_id() << ", new row-binlog tablet "
+                << tablet_id;
+        base_tablet->tablet_meta()->set_binlog_tablet_id(tablet_id);
+        base_tablet->save_meta();
+    };
+    if (tablet_exists) {
+        persist_row_binlog_pair();
+        LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
+        return Status::OK();
+    }
+
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            request, is_schema_change_or_atomic_restore, base_tablet.get(), stores, profile);
+            request, is_schema_change_or_atomic_restore, is_colocated_row_binlog, base_tablet.get(),
+            stores, profile);
     if (tablet == nullptr) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
+    }
+    if (is_colocated_row_binlog) {
+        persist_row_binlog_pair();
     }
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
@@ -342,11 +370,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
 }
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
-        const TCreateTabletReq& request, const bool is_schema_change, const Tablet* base_tablet,
+        const TCreateTabletReq& request, const bool is_schema_change,
+        const bool is_colocated_row_binlog, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs, RuntimeProfile* profile) {
-    // If in schema-change state, base_tablet must also be provided.
-    // i.e., is_schema_change and base_tablet are either assigned or not assigned
-    DCHECK((is_schema_change && base_tablet) || (!is_schema_change && !base_tablet));
+    DCHECK((is_schema_change && base_tablet) ||
+           (!is_schema_change && (base_tablet == nullptr || is_colocated_row_binlog)));
 
     // NOTE: The existence of tablet_id and schema_hash has already been checked,
     // no need check again here.
@@ -480,7 +508,6 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
                 _gen_tablet_dir(data_dir->path(), tablet_meta->shard_id(), request.tablet_id);
         string schema_hash_dir = path_util::join_path_segments(
                 tablet_dir, std::to_string(request.tablet_schema.schema_hash));
-
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE
         // receive create-tablet request again, For example retried schema-change request
         bool exists = true;
@@ -558,7 +585,7 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
 
     {
         // drop tablet will update tablet meta, should lock
-        std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        std::lock_guard wrlock(to_drop_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // NOTE: has to update tablet here, but must not update tablet meta directly.
         // because other thread may hold the tablet object, they may save meta too.
@@ -724,29 +751,32 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 struct TabletScore {
     TabletSharedPtr tablet_ptr;
-    int score;
+    uint32_t score = 0;
 };
 
-std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
+std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
+        const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction,
+        CompactionScoreStats* score_stats,
         const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                 all_cumulative_compaction_policies) {
+    DCHECK(score_stats != nullptr);
+    *score_stats = {};
+    score_stats->scanned = true;
     int64_t now_ms = UnixMillis();
-    const string& compaction_type_str =
-            compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
+    const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base"
+                                        : compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
+                                                ? "binlog"
+                                                : "cumulative";
     uint32_t highest_score = 0;
-    // find the single compaction tablet
-    uint32_t single_compact_highest_score = 0;
-    TabletSharedPtr best_tablet;
-    TabletSharedPtr best_single_compact_tablet;
+    TabletScore best_tablet_context;
     int64_t compaction_num_per_round =
             ExecEnv::GetInstance()->storage_engine().to_local().get_compaction_num_per_round();
     auto cmp = [](TabletScore left, TabletScore right) { return left.score > right.score; };
     std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
 
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
-        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+        if (tablet_ptr->tablet_meta()->disable_auto_compaction()) {
             LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
                                    << " will be ignored by automatic compaction tasks since it's "
                                    << "set to disabled automatic compaction.";
@@ -793,9 +823,10 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
                 return;
             }
         }
-        auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
-                tablet_ptr->tablet_meta()->compaction_policy());
-        uint32_t current_compaction_score = tablet_ptr->calc_compaction_score();
+        const auto& compaction_policy = tablet_ptr->tablet_meta()->compaction_policy();
+        auto cumulative_compaction_policy =
+                all_cumulative_compaction_policies.at(compaction_policy);
+        uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(compaction_type);
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
         }
@@ -804,27 +835,32 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             return;
         }
 
-        // tablet should do single compaction
-        if (current_compaction_score > single_compact_highest_score &&
-            tablet_ptr->should_fetch_from_peer()) {
-            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                           cumulative_compaction_policy);
-            if (ret) {
-                single_compact_highest_score = current_compaction_score;
-                best_single_compact_tablet = tablet_ptr;
+        std::optional<bool> suitable_for_compaction;
+        auto is_suitable = [&]() {
+            if (!suitable_for_compaction.has_value()) {
+                suitable_for_compaction = tablet_ptr->suitable_for_compaction(
+                        compaction_type, cumulative_compaction_policy);
+            }
+            return suitable_for_compaction.value();
+        };
+
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            int64_t* policy_max_score = compaction_policy == CUMULATIVE_TIME_SERIES_POLICY
+                                                ? &score_stats->time_series_max_score
+                                                : &score_stats->size_based_max_score;
+            if (current_compaction_score > *policy_max_score && is_suitable()) {
+                *policy_max_score = current_compaction_score;
             }
         }
 
-        if (compaction_num_per_round > 1 && !tablet_ptr->should_fetch_from_peer()) {
+        if (compaction_num_per_round > 1) {
             TabletScore ts;
             ts.score = current_compaction_score;
             ts.tablet_ptr = tablet_ptr;
             if ((top_tablets.size() >= compaction_num_per_round &&
                  current_compaction_score > top_tablets.top().score) ||
                 top_tablets.size() < compaction_num_per_round) {
-                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                               cumulative_compaction_policy);
-                if (ret) {
+                if (is_suitable()) {
                     top_tablets.push(ts);
                     if (top_tablets.size() > compaction_num_per_round) {
                         top_tablets.pop();
@@ -833,51 +869,39 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
                 }
             }
         } else {
-            if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
-                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                               cumulative_compaction_policy);
-                if (ret) {
+            if (current_compaction_score > highest_score) {
+                if (is_suitable()) {
                     highest_score = current_compaction_score;
-                    best_tablet = tablet_ptr;
+                    best_tablet_context = {.tablet_ptr = tablet_ptr,
+                                           .score = current_compaction_score};
                 }
             }
         }
     };
 
     for_each_tablet(handler, filter_all_tablets);
-    std::vector<TabletSharedPtr> picked_tablet;
-    if (best_tablet != nullptr) {
+    std::vector<TabletCompactionContext> picked_tablet_contexts;
+    if (best_tablet_context.tablet_ptr != nullptr) {
         VLOG_CRITICAL << "Found the best tablet for compaction. "
                       << "compaction_type=" << compaction_type_str
-                      << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
-                      << ", highest_score=" << highest_score
-                      << ", fetch from peer: " << best_tablet->should_fetch_from_peer();
-        picked_tablet.emplace_back(std::move(best_tablet));
+                      << ", tablet_id=" << best_tablet_context.tablet_ptr->tablet_id()
+                      << ", path=" << data_dir->path() << ", highest_score=" << highest_score;
+        picked_tablet_contexts.emplace_back(
+                TabletCompactionContext {.tablet = std::move(best_tablet_context.tablet_ptr)});
     }
 
-    std::vector<TabletSharedPtr> reverse_top_tablets;
+    std::vector<TabletScore> reverse_top_tablets;
     while (!top_tablets.empty()) {
-        reverse_top_tablets.emplace_back(top_tablets.top().tablet_ptr);
+        reverse_top_tablets.emplace_back(top_tablets.top());
         top_tablets.pop();
     }
 
     for (auto it = reverse_top_tablets.rbegin(); it != reverse_top_tablets.rend(); ++it) {
-        picked_tablet.emplace_back(*it);
+        picked_tablet_contexts.emplace_back(TabletCompactionContext {.tablet = it->tablet_ptr});
     }
 
-    // pick single compaction tablet needs the highest score
-    if (best_single_compact_tablet != nullptr && single_compact_highest_score >= highest_score) {
-        VLOG_CRITICAL << "Found the best tablet for single compaction. "
-                      << "compaction_type=" << compaction_type_str
-                      << ", tablet_id=" << best_single_compact_tablet->tablet_id()
-                      << ", path=" << data_dir->path()
-                      << ", highest_score=" << single_compact_highest_score << ", fetch from peer: "
-                      << best_single_compact_tablet->should_fetch_from_peer();
-        picked_tablet.emplace_back(std::move(best_single_compact_tablet));
-    }
-    *score = highest_score > single_compact_highest_score ? highest_score
-                                                          : single_compact_highest_score;
-    return picked_tablet;
+    score_stats->max_score = highest_score;
+    return picked_tablet_contexts;
 }
 
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
@@ -1114,10 +1138,6 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_local_segment_size(tablet_info.local_segment_size);
         t_tablet_stat.__set_remote_index_size(tablet_info.remote_index_size);
         t_tablet_stat.__set_remote_segment_size(tablet_info.remote_segment_size);
-        if (tablet_info.__isset.binlog_size) {
-            t_tablet_stat.__set_binlog_size(tablet_info.binlog_size);
-            t_tablet_stat.__set_binlog_file_num(tablet_info.binlog_file_num);
-        }
     };
     for_each_tablet(handler, filter_all_tablets);
 

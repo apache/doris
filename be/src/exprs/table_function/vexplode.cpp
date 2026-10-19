@@ -20,17 +20,19 @@
 #include <glog/logging.h>
 
 #include <ostream>
+#include <span>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
-#include "core/column/column_nothing.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function/function_helpers.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -43,30 +45,23 @@ VExplodeTableFunction::VExplodeTableFunction() {
 
 Status VExplodeTableFunction::_process_init_variant(Block* block, int value_column_idx) {
     // explode variant array
-    auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
-    auto column = column_without_nullable->convert_to_full_column_if_const();
-    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
-    variant_column.finalize();
-    _detail.output_as_variant = true;
-    _detail.variant_enable_doc_mode = variant_column.enable_doc_mode();
-    if (!variant_column.is_null_root()) {
-        _array_column = variant_column.get_root();
-        // We need to wrap the output nested column within a variant column.
-        // Otherwise the type is missmatched
-        const auto* array_type = check_and_get_data_type<DataTypeArray>(
-                remove_nullable(variant_column.get_root_type()).get());
-        if (array_type == nullptr) {
-            return Status::NotSupported("explode not support none array type {}",
-                                        variant_column.get_root_type()->get_name());
-        }
-        _detail.nested_type = array_type->get_nested_type();
-    } else {
-        // null root, use nothing type
-        _array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
-                                               ColumnUInt8::create(0));
-        _array_column->assume_mutable()->insert_many_defaults(variant_column.size());
-        _detail.nested_type = std::make_shared<DataTypeNothing>();
+    auto materialized =
+            block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    std::span<const uint8_t> outer_nulls;
+    const IColumn* nested = materialized.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(nested)) {
+        outer_nulls = nullable->get_null_map_data();
+        nested = &nullable->get_nested_column();
     }
+    const auto* variant = check_and_get_column<ColumnVariantV2>(nested);
+    if (variant == nullptr) {
+        return Status::InvalidArgument("vexplode requires ColumnVariantV2, got {}",
+                                       nested->get_name());
+    }
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+    auto target_type = std::make_shared<DataTypeArray>(variant_type);
+    RETURN_IF_ERROR(CastWrapper::variant_v2_internal::cast_variant_to_array(
+            nullptr, *variant, target_type, variant->size(), outer_nulls, &_array_column));
     return Status::OK();
 }
 
@@ -136,8 +131,8 @@ void VExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, int l
             assert_cast<ColumnNullable*>(column.get())
                     ->get_nested_column_ptr()
                     ->insert_many_from(*_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(
-                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_null_map_column_ptr()
                     ->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_detail.nested_col, pos, length);
@@ -155,8 +150,7 @@ int VExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_range_from(*_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);

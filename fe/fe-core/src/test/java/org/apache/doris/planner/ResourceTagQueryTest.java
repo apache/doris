@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
@@ -51,6 +50,7 @@ import org.apache.doris.resource.computegroup.MergedComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -60,29 +60,21 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.UUID;
 
-public class ResourceTagQueryTest {
+public class ResourceTagQueryTest extends TestWithFeService {
     private static final Logger LOG = LogManager.getLogger(ResourceTagQueryTest.class);
 
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/ResourceTagQueryTest/" + UUID.randomUUID().toString() + "/";
-    private static ConnectContext connectContext;
 
     private static Random random = new Random(System.currentTimeMillis());
 
-    private static List<Backend> backends = Lists.newArrayList();
+    private List<Backend> backends = Lists.newArrayList();
 
     private static Tag tag1;
     private static Tag tag2;
@@ -96,8 +88,13 @@ public class ResourceTagQueryTest {
         }
     }
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected int backendNum() {
+        return 5;
+    }
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
         Config.tablet_checker_interval_ms = 1000;
@@ -108,9 +105,10 @@ public class ResourceTagQueryTest {
         // 127.0.0.3
         // 127.0.0.4
         // 127.0.0.5
-        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
-        connectContext = UtFrameUtils.createDefaultCtx();
+    }
 
+    @Override
+    protected void runBeforeAll() throws Exception {
         // create database
         String createDbStmtStr = "create database test;";
         NereidsParser nereidsParser = new NereidsParser();
@@ -148,12 +146,7 @@ public class ResourceTagQueryTest {
         }
     }
 
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
-    }
-
-    private static void createTable(String sql) throws Exception {
+    private void createTableStmt(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -184,7 +177,7 @@ public class ResourceTagQueryTest {
         }
     }
 
-    private static void alterTable(String sql) throws Exception {
+    private void alterTable(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -193,7 +186,7 @@ public class ResourceTagQueryTest {
         }
     }
 
-    private static void setProperty(String sql) throws Exception {
+    private void setProperty(String sql) throws Exception {
         SetUserPropertiesCommand setUserPropertyStmt
                 = (SetUserPropertiesCommand) UtFrameUtils.parseStmt(sql, connectContext);
         setUserPropertyStmt.run(connectContext, null);
@@ -212,43 +205,43 @@ public class ResourceTagQueryTest {
                 + " partition p3 values less than(\"2021-08-01\")\n"
                 + ")\n"
                 + "distributed by hash(k2) buckets 10;";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         ComputeGroup cg1 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
-        Assert.assertTrue(cg1 instanceof AllBackendComputeGroup);
+        Assertions.assertTrue(cg1 instanceof AllBackendComputeGroup);
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
         ComputeGroup cg2 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
-        Assert.assertTrue(cg2 instanceof MergedComputeGroup);
+        Assertions.assertTrue(cg2 instanceof MergedComputeGroup);
         MergedComputeGroup cg3 = (MergedComputeGroup) cg2;
         String cg3Name = cg3.getName();
-        Assert.assertTrue(cg3Name.contains("default"));
+        Assertions.assertTrue(cg3Name.contains("default"));
 
         // update connection context and query
         connectContext.setComputeGroup(cg2);
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tablets=30/30"));
+        Assertions.assertTrue(explainString.contains("tablets=30/30"));
 
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
         ComputeGroup cg4 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
-        Assert.assertTrue(cg4 instanceof MergedComputeGroup);
+        Assertions.assertTrue(cg4 instanceof MergedComputeGroup);
         MergedComputeGroup cg5 = (MergedComputeGroup) cg4;
-        Assert.assertTrue(cg5.getName().contains("zone1"));
+        Assertions.assertTrue(cg5.getName().contains("zone1"));
 
         // update connection context and query, it will failed because no zone1 backend
         connectContext.setComputeGroup(cg4);
-        Assert.assertTrue(connectContext.isSetComputeGroup());
+        Assertions.assertTrue(connectContext.isSetComputeGroup());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(error.contains("no queryable replicas"));
+        Assertions.assertTrue(error.contains("no queryable replicas"));
 
         // set [0, 1, 2] backends' tag to zone1, so that at least 1 replica can be queried.
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
@@ -267,14 +260,14 @@ public class ResourceTagQueryTest {
             AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
             command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         }
-        Assert.assertEquals(tag1, backends.get(0).getLocationTag());
-        Assert.assertEquals(tag1, backends.get(1).getLocationTag());
-        Assert.assertEquals(tag1, backends.get(2).getLocationTag());
+        Assertions.assertEquals(tag1, backends.get(0).getLocationTag());
+        Assertions.assertEquals(tag1, backends.get(1).getLocationTag());
+        Assertions.assertEquals(tag1, backends.get(2).getLocationTag());
 
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tablets=30/30"));
+        Assertions.assertTrue(explainString.contains("tablets=30/30"));
 
         // for now, 3 backends with tag zone1, 2 with tag default, so table is not stable.
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
@@ -288,26 +281,26 @@ public class ResourceTagQueryTest {
         for (Partition partition : tbl.getPartitions()) {
             ReplicaAllocation replicaAllocation = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
             Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
-            Assert.assertEquals(expectedAllocMap, allocMap);
+            Assertions.assertEquals(expectedAllocMap, allocMap);
         }
         ReplicaAllocation tblReplicaAllocation = tbl.getDefaultReplicaAllocation();
-        Assert.assertNotEquals(expectedAllocMap, tblReplicaAllocation.getAllocMap());
+        Assertions.assertNotEquals(expectedAllocMap, tblReplicaAllocation.getAllocMap());
         ExceptionChecker.expectThrowsNoException(() -> checkTableReplicaAllocation(tbl));
 
         // can still query
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tablets=30/30"));
+        Assertions.assertTrue(explainString.contains("tablets=30/30"));
 
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setExecMemLimitStr));
         long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(Auth.ROOT_USER);
-        Assert.assertEquals(1000000, execMemLimit);
+        Assertions.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(15, userProps.size());
+        Assertions.assertEquals(15, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;
@@ -329,7 +322,7 @@ public class ResourceTagQueryTest {
                 + "(k1 date, k2 int)\n"
                 + "distributed by hash(k2) buckets 2;";
         // table will inherit db prop, only have 2 default be, so `AnalysisException`
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createTableStr2));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTableStmt(createTableStr2));
         //alter db change `replication_allocation`
         String alterDbStmtStr
                 = "alter database test_prop set PROPERTIES('replication_allocation' = 'tag.location.default:2');";
@@ -337,7 +330,7 @@ public class ResourceTagQueryTest {
                 (AlterDatabasePropertiesCommand) nereidsParser.parseSingle(alterDbStmtStr);
         Env.getCurrentEnv().alterDatabaseProperty(alterDatabasePropertiesCommand.getDbName(), alterDatabasePropertiesCommand.getProperties());
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr2));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createTableStr2));
         Database propDb = Env.getCurrentInternalCatalog().getDbNullable("test_prop");
         OlapTable tbl2 = (OlapTable) propDb.getTableNullable("tbl2");
         // should same with db
@@ -346,32 +339,32 @@ public class ResourceTagQueryTest {
         for (Partition partition : tbl2.getPartitions()) {
             ReplicaAllocation replicaAllocation = tbl2.getPartitionInfo().getReplicaAllocation(partition.getId());
             Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
-            Assert.assertEquals(tbl2ExpectedAllocMap, allocMap);
+            Assertions.assertEquals(tbl2ExpectedAllocMap, allocMap);
         }
         // can not query due root ==> zone1
         queryStr = "explain select * from test_prop.tbl2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("no queryable replicas"));
+        Assertions.assertTrue(explainString.contains("no queryable replicas"));
 
         // The priority of table is higher than db,should same with table
         String createTableStr3 = "create table test_prop.tbl3\n"
                 + "(k1 date, k2 int)\n"
                 + "distributed by hash(k2) buckets 2 PROPERTIES('replication_allocation' = 'tag.location.zone1:3');";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr3));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createTableStr3));
         OlapTable tbl3 = (OlapTable) propDb.getTableNullable("tbl3");
         Map<Tag, Short> tbl3ExpectedAllocMap = Maps.newHashMap();
         tbl3ExpectedAllocMap.put(tag1, (short) 3);
         for (Partition partition : tbl3.getPartitions()) {
             ReplicaAllocation replicaAllocation = tbl3.getPartitionInfo().getReplicaAllocation(partition.getId());
             Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
-            Assert.assertEquals(tbl3ExpectedAllocMap, allocMap);
+            Assertions.assertEquals(tbl3ExpectedAllocMap, allocMap);
         }
         // can still query
         queryStr = "explain select * from test_prop.tbl3";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tablets=2/2"));
+        Assertions.assertTrue(explainString.contains("tablets=2/2"));
         //alter db change `replication_allocation` to null
         alterDbStmtStr = "alter database test_prop set PROPERTIES('replication_allocation' = '');";
         alterDatabasePropertiesCommand =
@@ -382,7 +375,7 @@ public class ResourceTagQueryTest {
                 + "(k1 date, k2 int)\n"
                 + "distributed by hash(k2) buckets 2;";
         // only have 2 default tag be, default need 3, so error
-        ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createTableStr4));
+        ExceptionChecker.expectThrows(DdlException.class, () -> createTableStmt(createTableStr4));
 
         // now db not set `PROPERTIES`
         // The priority of partition is higher than table
@@ -395,7 +388,7 @@ public class ResourceTagQueryTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 2 "
                 + "PROPERTIES('replication_allocation' = 'tag.location.default:1');";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr5));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr5));
         OlapTable tbl5 = (OlapTable) propDb.getTableNullable("tbl5");
         Map<Tag, Short> p1ExpectedAllocMap = Maps.newHashMap();
         p1ExpectedAllocMap.put(tag1, (short) 1);
@@ -405,9 +398,9 @@ public class ResourceTagQueryTest {
             ReplicaAllocation replicaAllocation = tbl5.getPartitionInfo().getReplicaAllocation(partition.getId());
             Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
             if (partition.getName().equals("p1")) {
-                Assert.assertEquals(p1ExpectedAllocMap, allocMap);
+                Assertions.assertEquals(p1ExpectedAllocMap, allocMap);
             } else {
-                Assert.assertEquals(p2ExpectedAllocMap, allocMap);
+                Assertions.assertEquals(p2ExpectedAllocMap, allocMap);
             }
         }
     }

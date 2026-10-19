@@ -2,3 +2,6 @@
 -- !sql_double --
 2.718281828
 
+-- !sql_zero_weight --
+NaN
+

@@ -25,6 +25,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/packed_slice_location.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -44,9 +45,10 @@ struct FileWriterOptions {
     // this shortens the inconsistent time window.
     bool used_by_s3_committer = false;
     bool write_file_cache = false;
+    bool allow_adaptive_file_cache_write = true;
     bool is_cold_data = false;
     bool sync_file_data = true;              // Whether flush data into storage system
-    uint64_t file_cache_expiration_time = 0; // Relative time
+    uint64_t file_cache_expiration_time = 0; // Absolute time, 0 means no TTL
     uint64_t approximate_bytes_to_write = 0; // Approximate bytes to write, used for file cache
 };
 
@@ -92,9 +94,14 @@ public:
 
     virtual State state() const = 0;
 
-    // Returns true if this file's data was written to a packed file.
-    // Used to determine whether to collect packed slice location from PackedFileManager.
-    virtual bool is_in_packed_file() const { return false; }
+    // Gets the location of this file's slice in the packed file. Must be called after the writer
+    // is closed. An empty packed_file_path means the file is not in a packed file. Writers that
+    // wrap another writer must forward this call, so callers never need to downcast to
+    // PackedFileWriter.
+    virtual Status get_packed_slice_location(PackedSliceLocation* location) const {
+        *location = PackedSliceLocation {};
+        return Status::OK();
+    }
 
     FileCacheAllocatorBuilder* cache_builder() const {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
@@ -109,13 +116,15 @@ protected:
         io::UInt128Wrapper path_hash = BlockFileCache::hash(path.filename().native());
         BlockFileCache* file_cache_ptr = FileCacheFactory::instance()->get_by_path(path_hash);
 
-        bool has_enough_file_cache_space = config::enable_file_cache_adaptive_write &&
+        bool has_enough_file_cache_space = opts->allow_adaptive_file_cache_write &&
+                                           config::enable_file_cache_adaptive_write &&
                                            (opts->approximate_bytes_to_write > 0) &&
                                            (file_cache_ptr->approximate_available_cache_size() >
                                             opts->approximate_bytes_to_write);
 
         VLOG_DEBUG << "path:" << path.filename().native()
                    << ", write_file_cache:" << opts->write_file_cache
+                   << ", allow_adaptive_file_cache_write:" << opts->allow_adaptive_file_cache_write
                    << ", has_enough_file_cache_space:" << has_enough_file_cache_space
                    << ", approximate_bytes_to_write:" << opts->approximate_bytes_to_write
                    << ", file_cache_available_size:"

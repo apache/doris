@@ -70,16 +70,12 @@ public:
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const ColumnArray& first_col_array = assert_cast<const ColumnArray&>(*first_column);
-        const auto& first_off_data =
-                assert_cast<const ColumnArray::ColumnOffsets&>(first_col_array.get_offsets_column())
-                        .get_data();
+        const auto& first_off_data = first_col_array.get_offsets_column().get_data();
         const auto& first_nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
 
         const ColumnArray& second_col_array = assert_cast<const ColumnArray&>(*second_column);
-        const auto& second_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
-                                              second_col_array.get_offsets_column())
-                                              .get_data();
+        const auto& second_off_data = second_col_array.get_offsets_column().get_data();
         const auto& second_nested_null_map_data =
                 assert_cast<const ColumnNullable&>(*second_col_array.get_data_ptr())
                         .get_null_map_column()

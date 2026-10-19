@@ -19,6 +19,12 @@
 
 #include <memory>
 
+#include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "format/json/new_json_reader.h"
 
 namespace doris {
@@ -85,6 +91,81 @@ TEST(NewJsonReaderSetBatchSizeTest, SetBatchSizeViaGenericInterface) {
     EXPECT_EQ(base_reader->get_batch_size(), 8192U);
     base_reader->set_batch_size(4096);
     EXPECT_EQ(base_reader->get_batch_size(), 4096U);
+}
+
+TEST(NewJsonReaderCowTest, AppendNullForMalformedJsonMutatesOwnerColumn) {
+    auto nested_column = ColumnInt32::create();
+    nested_column->insert_value(7);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    ColumnPtr shared_column = ColumnNullable::create(std::move(nested_column), std::move(null_map));
+    const auto* original_column = shared_column.get();
+
+    Block block;
+    block.insert({shared_column, make_nullable(std::make_shared<DataTypeInt32>()), "c0"});
+
+    ASSERT_TRUE(json_reader_detail::append_null_for_malformed_json(block).ok());
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_NE(block.get_by_position(0).column.get(), original_column);
+
+    const auto& result_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_FALSE(result_column.is_null_at(0));
+    EXPECT_TRUE(result_column.is_null_at(1));
+
+    const auto& original_nullable = assert_cast<const ColumnNullable&>(*shared_column);
+    EXPECT_EQ(original_nullable.size(), 1);
+    EXPECT_FALSE(original_nullable.is_null_at(0));
+}
+
+TEST(NewJsonReaderCowTest, TruncateBlockToRowsMutatesOwnerColumn) {
+    auto nested_column = ColumnInt32::create();
+    nested_column->insert_value(7);
+    nested_column->insert_value(8);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(0);
+    ColumnPtr shared_column = ColumnNullable::create(std::move(nested_column), std::move(null_map));
+    const auto* original_column = shared_column.get();
+
+    Block block;
+    block.insert({shared_column, make_nullable(std::make_shared<DataTypeInt32>()), "c0"});
+
+    json_reader_detail::truncate_block_to_rows(block, 1);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_NE(block.get_by_position(0).column.get(), original_column);
+
+    const auto& result_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ(result_column.size(), 1);
+    EXPECT_FALSE(result_column.is_null_at(0));
+
+    const auto& original_nullable = assert_cast<const ColumnNullable&>(*shared_column);
+    EXPECT_EQ(original_nullable.size(), 2);
+}
+
+TEST(NewJsonReaderCowTest, PopBackLastInsertedValueMutatesOwnerColumn) {
+    auto column = ColumnInt32::create();
+    column->insert_value(7);
+    column->insert_value(8);
+    ColumnPtr shared_column = std::move(column);
+    const auto* original_column = shared_column.get();
+
+    Block block;
+    block.insert({shared_column, std::make_shared<DataTypeInt32>(), "c0"});
+
+    json_reader_detail::pop_back_last_inserted_value(block, 0);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_NE(block.get_by_position(0).column.get(), original_column);
+
+    const auto& result_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(result_column.size(), 1);
+    EXPECT_EQ(result_column.get_data()[0], 7);
+
+    const auto& original_int_column = assert_cast<const ColumnInt32&>(*shared_column);
+    EXPECT_EQ(original_int_column.size(), 2);
+    EXPECT_EQ(original_int_column.get_data()[0], 7);
+    EXPECT_EQ(original_int_column.get_data()[1], 8);
 }
 
 } // namespace doris

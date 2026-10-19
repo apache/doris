@@ -1,0 +1,172 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "format_v2/expr/cast.h"
+
+#include <gtest/gtest.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/field.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
+#include "runtime/descriptors.h"
+#include "testutil/column_helper.h"
+#include "testutil/mock/mock_runtime_state.h"
+
+namespace doris::format {
+
+class CastTest : public testing::Test {
+protected:
+    void SetUp() override { state.set_enable_strict_cast(true); }
+
+    static VExprContextSPtr create_context(const DataTypePtr& return_type,
+                                           const DataTypePtr& child_type, int child_column_id = 0) {
+        auto cast = Cast::create_shared(return_type);
+        cast->add_child(VSlotRef::create_shared(child_column_id, child_column_id, -1, child_type,
+                                                "source_column"));
+        return VExprContext::create_shared(cast);
+    }
+
+    Status prepare_open_execute(VExprContext* context, Block* block, int* result_column_id) {
+        RETURN_IF_ERROR(context->prepare(&state, RowDescriptor()));
+        RETURN_IF_ERROR(context->open(&state));
+        return context->execute(block, result_column_id);
+    }
+
+    MockRuntimeState state;
+};
+
+TEST_F(CastTest, CastIntSlotToBigInt) {
+    auto source_type = std::make_shared<DataTypeInt32>();
+    auto return_type = std::make_shared<DataTypeInt64>();
+    auto context = create_context(return_type, source_type);
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, -2, 3}));
+
+    int result_column_id = -1;
+    auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(result_column_id, 1);
+    ASSERT_EQ(block.columns(), 2);
+    EXPECT_EQ(block.get_by_position(result_column_id).type, return_type);
+    const auto& result_column =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(result_column_id).column);
+    EXPECT_EQ(result_column.get_data()[0], 1);
+    EXPECT_EQ(result_column.get_data()[1], -2);
+    EXPECT_EQ(result_column.get_data()[2], 3);
+
+    context->close();
+}
+
+TEST_F(CastTest, CastStringSlotToNullableInt) {
+    state.set_enable_strict_cast(false);
+    auto source_type = std::make_shared<DataTypeString>();
+    auto return_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    auto context = create_context(return_type, source_type);
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"10", "bad", "-3"}));
+
+    int result_column_id = -1;
+    auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto& nullable_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(result_column_id).column);
+    const auto& result_column =
+            assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
+    const auto& null_map = nullable_column.get_null_map_data();
+    EXPECT_EQ(result_column.get_data()[0], 10);
+    EXPECT_EQ(result_column.get_data()[2], -3);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 1);
+    EXPECT_EQ(null_map[2], 0);
+
+    context->close();
+}
+
+TEST_F(CastTest, CastLiteralToString) {
+    auto source_type = std::make_shared<DataTypeInt32>();
+    auto return_type = std::make_shared<DataTypeString>();
+    auto cast = Cast::create_shared(return_type);
+    cast->add_child(VLiteral::create_shared(source_type, Field::create_field<TYPE_INT>(123)));
+    auto context = VExprContext::create_shared(cast);
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3}));
+
+    int result_column_id = -1;
+    auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto& result = block.get_by_position(result_column_id);
+    EXPECT_EQ(result.type->to_string(*result.column, 0), "123");
+    EXPECT_EQ(result.type->to_string(*result.column, 1), "123");
+    EXPECT_EQ(result.type->to_string(*result.column, 2), "123");
+
+    context->close();
+}
+
+TEST_F(CastTest, EmptyBlockAppendsEmptyResultColumn) {
+    auto source_type = std::make_shared<DataTypeInt32>();
+    auto return_type = std::make_shared<DataTypeInt64>();
+    auto context = create_context(return_type, source_type);
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({}));
+
+    int result_column_id = -1;
+    auto status = prepare_open_execute(context.get(), &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(result_column_id, 1);
+    EXPECT_EQ(block.get_by_position(result_column_id).column->size(), 0);
+
+    context->close();
+}
+
+TEST_F(CastTest, PrepareRejectsMissingChild) {
+    auto cast = Cast::create_shared(std::make_shared<DataTypeInt64>());
+    VExprContext context(cast);
+
+    auto status = context.prepare(&state, RowDescriptor());
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("exactly 1 child expr"), std::string::npos);
+}
+
+TEST_F(CastTest, PrepareRejectsMultipleChildren) {
+    auto child_type = std::make_shared<DataTypeInt32>();
+    auto cast = Cast::create_shared(std::make_shared<DataTypeInt64>());
+    cast->add_child(VSlotRef::create_shared(0, 0, -1, child_type, "c0"));
+    cast->add_child(VSlotRef::create_shared(1, 1, -1, child_type, "c1"));
+    VExprContext context(cast);
+
+    auto status = context.prepare(&state, RowDescriptor());
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("exactly 1 child expr"), std::string::npos);
+}
+
+} // namespace doris::format

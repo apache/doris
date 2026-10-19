@@ -45,6 +45,11 @@ public class CloudCoordinator extends Coordinator {
         super(context, planner, statsErrorEstimator);
     }
 
+    public CloudCoordinator(ConnectContext context,
+                            Planner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
+        super(context, planner, statsErrorEstimator, jobId);
+    }
+
     public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
                        List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
                     boolean enbaleProfile) {

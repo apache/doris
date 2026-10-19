@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -39,6 +40,9 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -73,12 +77,16 @@ public class ResourceMgr implements Writable {
     }
 
     public void createResource(CreateResourceCommand command) throws DdlException {
+        createResource(command, null);
+    }
+
+    public void createResource(CreateResourceCommand command, UserIdentity creator) throws DdlException {
         CreateResourceInfo info = command.getInfo();
         if (info.getResourceType() == ResourceType.UNKNOWN) {
             throw new DdlException(
                     "Only support SPARK, ODBC_CATALOG, JDBC, S3_COOLDOWN, S3, HDFS(JFS/JUICEFS), and HMS resource.");
         }
-        Resource resource = Resource.fromCommand(command);
+        Resource resource = Resource.fromCommand(command, creator);
         if (createResource(resource, info.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
             LOG.info("Create resource success. Resource: {}", resource.getName());
@@ -151,7 +159,8 @@ public class ResourceMgr implements Writable {
 
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterResource(resource);
-        LOG.info("Alter resource success. Resource: {}", resource);
+        // Only log non-sensitive identifiers here because resource objects may retain credential properties.
+        LOG.info("Alter resource success. Resource: {}, type: {}", resource.getName(), resource.getType());
     }
 
     public void replayAlterResource(Resource resource) {
@@ -234,7 +243,31 @@ public class ResourceMgr implements Writable {
 
     public static ResourceMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
+        json = addLegacyClazzForResourcesIfMissing(json);
         return GsonUtils.GSON.fromJson(json, ResourceMgr.class);
+    }
+
+    // ResourceMgr image keeps Resource objects nested in nameToResource, so Resource.read() is not used.
+    private static String addLegacyClazzForResourcesIfMissing(String json) {
+        JsonElement jsonElement = JsonParser.parseString(json);
+        if (!jsonElement.isJsonObject()) {
+            return json;
+        }
+
+        JsonObject jsonObject = jsonElement.getAsJsonObject();
+        JsonElement resourcesElement = jsonObject.get("nameToResource");
+        if (resourcesElement == null || !resourcesElement.isJsonObject()) {
+            return json;
+        }
+
+        boolean changed = false;
+        for (Map.Entry<String, JsonElement> entry : resourcesElement.getAsJsonObject().entrySet()) {
+            JsonElement resourceElement = entry.getValue();
+            if (resourceElement != null && resourceElement.isJsonObject()) {
+                changed |= Resource.addLegacyClazzIfMissing(resourceElement.getAsJsonObject());
+            }
+        }
+        return changed ? jsonObject.toString() : json;
     }
 
     public class ResourceProcNode implements ProcNodeInterface {

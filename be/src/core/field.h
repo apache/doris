@@ -25,8 +25,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
-#include <map>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -42,7 +42,7 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
-#include "util/json/path_in_data.h"
+#include "core/value/variant/variant_field.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -58,26 +58,22 @@ class Field;
 
 using FieldVector = std::vector<Field>;
 
-/// Array and Tuple use the same storage type -- FieldVector, but we declare
+/// Array and Struct use the same storage type -- FieldVector, but we declare
 /// distinct types for them, so that the caller can choose whether it wants to
-/// construct a Field of Array or a Tuple type. An alternative approach would be
+/// construct a Field of Array or a Struct type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
 struct Array : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-struct Tuple : public FieldVector {
+struct Struct : public FieldVector {
     using FieldVector::FieldVector;
 };
 
 struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
-
-struct FieldWithDataType;
-
-using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -195,13 +191,15 @@ public:
     Field(PrimitiveType w) : type(w) {}
     template <PrimitiveType T>
     static Field create_field(const typename PrimitiveTypeTraits<T>::CppType& data) {
-        auto f = Field(T);
+        // Publish the type only after construction succeeds, so allocation failures cannot
+        // destroy uninitialized owned storage (including long binary values).
+        auto f = Field();
         f.template create_concrete<T>(data);
         return f;
     }
     template <PrimitiveType T>
     static Field create_field(typename PrimitiveTypeTraits<T>::CppType&& data) {
-        auto f = Field(T);
+        auto f = Field();
         f.template create_concrete<T>(std::move(data));
         return f;
     }
@@ -247,6 +245,7 @@ public:
         if (this != &rhs) {
             if (type != rhs.type) {
                 destroy();
+                type = TYPE_NULL;
                 create(std::move(rhs));
             } else {
                 assign(std::move(rhs));
@@ -271,6 +270,18 @@ public:
     template <PrimitiveType T>
     const typename PrimitiveTypeTraits<T>::CppType& get() const;
 
+    bool is_nan() const {
+        // Keep type dispatch with the value so callers cannot reinterpret Field storage using a
+        // mismatched PrimitiveType.
+        if (type == PrimitiveType::TYPE_FLOAT) {
+            return std::isnan(get<TYPE_FLOAT>());
+        }
+        if (type == PrimitiveType::TYPE_DOUBLE) {
+            return std::isnan(get<TYPE_DOUBLE>());
+        }
+        return false;
+    }
+
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
@@ -286,9 +297,9 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple, Map,
-                         VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3, Decimal256,
-                         BitmapValue, HyperLogLog, QuantileState>
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
+                         VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
+                         Decimal256, BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     PrimitiveType type;
@@ -323,6 +334,10 @@ struct FieldWithDataType {
     uint8_t num_dimensions = 0;
     int precision = -1;
     int scale = -1;
+    // True when the array elements are mixed-type and must be converted to the common base
+    // type on insert. Mirrors FieldInfo::need_convert so it survives the FieldWithDataType
+    // round trip in the sparse read path.
+    bool need_convert = false;
 };
 
 } // namespace doris

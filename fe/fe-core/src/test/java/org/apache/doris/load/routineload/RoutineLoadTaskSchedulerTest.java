@@ -25,18 +25,24 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
@@ -49,13 +55,13 @@ public class RoutineLoadTaskSchedulerTest {
     private AgentTaskExecutor agentTaskExecutor = Mockito.mock(AgentTaskExecutor.class);
     private MockedStatic<Env> envStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         envStatic = Mockito.mockStatic(Env.class);
         envStatic.when(Env::getCurrentEnv).thenReturn(env);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         envStatic.close();
     }
@@ -103,6 +109,106 @@ public class RoutineLoadTaskSchedulerTest {
             RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
             Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
             routineLoadTaskScheduler.runAfterCatalogReady();
+        }
+    }
+
+    @Test
+    public void testSubmitTaskFailureRenewsTaskWithJobWriteLock() {
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(1, 100L);
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                partitionIdToOffset, false, -1, false);
+        routineLoadTaskInfo.setBeId(100L);
+
+        LockCheckingKafkaRoutineLoadJob routineLoadJob = new LockCheckingKafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList",
+                Lists.newArrayList(routineLoadTaskInfo));
+        Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
+                routineLoadTaskInfo, "network error");
+
+        Assertions.assertTrue(routineLoadJob.isRenewCalledWithWriteLock());
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+                Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+        Assertions.assertEquals(1, routineLoadTaskInfoList.size());
+        Assertions.assertNotSame(routineLoadTaskInfo, routineLoadTaskInfoList.get(0));
+
+        LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
+                Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
+        Assertions.assertSame(routineLoadTaskInfoList.get(0), needScheduleTasksQueue.peek());
+    }
+
+    @Test
+    public void testSubmitTaskFailureSkipsRenewWhenTaskRemoved() {
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(1, 100L);
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                partitionIdToOffset, false, -1, false);
+        routineLoadTaskInfo.setBeId(100L);
+
+        LockCheckingKafkaRoutineLoadJob routineLoadJob = new LockCheckingKafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", Lists.newArrayList());
+        Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
+                routineLoadTaskInfo, "network error");
+
+        Assertions.assertFalse(routineLoadJob.isRenewCalled());
+        LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
+                Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
+        Assertions.assertTrue(needScheduleTasksQueue.isEmpty());
+    }
+
+    @Test
+    public void testSubmitTaskFailureSkipsRenewWhenJobPaused() {
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(1, 100L);
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                partitionIdToOffset, false, -1, false);
+        routineLoadTaskInfo.setBeId(100L);
+
+        LockCheckingKafkaRoutineLoadJob routineLoadJob = new LockCheckingKafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList",
+                Lists.newArrayList(routineLoadTaskInfo));
+        Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
+                routineLoadTaskInfo, "network error");
+
+        Assertions.assertFalse(routineLoadJob.isRenewCalled());
+        LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
+                Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
+        Assertions.assertTrue(needScheduleTasksQueue.isEmpty());
+    }
+
+    private static class LockCheckingKafkaRoutineLoadJob extends KafkaRoutineLoadJob {
+        private boolean renewCalled;
+        private boolean renewCalledWithWriteLock;
+
+        @Override
+        protected RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo,
+                boolean delaySchedule) {
+            renewCalled = true;
+            renewCalledWithWriteLock = lock.isWriteLockedByCurrentThread();
+            return super.unprotectRenewTask(routineLoadTaskInfo, delaySchedule);
+        }
+
+        private boolean isRenewCalled() {
+            return renewCalled;
+        }
+
+        private boolean isRenewCalledWithWriteLock() {
+            return renewCalledWithWriteLock;
         }
     }
 }

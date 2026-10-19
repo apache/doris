@@ -35,7 +35,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/allocator.h"       // IWYU pragma: keep
 #include "core/memcpy_small.h"
-#include "runtime/thread_context.h"
 
 #ifndef NDEBUG
 #include <sys/mman.h>

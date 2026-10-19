@@ -63,39 +63,34 @@ public final class MCConnectorEndpoint {
     }
 
     /**
-     * Resolves the MaxCompute service endpoint from the given properties.
+     * Resolves the MaxCompute service endpoint from the catalog properties.
      * Priority order:
      * 1. mc.endpoint (new property)
      * 2. mc.tunnel_endpoint (legacy, converted)
      * 3. mc.odps_endpoint (legacy, used as-is)
      * 4. mc.region (legacy, template-based)
+     *
+     * <p>Returns null when the catalog carries none of them, which {@code MCCatalogProperties.of} then
+     * refuses: it is called from there, so every reader downstream gets the resolved value off the holder.
      */
-    public static String resolveEndpoint(Map<String, String> properties) {
-        if (properties.containsKey(MCConnectorProperties.ENDPOINT)) {
-            return properties.get(MCConnectorProperties.ENDPOINT);
+    public static String resolveEndpoint(MCCatalogProperties props) {
+        if (!props.getEndpoint().isEmpty()) {
+            return props.getEndpoint();
         }
-        if (properties.containsKey(
-                MCConnectorProperties.TUNNEL_SDK_ENDPOINT)) {
-            String tunnelEndpoint = properties.get(
-                    MCConnectorProperties.TUNNEL_SDK_ENDPOINT);
-            return tunnelEndpoint.replace("//dt", "//service") + "/api";
+        if (!props.getTunnelEndpoint().isEmpty()) {
+            return props.getTunnelEndpoint().replace("//dt", "//service") + "/api";
         }
-        if (properties.containsKey(
-                MCConnectorProperties.ODPS_ENDPOINT)) {
-            return properties.get(MCConnectorProperties.ODPS_ENDPOINT);
+        if (!props.getOdpsEndpoint().isEmpty()) {
+            return props.getOdpsEndpoint();
         }
-        if (properties.containsKey(MCConnectorProperties.REGION)) {
-            String region = properties.get(MCConnectorProperties.REGION);
+        if (!props.getRegion().isEmpty()) {
+            String region = props.getRegion();
             if (region.startsWith("oss-")) {
                 region = region.replace("oss-", "");
             }
-            boolean enablePublicAccess = Boolean.parseBoolean(
-                    properties.getOrDefault(
-                            MCConnectorProperties.PUBLIC_ACCESS,
-                            MCConnectorProperties.DEFAULT_PUBLIC_ACCESS));
             String endpoint =
                     ENDPOINT_TEMPLATE.replace("{}", region);
-            if (enablePublicAccess) {
+            if (props.isPublicAccess()) {
                 endpoint = endpoint.replace("-inc", "");
             }
             return endpoint;

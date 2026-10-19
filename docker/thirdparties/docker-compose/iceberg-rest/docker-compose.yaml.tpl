@@ -156,6 +156,7 @@ services:
   # Built-in HDFS NameNode
   hdfs-namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    platform: linux/amd64
     container_name: ${CONTAINER_UID}iceberg-hdfs-namenode
     restart: always
     ports:
@@ -186,6 +187,7 @@ services:
   # Built-in HDFS DataNode
   hdfs-datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    platform: linux/amd64
     container_name: ${CONTAINER_UID}iceberg-hdfs-datanode
     restart: always
     ports:

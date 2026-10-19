@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -142,6 +143,58 @@ public class ShowDataCommandTest {
         Assertions.assertTrue(command.getMetaData().getColumns().stream()
                         .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
                 "SHOW DATA should contain BinlogSize column");
+    }
+
+    @Test
+    public void testValidateShowDetailedDataRowsMatchMetaData() throws Exception {
+        Mockito.when(connectContext.getDatabase()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        mockedEnv.when(Env::getCurrentInvertedIndex).thenReturn(Mockito.mock(TabletInvertedIndex.class));
+        Database mockDb = CatalogMocker.mockDb();
+        Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(mockDb);
+        Mockito.when(accessControllerManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+
+        ShowDataCommand command = new ShowDataCommand(null, null, new HashMap<>(), true);
+
+        ShowResultSet rs = command.doRun(connectContext, null);
+        int columnCount = rs.getMetaData().getColumnCount();
+        Assertions.assertEquals(9, columnCount);
+        for (List<String> row : rs.getResultRows()) {
+            Assertions.assertEquals(columnCount, row.size());
+        }
+    }
+
+    @Test
+    public void testValidateShowDetailedDataRowsMatchMetaDataForEmptyDb() throws Exception {
+        Mockito.when(connectContext.getDatabase()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(database);
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN)).thenReturn(true);
+        Mockito.when(database.getTables()).thenReturn(ImmutableList.of());
+        Mockito.when(database.getDataQuota()).thenReturn(1024L);
+        Mockito.when(database.getReplicaQuota()).thenReturn(10L);
+        Mockito.doNothing().when(database).readLock();
+        Mockito.doNothing().when(database).readUnlock();
+
+        ShowDataCommand command = new ShowDataCommand(null, null, new HashMap<>(), true);
+
+        ShowResultSet rs = command.doRun(connectContext, null);
+        List<List<String>> rows = rs.getResultRows();
+
+        Assertions.assertEquals(9, rs.getMetaData().getColumnCount());
+        Assertions.assertEquals(3, rows.size());
+        Assertions.assertEquals(ImmutableList.of("Total", "0", DebugUtil.printByteWithUnit(0L),
+                DebugUtil.printByteWithUnit(0L), DebugUtil.printByteWithUnit(0L), DebugUtil.printByteWithUnit(0L),
+                DebugUtil.printByteWithUnit(0L), DebugUtil.printByteWithUnit(0L),
+                DebugUtil.printByteWithUnit(0L)), rows.get(0));
+        Assertions.assertEquals(ImmutableList.of("Quota", "10", DebugUtil.printByteWithUnit(1024L),
+                "", "", "", "", "", ""), rows.get(1));
+        Assertions.assertEquals(ImmutableList.of("Left", "10", DebugUtil.printByteWithUnit(1024L),
+                "", "", "", "", "", ""), rows.get(2));
+        for (List<String> row : rows) {
+            Assertions.assertEquals(rs.getMetaData().getColumnCount(), row.size());
+        }
     }
 
     @Test

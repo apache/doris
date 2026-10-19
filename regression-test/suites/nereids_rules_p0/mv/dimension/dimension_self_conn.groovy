@@ -308,7 +308,10 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         } else {
             for (int j = 0; j < join_type_stmt_list.size(); j++) {
                 logger.info("j:" + j)
-                if (i == j || (j == 1 && i in [0, 2, 3])) {
+                // INNER query can use an OUTER JOIN MV only when the MV output has a safe slot
+                // to filter null-generated rows. Here only RIGHT JOIN MV exposes a non-nullable
+                // left-side slot for that compensation.
+                if (i == j || (j == 1 && i == 2)) {
                     mv_rewrite_success(join_type_stmt_list[j], join_type_self_conn_mv)
                     compare_res(join_type_stmt_list[j] + " order by 1,2,3")
                 } else {

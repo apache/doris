@@ -18,6 +18,7 @@
  */
 
 suite("agg_union_random") {
+    sql "set parallel_pipeline_task_num=2"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql "DROP TABLE IF EXISTS test_random;"

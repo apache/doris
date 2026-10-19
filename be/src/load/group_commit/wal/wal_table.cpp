@@ -23,6 +23,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/action/stream_load.h"
@@ -91,7 +92,8 @@ Status WalTable::_relay_wal_one_by_one() {
         int64_t file_size = 0;
         std::filesystem::path file_path(wal_info->get_wal_path());
         if (!std::filesystem::exists(file_path)) {
-            st = Status::InternalError("wal file {} does not exist", wal_info->get_wal_path());
+            LOG(WARNING) << "skip replay missing wal=" << wal_info->get_wal_path();
+            st = Status::OK();
         } else {
             file_size = std::filesystem::file_size(file_path);
             st = _replay_wal_internal(wal_info->get_wal_path());
@@ -113,6 +115,12 @@ Status WalTable::_relay_wal_one_by_one() {
             doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
+            {
+                std::lock_guard<std::mutex> lock(_replay_wal_lock);
+                _last_replay_wal_failed_reason =
+                        "failed to replay wal=" + wal_info->get_wal_path() +
+                        ", st=" + st.to_string().substr(0, 100);
+            }
             need_retry_wals.push_back(wal_info);
         }
     }
@@ -121,6 +129,9 @@ Status WalTable::_relay_wal_one_by_one() {
         _replaying_queue.clear();
         for (auto retry_wal_info : need_retry_wals) {
             _replay_wal_map.emplace(retry_wal_info->get_wal_path(), retry_wal_info);
+        }
+        if (_replay_wal_map.empty()) {
+            _last_replay_wal_failed_reason.clear();
         }
     }
     return Status::OK();
@@ -146,25 +157,24 @@ Status WalTable::replay_wals() {
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
+#ifdef BE_TEST
+    return true;
+#endif
     if (config::group_commit_wait_replay_wal_finish) {
         return true;
     }
-#ifndef BE_TEST
     int64_t replay_interval = 0;
     if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
-        replay_interval =
-                int64_t(pow(2, config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_seconds * 1000 +
-                        (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
+        replay_interval = int64_t(
+                pow(2, config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                (int64_t(wal_info->get_retry_num()) - config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
     } else {
         replay_interval = int64_t(pow(2, wal_info->get_retry_num()) *
                                   config::group_commit_replay_wal_retry_interval_seconds * 1000);
     }
     return UnixMillis() - wal_info->get_start_time_ms() >= replay_interval;
-#else
-    return true;
-#endif
 }
 
 Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
@@ -183,9 +193,14 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
             });
-    auto result_status = Status::create<false>(result.status);
-    LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
-    return result_status;
+    if (st.ok()) {
+        auto result_status = Status::create<false>(result.status);
+        LOG(INFO) << "abort label " << label << ", result_status:" << result_status;
+        return result_status;
+    } else {
+        LOG(WARNING) << "abort label " << label << ", rpc error:" << st;
+        return st;
+    }
 }
 
 Status WalTable::_replay_wal_internal(const std::string& wal) {
@@ -301,6 +316,11 @@ void WalTable::stop() {
 size_t WalTable::size() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     return _replay_wal_map.size() + _replaying_queue.size();
+}
+
+std::string WalTable::get_last_replay_wal_failed_reason() const {
+    std::lock_guard<std::mutex> lock(_replay_wal_lock);
+    return _last_replay_wal_failed_reason;
 }
 
 Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,

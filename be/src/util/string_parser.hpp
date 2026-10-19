@@ -36,7 +36,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/data_type/number_traits.h"
 #include "core/data_type/primitive_type.h"
@@ -266,7 +265,7 @@ uint32_t count_valid_length(const char* s, const char* end) {
 
 inline auto count_digits = count_valid_length<is_numeric_ascii>;
 
-inline PURE std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
+inline std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
     std::string result(6, '0');
     result[0] = sign;
     result[1] = '0' + (hour_offset / 10);
@@ -489,7 +488,8 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
     switch (*s) {
     case '-':
         negative = true;
-        max_val += 1;
+        // Only signed types have an extra value in their negative range.
+        max_val += std::numeric_limits<T>::is_signed;
         [[fallthrough]];
     case '+':
         ++i;
@@ -612,7 +612,9 @@ T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, in
     switch (*s) {
     case '-':
         negative = true;
-        max_val = StringParser::numeric_limits<T>(false) + 1;
+        // Only signed types have an extra value in their negative range.
+        // Keep the unsigned magnitude limit unchanged to avoid wrapping it to zero.
+        max_val += std::numeric_limits<T>::is_signed;
         [[fallthrough]];
     case '+':
         i = 1;

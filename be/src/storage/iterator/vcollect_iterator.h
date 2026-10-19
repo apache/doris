@@ -44,7 +44,6 @@ struct pairing_heap_tag;
 
 namespace doris {
 
-class TabletSchema;
 class RuntimeProfile;
 
 // Pure-computation helper: estimate whether collected data meets the byte budget
@@ -92,7 +91,8 @@ public:
     inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
-    // next for topn query
+    // Scanner-local TopN merge. SegmentIterator has already applied all pushed filters and its
+    // per-segment row budget; this path only keeps the best local rows across rowsets.
     Status _topn_next(Block* block);
 
     class BlockRowPosComparator {
@@ -121,7 +121,7 @@ private:
     class LevelIterator {
     public:
         LevelIterator(TabletReader* reader)
-                : _schema(reader->tablet_schema()),
+                : _schema(reader->_read_schema),
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
@@ -142,7 +142,8 @@ private:
 
         virtual ~LevelIterator() = default;
 
-        const TabletSchema& tablet_schema() const { return _schema; }
+        // Exact read schema of every block this iterator exposes.
+        const ReadSchema& schema() const { return *_schema; }
 
         const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
 
@@ -155,7 +156,7 @@ private:
         virtual void update_profile(RuntimeProfile* profile) = 0;
 
     protected:
-        const TabletSchema& _schema;
+        const ReadSchemaSPtr _schema;
         IteratorRowRef _ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
     };
@@ -164,8 +165,12 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence, bool is_reverse)
-                : _sequence(sequence), _is_reverse(is_reverse) {}
+        LevelIteratorComparator(int sequence, bool is_reverse, bool use_insert_order_when_same,
+                                bool small_seq_first)
+                : _sequence(sequence),
+                  _is_reverse(is_reverse),
+                  _use_insert_order_when_same(use_insert_order_when_same),
+                  _small_seq_first(small_seq_first) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
@@ -173,6 +178,13 @@ private:
         int _sequence;
         // reverse the compare order
         bool _is_reverse = false;
+        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+        bool _use_insert_order_when_same = false;
+        // Ordering direction of the tie-break column when keys are equal:
+        // - false : larger value sorts first (UNIQUE_KEYS sequence column).
+        // - true  : smaller value sorts first (row binlog TSO column).
+        // The two cases are mutually exclusive (DCHECK at construction site).
+        bool _small_seq_first = false;
     };
 
 #ifdef USE_LIBCPP
@@ -222,7 +234,8 @@ private:
         Status refresh_current_row();
 
     private:
-        Status _next_by_ref(IteratorRowRef* ref);
+        // Build an empty block with the exact read-schema layout.
+        std::shared_ptr<Block> _create_read_block() const;
 
         bool _is_empty() {
             if (_get_data_by_ref) {
@@ -312,6 +325,9 @@ private:
         bool collected_enough_rows(const MutableColumns& columns, int rows_to_merge) const;
 
     private:
+        // Validate comparator ordinals and the default key-prefix layout.
+        Status _validate_merge_compare_contract(int sequence_ordinal) const;
+
         Status _merge_next(IteratorRowRef* ref);
 
         Status _normal_next(IteratorRowRef* ref);
@@ -356,16 +372,9 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
-    // For chunked topN output when result exceeds byte budget.
-    Block _topn_result_block;
-    size_t _topn_result_offset = 0;
+    // for forwarding general LIMIT to SegmentIterator
+    size_t _general_read_limit = 0;
     std::vector<RowSetSplits> _rs_splits;
-
-    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW (non-merge path).
-    // When > 0, VCollectIterator will stop reading after returning this many rows.
-    int64_t _general_read_limit = -1;
-    // Number of rows already returned to the caller.
-    int64_t _general_rows_returned = 0;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

@@ -19,7 +19,9 @@
 
 #include "storage/cache/page_cache.h"
 #include "storage/segment/binary_dict_page.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v3_pre_decoder.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/segment/encoding_info.h"
 #include "util/coding.h"
@@ -33,12 +35,18 @@ namespace segment_v2 {
  * BinaryDictPage data pages can have different encoding types:
  * 1. DICT_ENCODING: header(4 bytes) + bitshuffle encoded codeword page
  * 2. PLAIN_ENCODING_V2: header(4 bytes) + BinaryPlainPageV2 encoded data
- * 3. PLAIN_ENCODING: header(4 bytes) + BinaryPlainPage encoded data (no pre-decode needed)
+ * 3. PLAIN_ENCODING: header(4 bytes) + BinaryPlainPage encoded data (no pre-decode needed
+ *    for non-CHAR; CHAR pages get their trailing '\0' padding stripped inline)
  *
  * This pre-decoder reads the encoding type from the first 4 bytes, strips the header,
  * dispatches to the appropriate pre-decoder (BitShufflePagePreDecoder or
- * BinaryPlainPageV2PreDecoder), and then restores the header.
+ * BinaryPlainPageV2PreDecoder<IS_CHAR>), and then restores the header.
+ *
+ * When IS_CHAR is true the inline-binary paths (PLAIN_ENCODING / PLAIN_ENCODING_V2)
+ * use the CHAR-strip variants so the dict-fallback data pages are also unpadded
+ * once at page load time.
  */
+template <bool IS_CHAR>
 struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
     /**
      * @brief Decode BinaryDictPage data page
@@ -66,14 +74,15 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
         auto encoding_type =
                 static_cast<EncodingTypePB>(decode_fixed32_le((const uint8_t*)page_slice->data));
         if (encoding_type != DICT_ENCODING && encoding_type != PLAIN_ENCODING_V2 &&
-            encoding_type != PLAIN_ENCODING) {
+            encoding_type != PLAIN_ENCODING_V3 && encoding_type != PLAIN_ENCODING) {
             return Status::Corruption(
                     "Unknown encoding type: {} in file: {}, should one of <DICT_ENCODING, "
-                    "PLAIN_ENCODING_V2, PLAIN_ENCODING>",
+                    "PLAIN_ENCODING_V2, PLAIN_ENCODING_V3, PLAIN_ENCODING>",
                     encoding_type, file_path);
         }
-        // For PLAIN_ENCODING, no pre-decoding needed
-        if (encoding_type == PLAIN_ENCODING) {
+        // For PLAIN_ENCODING, non-CHAR pages can be used as-is; CHAR pages
+        // are routed through the CHAR-strip pre-decoder below.
+        if (encoding_type == PLAIN_ENCODING && !IS_CHAR) {
             return Status::OK();
         }
 
@@ -102,9 +111,25 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
             break;
         }
         case PLAIN_ENCODING_V2: {
-            // Use BinaryPlainPageV2PreDecoder with total_prefix to reserve space
-            BinaryPlainPageV2PreDecoder v2_decoder;
+            BinaryPlainPageV2PreDecoder<IS_CHAR> v2_decoder;
             status = v2_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
+                                       _use_cache, page_type, file_path, total_prefix);
+            break;
+        }
+        case PLAIN_ENCODING_V3: {
+            BinaryPlainPageV3PreDecoder<IS_CHAR> v3_decoder;
+            status = v3_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
+                                       _use_cache, page_type, file_path, total_prefix);
+            break;
+        }
+        case PLAIN_ENCODING: {
+            // Non-CHAR is short-circuited above; CHECK that the invariant
+            // holds in case the short-circuit gets removed accidentally.
+            CHECK(IS_CHAR) << "BinaryDictPagePreDecoder<false> reached PLAIN_ENCODING "
+                              "dict-fallback path; expected to short-circuit above. file: "
+                           << file_path;
+            BinaryPlainPageCharStripPreDecoder v1_decoder;
+            status = v1_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
                                        _use_cache, page_type, file_path, total_prefix);
             break;
         }

@@ -244,6 +244,17 @@ public class ExprToThriftBehaviorTest {
     }
 
     @Test
+    public void testStrictCastExprFlagIsSerialized() {
+        CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(42), false);
+        expr.setStrict(true);
+
+        TExprNode node = firstNode(expr);
+        Assertions.assertEquals(TExprNodeType.CAST_EXPR, node.node_type);
+        Assertions.assertTrue(node.isSetIsStrictCast());
+        Assertions.assertTrue(node.isIsStrictCast());
+    }
+
+    @Test
     public void testCastExprNoOpTrue() {
         // Cast TINYINT to TINYINT -> noOp should be true (same type)
         IntLiteral child = new IntLiteral(42);
@@ -272,6 +283,22 @@ public class ExprToThriftBehaviorTest {
         Assertions.assertEquals(TExprNodeType.BOOL_LITERAL, result.get(0).getNodes().get(0).node_type);
         Assertions.assertEquals(TExprNodeType.INT_LITERAL, result.get(1).getNodes().get(0).node_type);
         Assertions.assertEquals(TExprNodeType.STRING_LITERAL, result.get(2).getNodes().get(0).node_type);
+    }
+
+    @Test
+    public void testLambdaFunctionExprSerializesArgumentNames() {
+        SlotRef slotX = new SlotRef(null, "x");
+        SlotRef slotY = new SlotRef(null, "yy");
+        LambdaFunctionExpr expr = new LambdaFunctionExpr(
+                new IntLiteral(1L), Lists.newArrayList("x", "yy"),
+                Lists.newArrayList(slotX, slotY), false);
+
+        TExprNode node = firstNode(expr);
+
+        Assertions.assertEquals(TExprNodeType.LAMBDA_FUNCTION_EXPR, node.node_type);
+        Assertions.assertFalse(node.isSetLabel());
+        Assertions.assertTrue(node.isSetLambdaArgumentNames());
+        Assertions.assertEquals(Lists.newArrayList("x", "yy"), node.getLambdaArgumentNames());
     }
 
     // ======================== Helpers ========================

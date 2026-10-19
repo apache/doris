@@ -109,10 +109,10 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             );
         """
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """

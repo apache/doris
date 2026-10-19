@@ -17,11 +17,19 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -31,10 +39,12 @@ import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegration
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,6 +54,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
@@ -63,6 +74,8 @@ public class AuthenticatorManager {
     static final String OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE =
             "Authentication failed because no configured authentication method succeeded due to service "
                     + "or configuration issues; check FE logs for details";
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
@@ -163,7 +176,42 @@ public class AuthenticatorManager {
                                 MysqlHandshakePacket handshakePacket) throws IOException {
 
         String remoteIp = context.getMysqlChannel().getRemoteIp();
+        CertificateAuthDecision certDecision = CERT_RUNTIME_AUTH_SERVICE.authenticateLive(
+                userName, remoteIp, channel.getClientCertificate());
+        if (certDecision.isReject()) {
+            context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                    certDecision.getErrorMessage() == null ? "TLS certificate verification failed"
+                            : certDecision.getErrorMessage());
+            MysqlProto.sendResponsePacket(context);
+            return false;
+        }
+        if (certDecision.shouldSkipPasswordVerification()
+                && Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, remoteIp) == null) {
+            return finishSuccessfulAuthentication(context, remoteIp,
+                    new AuthenticateResponse(true, certDecision.getUserIdentity()), false);
+        }
+        UserIdentity preferredUserIdentity = certDecision.isVerified() ? certDecision.getUserIdentity() : null;
+
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        boolean boundAuthentication = primaryAuthenticator instanceof AuthenticationIntegrationAuthenticator
+                && ((AuthenticationIntegrationAuthenticator) primaryAuthenticator).isBoundAuthentication();
+        if (boundAuthentication) {
+            try {
+                boolean requiresClear = ((AuthenticationIntegrationAuthenticator) primaryAuthenticator)
+                        .prepareBoundAuthentication();
+                if (requiresClear && !channel.isSslMode()) {
+                    context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
+                            "Authentication-bound users require TLS before supplying clear text credentials");
+                    MysqlProto.sendResponsePacket(context);
+                    return false;
+                }
+            } catch (org.apache.doris.authentication.AuthenticationException e) {
+                return reportAuthenticationFailure(context, userName, remoteIp, null,
+                        java.util.Collections.singletonList(AuthenticationFailureSummary.forException(e,
+                                "Unable to resolve bound authentication integration")));
+            }
+        }
+
         boolean debugEnabled = LOG.isDebugEnabled();
         long resolveStart = 0L;
         if (debugEnabled) {
@@ -178,6 +226,9 @@ public class AuthenticatorManager {
         }
 
         AuthenticateRequest request = primaryRequest.get();
+        if (preferredUserIdentity != null) {
+            request = request.withUserIdentity(preferredUserIdentity);
+        }
         if (debugEnabled) {
             long resolveElapsed = System.currentTimeMillis() - resolveStart;
             LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
@@ -200,6 +251,9 @@ public class AuthenticatorManager {
         List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
         addFailureSummary(failureSummaries, primaryResponse);
 
+        if (boundAuthentication) {
+            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
+        }
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
                 channel, serializer, authPacket, handshakePacket, request);
         if (chainResponse != null && chainResponse.isSuccess()) {
@@ -211,6 +265,10 @@ public class AuthenticatorManager {
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
+        User binding = Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, remoteIp);
+        if (binding != null) {
+            return new AuthenticationIntegrationAuthenticator(binding);
+        }
         Authenticator primaryAuthenticator = authTypeAuthenticator;
         return primaryAuthenticator.canDeal(userName) ? primaryAuthenticator : defaultAuthenticator;
     }
@@ -225,6 +283,7 @@ public class AuthenticatorManager {
         context.setIsTempUser(response.isTemp());
         context.setAuthenticatedPrincipal(response.getPrincipal());
         context.setAuthenticatedRoles(response.getAuthenticatedRoles());
+        context.setSessionContext(SessionContext.of(response.getDelegatedCredential()));
     }
 
     private Optional<AuthenticateRequest> resolveAuthenticateRequest(Authenticator authenticator,
@@ -240,11 +299,77 @@ public class AuthenticatorManager {
 
     private AuthenticateResponse authenticateWith(Authenticator authenticator,
             AuthenticateRequest request) throws IOException {
-        return authenticator.authenticate(request);
+        AuthenticateResponse response = authenticator.authenticate(request);
+        attachDelegatedCredential(response, request);
+        return response;
     }
 
-    private boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
-            AuthenticateResponse response, boolean setOkState) {
+    private void attachDelegatedCredential(AuthenticateResponse response, AuthenticateRequest request) {
+        if (!response.isSuccess() || request.getCredential() == null || response.getDelegatedCredential() != null) {
+            return;
+        }
+        DelegatedCredential.Type type = delegatedCredentialType(request.getCredentialType());
+        if (type == null) {
+            return;
+        }
+        OptionalLong expiresAtMillis = response.getCredentialExpiresAtMillis();
+        response.setDelegatedCredential(new DelegatedCredential(type,
+                new String(request.getCredential(), StandardCharsets.UTF_8), expiresAtMillis));
+    }
+
+    private DelegatedCredential.Type delegatedCredentialType(String credentialType) {
+        if (CredentialType.OAUTH_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ACCESS_TOKEN;
+        }
+        if (CredentialType.OIDC_ID_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ID_TOKEN;
+        }
+        if (CredentialType.JWT_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.JWT;
+        }
+        if (CredentialType.SAML_ASSERTION.equals(credentialType)) {
+            return DelegatedCredential.Type.SAML;
+        }
+        return null;
+    }
+
+    /**
+     * ACCOUNT_LOCK, enforced after ANY authentication succeeded -- local password, LDAP, an
+     * authentication integration or plugin, or a client certificate -- so none of them can open a
+     * locked Doris account (the local-password path also checks it inside the password policy).
+     * Returns true when the login was refused: the 3118 error is set and sent, nothing is applied.
+     */
+    @VisibleForTesting
+    boolean refuseIfAccountLocked(ConnectContext context, UserIdentity userIdentity) throws IOException {
+        try {
+            Env.getCurrentEnv().getAuth().checkAccountLocked(userIdentity);
+            return false;
+        } catch (AuthenticationException e) {
+            context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                    ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(userIdentity.getQualifiedUser(),
+                            userIdentity.getHost()));
+            MysqlProto.sendResponsePacket(context);
+            return true;
+        }
+    }
+
+    @VisibleForTesting
+    boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
+            AuthenticateResponse response, boolean setOkState) throws IOException {
+        User binding = Env.getCurrentEnv().getAuth().getAuthenticationBinding(
+                response.getUserIdentity().getQualifiedUser(), remoteIp);
+        if ((binding == null && (response.getAuthenticationIntegration() != null
+                || Env.getCurrentEnv().getAuth().isAuthenticationBound(response.getUserIdentity())))
+                || (binding != null && (!binding.getUserIdentity().equals(response.getUserIdentity())
+                || response.isTemp()
+                || !binding.getAuthIntegration().equals(response.getAuthenticationIntegration())
+                || !java.util.Objects.equals(binding.getAuthIdentity(), response.getBoundIdentity())))) {
+            return reportAuthenticationFailure(context, response.getUserIdentity().getQualifiedUser(), remoteIp,
+                    null, java.util.Collections.emptyList());
+        }
+        if (refuseIfAccountLocked(context, response.getUserIdentity())) {
+            return false;
+        }
         if (setOkState) {
             context.getState().setOk();
         }

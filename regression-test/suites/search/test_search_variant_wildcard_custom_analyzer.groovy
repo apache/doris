@@ -34,10 +34,11 @@
  * FULLTEXT), causing term enumeration to fail.
  */
 suite("test_search_variant_wildcard_custom_analyzer", "p0") {
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_search_variant_wildcard_custom_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -77,9 +78,9 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
     // c3: Michael David Johnson (firstname = Michael David, lastname = Johnson) — 73095754047
     // string_8 = firstname, string_17 = lastname
     sql """INSERT INTO ${tableName} VALUES
-        (1, 73095521135, '{"string_8": "John", "string_17": "Smith"}'),
-        (1, 73095446198, '{"string_8": "Jane", "string_17": "Smithson"}'),
-        (1, 73095754047, '{"string_8": "Michael David", "string_17": "Johnson"}')
+        (1, 73095521135, ${variantV2Function}('{"string_8": "John", "string_17": "Smith"}')),
+        (1, 73095446198, ${variantV2Function}('{"string_8": "Jane", "string_17": "Smithson"}')),
+        (1, 73095754047, ${variantV2Function}('{"string_8": "Michael David", "string_17": "Johnson"}'))
     """
 
     sql "sync"
@@ -89,21 +90,21 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
 
     // Test 1: TERM search for 'smith' on lastname - should return John Smith
     qt_term_smith """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('smith', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 2: TERM search for 'smithson' on lastname - should return Jane Smithson
     qt_term_smithson """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('smithson', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 3: TERM search for 'johnson' on lastname - should return Michael David Johnson
     qt_term_johnson """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('johnson', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
@@ -112,42 +113,42 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
 
     // Test 4: Leading wildcard '*ith' - should match "smith" (ends with "ith")
     qt_wildcard_star_ith """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('*ith', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 5: Middle wildcard 'sm*th' - should match "smith"
     qt_wildcard_sm_star_th """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('sm*th', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 6: Single char wildcard 'sm?th' - should match "smith"
     qt_wildcard_sm_q_th """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('sm?th', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 7: Trailing wildcard 'smith*' - should match "smith" and "smithson"
     qt_wildcard_smith_star """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('smith*', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 8: Trailing wildcard 'sm*' - should match "smith" and "smithson"
     qt_wildcard_sm_star """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('sm*', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 9: Leading wildcard '*son' - should match "smithson" and "johnson"
     qt_wildcard_star_son """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('*son', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
@@ -156,14 +157,14 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
 
     // Test 10: Wildcard 'jo?n' on firstname - should match "john"
     qt_wildcard_firstname """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('jo?n', '{"default_field":"overflowProperties.string_8","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
 
     // Test 11: Wildcard 'mi*' on firstname - should match "michael david"
     qt_wildcard_firstname_michael """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('mi*', '{"default_field":"overflowProperties.string_8","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
@@ -172,7 +173,7 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
 
     // Test 12: Wildcard combined with AND across fields
     qt_wildcard_cross_field """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('overflowProperties.string_17:sm*th AND overflowProperties.string_8:john', '{"default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """
@@ -181,7 +182,7 @@ suite("test_search_variant_wildcard_custom_analyzer", "p0") {
 
     // Test 13: Standalone wildcard '*' matches all non-null values
     qt_wildcard_star_all """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ objectId FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ objectId FROM ${tableName}
         WHERE search('*', '{"default_field":"overflowProperties.string_17","default_operator":"and","mode":"lucene"}')
         ORDER BY objectId
     """

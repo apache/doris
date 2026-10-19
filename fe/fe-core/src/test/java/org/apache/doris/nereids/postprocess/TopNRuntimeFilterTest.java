@@ -18,31 +18,39 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.ScanNode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
     @Test
@@ -58,6 +66,67 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testUuidTopNFilterPreservesOrderingAndNullPlacement() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String direction : List.of("ASC", "DESC")) {
+                for (String nullPlacement : List.of("FIRST", "LAST")) {
+                    PlanChecker checker = PlanChecker.from(connectContext)
+                            .analyze("SELECT id,u FROM uuid_topn ORDER BY u " + direction
+                                    + " NULLS " + nullPlacement + ",id LIMIT 5")
+                            .rewrite().implement();
+                    new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+                    List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                    Assertions.assertFalse(filters.isEmpty());
+                    for (TopnFilter filter : filters) {
+                        Assertions.assertTrue(filter.topn.getOrderKeys().get(0).getExpr().getDataType().isUuidType());
+                        Assertions.assertEquals(direction.equals("ASC"), filter.topn.getOrderKeys().get(0).isAsc());
+                        Assertions.assertEquals(nullPlacement.equals("FIRST"),
+                                filter.topn.getOrderKeys().get(0).isNullFirst());
+                        Assertions.assertFalse(filter.targets.isEmpty());
+                        Assertions.assertTrue(filter.targets.values().stream()
+                                .allMatch(expr -> expr.getDataType().isUuidType()));
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
+    }
+
+    @Test
+    public void testTranslateTopNFilterTargetThroughLazyMaterializeOlapScan() {
+        String sql = "select * from customer order by c_custkey limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        TopnFilter filter = checker.getCascadesContext().getTopnFilterContext().getTopnFilters().stream()
+                .filter(f -> f.targets.keySet().stream().anyMatch(PhysicalLazyMaterializeOlapScan.class::isInstance))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("topn filter target is not lazy materialize olap scan"));
+        PhysicalLazyMaterializeOlapScan lazyScan = filter.targets.keySet().stream()
+                .filter(PhysicalLazyMaterializeOlapScan.class::isInstance)
+                .map(PhysicalLazyMaterializeOlapScan.class::cast)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("lazy materialize olap scan not found"));
+        Expression probeExpr = filter.targets.get(lazyScan);
+
+        TopnFilterContext topnFilterContext = new TopnFilterContext();
+        topnFilterContext.addTopnFilter(filter.topn, lazyScan.getScan(), probeExpr);
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext();
+        probeExpr.getInputSlots().forEach(slot -> translatorContext
+                .createSlotDesc(translatorContext.generateTupleDesc(), (SlotReference) slot));
+        ScanNode legacyScan = Mockito.mock(ScanNode.class);
+        topnFilterContext.translateTarget(lazyScan, legacyScan, translatorContext);
+
+        Assertions.assertTrue(topnFilterContext.getTopnFilter(filter.topn).legacyTargets.containsKey(legacyScan));
     }
 
     @Test
@@ -87,6 +156,25 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 (PhysicalTopN<? extends Plan>) plan.child(0).child(0).child(0);
         Assertions.assertTrue(localTopN.getSortPhase().isLocal());
         Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testNotUseTopNRfForUnsupportedComplexOrderKey() {
+        String sql = "select c_custkey from customer order by array(c_custkey) limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        List<PhysicalTopN<? extends Plan>> localTopNs = plan.collectToList(
+                node -> node instanceof PhysicalTopN
+                        && ((PhysicalTopN<?>) node).getSortPhase().isLocal());
+        Assertions.assertFalse(localTopNs.isEmpty(), plan.treeString());
+        for (PhysicalTopN<? extends Plan> localTopN : localTopNs) {
+            Assertions.assertFalse(
+                    checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+        }
     }
 
     @Test

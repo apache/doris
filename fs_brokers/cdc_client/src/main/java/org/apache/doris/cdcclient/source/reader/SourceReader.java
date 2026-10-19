@@ -20,9 +20,11 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -42,6 +44,13 @@ public interface SourceReader {
 
     /** Initialization, called when the program starts */
     void initialize(String jobId, DataSource dataSource, Map<String, String> config);
+
+    /**
+     * Provision job-scoped source resources (PG slot/publication) once on first open; rebuilds must
+     * not recreate them.
+     */
+    default void createSourceResources(
+            String jobId, DataSource dataSource, Map<String, String> config) {}
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
@@ -70,14 +79,19 @@ public interface SourceReader {
     /** Finish reading all split records */
     void finishSplitRecords();
 
-    /** Get the end offset for the job */
-    Map<String, String> getEndOffset(JobBaseConfig jobConfig);
+    /** Get the end offset and latest source-log lag. */
+    FetchEndOffsetResult fetchEndOffset(FetchEndOffsetRequest request);
 
     /** Compare the offsets */
     int compareOffset(CompareOffsetRequest compareOffsetRequest);
 
     /** Called when closing */
     void close(JobBaseConfig jobConfig);
+
+    /**
+     * Stop the reader engine and free its replication-slot connection, but keep the slot itself.
+     */
+    void release(JobBaseConfig jobConfig);
 
     DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException;
@@ -89,7 +103,7 @@ public interface SourceReader {
     default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
 
     /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
-    default String serializeTableSchemas() {
+    default String serializeTableSchemas() throws IOException {
         return null;
     }
 
@@ -98,4 +112,9 @@ public interface SourceReader {
      * indicate how far the source TX log can be discarded.
      */
     default void commitSourceOffset(String jobId, SourceSplit sourceSplit) {}
+
+    /** Whether all snapshot splits have received their high-watermark event. */
+    default boolean isSnapshotFinished() {
+        return true;
+    }
 }

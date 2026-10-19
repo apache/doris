@@ -98,9 +98,9 @@ suite("test_group_commit_stream_load") {
         """
 
         // stream load with compress file
-        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4"} //, "deflate"}
+        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4", "zstd"} //, "deflate"}
         for (final def compressionType in compressionTypes) {
-            def fileName = "test_compress.csv." + compressionType
+            def fileName = "test_compress.csv." + (compressionType.equals("zstd") ? "zst" : compressionType)
             streamLoad {
                 table "${tableName}"
 
@@ -227,7 +227,7 @@ suite("test_group_commit_stream_load") {
             }
         }
 
-        getRowCount(21)
+        getRowCount(25)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "
     } finally {
         // try_sql("DROP TABLE ${tableName}")

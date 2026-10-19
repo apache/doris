@@ -59,7 +59,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                     List<Expression> otherConditions = Lists.newArrayListWithExpectedSize(
                             filter.getConjuncts().size() + join.getOtherJoinConjuncts().size());
                     for (Expression expr : filter.getConjuncts()) {
-                        if (expr.containsUniqueFunction()) {
+                        if (expr.containsVolatileOrNoneMovableExpression()) {
                             remainConditions.add(expr);
                         } else {
                             otherConditions.add(expr);

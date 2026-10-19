@@ -15,15 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.dgmimpl.arrays.LongArrayGetAtMetaMethod
-
-import java.util.concurrent.TimeUnit;
-import org.awaitility.Awaitility;
-
 final String ERROR_SQL_SUCCEED_MSG = "SQL should have failed but succeeded"
 final String SET_SESSION_VARIABLE_FAILED_MSG = "SQL set session variable failed"
 
-suite("test_file_cache_query_limit_config", "p0,external") {
+suite("test_file_cache_query_limit_config", "p0,external,nonConcurrent") {
 
     sql """set file_cache_query_limit_percent = 1"""
     def fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""
@@ -121,4 +116,3 @@ suite("test_file_cache_query_limit_config", "p0,external") {
 
     return true;
 }
-

@@ -35,7 +35,7 @@ import java.util.List;
  * AggregateFunction 'bool_and'.
  */
 public class BoolAnd extends NullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+        implements UnaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(BooleanType.INSTANCE)
     );
@@ -67,7 +67,7 @@ public class BoolAnd extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (!(argType.isBooleanType() || argType.isNumericType())) {
             throw new AnalysisException("bool_and requires a boolean or numeric argument");
         }

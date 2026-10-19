@@ -64,6 +64,9 @@ if (USE_JEMALLOC)
 else()
     add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 endif()
+if (USE_UNWIND)
+    add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")
+endif()
 add_thirdparty(leveldb) # Required by brpc
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb) # For local storage mocking

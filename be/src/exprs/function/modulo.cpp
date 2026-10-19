@@ -33,6 +33,7 @@
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
 #include "exprs/function/cast_type_to_either.h"
+#include "exprs/function/fmod_fast.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -397,9 +398,13 @@ struct ModNumericImpl {
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
-        size_t size = b.size();
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a, b[i], n[i]);
+        if constexpr (requires { Impl::apply(a, b, c, n); }) {
+            Impl::apply(a, b, c, n);
+        } else {
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a, b[i], n[i]);
+            }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
@@ -416,9 +421,13 @@ struct ModNumericImpl {
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
-        size_t size = a.size();
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a[i], b[i], n[i]);
+        if constexpr (requires { Impl::apply(a, b, c, n); }) {
+            Impl::apply(a, b, c, n);
+        } else {
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i], n[i]);
+            }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
@@ -441,17 +450,42 @@ struct ModuloNumericImpl {
     static void apply(const typename ColumnType::Container& a, ArgB b,
                       typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
-        UInt8 is_null = b == 0;
-        memset(null_map.data(), is_null, sizeof(UInt8) * size);
-
-        if (!is_null) {
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::vector_constant(a.data(), b, c.data(), null_map.data(), size);
+        } else {
+            UInt8 is_null = b == 0;
+            memset(null_map.data(), is_null, sizeof(UInt8) * size);
+            if (is_null) {
+                return;
+            }
             for (size_t i = 0; i < size; i++) {
-                if constexpr (is_float_or_double(Type)) {
-                    c[i] = std::fmod((double)a[i], (double)b);
-                } else {
-                    throw_if_division_leads_to_FPE(a[i], b);
-                    c[i] = a[i] % b;
-                }
+                throw_if_division_leads_to_FPE(a[i], b);
+                c[i] = a[i] % b;
+            }
+        }
+    }
+
+    static void apply(ArgA a, const typename ColumnType::Container& b,
+                      typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
+        size_t size = c.size();
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::constant_vector(a, b.data(), c.data(), null_map.data(), size);
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a, b[i], null_map[i]);
+            }
+        }
+    }
+
+    static void apply(const typename ColumnType::Container& a,
+                      const typename ColumnType::Container& b, typename ColumnType::Container& c,
+                      PaddedPODArray<UInt8>& null_map) {
+        size_t size = c.size();
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::vector_vector(a.data(), b.data(), c.data(), null_map.data(), size);
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b[i], null_map[i]);
             }
         }
     }
@@ -462,7 +496,7 @@ struct ModuloNumericImpl {
         b += is_null;
 
         if constexpr (is_float_or_double(Type)) {
-            return std::fmod((double)a, (double)b);
+            return fmod_fast::scalar(a, b);
         } else {
             throw_if_division_leads_to_FPE(a, b);
             return a % b;
@@ -524,25 +558,27 @@ struct PModuloNumericImpl {
     }
 };
 
-template <PrimitiveType TypeA, PrimitiveType TypeB>
+// FE casts both children of decimal mod to exactly the same type as the return
+// type (TypeCoercionUtils#processDecimalV3BinaryArithmetic), so only same-width
+// pairs are reachable at runtime. Keep a single type parameter so mixed-width
+// instantiations cannot be registered again.
+template <PrimitiveType Type>
 struct ModuloDecimalImpl {
-    static_assert(is_decimal(TypeA) && is_decimal(TypeB));
-    static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
-                  (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
+    static_assert(is_decimal(Type));
     static constexpr auto name = "mod";
     static constexpr auto is_pmod = false;
-    using ArgA = typename PrimitiveTypeTraits<TypeA>::CppType;
-    using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
-    using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
-    using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
-    using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
-    using ColumnTypeB = typename PrimitiveTypeTraits<TypeB>::ColumnType;
+    using ArgA = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
+    using DataTypeA = typename PrimitiveTypeTraits<Type>::DataType;
+    using DataTypeB = typename PrimitiveTypeTraits<Type>::DataType;
+    using ColumnTypeA = typename PrimitiveTypeTraits<Type>::ColumnType;
+    using ColumnTypeB = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<TypeA>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<TypeB>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, UInt8& is_null) {
@@ -901,44 +937,12 @@ void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_BIGINT>>>>();
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_DOUBLE>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2, TYPE_DECIMALV2>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256>>>>();
     factory.register_alias("mod", "fmod");
 }
 

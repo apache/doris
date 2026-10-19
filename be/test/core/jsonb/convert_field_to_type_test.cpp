@@ -86,6 +86,26 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
     ASSERT_EQ(doc->getValue()->int_val(), test_value);
 }
 
+TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_TimeStampNs) {
+    JsonbWriter writer;
+    constexpr int64_t epoch_nanos = -1;
+    Field timestamp_ns_field =
+            Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(epoch_nanos));
+
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+             timestamp_ns_field);
+
+    const auto* output = writer.getOutput();
+    ASSERT_NE(output, nullptr);
+    const JsonbDocument* document = nullptr;
+    ASSERT_TRUE(
+            JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &document)
+                    .ok());
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(document->getValue()->isInt64());
+    EXPECT_EQ(document->getValue()->int_val(), epoch_nanos);
+}
+
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
     JsonbWriter writer;
 
@@ -390,7 +410,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
     {
         JsonbWriter test_writer;
         test_writer.writeStartObject();
-        test_writer.writeKey("key");
+        test_writer.writeKey("key", static_cast<uint8_t>(sizeof("key") - 1));
         test_writer.writeString("value");
         test_writer.writeEndObject();
 
@@ -502,7 +522,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ErrorCases) {
 
     // Test with unsupported types (should throw exception)
     {
-        Field tuple_field = Field::create_field<TYPE_STRUCT>(Tuple());
+        Field tuple_field = Field::create_field<TYPE_STRUCT>(Struct());
 
         EXPECT_THROW(
                 {

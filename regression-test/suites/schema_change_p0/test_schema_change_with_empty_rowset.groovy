@@ -31,6 +31,42 @@ suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
         return jobStateResult[0][9]
     }
 
+    def backendIdToHost = [:]
+    def backendIdToHttpPort = [:]
+    getBackendIpHttpPort(backendIdToHost, backendIdToHttpPort)
+
+    def triggerCumulativeAndWaitForVersionCount = { tbl, int targetVersionCount ->
+        def tablets = sql_return_maparray """ SHOW TABLETS FROM ${tbl} """
+        for (def tablet in tablets) {
+            def host = backendIdToHost["${tablet.BackendId}"]
+            def port = backendIdToHttpPort["${tablet.BackendId}"]
+            def (code, out, err) = be_run_cumulative_compaction(host, port, tablet.TabletId)
+            assert code == 0: "trigger cumulative compaction failed, tablet=${tablet.TabletId}, " +
+                    "code=${code}, stdout=${out}, stderr=${err}"
+            def triggerStatus = parseJson(out.trim())
+            assert triggerStatus.status?.equalsIgnoreCase("Success"):
+                    "trigger cumulative compaction failed, tablet=${tablet.TabletId}, stdout=${out}"
+        }
+
+        // The rowsets returned by the BE are the active versions used by its load admission check.
+        Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+            def versionCounts = [:]
+            for (def tablet in tablets) {
+                def host = backendIdToHost["${tablet.BackendId}"]
+                def port = backendIdToHttpPort["${tablet.BackendId}"]
+                def (code, out, err) = be_show_tablet_status(host, port, tablet.TabletId)
+                assert code == 0: "get compaction status failed, tablet=${tablet.TabletId}, " +
+                        "code=${code}, stdout=${out}, stderr=${err}"
+                def tabletStatus = parseJson(out.trim())
+                assert tabletStatus.rowsets instanceof List:
+                        "invalid compaction status, tablet=${tablet.TabletId}, stdout=${out}"
+                versionCounts[tablet.TabletId] = tabletStatus.rowsets.size()
+            }
+            logger.info("waiting for ${tbl} BE version count <= ${targetVersionCount}, current=${versionCounts}")
+            return versionCounts.values().every { it <= targetVersionCount }
+        }
+    }
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
@@ -53,7 +89,8 @@ suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
     DISTRIBUTED BY HASH(`k1`) BUCKETS 2
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "enable_unique_key_merge_on_write" = "true"
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "true"
     );
     """
 
@@ -63,12 +100,14 @@ suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
     }   
 
 
-    // trigger compactions for all tablets in ${tableName}
-    trigger_and_wait_compaction(tableName, "cumulative")
+    // Leave enough version headroom for the schema change and the following inserts.
+    int insertCountAfterCompaction = 20
+    int targetVersionCount = custoBeConfig.max_tablet_version_num - insertCountAfterCompaction - 1
+    triggerCumulativeAndWaitForVersionCount(tableName, targetVersionCount)
 
     sql """ alter table ${tableName} modify column k4 string NULL"""
 
-    for (int i = 100; i < 120; i++) {
+    for (int i = 100; i < 100 + insertCountAfterCompaction; i++) {
         sql """ insert into ${tableName} values ($i, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00') """
         sleep(20)
@@ -88,4 +127,3 @@ suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
     qt_sql """ select sum(k1), sum(k2) from ${tableName} """
     }
 }
-

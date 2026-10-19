@@ -1,0 +1,531 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.job.offset.jdbc;
+
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.cdc.split.SnapshotSplit;
+import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.JsonObject;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+
+public class JdbcSourceOffsetProviderOffsetTest {
+
+    @Test
+    public void testValidateAlterOffsetAcceptsSourceSpecificPositions() throws Exception {
+        JdbcSourceOffsetProvider postgres = provider(DataSourceType.POSTGRES);
+        postgres.validateAlterOffset("{\"lsn\":12345678,\"txId\":\"7\"}");
+        postgres.validateAlterOffset("{\"lsn\":\"12345678\"}");
+
+        JdbcSourceOffsetProvider mysql = provider(DataSourceType.MYSQL);
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"SPECIFIC\"}");
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        mysql.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+        mysql.validateAlterOffset(
+                "{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\",\"kind\":\"SPECIFIC\"}");
+
+        JdbcSourceOffsetProvider oceanBase = provider(DataSourceType.OCEANBASE);
+        oceanBase.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        oceanBase.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsInvalidSourceSpecificPositions() {
+        assertInvalidAlterOffsets(provider(DataSourceType.POSTGRES),
+                "{}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}",
+                "{\"lsn\":null}",
+                "{\"lsn\":\"abc\"}",
+                "{\"lsn\":\"-1\"}",
+                "{\"lsn\":\"9223372036854775808\"}");
+
+        assertInvalidAlterOffsets(provider(DataSourceType.MYSQL),
+                "{}",
+                "{\"lsn\":\"12345678\"}",
+                "{\"file\":\"mysql-bin.000001\"}",
+                "{\"file\":\"\",\"pos\":\"154\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":null}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"-1\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"9223372036854775808\"}",
+                "{\"gtids\":\"\"}",
+                "{\"gtids\":123}",
+                "{\"gtids\":\"uuid:1-10\",\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsNonSpecificKind() {
+        for (DataSourceType type : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.OCEANBASE}) {
+            assertInvalidAlterOffsets(provider(type),
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"LATEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"EARLIEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"TIMESTAMP\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":\"BOGUS\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":null}");
+        }
+    }
+
+    @Test
+    public void testTaskParallelismKeepsUncommittedSplitsForNextTask() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.snapshotParallelism = 10000;
+        provider.remainingSplits.addAll(Arrays.asList(
+                snapshotSplit("source_table:0"), snapshotSplit("source_table:1"), snapshotSplit("source_table:2")));
+        Map<String, String> taskProperties = Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+
+        JdbcOffset first = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(2, first.getSplits().size());
+        Assertions.assertEquals(3, provider.pendingSplitCount());
+        Assertions.assertEquals(10000, provider.snapshotParallelism);
+        // The next task must receive the same uncommitted splits.
+        JdbcOffset nextTask = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(first.getSplits(), nextTask.getSplits());
+
+        provider.updateOffset(first);
+        JdbcOffset second = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(1, second.getSplits().size());
+        Assertions.assertEquals("source_table:2", second.getSplits().get(0).getSplitId());
+        Assertions.assertEquals(1, provider.pendingSplitCount());
+
+        provider.updateOffset(second);
+        Assertions.assertEquals(0, provider.pendingSplitCount());
+        JdbcOffset binlog = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertFalse(binlog.snapshotSplit());
+        Assertions.assertEquals(3, ((BinlogSplit) binlog.getSplits().get(0)).getFinishedSplits().size());
+    }
+
+    @Test
+    public void testSnapshotOffsetUsesConfiguredPersistInterval() {
+        int oldInterval = Config.streaming_job_snapshot_offset_persist_interval_sec;
+        try {
+            Config.streaming_job_snapshot_offset_persist_interval_sec = 123;
+            JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+            provider.currentOffset = new JdbcOffset(
+                    Collections.singletonList(snapshotSplit("source_table:0")));
+
+            Assertions.assertTrue(provider.shouldPersistOffset(0L, 1_000L));
+            Assertions.assertFalse(provider.shouldPersistOffset(1_000L, 123_999L));
+            Assertions.assertTrue(provider.shouldPersistOffset(1_000L, 124_000L));
+        } finally {
+            Config.streaming_job_snapshot_offset_persist_interval_sec = oldInterval;
+        }
+    }
+
+    @Test
+    public void testBinlogOffsetPersistsImmediately() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.currentOffset = new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "100"))));
+
+        Assertions.assertTrue(provider.shouldPersistOffset(1_000L, 1_001L));
+    }
+
+    @Test
+    public void testSchemaRemainsPendingUntilJournalAcknowledgement() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setTableSchemas("schema-A");
+        Assertions.assertEquals("schema-A", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+        // Preparing a record, or receiving the same schema again, must not acknowledge it.
+        provider.setTableSchemas("schema-A");
+        Assertions.assertEquals("schema-A", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+        Assertions.assertTrue(provider.isTableSchemasDirty());
+
+        provider.markTableSchemasPersisted();
+        JsonObject delta = GsonUtils.GSON.fromJson(provider.getPersistInfoWithoutTableSchemas(), JsonObject.class);
+        Assertions.assertFalse(delta.has("ts"));
+        Assertions.assertFalse(provider.isTableSchemasDirty());
+        Assertions.assertEquals("schema-A", provider.getTableSchemas());
+
+        provider.setTableSchemas("schema-A");
+        Assertions.assertTrue(provider.isTableSchemasDirty());
+        provider.setTableSchemas("schema-B");
+        Assertions.assertEquals("schema-B", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+    }
+
+    @Test
+    public void testSchemaFreePersistInfoRetainsOffsetAndSplitProgress() {
+        JdbcSourceOffsetProvider provider = GsonUtils.GSON.fromJson(
+                "{\"chw\":{\"db.table\":{\"db.table:0\":{\"lsn\":\"90\"}}},"
+                        + "\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\",\"csp\":{\"ni\":2}}",
+                JdbcSourceOffsetProvider.class);
+        String fullState = provider.getPersistInfo();
+
+        JsonObject persisted = GsonUtils.GSON.fromJson(provider.getPersistInfoWithoutTableSchemas(), JsonObject.class);
+
+        Assertions.assertFalse(persisted.has("ts"));
+        Assertions.assertEquals("100", persisted.getAsJsonObject("bop").get("lsn").getAsString());
+        Assertions.assertEquals("90", persisted.getAsJsonObject("chw").getAsJsonObject("db.table")
+                .getAsJsonObject("db.table:0").get("lsn").getAsString());
+        Assertions.assertEquals(2, persisted.getAsJsonObject("csp").get("ni").getAsInt());
+        Assertions.assertEquals(fullState, provider.getPersistInfo());
+    }
+
+    @Test
+    public void testPersistedStateMergesWithoutRuntimeInitialization() {
+        SourceOffsetProvider merger = new JdbcSourceOffsetProvider();
+        String previous = "{\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\"}";
+        String merged = merger.mergePersistInfo(previous, "{\"bop\":{\"lsn\":\"200\"}}");
+        JdbcSourceOffsetProvider provider = GsonUtils.GSON.fromJson(merged, JdbcSourceOffsetProvider.class);
+        Assertions.assertEquals("schema-A", provider.getTableSchemas());
+        Assertions.assertEquals("200", provider.getBinlogOffsetPersist().get("lsn"));
+        Assertions.assertNull(provider.getCurrentOffset());
+
+        String explicitNull = merger.mergePersistInfo(merged,
+                "{\"bop\":{\"lsn\":\"300\"},\"ts\":null}");
+        JdbcSourceOffsetProvider recovered = GsonUtils.GSON.fromJson(explicitNull, JdbcSourceOffsetProvider.class);
+        Assertions.assertEquals("schema-A", recovered.getTableSchemas());
+        Assertions.assertEquals("300", recovered.getBinlogOffsetPersist().get("lsn"));
+        String updated = "{\"bop\":{\"lsn\":\"400\"},\"ts\":\"schema-B\"}";
+        Assertions.assertEquals(updated, merger.mergePersistInfo(explicitNull, updated));
+        Assertions.assertEquals(updated, merger.mergePersistInfo(null, updated));
+    }
+
+    @Test
+    public void testTvfPersistedStateWithoutSchemaReplacesPreviousSchema() {
+        SourceOffsetProvider provider = new JdbcTvfSourceOffsetProvider();
+        String previous = "{\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\"}";
+        for (String incoming : new String[] {
+                "{\"bop\":{\"lsn\":\"200\"}}", "{\"bop\":{\"lsn\":\"200\"},\"ts\":null}"}) {
+            JdbcSourceOffsetProvider recovered = GsonUtils.GSON.fromJson(
+                    provider.mergePersistInfo(previous, incoming), JdbcSourceOffsetProvider.class);
+            Assertions.assertNull(recovered.getTableSchemas());
+            Assertions.assertEquals("200", recovered.getBinlogOffsetPersist().get("lsn"));
+        }
+    }
+
+    @Test
+    public void testEndOffsetAdvancesWhenCurrentOffsetIsAhead() {
+        assertEndOffsetAdvancesWhenCurrentOffsetIsAhead(new TestJdbcSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testTvfEndOffsetAdvancesWhenCurrentOffsetIsAhead() {
+        assertEndOffsetAdvancesWhenCurrentOffsetIsAhead(new TestJdbcTvfSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testEndOffsetRemainsWhenItIsAheadOfCurrentOffset() {
+        JdbcSourceOffsetProvider provider = new TestJdbcSourceOffsetProvider(1);
+        Map<String, String> currentOffset = Collections.singletonMap("lsn", "100");
+        Map<String, String> endOffset = Collections.singletonMap("lsn", "200");
+        provider.setEndBinlogOffset(endOffset);
+        provider.setHasMoreData(false);
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(currentOffset))));
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertEquals(endOffset, provider.getEndBinlogOffset());
+    }
+
+    @Test
+    public void testStaleCompareDoesNotOverwriteRefreshedEndOffset() {
+        JdbcSourceOffsetProvider provider = new RefreshingEndOffsetProvider();
+        provider.setEndBinlogOffset(Collections.singletonMap("lsn", "100"));
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertTrue(provider.hasMoreData);
+        Assertions.assertEquals(Collections.singletonMap("lsn", "300"), provider.getEndBinlogOffset());
+    }
+
+    @Test
+    public void testStaleCompareDoesNotOverwriteAlteredCurrentOffsetState() {
+        JdbcSourceOffsetProvider provider = new AlteringCurrentOffsetProvider();
+        provider.setEndBinlogOffset(Collections.singletonMap("lsn", "200"));
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertTrue(provider.hasMoreData);
+        Assertions.assertEquals(Collections.singletonMap("lsn", "100"),
+                ((BinlogSplit) provider.currentOffset.getSplits().get(0)).getStartingOffset());
+    }
+
+    @Test
+    public void testValidBinlogOffsetClearsSnapshotState() {
+        assertValidBinlogOffsetClearsSnapshotState(new TestJdbcSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testTvfValidBinlogOffsetClearsSnapshotState() {
+        assertValidBinlogOffsetClearsSnapshotState(new TestJdbcTvfSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testEmptyBinlogOffsetKeepsPreviousState() {
+        assertEmptyBinlogOffsetKeepsPreviousState(new TestJdbcSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testTvfEmptyBinlogOffsetKeepsPreviousState() {
+        assertEmptyBinlogOffsetKeepsPreviousState(new TestJdbcTvfSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testRepeatedValidBinlogOffsetCleanupIsIdempotent() {
+        assertRepeatedValidBinlogOffsetCleanupIsIdempotent(new TestJdbcSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testTvfRepeatedValidBinlogOffsetCleanupIsIdempotent() {
+        assertRepeatedValidBinlogOffsetCleanupIsIdempotent(new TestJdbcTvfSourceOffsetProvider(-1));
+    }
+
+    @Test
+    public void testBinlogOffsetRestoredFromPersistInfo() throws Exception {
+        JdbcSourceOffsetProvider source = new TestJdbcSourceOffsetProvider(-1);
+        source.updateOffset(new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "200")))));
+        StreamingInsertJob job = mockJobWithPersistInfo(source.getPersistInfo());
+        JdbcSourceOffsetProvider restored = new JdbcSourceOffsetProvider();
+
+        restored.replayIfNeed(job);
+
+        Assertions.assertNotNull(restored.currentOffset);
+        Assertions.assertFalse(restored.currentOffset.snapshotSplit());
+        Assertions.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
+                .getStartingOffset().get("lsn"));
+        Assertions.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
+    }
+
+    @Test
+    public void testTvfBinlogOffsetRestoredFromPersistInfo() throws Exception {
+        JdbcSourceOffsetProvider source = new TestJdbcTvfSourceOffsetProvider(-1);
+        source.updateOffset(new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "200")))));
+        StreamingInsertJob job = mockJobWithPersistInfo(source.getPersistInfo());
+        JdbcTvfSourceOffsetProvider restored = new JdbcTvfSourceOffsetProvider();
+        restored.updateOffset(new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "100")))));
+
+        restored.restoreFromPersistInfo(source.getPersistInfo());
+        restored.replayIfNeed(job);
+
+        Assertions.assertNotNull(restored.currentOffset);
+        Assertions.assertFalse(restored.currentOffset.snapshotSplit());
+        Assertions.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
+                .getStartingOffset().get("lsn"));
+        Assertions.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
+    }
+
+    private static void assertEndOffsetAdvancesWhenCurrentOffsetIsAhead(JdbcSourceOffsetProvider provider) {
+        Map<String, String> staleEndOffset = Collections.singletonMap("lsn", "100");
+        Map<String, String> committedOffset = Collections.singletonMap("lsn", "200");
+        provider.setEndBinlogOffset(staleEndOffset);
+        provider.setHasMoreData(false);
+
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(committedOffset))));
+
+        Assertions.assertEquals(staleEndOffset, provider.getEndBinlogOffset());
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        Assertions.assertEquals(committedOffset, provider.getEndBinlogOffset());
+        Assertions.assertEquals("{\"lsn\":\"200\"}", provider.getShowMaxOffset());
+    }
+
+    private static void assertValidBinlogOffsetClearsSnapshotState(JdbcSourceOffsetProvider provider) {
+        seedSnapshotState(provider);
+        Map<String, String> binlogOffset = Collections.singletonMap("lsn", "200");
+
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(binlogOffset))));
+
+        Assertions.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(provider.remainingSplits.isEmpty());
+        Assertions.assertTrue(provider.finishedSplits.isEmpty());
+        assertProgressCleared(provider.committedSplitProgress);
+        assertProgressCleared(provider.cdcSplitProgress);
+        Assertions.assertEquals("table-schemas", provider.tableSchemas);
+        Map<String, String> expectedPersist = new HashMap<>(binlogOffset);
+        expectedPersist.put(JdbcSourceOffsetProvider.SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+        Assertions.assertEquals(expectedPersist, provider.binlogOffsetPersist);
+        String persistInfo = provider.getPersistInfo();
+        Assertions.assertFalse(persistInfo.contains("source_table:0"));
+        Assertions.assertFalse(persistInfo.contains("source_table:1"));
+        Assertions.assertTrue(persistInfo.contains("table-schemas"));
+    }
+
+    private static void assertEmptyBinlogOffsetKeepsPreviousState(JdbcSourceOffsetProvider provider) {
+        seedSnapshotState(provider);
+        JdbcOffset previousOffset = new JdbcOffset(
+                Collections.singletonList(snapshotSplit("source_table:0")));
+        provider.currentOffset = previousOffset;
+        provider.hasMoreData = false;
+
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(Collections.emptyMap()))));
+
+        Assertions.assertSame(previousOffset, provider.currentOffset);
+        Assertions.assertFalse(provider.hasMoreData);
+        Assertions.assertFalse(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertFalse(provider.remainingSplits.isEmpty());
+        Assertions.assertFalse(provider.finishedSplits.isEmpty());
+        Assertions.assertEquals("source_table", provider.committedSplitProgress.getCurrentSplittingTable());
+        Assertions.assertEquals("source_table", provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertNull(provider.binlogOffsetPersist);
+    }
+
+    private static void assertRepeatedValidBinlogOffsetCleanupIsIdempotent(
+            JdbcSourceOffsetProvider provider) {
+        seedSnapshotState(provider);
+        JdbcOffset binlogOffset = new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "200"))));
+
+        provider.updateOffset(binlogOffset);
+        String firstPersistInfo = provider.getPersistInfo();
+        Map<String, Map<String, Map<String, String>>> clearedHighWatermarkMap =
+                provider.chunkHighWatermarkMap;
+        provider.updateOffset(binlogOffset);
+
+        Assertions.assertEquals(firstPersistInfo, provider.getPersistInfo());
+        Assertions.assertSame(clearedHighWatermarkMap, provider.chunkHighWatermarkMap);
+        Assertions.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(provider.remainingSplits.isEmpty());
+        Assertions.assertTrue(provider.finishedSplits.isEmpty());
+        assertProgressCleared(provider.committedSplitProgress);
+        assertProgressCleared(provider.cdcSplitProgress);
+    }
+
+    private static StreamingInsertJob mockJobWithPersistInfo(String persistInfo) {
+        StreamingInsertJob job = new ReplayStreamingInsertJob();
+        Deencapsulation.setField(job, "jobId", 9001L);
+        Deencapsulation.setField(job, "syncTables", Collections.emptyList());
+        job.setOffsetProviderPersist(persistInfo);
+        return job;
+    }
+
+    private static void seedSnapshotState(JdbcSourceOffsetProvider provider) {
+        SnapshotSplit remaining = snapshotSplit("source_table:1");
+        SnapshotSplit finished = snapshotSplit("source_table:0");
+        provider.remainingSplits.add(remaining);
+        provider.finishedSplits.add(finished);
+        provider.chunkHighWatermarkMap
+                .computeIfAbsent("source_db.source_table", key -> new HashMap<>())
+                .put(finished.getSplitId(), finished.getHighWatermark());
+        provider.committedSplitProgress = splitProgress();
+        provider.cdcSplitProgress = splitProgress();
+        provider.tableSchemas = "table-schemas";
+    }
+
+    private static SnapshotSplit snapshotSplit(String splitId) {
+        return new SnapshotSplit(
+                splitId,
+                "source_db.source_table",
+                Collections.singletonList("id"),
+                new Object[]{1L},
+                new Object[]{2L},
+                Collections.singletonMap("lsn", "100"));
+    }
+
+    private static JdbcSourceOffsetProvider.SplitProgress splitProgress() {
+        JdbcSourceOffsetProvider.SplitProgress progress = new JdbcSourceOffsetProvider.SplitProgress();
+        progress.setCurrentSplittingTable("source_table");
+        progress.setNextSplitStart(new Object[]{2L});
+        progress.setNextSplitId(2);
+        return progress;
+    }
+
+    private static void assertProgressCleared(JdbcSourceOffsetProvider.SplitProgress progress) {
+        Assertions.assertNotNull(progress);
+        Assertions.assertNull(progress.getCurrentSplittingTable());
+        Assertions.assertNull(progress.getNextSplitStart());
+        Assertions.assertNull(progress.getNextSplitId());
+    }
+
+    private static JdbcSourceOffsetProvider provider(DataSourceType sourceType) {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setSourceType(sourceType);
+        return provider;
+    }
+
+    private static void assertInvalidAlterOffsets(JdbcSourceOffsetProvider provider, String... offsets) {
+        for (String offset : offsets) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> provider.validateAlterOffset(offset), offset);
+        }
+    }
+
+    private static class TestJdbcSourceOffsetProvider extends JdbcSourceOffsetProvider {
+        private final int compareResult;
+
+        TestJdbcSourceOffsetProvider(int compareResult) {
+            this.compareResult = compareResult;
+        }
+
+        @Override
+        protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+            return compareResult;
+        }
+    }
+
+    private static class ReplayStreamingInsertJob extends StreamingInsertJob {
+        ReplayStreamingInsertJob() {
+            super();
+        }
+    }
+
+    private static class TestJdbcTvfSourceOffsetProvider extends JdbcTvfSourceOffsetProvider {
+        private final int compareResult;
+
+        TestJdbcTvfSourceOffsetProvider(int compareResult) {
+            this.compareResult = compareResult;
+        }
+
+        @Override
+        protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+            return compareResult;
+        }
+    }
+
+    private static class RefreshingEndOffsetProvider extends JdbcSourceOffsetProvider {
+        @Override
+        protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+            synchronized (splitsLock) {
+                endBinlogOffset = Collections.singletonMap("lsn", "300");
+                hasMoreData = false;
+            }
+            return -1;
+        }
+    }
+
+    private static class AlteringCurrentOffsetProvider extends JdbcSourceOffsetProvider {
+        @Override
+        protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+            updateOffset(new JdbcOffset(
+                    Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "100")))));
+            return 0;
+        }
+    }
+}

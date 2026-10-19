@@ -2,15 +2,39 @@
 
 This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
+## Security Threat Model
+
+For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
+
+## Remote Artifacts and Dynamic Code Loading
+
+Do not add any new code path that fetches an artifact from a user-supplied URL and loads it into a Doris process. This covers `driver_url`-style catalog/resource properties, plugin and UDF locations, and any other property whose value reaches a `URLClassLoader`, `Class.forName`, `System.load`/`dlopen`, or an equivalent BE-side loader. A user who can write such a property gets code execution inside the process that loads it, so the property's effective privilege is that process, not the DDL privilege it was gated on.
+
+The existing `driver_url` paths (jdbc / iceberg-jdbc / paimon-jdbc catalogs) remain for backward compatibility. They are grandfathered, not a precedent — do not copy the pattern into a new connector or feature.
+
+When a feature genuinely needs an operator-supplied artifact, read it from a local, operator-controlled directory (the `jdbc_drivers_dir` / plugin-directory pattern), not from a URL. The ADBC catalog's `AdbcDriverPathResolver` is the model: remote schemes rejected outright, a scheme-less value restricted to a bare file name so no path separator can escape the configured directory, and the check placed where the artifact is loaded rather than only at CREATE.
+
+Every consumer of the **jdbc-flavored** `driver_url` (the jdbc / iceberg-jdbc / paimon-jdbc catalogs, which do accept a URL) must route the raw value through `JdbcDriverUrlSecurity.check` (`fe-foundation`, `foundation.security`) from its property holder's statement-time validation — `JdbcCatalogProperties.checkCreateTimeOnlyRules` and the iceberg/paimon JDBC metastore holders' `validate()` — which the engine reaches on both CREATE and ALTER CATALOG and never on replay or a catalog rebuild. That class is the single source of truth for the rule; do not fork or re-derive it per connector, and never call it from a holder's `of()`. Such a property must also get a row in the key table of `PluginDrivenExternalCatalog#driverUrlKeysOf` (one table drives both the gate trigger set and the checked values), which is how the operator's `jdbc_driver_secure_path` / `jdbc_driver_url_white_list` policy reaches the ALTER CATALOG path — ALTER never runs `Connector.preCreateValidation`, where CREATE applies that policy, so a key missing from that table lets an ALTER repoint the jar past the operator's configuration.
+
+Separately, any new outbound HTTP request the FE or BE issues to a host named by a non-SUPER user is an SSRF surface. Call it out explicitly in the PR description together with the privilege required to reach it.
+
+## Thrift and Protobuf Field Ids
+
+Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade compatible (branch-3.1 → 4.0 → 4.1 → 4.2 → master): a field id or enum value means the same thing on every branch, an id is never reused, and a new field is optional. The rule and how to review against it are in `gensrc/AGENTS.md`; read it before touching those directories.
+
 ## When running in a WORKTREE directory
 
-To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly. Also check if submodules have been properly initialized; if not, do so manually.
+To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly.
+
+Submodules are not part of the default worktree setup. If the task does not compile Doris or run tests that require submodules, leave all submodules uninitialized. Build and test entry points initialize the submodule paths they require. Only initialize a submodule manually when the task actually needs it and an entry point does not handle it; initialize the exact required path instead of running an unscoped recursive update for every submodule.
 
 When working in worktree mode, all operations must be confined to the current worktree directory. Do not enter `${DORIS_REPO}` or use any resources there. Compilation and execution must be done within the current worktree directory. The compiled Doris cluster must use random ports not used by other worktrees (modify BE and FE conf before compilation, using a uniform offset of `${DORIS_PORT_OFFSET_RANGE}` from default ports without conflicting with other worktrees' ports). Run from the `output` directory within the worktree. To run regression tests, modify `regression-test/conf/regression-conf.groovy` and set the port numbers in `jdbcUrl` and other configuration items to your new ports so the corresponding worktree cluster can be used for regression testing.
 
 ## Coding Standards
 
 Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (if inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if (A && B)` and instead use `if (A) { DORIS_CHECK(B); ... }`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
+
+For `PaddedPODArray` and its peripheral packaging types, such as some certain Column, negative alignment allows the use of -1 as a valid index. No additional special handling is needed when the index may be -1.
 
 When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, and locking patterns. When adding any code, first try to reference existing functionality. Second, examine the relevant context paragraphs to fully understand the logic.
 
@@ -24,6 +48,8 @@ All code must pass style checks before committing. Use the corresponding skill f
 
 **BE (C++) Static Analysis**: After building BE (which generates `compile_commands.json`), run `build-support/run-clang-tidy.sh` to check modified C++ files against the `.clang-tidy` config. The script parses `git diff` to filter warnings to changed lines where possible, reducing noise from pre-existing code (diagnostics from included headers may still appear). For Cloud C++ files, pass `--build-dir` pointing to the Cloud compilation database (e.g., `cloud/build_ASAN`). Try to fix all reported warnings; if a warning cannot be reasonably fixed, add a `// NOLINT` comment with justification and report it. See the `clang-tidy-check` skill for details.
 
+**BE (C++) Header Hygiene**: BE configure enforces compile-time hygiene gates (header layering rules, include-closure/reach budgets, pch whitelist, extern-template pairing, unity-skip coverage) via `build-support/check-build-hygiene.sh` (~1s, pure text). Run it directly after touching BE headers, includes, template instantiation lists, or unity skip lists — do not wait for CI. Violations are build errors whose messages carry the mechanism and fix; deliberate budget/whitelist changes are one-line table edits in the same commit with justification. Rules and review checkpoints: `be/AGENTS.md`; mechanics: `be/README.md`.
+
 **FE (Java) Style**: Checkstyle is integrated into the Maven build (`maven-checkstyle-plugin`). Running `build.sh --fe` automatically validates style via `mvn validate`. If checkstyle fails, fix the reported issues according to `fe/check/checkstyle/checkstyle.xml`. See the `fe-code-style` skill for details.
 
 ## Code Review
@@ -35,7 +61,7 @@ When conducting code review (including self-review and review tasks), complete t
 Always use only the `build.sh` script with its correct parameters to build Doris BE and FE. For example, the simplest BE+FE build command is `./build.sh --be --fe`.
 Build type can be set via `BUILD_TYPE` in `custom_env.sh`, but only set it to `RELEASE` when explicitly required for performance testing; otherwise, keep it as `ASAN`.
 You may modify BE and FE ports and network settings in `conf/` before compilation to ensure correctness and avoid conflicts.
-Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
+Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and the correct `priority_networks` that match the current network environment, for example `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
 For first-time cluster startup, you may need to manually add the backend.
 
 ## Testing Standards
@@ -47,11 +73,13 @@ You must use the preset scripts in the codebase with their correct parameters to
 Key utility functions in BE code, as well as the core logic of complete features, must have corresponding unit tests. If it is inconvenient to add unit tests, revisit the module design and function decomposition to ensure high cohesion and low coupling.
 
 Added regression tests must comply with the following standards:
+
 1. Use `order_qt` prefix or manually add `order by` to ensure ordered results
 2. For cases expected to error, use the `test{sql,exception}` pattern
 3. After completing tests, do not drop tables; instead drop tables before using them in tests, to preserve the environment for debugging
 4. For ordinary single test tables, do not use `def tableName` form; instead hardcode your table name in all SQL
 5. Except for variables you explicitly need to adjust for testing current functionality, other variables do not need extra setup before testing. For example, nereids optimizer and pipeline engine settings can use default states
+6. For determined expected results, do not using methods like `assert` in test groovy files, but instead generate the `.out` file using `qt_sql` and similar methods.
 
 ## Commit Standards
 
@@ -83,10 +111,12 @@ Problem Summary: <Describe the problem this commit addresses>
 ```
 
 Key rules for commit messages:
+
 1. The title must follow the `[type](module)` format validated by the PR title checker (`.github/workflows/title-checker.yml`). Common types include: `fix`, `feature`, `improvement`, `refactor`, `chore`, `test`, `doc`. Common modules include: `fe`, `be`, `cloud`, `regression`, `build`
 2. The short summary must be concise and written in imperative mood (e.g., `[fix](fe) Fix null pointer in scan node` not `[fix](fe) Fixed null pointer`)
 3. The `Issue Number` field must reference the corresponding GitHub Issue with `close #xxx` syntax when applicable
 4. The `Release note` section must be filled in for any user-visible behavior or feature change; write "None" for internal refactoring or test-only changes
-5. The test section must honestly reflect the testing performed; do not claim tests that were not actually run
+5. The `Problem Summary` section should cover the following content when available: problem reproduction method, root cause in code, end-to-end results/phenomena before and after repair, and the fix. If it's a refactoring, explain the reason. If it's a performance improvement, specify the case and the exact improvement amount. DO NOT mention any specific JIRA numbers. The background of the problem should be fully understandable through this section alone.
+6. The test section must honestly reflect the testing performed; do not claim tests that were not actually run
 
 Files in a git commit should only be related to the current modification task. Environment modifications for running (for example `conf/`, `AGENTS.md`, `hooks/`) must not be `git add`ed. When delivering the final task, ensure all actual code modifications have been committed.

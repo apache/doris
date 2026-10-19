@@ -103,6 +103,12 @@ public abstract class Tablet {
 
     @SerializedName(value = "id")
     protected long id;
+    // Set only on a row binlog tablet. It points to the corresponding base tablet.
+    @SerializedName(value = "rbbti")
+    protected Long rowBinlogBaseTabletId;
+    // Set only on a base tablet. It points to the corresponding row binlog tablet.
+    @SerializedName(value = "rbti")
+    protected Long rowBinlogTabletId;
 
     public Tablet() {
         this(0L);
@@ -114,6 +120,30 @@ public abstract class Tablet {
 
     public long getId() {
         return this.id;
+    }
+
+    public long getRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId;
+    }
+
+    public boolean hasRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId != null;
+    }
+
+    public void setRowBinlogBaseTabletId(long rowBinlogBaseTabletId) {
+        this.rowBinlogBaseTabletId = rowBinlogBaseTabletId;
+    }
+
+    public long getRowBinlogTabletId() {
+        return rowBinlogTabletId;
+    }
+
+    public boolean hasRowBinlogTabletId() {
+        return rowBinlogTabletId != null;
+    }
+
+    public void setRowBinlogTabletId(long rowBinlogTabletId) {
+        this.rowBinlogTabletId = rowBinlogTabletId;
     }
 
     public long getCheckedVersion() {
@@ -192,6 +222,10 @@ public abstract class Tablet {
                 continue;
             }
 
+            if (replica.isBinlogMissing()) {
+                continue;
+            }
+
             ReplicaState state = replica.getState();
             if (state.canLoad()
                     || (state == ReplicaState.DECOMMISSION
@@ -215,6 +249,11 @@ public abstract class Tablet {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowMissingVersion) {
+        return getQueryableReplicas(visibleVersion, backendAlivePathHashs, allowMissingVersion, true);
+    }
+
+    public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
+            boolean allowMissingVersion, boolean skipCompactionSlowerReplica) {
         List<Replica> replicas = getReplicas();
         int replicaNum = replicas.size();
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicaNum);
@@ -278,7 +317,8 @@ public abstract class Tablet {
             allQueryableReplica = userDropReplica;
         }
 
-        if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
+        if (skipCompactionSlowerReplica
+                && Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
             long minVersionCount = Long.MAX_VALUE;
             for (Replica replica : allQueryableReplica) {
                 long visibleVersionCount = replica.getVisibleVersionCount();
@@ -341,16 +381,6 @@ public abstract class Tablet {
 
     public long getRemoteDataSize() {
         return 0;
-    }
-
-    public long getBinlogDataSize() {
-        long binlogDataSize = 0;
-        for (Replica replica : getReplicas()) {
-            if (replica.getState() == ReplicaState.NORMAL) {
-                binlogDataSize += replica.getBinlogSize();
-            }
-        }
-        return binlogDataSize;
     }
 
     public abstract long getRowCount(boolean singleReplica);

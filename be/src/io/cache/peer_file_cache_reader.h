@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <butil/iobuf.h>
+
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/file_block.h"
@@ -27,13 +30,28 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
-#include "util/slice.h"
 
 namespace doris {
 class RuntimeProfile;
 
 namespace io {
 struct IOContext;
+
+struct PeerFetchChunk {
+    size_t block_index = 0;
+    size_t block_offset = 0;
+    butil::IOBuf payload;
+};
+
+struct PeerFetchResult {
+    std::vector<PeerFetchChunk> chunks;
+    size_t bytes_read = 0;
+
+    void clear() {
+        chunks.clear();
+        bytes_read = 0;
+    }
+};
 
 class PeerFileCacheReader final {
 public:
@@ -49,28 +67,28 @@ public:
     PeerFileCacheReader(const io::Path& file_path, bool is_doris_table, std::string host, int port);
     ~PeerFileCacheReader();
     /**
-     * Fetch data blocks from a peer and write them into the provided buffer.
+     * Fetch data blocks from a peer into a PeerFetchResult.
      *
      * Behavior:
      * - Supports only Doris table segment files (is_doris_table=true); otherwise returns NotSupported.
      * - Builds a BRPC request to invoke peer fetch_peer_data using the given blocks.
-     * - Copies returned block data into the contiguous buffer Slice s, using 'off' as the base offset.
-     * - Succeeds only if exactly s.size bytes are written; otherwise returns an Incomplete error.
+     * - Advertises attachment support and accepts either protobuf payload mode or attachment mode.
+     * - Populates result with sparse PeerFetchChunk entries matching the requested block ranges.
+     * - Succeeds only if the peer response exactly covers all requested block ranges.
      *
      * Params:
      * - blocks: List of file blocks to fetch (global file offsets, inclusive ranges).
-     * - off: Base file offset corresponding to the start of Slice s.
-     * - s: Destination buffer; must be large enough to hold all requested block bytes.
-     * - bytes_read: Output number of bytes read.
+     * - result: Output structure holding sparse chunks and total bytes_read.
      * - file_size: Size of the file to be read.
      * - ctx: IO context (kept for interface symmetry).
      *
      * Returns:
-     * - OK: Successfully wrote exactly s.size bytes into the buffer.
+     * - OK: Successfully populated all requested block bytes into the result.
      * - NotSupported: The file is not a Doris table segment.
      */
-    Status fetch_blocks(const std::vector<FileBlockSPtr>& blocks, size_t off, Slice s,
-                        size_t* bytes_read, size_t file_size, const IOContext* ctx);
+    Status fetch_blocks(const std::vector<FileBlockSPtr>& blocks, PeerFetchResult* result,
+                        size_t file_size, const IOContext* ctx, bool request_fill = false,
+                        int64_t tablet_id = 0, std::string resource_id = {});
 
 private:
     io::Path _path;

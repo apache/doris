@@ -66,20 +66,31 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
+        // Pre-advance one batch so the first task has splits to consume
+        streamingInsertJob.advanceSplitsIfNeed();
+        if (streamingInsertJob.getJobStatus() == JobStatus.PAUSED) {
+            // advanceSplits failed and paused the job; skip task dispatch this tick.
+            return;
+        }
         if (streamingInsertJob.hasReachedEnd()) {
             // Source already fully consumed (e.g. snapshot-only mode recovered after FE restart).
-            // Transition directly to FINISHED without creating a new task.
-            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
+            streamingInsertJob.tryFinishJob();
             return;
         }
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
-        streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
+        // The task is already visible to StreamingTaskScheduler, which pauses the job when it fails
+        // to schedule it. Only claim RUNNING while the job is still PENDING, so that PAUSED survives.
+        if (!streamingInsertJob.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING)) {
+            log.info("streaming job {} left PENDING while its task was dispatched, keep status {}",
+                    streamingInsertJob.getJobId(), streamingInsertJob.getJobStatus());
+        }
     }
 
     private void handleRunningState() throws JobException {
         streamingInsertJob.processTimeoutTasks();
         streamingInsertJob.fetchMeta();
+        streamingInsertJob.advanceSplitsIfNeed();
     }
 
     private void autoResumeHandler() throws JobException {
@@ -100,7 +111,8 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             streamingInsertJob.setFailureReason(new FailureReason(
                     InternalErrorCode.CANNOT_RESUME_ERR,
                     "Auto resume failed after " + autoResumeCount
-                            + " attempts. Last error: " + failureReason.getMsg()));
+                            + " attempts. Last error: " + failureReason.getMsg()
+                            + ". Run RESUME JOB to retry."));
             return;
         }
 

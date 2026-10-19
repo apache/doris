@@ -1,51 +1,166 @@
-From 0c18bd91955f6ad48582c01901ffadd4ad5a149c Mon Sep 17 00:00:00 2001
+From c155d4c6a000da7ae9a8e66dc7cfada8bf2bfc8a Mon Sep 17 00:00:00 2001
 From: BiteTheDDDDt <xl@selectdb.com>
 Date: Tue, 15 Jul 2025 12:57:25 +0800
-Subject: [PATCH 1/2] resolve missing uint8_t define
+Subject: [PATCH 1/3] resolve missing uint8_t define
 
 ---
  .../azure-security-attestation/src/private/crypto/inc/crypto.hpp | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp b/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
-index 9a98f204..8f338436 100644
+index 9a98f20..8f33843 100644
 --- a/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
 +++ b/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
 @@ -2,6 +2,7 @@
  // Licensed under the MIT License.
-
+ 
  #pragma once
 +#include <cstdint>
  #include <ctime>
  #include <memory>
  #include <string>
---
-2.43.5
+-- 
+2.50.1 (Apple Git-155)
 
-From 0c18bd91955f6ad48582c01901ffadd4ad5a149d Mon Sep 17 00:00:00 2001
-From: Claude <noreply@anthropic.com>
-Date: Wed, 29 Jan 2026 16:00:00 +0800
-Subject: [PATCH 2/2] fix clang link error: always link libdl for openssl
 
-libcrypto.a requires dlopen/dlsym/dlclose/dlerror from libdl.
-With clang, find_library may not find libdl, but -ldl is still needed.
+From 5f30d39de70fadcd1963a2c37fb64cc18068ea0a Mon Sep 17 00:00:00 2001
+From: Doris Thirdparty <dev@doris.apache.org>
+Date: Thu, 29 Jan 2026 16:00:00 +0800
+Subject: [PATCH 2/3] link libdl for openssl on platforms that have it
+
+libcrypto.a requires dlopen/dlsym/dlclose/dlerror from libdl. With clang,
+find_library may not find libdl, but -ldl is still needed. Apple has no libdl
+at all - those symbols live in libSystem - so -ldl must not be added there.
 ---
- vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
+ vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in b/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
-index 1234567..abcdefg 100644
+index 4a5ee89..4211066 100644
 --- a/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
 +++ b/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
-@@ -53,7 +53,8 @@ if(OPENSSL_FOUND AND "@VCPKG_LIBRARY_LINKAGE@" STREQUAL "static")
+@@ -53,7 +53,13 @@ if(OPENSSL_FOUND AND "@VCPKG_LIBRARY_LINKAGE@" STREQUAL "static")
              set_property(TARGET OpenSSL::SSL APPEND PROPERTY INTERFACE_LINK_LIBRARIES "crypt32;ws2_32")
          endif()
      else()
 -        find_library(OPENSSL_DL_LIBRARY NAMES dl)
-+        # Always link dl for clang compatibility
-+        set(OPENSSL_DL_LIBRARY "dl")
++        # Always link dl for clang compatibility. Apple has no libdl at all - dlopen
++        # and friends live in libSystem - so -ldl fails the link there.
++        if(APPLE)
++            set(OPENSSL_DL_LIBRARY "")
++        else()
++            set(OPENSSL_DL_LIBRARY "dl")
++        endif()
          if(OPENSSL_DL_LIBRARY)
              list(APPEND OPENSSL_LIBRARIES "dl")
              if(TARGET OpenSSL::Crypto)
---
-2.43.5
+-- 
+2.50.1 (Apple Git-155)
+
+
+From 3318809e01a27b20a253dad916d48edc8c25b467 Mon Sep 17 00:00:00 2001
+From: Doris Thirdparty <dev@doris.apache.org>
+Date: Mon, 17 Aug 2026 12:00:00 +0800
+Subject: [PATCH 3/3] build only the parts of the SDK that Doris links
+
+Doris links azure-core, azure-identity, azure-storage-common and
+azure-storage-blobs. Everything else the SDK builds by default is dead weight,
+and the opentelemetry-cpp dependency in vcpkg.json drags in protobuf, abseil
+and utf8-range, which dominate the build: 19 of the 26 minutes this package
+took in the apache/doris-thirdparty x86_64 build were spent on that closure.
+---
+ CMakeLists.txt             | 19 ++++++++-----------
+ sdk/storage/CMakeLists.txt |  5 ++---
+ vcpkg.json                 | 18 ------------------
+ 3 files changed, 10 insertions(+), 32 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 433f22d..993fb4f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -8,8 +8,12 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules")
+ 
+ # Disable Rust based APIs in C++ SDK.
+ set(DISABLE_RUST_IN_BUILD OFF CACHE BOOL "Disable Rust based APIs in package")
+-set(DISABLE_AMQP OFF CACHE BOOL "Disable AMQP based functionality")
+-set(DISABLE_AZURE_CORE_OPENTELEMETRY OFF CACHE BOOL "Disable OpenTelemetry based functionality")
++# Doris consumes azure-core, azure-identity and azure-storage-blobs only. AMQP and the
++# OpenTelemetry tracing adapter are off by default here so that vcpkg.json can drop
++# opentelemetry-cpp, uAMQP and their dependency closure (protobuf, abseil, utf8-range),
++# which is by far the most expensive part of this build.
++set(DISABLE_AMQP ON CACHE BOOL "Disable AMQP based functionality")
++set(DISABLE_AZURE_CORE_OPENTELEMETRY ON CACHE BOOL "Disable OpenTelemetry based functionality")
+ 
+ # The Rust OpenSSL library conflicts with the vcpkg based OpenSSL library, which causes TLS operations to fail on Linux.
+ # For now, disabling rust functionality on Linux operating systems.
+@@ -177,18 +181,11 @@ if(BUILD_SAMPLES)
+ endif()
+ 
+ # sub-projects
++# Only the ones Doris links: appconfiguration, attestation, eventhubs, keyvault,
++# tables and template are not built.
+ add_subdirectory(sdk/core)
+-add_subdirectory(sdk/appconfiguration)
+-add_subdirectory(sdk/attestation)
+-# AMQP doesn't work for UWP yet, and eventhubs depends on AMQP, so we cannot include eventhubs on UWP.
+-if (NOT DISABLE_AMQP)
+-    add_subdirectory(sdk/eventhubs)
+-endif()
+ add_subdirectory(sdk/identity)
+-add_subdirectory(sdk/keyvault)
+ add_subdirectory(sdk/storage)
+-add_subdirectory(sdk/template)
+-add_subdirectory(sdk/tables)
+ 
+ if(BUILD_SAMPLES)
+   add_subdirectory(samples/integration/vcpkg-all-smoke)
+diff --git a/sdk/storage/CMakeLists.txt b/sdk/storage/CMakeLists.txt
+index 55bc5d0..f199564 100644
+--- a/sdk/storage/CMakeLists.txt
++++ b/sdk/storage/CMakeLists.txt
+@@ -5,8 +5,7 @@ cmake_minimum_required (VERSION 3.13)
+ 
+ project (azure-storage LANGUAGES CXX)
+ 
++# Doris links azure-storage-common and azure-storage-blobs only; datalake, file
++# shares and queues are not built.
+ add_subdirectory(azure-storage-common)
+ add_subdirectory(azure-storage-blobs)
+-add_subdirectory(azure-storage-files-datalake)
+-add_subdirectory(azure-storage-files-shares)
+-add_subdirectory(azure-storage-queues)
+diff --git a/vcpkg.json b/vcpkg.json
+index 23e6f7c..c697e03 100644
+--- a/vcpkg.json
++++ b/vcpkg.json
+@@ -14,27 +14,9 @@
+     {
+       "name": "openssl"
+     },
+-    {
+-      "name": "opentelemetry-cpp",
+-      "features": ["otlp-http"],
+-      "platform": "!(windows & !static)",
+-      "version>=": "1.3.0"
+-    },
+     {
+       "name": "wil",
+       "platform": "windows"
+-    },
+-    {
+-      "name": "azure-c-shared-utility",
+-      "platform": "!uwp"
+-    },
+-    {
+-      "name": "azure-macro-utils-c",
+-      "platform": "!uwp"
+-    },
+-    {
+-      "name": "umock-c",
+-      "platform": "!uwp"
+     }
+   ],
+   "overrides": [
+-- 
+2.50.1 (Apple Git-155)
+

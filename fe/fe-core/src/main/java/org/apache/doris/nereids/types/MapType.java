@@ -64,6 +64,21 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // BE bypasses the MAP cast kernel for an exact type match. Every non-identity MAP cast,
+        // however, runs ColumnMap::deduplicate_keys() after converting its children. Two distinct
+        // source maps that differ only by duplicate entries can consequently produce the same
+        // result even when both child conversions are injective. Also check the children for an
+        // exact match so conservative leaf policies, such as deprecated DECIMALV2, are preserved.
+        if (equals(target)) {
+            MapType mapType = (MapType) target;
+            return keyType.isInjectiveCastTo(mapType.keyType)
+                    && valueType.isInjectiveCastTo(mapType.valueType);
+        }
+        return false;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return new org.apache.doris.catalog.MapType(keyType.toCatalogDataType(), valueType.toCatalogDataType());
     }

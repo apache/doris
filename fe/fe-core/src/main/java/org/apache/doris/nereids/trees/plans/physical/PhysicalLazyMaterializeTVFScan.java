@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -54,9 +54,13 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {
-            output = ImmutableList.<Slot>builder()
-                    .addAll(scan.getOperativeSlots())
-                    .add(rowId).build();
+            ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
+            for (Slot slot : scan.getOutput()) {
+                if (!lazySlots.contains(slot)) {
+                    outputBuilder.add(slot);
+                }
+            }
+            output = outputBuilder.add(rowId).build();
         }
         return output;
     }
@@ -81,7 +85,7 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalTVFRelation(this, context);
+        return visitor.visitPhysicalLazyMaterializeTVFScan(this, context);
     }
 
     @Override

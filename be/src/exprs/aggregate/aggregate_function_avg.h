@@ -29,6 +29,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_fixed_length_object.h"
@@ -50,6 +51,21 @@ template <PrimitiveType T>
 class DataTypeNumber;
 template <PrimitiveType T>
 class ColumnVector;
+
+// avg() adds up the values in this type and divides only at the end, so integers keep all digits.
+constexpr PrimitiveType avg_sum_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else if (is_decimalv3(T) && T != TYPE_DECIMAL256) {
+        return TYPE_DECIMAL128I;
+    } else {
+        return T;
+    }
+}
 
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
@@ -167,9 +183,7 @@ public:
     template <bool is_add>
     NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
                                             const IColumn** columns, ssize_t row_num) const {
-#ifdef __clang__
-#pragma clang fp reassociate(on)
-#endif
+        ALLOW_FP_REASSOCIATION
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (is_add) {
@@ -225,7 +239,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
         if constexpr (is_decimal(T)) {
             column.get_data().push_back(this->data(place).template result<ResultType>(multiplier));
         } else {
@@ -259,9 +273,18 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        this->data(place) = data[row];
+    }
+
     NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
             AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
             Arena&) const override {
+        ALLOW_FP_REASSOCIATION
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
@@ -271,6 +294,8 @@ public:
             this->data(place).count += data[i].count;
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
@@ -305,7 +330,10 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
-    bool supported_incremental_mode() const override { return true; }
+    // Floating-point accumulation is not exactly invertible: subtracting an outgoing
+    // value cannot restore the rounding lost when it was added, so a value that has
+    // left the frame would still distort later results. Recompute such frames instead.
+    bool supported_incremental_mode() const override { return !std::is_floating_point_v<DataType>; }
 
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,

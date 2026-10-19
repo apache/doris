@@ -20,6 +20,7 @@ package org.apache.doris.job.common;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -41,11 +42,27 @@ public class FailureReason implements Writable {
 
     public FailureReason(String msg) {
         this.msg = msg;
-        if (StringUtils.isNotEmpty(msg) && isTooManyFailureRowsErr(msg)) {
+        if (StringUtils.isEmpty(msg)) {
+            this.code = InternalErrorCode.INTERNAL_ERR;
+        } else if (isUnsupportedSchemaChange()) {
+            // Unsupported schema changes require manual intervention before resuming.
+            this.code = InternalErrorCode.CANNOT_RESUME_ERR;
+        } else if (isReplicationSlotInvalidatedErr(msg)) {
+            // A lost/recreated replication slot cannot be resumed without data loss; stop auto-resume.
+            this.code = InternalErrorCode.CANNOT_RESUME_ERR;
+        } else if (isTooManyFailureRowsErr(msg)) {
             this.code = InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR;
         } else {
             this.code = InternalErrorCode.INTERNAL_ERR;
         }
+    }
+
+    public boolean isUnsupportedSchemaChange() {
+        return StringUtils.contains(msg, TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED);
+    }
+
+    private static boolean isReplicationSlotInvalidatedErr(String msg) {
+        return msg.contains("Replication slot invalidated");
     }
 
     private static boolean isTooManyFailureRowsErr(String msg) {

@@ -65,7 +65,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_cumu_compaction_delay_fault_injection," + // force 3 replica cause fail
     "test_full_compaction_run_status," + // unstable
     "test_routine_load_timeout_value," + // to be fix
-    "test_decimalv2_common," + // to be fix
     "test_insert_error_url," + // cause stop grace fail
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
@@ -77,7 +76,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_github_events_new_p2," +
     "hdfs_vault_p2," +
     "query_p0/hbo," +
-    "cloud_p0/multi_cluster," +
+    "cloud_p0," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // for test csv with header
@@ -123,6 +122,7 @@ kafka_port=19193
 
 // iceberg test config
 iceberg_rest_uri_port=18181
+iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182

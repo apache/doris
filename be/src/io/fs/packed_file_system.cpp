@@ -17,9 +17,11 @@
 
 #include "io/fs/packed_file_system.h"
 
+#include <string>
 #include <string_view>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/packed_file_reader.h"
@@ -39,7 +41,8 @@ namespace {
 // Multi-segment rowsets usually come from large loads or memory-pressure flushes,
 // and continuing to buffer later segments in packed files can amplify memory usage.
 // Non-rowset file names keep the legacy behavior to avoid changing unrelated callers.
-bool should_use_packed_writer(std::string_view file_name) {
+bool should_use_packed_writer(std::string_view file_name, int64_t first_segment_id) {
+    DORIS_CHECK_GE(first_segment_id, 0);
     constexpr std::string_view kSegmentSuffix = ".dat";
     constexpr std::string_view kIndexSuffix = ".idx";
 
@@ -58,7 +61,7 @@ bool should_use_packed_writer(std::string_view file_name) {
         return true;
     }
 
-    return file_name.substr(pos + 1) == "0";
+    return file_name.substr(pos + 1) == std::to_string(first_segment_id);
 }
 
 } // namespace
@@ -91,13 +94,18 @@ Status PackedFileSystem::create_file_impl(const Path& file, FileWriterPtr* write
     FileWriterPtr inner_writer;
     RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));
 
-    if (!should_use_packed_writer(file.filename().native())) {
+    if (!should_use_packed_writer(file.filename().native(), _append_info.first_segment_id)) {
         *writer = std::move(inner_writer);
         return Status::OK();
     }
 
+    auto append_info = _append_info;
+    if (config::enable_file_cache_write_index_file_only && opts != nullptr) {
+        append_info.write_file_cache = opts->write_file_cache;
+    }
+
     // Wrap with PackedFileWriter
-    *writer = std::make_unique<PackedFileWriter>(std::move(inner_writer), file, _append_info);
+    *writer = std::make_unique<PackedFileWriter>(std::move(inner_writer), file, append_info);
     return Status::OK();
 }
 
@@ -106,11 +114,19 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
     // Check if this file is in a packed file
     std::string file_path = file.native();
     auto it = _index_map.find(file_path);
-    bool is_packed_file = (it != _index_map.end());
+    PackedSliceLocation manager_location;
+    const PackedSliceLocation* packed_location = nullptr;
+    if (it != _index_map.end()) {
+        packed_location = &it->second;
+    } else if (PackedFileManager::instance()
+                       ->get_packed_slice_location(file_path, &manager_location)
+                       .ok()) {
+        packed_location = &manager_location;
+    }
 
-    if (is_packed_file) {
+    if (packed_location != nullptr) {
         // File is in packed file, open packed file and wrap with PackedFileReader
-        const auto& index = it->second;
+        const auto& index = *packed_location;
         FileReaderSPtr inner_reader;
 
         // Create options for opening the packed file

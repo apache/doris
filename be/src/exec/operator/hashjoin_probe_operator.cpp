@@ -25,9 +25,13 @@
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/join_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
+#include "util/uid_util.h"
 
 namespace doris {
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -40,6 +44,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_init_timer);
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -166,7 +171,8 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.type = remove_nullable(column_type.type);
     }
     _key_columns_holder.clear();
-    _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
+    _probe_block.clear_column_data(
+            _parent->get_child()->operator_row_desc_after_projection().num_slots());
 }
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -226,13 +232,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &local_state._probe_block, false));
-        local_state._probe_block.clear_column_data(_child->row_desc().num_materialized_slots());
+        local_state._probe_block.clear_column_data(
+                _child->operator_row_desc_after_projection().num_slots());
         return Status::OK();
     }
 
     local_state._join_block.clear_column_data();
 
-    MutableBlock mutable_join_block(&local_state._join_block);
+    ScopedMutableBlock scoped_mutable_join_block(&local_state._join_block);
+    auto& mutable_join_block = scoped_mutable_join_block.mutable_block();
     Block temp_block;
 
     Status st;
@@ -313,8 +321,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
             state, output_block, eos, &temp_block,
             !local_state._shared_state->left_semi_direct_return));
     // Here make _join_block release the columns' ptr
+    scoped_mutable_join_block.restore();
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
-    mutable_join_block.clear();
     return Status::OK();
 }
 
@@ -348,15 +356,21 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() &&
-            _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        const auto* column = column_ptr.get();
+        const bool serialize_null_into_key =
+                _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i];
+        // _do_evaluate() must have materialized Const(Nullable) probe keys. If this check fails,
+        // is_nullable() no longer implies a physical ColumnNullable for the logic below.
+        const auto* const_column = check_and_get_column<ColumnConst>(*column);
+        DORIS_CHECK(const_column == nullptr ||
+                    !is_column_nullable(const_column->get_data_column()));
+        if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
-                   nullable &&
-                   !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+                   nullable && !serialize_null_into_key) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
@@ -419,7 +433,9 @@ Status HashJoinProbeOperatorX::_do_evaluate(Block& block, VExprContextSPtrs& exp
             RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
         }
 
-        // TODO: opt the column is const
+        // _extract_join_column() handles physical ColumnNullable only, so probe-key const
+        // columns, including Const(Nullable), must be materialized before probing.
+        // TODO: if const-key optimization is added, update _extract_join_column() together.
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
@@ -544,50 +560,52 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
-    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags,
-                                       bool init_finalize_flag = false) {
+    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
-                if (init_finalize_flag && output_slot_flags.back() &&
-                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-                    _need_finalize_variant_column = true;
-                }
             }
         }
     };
-    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags, true);
-    init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
-                            _right_output_slot_flags);
+    init_output_slots_flags(_child->operator_row_desc_after_projection().tuple_descriptors(),
+                            _left_output_slot_flags);
+    init_output_slots_flags(
+            _build_side_child->operator_row_desc_after_projection().tuple_descriptors(),
+            _right_output_slot_flags);
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_probe_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     // Prepare ASOF probe-side expression against probe child's row_desc directly.
     if (is_asof_join(_join_op)) {
         DORIS_CHECK(_asof_probe_expr);
-        RETURN_IF_ERROR(_asof_probe_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(
+                _asof_probe_expr->prepare(state, _child->operator_row_desc_after_projection()));
         RETURN_IF_ERROR(_asof_probe_expr->open(state));
     }
 
     DCHECK(_build_side_child != nullptr);
     // right table data types
-    _right_table_data_types = VectorizedUtils::get_data_types(_build_side_child->row_desc());
-    _left_table_data_types = VectorizedUtils::get_data_types(_child->row_desc());
-    _right_table_column_names = VectorizedUtils::get_column_names(_build_side_child->row_desc());
+    _right_table_data_types = VectorizedUtils::get_data_types(
+            _build_side_child->operator_row_desc_after_projection());
+    _left_table_data_types =
+            VectorizedUtils::get_data_types(_child->operator_row_desc_after_projection());
+    _right_table_column_names = VectorizedUtils::get_column_names(
+            _build_side_child->operator_row_desc_after_projection());
 
     std::vector<const SlotDescriptor*> slots_to_check;
-    for (const auto& tuple_descriptor : _intermediate_row_desc->tuple_descriptors()) {
+    for (const auto& tuple_descriptor : join_row_desc().tuple_descriptors()) {
         for (const auto& slot : tuple_descriptor->slots()) {
             slots_to_check.emplace_back(slot);
         }
@@ -596,7 +614,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     if (_is_mark_join) {
         const auto* last_one = slots_to_check.back();
         slots_to_check.pop_back();
-        auto data_type = last_one->get_data_type_ptr();
+        auto data_type = last_one->type();
         if (!data_type->is_nullable()) {
             return Status::InternalError(
                     "The last column for mark join should be Nullable(UInt8), not {}",
@@ -618,7 +636,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
 
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
-        auto data_type = slot->get_data_type_ptr();
+        auto data_type = slot->type();
         const auto slot_on_left = idx < _right_col_idx;
 
         if (slot_on_left) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -28,10 +29,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,6 +52,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         // TODO: complex order by
                         .when(topn ->
                                 ConnectContext.get() != null
+                                        && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                         && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                         >= topn.getLimit() + topn.getOffset())
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
@@ -70,6 +74,13 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the TopN below the join cannot reduce anything;
+                            // skip the rewrite. (The direct branch is gated the same way via
+                            // topn_opt_limit_threshold.)
+                            if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> distinct = topN.child();
                             LogicalProject<LogicalJoin<Plan, Plan>> project = distinct.child();
                             LogicalJoin<Plan, Plan> join = project.child();
@@ -95,6 +106,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     }
 
     private Plan pushTopNThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join) {
+        long childLimit = topN.getLimit() + topN.getOffset();
         Set<Slot> groupBySlots = ((LogicalAggregate<?>) topN.child()).getGroupByExpressions().stream()
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toSet());
         switch (join.getJoinType()) {
@@ -104,10 +116,10 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.left().getOutputSet(), topN.getOrderKeys());
+                        join.left(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> left = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
+                            childLimit, 0, pushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                     return join.withChildren(left, join.right());
                 }
@@ -119,10 +131,10 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.right().getOutputSet(), topN.getOrderKeys());
+                        join.right(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> right = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
+                            childLimit, 0, pushedOrderKeys,
                             PlanUtils.distinct(join.right()));
                     return join.withChildren(join.left(), right);
                 }
@@ -132,17 +144,17 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 Plan leftChild = join.left();
                 Plan rightChild = join.right();
                 List<OrderKey> leftPushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.left().getOutputSet(), topN.getOrderKeys());
+                        join.left(), topN.getOrderKeys());
                 if (!(join.left() instanceof TopN) && !leftPushedOrderKeys.isEmpty()) {
                     leftChild = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, leftPushedOrderKeys,
+                            childLimit, 0, leftPushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                 }
                 List<OrderKey> rightPushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.right().getOutputSet(), topN.getOrderKeys());
+                        join.right(), topN.getOrderKeys());
                 if (!(join.right() instanceof TopN) && !rightPushedOrderKeys.isEmpty()) {
                     rightChild = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, rightPushedOrderKeys,
+                            childLimit, 0, rightPushedOrderKeys,
                             PlanUtils.distinct(join.right()));
                 }
                 if (leftChild == join.left() && rightChild == join.right()) {
@@ -160,8 +172,9 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     /**
      * return pushed order-keys. If top-n distinct cannot be pushed, return empty list.
      */
-    private List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Set<Slot> joinChildSlot,
+    private List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Plan joinChild,
             List<OrderKey> orderKeys) {
+        Set<Slot> joinChildSlot = joinChild.getOutputSet();
         // NOTICE: Currently, we have implemented strict restrictions to ensure that the distinct columns is
         //   a superset of the output from the corresponding child of the join operator. In the future, we can relax
         //   this restriction and only require that there is overlap between the output of the corresponding child of
@@ -187,6 +200,33 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 notFound = true;
             }
         }
-        return pushedOrderKeys.build();
+        List<OrderKey> pushedOrderKeyList = pushedOrderKeys.build();
+        if (pushedOrderKeyList.size() == orderKeys.size()
+                || isOrderKeyPrefixUniqueAfterDistinct(joinChild, pushedOrderKeyList)) {
+            return pushedOrderKeyList;
+        }
+        return ImmutableList.of();
+    }
+
+    /**
+     * A partial order-key prefix is safe for a hard limit only when it uniquely orders the rows produced by
+     * {@link PlanUtils#distinct(Plan)}. This is true when a leading part of the prefix either is already a
+     * non-null unique key, covers every child output, or functionally determines every remaining child output.
+     */
+    private boolean isOrderKeyPrefixUniqueAfterDistinct(Plan joinChild, List<OrderKey> orderKeyPrefix) {
+        if (orderKeyPrefix.isEmpty()) {
+            return false;
+        }
+        Set<Slot> childOutput = joinChild.getOutputSet();
+        Set<Slot> prefixSlots = new HashSet<>();
+        for (OrderKey orderKey : orderKeyPrefix) {
+            prefixSlots.add((Slot) orderKey.getExpr());
+        }
+        if (prefixSlots.containsAll(childOutput)) {
+            return true;
+        }
+        DataTrait childTrait = joinChild.getLogicalProperties().getTrait();
+        return childTrait.isUniqueAndNotNull(prefixSlots)
+                || childTrait.isDependent(prefixSlots, childOutput);
     }
 }

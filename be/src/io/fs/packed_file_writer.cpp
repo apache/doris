@@ -80,6 +80,7 @@ Status PackedFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_is_direct_write) {
         RETURN_IF_ERROR(_inner_writer->appendv(data, data_cnt));
     } else {
+        _buffer.reserve(_bytes_appended + total_size);
         // Buffer small file data
         for (size_t i = 0; i < data_cnt; ++i) {
             _buffer.append(data[i].data, data[i].size);
@@ -175,10 +176,14 @@ Status PackedFileWriter::_close_sync() {
 Status PackedFileWriter::_wait_packed_upload() {
     DCHECK(!_is_direct_write);
     // Only wait if we have data that was sent to packed manager
-    if (_bytes_appended > 0 && _packed_file_manager != nullptr) {
-        return _packed_file_manager->wait_upload_done(_file_path);
+    if (_bytes_appended > 0 && _packed_file_manager != nullptr && _packed_slice_handle != nullptr) {
+        return _packed_file_manager->wait_upload_done(_packed_slice_handle);
     }
     return Status::OK();
+}
+
+void PackedFileWriter::_release_buffer() {
+    std::string().swap(_buffer);
 }
 
 Status PackedFileWriter::_switch_to_direct_write() {
@@ -188,7 +193,7 @@ Status PackedFileWriter::_switch_to_direct_write() {
     if (_buffer.size() > 0) {
         Slice buffer_slice(_buffer.data(), _buffer.size());
         RETURN_IF_ERROR(_inner_writer->appendv(&buffer_slice, 1));
-        _buffer.clear();
+        _release_buffer();
     }
 
     return Status::OK();
@@ -212,19 +217,29 @@ Status PackedFileWriter::_send_to_packed_manager() {
     }
 
     Slice data_slice(_buffer.data(), _buffer.size());
-    RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info));
-    _buffer.clear();
+    RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info,
+                                                            &_packed_slice_handle));
+    if (_packed_slice_handle == nullptr) {
+        // append_small_file() skips data larger than `small_file_threshold_bytes` without
+        // writing it anywhere. appendv() switches to direct write before the buffer can
+        // reach that size, unless the threshold was lowered in between. Report the failure
+        // instead of closing successfully on a file that does not exist.
+        return Status::InternalError(
+                "Packed file did not accept the buffered data for {}, size={}, threshold={}",
+                _file_path, data_slice.get_size(), config::small_file_threshold_bytes);
+    }
+    _release_buffer();
     return Status::OK();
 }
 
 Status PackedFileWriter::get_packed_slice_location(PackedSliceLocation* location) const {
     DCHECK(_state == State::CLOSED)
             << " file_path: " << _file_path << " bytes_appended: " << _bytes_appended;
-    if (_is_direct_write) {
+    if (_is_direct_write || _packed_slice_handle == nullptr) {
         *location = PackedSliceLocation {};
         return Status::OK();
     }
-    RETURN_IF_ERROR(_packed_file_manager->get_packed_slice_location(_file_path, location));
+    *location = _packed_slice_handle->location();
     LOG(INFO) << "get_packed_slice_location: " << _file_path
               << " packed_path: " << location->packed_file_path << " " << location->offset << " "
               << location->size;

@@ -104,6 +104,7 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
     sql " set parallel_pipeline_task_num = 1;"
     sql " set file_split_size = 10000000;"
     sql """set max_file_scanners_concurrency =  1; """
+    sql """set enable_condition_cache = false; """
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {
@@ -176,25 +177,25 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
 
             def profileStr = q1()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("2", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("2", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q2()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("1", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("1", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q3()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q4()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
         }
@@ -207,25 +208,25 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
 
             def profileStr = q1()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q2()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q3()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("1", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q4()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("3", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
         }
@@ -238,25 +239,25 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
 
             def profileStr = q1()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q2()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q3()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q4()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("0", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("0", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
         }
@@ -270,26 +271,26 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
 
             def profileStr = q1()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("8", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("8", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q2()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("7", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("7", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
             profileStr = q3()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("6", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("6", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
 
 
             profileStr = q4()
             logger.info("profileStr = \n${profileStr}");
-            assertEquals("9", extractProfileValue(profileStr, "FilteredRowsByLazyRead"))
+            assertEquals("9", extractProfileValue(profileStr, "OrcFilteredRowsByLazyRead"))
             assertEquals("0", extractProfileValue(profileStr, "EvaluatedRowGroupCount"))
             assertEquals("0", extractProfileValue(profileStr, "SelectedRowGroupCount"))
         }

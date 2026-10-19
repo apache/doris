@@ -18,6 +18,10 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
+import org.apache.doris.auth.certificate.StreamLoadCertificateAuthHelper;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -31,15 +35,20 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TOlapTablePartitionParam;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -55,12 +64,15 @@ import org.apache.logging.log4j.Logger;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class StreamLoadHandler {
     private static final Logger LOG = LogManager.getLogger(StreamLoadHandler.class);
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     private TStreamLoadPutRequest request;
     private Boolean isMultiTableRequest;
@@ -91,7 +103,8 @@ public class StreamLoadHandler {
     public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(Backend::isLoadAvailable)
+                .stream().filter(backend -> backend.isLoadAvailable() && !backend.isDecommissioned()
+                        && !backend.isDecommissioning())
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -111,7 +124,7 @@ public class StreamLoadHandler {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("stream load put request: {}", request);
+            LOG.debug("stream load put request: {}", ThriftLogHelper.requestForLog(request));
         }
         // create connect context
         ConnectContext ctx = new ConnectContext();
@@ -128,21 +141,21 @@ public class StreamLoadHandler {
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = request.getUser();
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
-            List<UserIdentity> currentUser = Lists.newArrayList();
-            try {
-                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                        request.getUserIp(), request.getPasswd(), currentUser);
-            } catch (AuthenticationException e) {
-                throw new UserException(e.formatErrMsg());
-            }
-            Preconditions.checkState(currentUser.size() == 1);
-            ctx.setCurrentUserIdentity(currentUser.get(0));
+            ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
-        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
+        if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
+            String computeGroup = backend.getCloudClusterName();
+            // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
+            // stream loads must still validate compute group privilege, existence, and status.
+            if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
+                ctx.setCloudCluster(computeGroup);
+            } else {
+                ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);
+            }
+            request.setCloudCluster(computeGroup);
             return;
         }
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
@@ -154,6 +167,42 @@ public class StreamLoadHandler {
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
             }
         }
+    }
+
+    private UserIdentity resolveCloudLoadUserIdentity(String userName) throws UserException {
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, request.getUserIp()) != null) {
+            throw new UserException("Authentication-bound users must authenticate through their integration");
+        }
+
+        CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
+                CERT_RUNTIME_AUTH_SERVICE,
+                userName,
+                request.getUserIp(),
+                StreamLoadCertificateAuthHelper.fromThrift(request.getCertBasedAuth()));
+        if (certDecision.isReject()) {
+            throw new UserException(certDecision.getErrorMessage() == null
+                    ? "TLS certificate verification failed"
+                    : certDecision.getErrorMessage());
+        }
+
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        try {
+            if (certDecision.shouldSkipPasswordVerification()
+                    && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
+                return certDecision.getUserIdentity();
+            }
+            if (certDecision.isVerified()) {
+                Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
+                        certDecision.getUserIdentity(), request.getPasswd(), currentUser);
+            } else {
+                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                        request.getUserIp(), request.getPasswd(), currentUser);
+            }
+        } catch (AuthenticationException e) {
+            throw new UserException(e.formatErrMsg());
+        }
+        Preconditions.checkState(currentUser.size() == 1);
+        return currentUser.get(0);
     }
 
     private void setDbAndTable() throws UserException, MetaNotFoundException {
@@ -199,13 +248,6 @@ public class StreamLoadHandler {
         if (tables.isEmpty()) {
             throw new MetaNotFoundException("table not found");
         }
-
-        if (result != null) {
-            OlapTable olapTable = tables.get(0);
-            result.setDbId(db.getId());
-            result.setTableId(olapTable.getId());
-            result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
-        }
     }
 
     /**
@@ -246,9 +288,16 @@ public class StreamLoadHandler {
                     ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
             TPipelineFragmentParams result = null;
             result = planner.plan(streamLoadTask.getId(), index);
+            assignAdaptiveRandomBucket(result);
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            result.setEnableTso(table.enableTso());
+            if (this.result != null && fragmentParams.isEmpty()) {
+                this.result.setDbId(db.getId());
+                this.result.setTableId(table.getId());
+                this.result.setBaseSchemaVersion(table.getBaseSchemaVersion());
+            }
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
@@ -280,5 +329,73 @@ public class StreamLoadHandler {
 
     public List getFragmentParams() {
         return fragmentParams;
+    }
+
+    /**
+     * Stream load sends the whole plan to the BE that issued this request, so the sink routing
+     * has to be resolved for exactly that BE. Without it the BE only knows the sink is in
+     * adaptive random bucket mode, assumes it owns every bucket and fails with
+     * "unknown partition channel" as soon as a partition has no tablet on it.
+     */
+    void assignAdaptiveRandomBucket(TPipelineFragmentParams params) {
+        TOlapTableSink sink = getOlapTableSink(params);
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        long sinkBackendId = request.isSetBackendId() ? request.getBackendId() : -1L;
+        assignAdaptiveRandomBucket(params, sinkBackendId, request.getDb(), request.getTbl());
+    }
+
+    public static void assignAdaptiveRandomBucket(TPipelineFragmentParams params, long sinkBackendId,
+            String dbName, String tableName) {
+        TOlapTableSink sink = getOlapTableSink(params);
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        if (sinkBackendId <= 0 || !sink.isSetLocation() || sink.getLocation() == null) {
+            // Old clients do not report the executing BE, and without the sink backend id or the
+            // tablet locations no assignment consistent with the receiver side can be computed
+            // here. Fall back to the non-adaptive per-batch routing, which never depends on the
+            // bucket owner. This is a normal compatibility fallback, not an error.
+            LOG.info("disable adaptive random bucket, stream load sink backend id is {}, db={}, table={}",
+                    sinkBackendId, dbName, tableName);
+            sink.unsetEnableAdaptiveRandomBucket();
+            return;
+        }
+        int sinkInstanceNum = Math.max(params.getLocalParamsSize(), 1);
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                        Lists.newArrayList(sinkBackendId), sink.getPartition().getPartitions(),
+                        sink.getLocation().getTablets(), sinkInstanceNum);
+        Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments = assignments.get(sinkBackendId);
+        if ((partitionAssignments == null || partitionAssignments.isEmpty())
+                && !isFakePartitionParam(sink.getPartition())) {
+            // Nothing could be assigned, so the sink would stay in adaptive mode without any
+            // routing and the BE would guess the bucket owner again.
+            LOG.warn("disable adaptive random bucket, no partition could be assigned for backend {}, "
+                            + "db={}, table={}", sinkBackendId, dbName, tableName);
+            sink.unsetEnableAdaptiveRandomBucket();
+            return;
+        }
+        OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                sink.getPartition().getPartitions(), partitionAssignments);
+    }
+
+    /**
+     * Auto partition tables with no partition yet start with a fake partition list that is only
+     * used for tablet locations; their real partitions are created and assigned while the load
+     * runs, so an empty plan time assignment is expected and must keep adaptive mode enabled.
+     */
+    private static boolean isFakePartitionParam(TOlapTablePartitionParam partitionParam) {
+        return partitionParam.isSetPartitionsIsFake() && partitionParam.isPartitionsIsFake();
+    }
+
+    private static TOlapTableSink getOlapTableSink(TPipelineFragmentParams params) {
+        if (params == null || !params.isSetFragment() || params.getFragment() == null
+                || !params.getFragment().isSetOutputSink() || params.getFragment().getOutputSink() == null
+                || params.getFragment().getOutputSink().getType() != TDataSinkType.OLAP_TABLE_SINK) {
+            return null;
+        }
+        return params.getFragment().getOutputSink().getOlapTableSink();
     }
 }

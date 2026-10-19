@@ -21,11 +21,11 @@ suite('test_inverted_index_io_timer', 'p0') {
     if (!isCloudMode()) {
         return;
     }
-    
+
     def indexTbName1 = "test_inverted_index_io_timer_tbl"
-    
+
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
-    
+
     // Create table with inverted index using httplogs schema
     sql """
       CREATE TABLE ${indexTbName1} (
@@ -46,15 +46,15 @@ suite('test_inverted_index_io_timer', 'p0') {
       "replication_allocation" = "tag.location.default: 1"
       );
     """
-    
+
     // Define data loading function
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -84,23 +84,22 @@ suite('test_inverted_index_io_timer', 'p0') {
             }
         }
     }
-    
+
     try {
         // Load 1000 documents
         load_httplogs_data.call(indexTbName1, indexTbName1, 'true', 'json', 'documents-1000.json')
-        
+
         sql "sync"
-        
+
         // Enable profile
         sql """ set enable_profile = true; """
         sql """ set profile_level = 2; """
         sql """ set enable_sql_cache = false; """
         sql """ set enable_inverted_index_searcher_cache = false; """
         sql """ set enable_inverted_index_query_cache = false; """
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         sql """ set enable_match_without_inverted_index = false; """
-        
+
         // Execute query with inverted index using profile
         def queryId = "test_inverted_index_io_timer_${System.currentTimeMillis()}"
         try {
@@ -108,7 +107,7 @@ suite('test_inverted_index_io_timer', 'p0') {
                 run {
                     sql "/* ${queryId} */ select * from ${indexTbName1} where request match 'images' order by `@timestamp` limit 10"
                 }
-                
+
                 check { profileString, exception ->
                     def local = 0
                     def remote = 0
@@ -136,11 +135,11 @@ suite('test_inverted_index_io_timer', 'p0') {
                 throw e
             }
         }
-        
+
         // Also verify the query returns correct result
         def result = sql "select count(*) from ${indexTbName1} where request match 'images'"
         assertTrue(result[0][0] > 0, "Should have at least one row matching 'images'")
-        
+
         log.info("Test completed successfully: InvertedIndexIOTimer is greater than 0")
     } finally {
         // Clean up

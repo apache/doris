@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_complextype_to_json', "query_p0") {
+    def variantV2Function = "parse_to_variant"
     // do support in nereids
 
     // literal cast
@@ -49,8 +50,7 @@ suite('test_complextype_to_json', "query_p0") {
         "replication_allocation" = "tag.location.default: 1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
         """
 
@@ -135,13 +135,13 @@ suite('test_complextype_to_json', "query_p0") {
         (4, null),
         (5, '{"k1":1, "k2":"2", "k3": {"k4": 4}, "k5": [1, 2, 3]}');
     """
-    
+
     qt_sql_json_from_string """ SELECT id, CAST(j AS JSON) FROM test_json_from_string ORDER BY id; """
 
 
     sql """ DROP TABLE IF EXISTS cast_from_variant_to_json; """
 
-    sql """ 
+    sql """
     CREATE TABLE `cast_from_variant_to_json` (
     `col0` bigint NOT NULL,
     `coljson` variant NOT NULL,
@@ -156,7 +156,7 @@ suite('test_complextype_to_json', "query_p0") {
 
 
     sql """
-        insert into cast_from_variant_to_json values(1, "[-9223372036854775808]");
+        insert into cast_from_variant_to_json values(1, ${variantV2Function}("[-9223372036854775808]"));
     """
 
     sql """

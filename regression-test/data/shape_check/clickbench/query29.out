@@ -9,6 +9,6 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter(( not (length(Referer) = 0)))
+------------------filter(( not (length(hits.Referer) = 0)))
 --------------------PhysicalOlapScan[hits]
 

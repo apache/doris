@@ -13,7 +13,7 @@ DROP TABLE IF EXISTS test_struct_evolution;
 -- 3. DROP a_struct.removed - removes field from table schema
 -- 4. DROP a_struct.drop_and_add then ADD a_struct.drop_and_add - gets new field ID
 -- 5. ADD a_struct.added - adds new field
--- 6. Query struct_element(a_struct, 'drop_and_add') or struct_element(a_struct, 'added')
+-- 6. Query element_at(a_struct, 'drop_and_add') or element_at(a_struct, 'added')
 --    -> This will fail because all queried fields are missing in old file, and the reference
 --       column 'removed' doesn't exist in root_node (it was dropped from table schema)
 
@@ -49,7 +49,7 @@ SELECT 2, named_struct('renamed', 21, 'keep', 22, 'drop_and_add', 23, 'added', 2
 -- - Old file: contains removed, rename, keep, drop_and_add (old field ID)
 -- - New file: contains renamed, keep, drop_and_add (new field ID), added
 --
--- Querying struct_element(a_struct, 'drop_and_add') or struct_element(a_struct, 'added')
+-- Querying element_at(a_struct, 'drop_and_add') or element_at(a_struct, 'added')
 -- on the old file will trigger the bug
 
 -- ============================================================

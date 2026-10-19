@@ -68,17 +68,21 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thrift.executable>${doris.home}/thirdparty/installed/bin/thrift</doris.thrift.executable>
         <doris.thrift.source>${doris.home}/gensrc/thrift</doris.thrift.source>
+        <!-- Must match the thrift compiler installed in thirdparty and fe/pom.xml. -->
+        <thrift.version>0.24.0</thrift.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
         <groovy.version>4.0.19</groovy.version>
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
-        <!-- Arrow 18 only supports jdk17 -->
-        <arrow.version>17.0.0</arrow.version>
+        <jackson.version>2.13.5</jackson.version>
+        <!-- Aligned with fe (fe/pom.xml). Arrow 18+ requires jdk17; the regression
+             framework now targets jdk17, so this matches fe-core. -->
+        <arrow.version>19.0.0</arrow.version>
     </properties>
     <profiles>
         <profile>
@@ -173,11 +177,41 @@ under the License.
                 </configuration>
             </plugin>
             <plugin>
+                <!-- Generated code only compiles against the matching libthrift; fail fast
+                     with a clear message instead of hundreds of generic-arity errors. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>check-thrift-compiler-version</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <exec executable="${doris.thrift.executable}" outputproperty="thrift.compiler.version" failonerror="true">
+                                    <arg value="--version"/>
+                                </exec>
+                                <fail message="thrift compiler '${doris.thrift.executable}' reports '${thrift.compiler.version}' but libthrift is ${thrift.version}. Rebuild thirdparty, or point doris.thrift.executable / DORIS_THIRDPARTY at a thrift ${thrift.version} binary.">
+                                    <condition>
+                                        <not>
+                                            <contains string="${thrift.compiler.version}" substring="${thrift.version}"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>thrift-maven-plugin</artifactId>
                 <version>0.10.0</version>
                 <configuration>
-                    <generator>java:fullcamel</generator>
+                    <generator>java:fullcamel,generated_annotations=suppress</generator>
                     <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
                     <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
                 </configuration>
@@ -217,12 +251,33 @@ under the License.
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
-            <version>0.16.0</version>
+            <version>${thrift.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
+        </dependency>
+        <!-- Keep jackson ABI compatible with aws-java-sdk-v1 (used by kinesis routine load tests). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-cbor</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.groovy</groupId>
@@ -243,7 +298,7 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
-            <version>5.8.2</version>
+            <version>5.10.2</version>
         </dependency>
         <dependency>
             <groupId>mysql</groupId>
@@ -349,6 +404,11 @@ under the License.
             <artifactId>aws-java-sdk-s3</artifactId>
             <version>${aws-java-sdk-s3.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-kinesis</artifactId>
+            <version>${aws-java-sdk-s3.version}</version>
+        </dependency>
         <!-- aliyun ram -->
         <dependency>
             <groupId>com.aliyun</groupId>
@@ -391,6 +451,10 @@ under the License.
         </dependency>-->
         <!---->
         <!-- aws ram -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+        </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>iam</artifactId>
@@ -461,7 +525,7 @@ under the License.
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.1.104.Final</version>
+            <version>4.2.15.Final</version>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>

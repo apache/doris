@@ -35,7 +35,8 @@ import java.util.List;
 /**
  * AggregateFunction 'linear_histogram'.
  */
-public class LinearHistogram extends NotNullableAggregateFunction implements ExplicitlyCastableSignature {
+public class LinearHistogram extends NotNullableAggregateFunction
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
@@ -67,7 +68,7 @@ public class LinearHistogram extends NotNullableAggregateFunction implements Exp
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof PrimitiveType)) {
+        if (!(getArgument(0).getDataType() instanceof PrimitiveType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
         }
     }

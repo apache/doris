@@ -167,3 +167,21 @@
 -- !search3 --
 "fool"
 
+-- !search_control_escape --
+"$.\\"a\\\\nb\\""	"$.\\"a\\\\tb\\""	"$.\\"a\\\\rb\\""	"$.a\\\\u0001b"	"needle"
+
+-- !search_dotted_key --
+"$.\\"a.b\\""	"hit"	"hit"
+
+-- !search_bracket_and_wildcard_key --
+"$.\\"a[0]\\""	"hit"	"$.\\"*a\\""	"hit"
+
+-- !search_empty_key --
+"$.\\"\\""	"hit"	"hit"
+
+-- !search_literal_star_key --
+"$.\\"*\\""	"hit"	["hit","miss"]	{"other":"miss"}	["k"]
+
+-- !search_member_path_on_array --
+[1]	[1]	[1]	[]	{"x":1,"a.b":2}	[1,2]
+

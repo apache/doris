@@ -28,8 +28,26 @@ suite("test_stream_info_schema") {
         DUPLICATE KEY(`sid`)
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
+    """
+
+    sql """
+        CREATE TABLE `tbl2` (
+          `sid` int NULL,
+          `sname` varchar(32) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`sid`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW",
+        "binlog.need_historical_value" = "true"
+        );
     """
 
     sql """
@@ -39,9 +57,8 @@ suite("test_stream_info_schema") {
     """
 
     sql """
-        CREATE STREAM `s2` ON TABLE tbl1
-        COMMENT 'test stream 2'
-        PROPERTIES('type' = 'default');
+        CREATE STREAM `s2` ON TABLE tbl2
+        COMMENT 'test stream 2';
     """
 
     sql """

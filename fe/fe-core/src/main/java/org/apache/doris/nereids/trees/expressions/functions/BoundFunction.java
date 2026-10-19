@@ -100,6 +100,20 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
+    public String shapeInfo() {
+        StringBuilder sql = new StringBuilder(getName()).append("(");
+        int arity = arity();
+        for (int i = 0; i < arity; i++) {
+            Expression arg = child(i);
+            sql.append(arg.shapeInfo());
+            if (i + 1 < arity) {
+                sql.append(", ");
+            }
+        }
+        return sql.append(")").toString();
+    }
+
+    @Override
     public String toString() {
         String args = children()
                 .stream()

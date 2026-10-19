@@ -29,6 +29,7 @@
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -49,7 +50,10 @@ struct AggregateFunctionHistogramData {
 
     void set_parameters(size_t input_max_num_buckets) { max_num_buckets = input_max_num_buckets; }
 
-    void reset() { ordered_map.clear(); }
+    void reset() {
+        ordered_map.clear();
+        max_num_buckets = BUCKET_NUM_INIT_VALUE;
+    }
 
     void add(const StringRef& value, const UInt64& number = 1) {
         std::string data = value.to_string();
@@ -77,7 +81,13 @@ struct AggregateFunctionHistogramData {
             return;
         }
 
-        max_num_buckets = rhs.max_num_buckets;
+        if (!max_num_buckets) {
+            max_num_buckets = rhs.max_num_buckets;
+        } else if (UNLIKELY(max_num_buckets != rhs.max_num_buckets)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "histogram aggregate states have incompatible bucket counts: {} vs {}",
+                            max_num_buckets, rhs.max_num_buckets);
+        }
 
         for (auto rhs_it : rhs.ordered_map) {
             auto lhs_it = ordered_map.find(rhs_it.first);
@@ -123,10 +133,11 @@ struct AggregateFunctionHistogramData {
         for (auto i = 0; i < pair_vector.size(); i++) {
             const auto& element = pair_vector[i];
             if constexpr (is_string_type(T)) {
-                assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
-                                                           element.second.length());
+                assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
+                        element.second.c_str(), element.second.length());
             } else {
-                assert_cast<ColVecType&>(to).get_data().push_back(element.second);
+                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                        element.second);
             }
         }
     }
@@ -179,7 +190,8 @@ public:
              Arena&) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
-                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+                    assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
+                            ->get_element(row_num);
             if (input_max_num_buckets <= 0 || input_max_num_buckets > 1000000) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
@@ -203,6 +215,13 @@ public:
         }
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<typename Data::ColVecType>(columns[0]);
+        if constexpr (has_input_param) {
+            this->template check_argument_column_type<ColumnInt32>(columns[1]);
+        }
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -221,7 +240,13 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const std::string bucket_json = this->data(place).get(_argument_type);
-        assert_cast<ColumnString&>(to).insert_data(bucket_json.c_str(), bucket_json.length());
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
+                bucket_json.c_str(), bucket_json.length());
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        this->template check_result_column_type_as<ColumnString>(to);
     }
 
 private:

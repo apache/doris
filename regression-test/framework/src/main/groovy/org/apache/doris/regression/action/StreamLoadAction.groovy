@@ -215,6 +215,10 @@ class StreamLoadAction implements SuiteAction {
         this.address = new InetSocketAddress(beHost, beHttpPort)
     }
 
+    void feHttpAddress(String feHost, int feHttpPort) {
+        this.address = new InetSocketAddress(feHost, feHttpPort)
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }

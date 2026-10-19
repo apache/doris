@@ -19,9 +19,9 @@ import java.util.regex.Pattern
 
 suite('test_inverted_index_collection_stats', 'p0') {
     def indexTbName1 = "test_inverted_index_collection_stats_tbl"
-    
+
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
-    
+
     sql """
       CREATE TABLE ${indexTbName1} (
       `id` int(11) NULL COMMENT "",
@@ -35,17 +35,16 @@ suite('test_inverted_index_collection_stats', 'p0') {
       "replication_allocation" = "tag.location.default: 1"
       );
     """
-    
+
     sql """ INSERT INTO ${indexTbName1} VALUES (1, 'hello world'), (2, 'hello doris'), (3, 'doris is great') """
-    
+
     sql "sync"
-    
+
     // Enable profile
     sql """ set enable_profile = true; """
     sql """ set profile_level = 2; """
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-    
+    sql """ set enable_segment_limit_pushdown = true; """
+
     // Execute MATCH_ALL query which triggers CollectionStatistics::collect
     def queryId = "test_inverted_index_collection_stats_${System.currentTimeMillis()}"
     try {
@@ -53,7 +52,7 @@ suite('test_inverted_index_collection_stats', 'p0') {
             run {
                 sql "/* ${queryId} */ select score() as score from ${indexTbName1} where content match_all 'hello' order by score desc limit 10"
             }
-            
+
             check { profileString, exception ->
                 def statisticsCollectTime = 0
                 def matcher = Pattern.compile("StatisticsCollectTime:\\s*(\\d+)").matcher(profileString)

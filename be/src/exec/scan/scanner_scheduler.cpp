@@ -75,17 +75,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
-            auto status = [&] {
-                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                return Status::OK();
-            }();
-
-            if (!status.ok()) {
-                scanner_ref->set_status(status);
-                ctx->push_back_scan_task(scanner_ref);
-                return true;
-            }
-            return scanner_ref->is_eos();
+            return execute_scan_task(ctx, scanner_ref);
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
         return this->submit_scan_task(simple_scan_task);
@@ -102,6 +92,22 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     return Status::OK();
+}
+
+bool ScannerScheduler::execute_scan_task(const std::shared_ptr<ScannerContext>& ctx,
+                                         const std::shared_ptr<ScanTask>& scan_task) {
+    // Both schedulers admit tasks differently, but exceptions must always become a completed task
+    // so the operator observes the error and releases the task's in-flight concurrency slot.
+    auto status = [&] {
+        RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scan_task));
+        return Status::OK();
+    }();
+    if (!status.ok()) {
+        scan_task->set_status(status);
+        ctx->push_completed_scan_task(scan_task);
+        return true;
+    }
+    return scan_task->is_eos();
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
@@ -127,6 +133,8 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     state->get_query_ctx()->set_low_memory_mode();
 }
 
+// NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
+// Existing scheduler loop owns scanner lifecycle and I/O accounting.
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
@@ -174,6 +182,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     Status status = Status::OK();
     bool eos = false;
+    auto append_late_arrival_runtime_filter = [&] {
+        Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+        if (!rf_status.ok()) {
+            LOG(WARNING) << "Failed to append late arrival runtime filter: "
+                         << rf_status.to_string();
+        }
+    };
 
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
@@ -181,9 +196,26 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (!scanner->has_prepared()) {
+            if (scanner->is_pruned_by_runtime_filter()) {
+                if (!scanner->is_open()) {
+                    scanner->release_unopened_resources();
+                }
+                eos = true;
+            }
+
+            if (!eos && !scanner->has_prepared()) {
                 status = scanner->prepare();
                 if (!status.ok()) {
+                    eos = true;
+                }
+            }
+
+            // A filter may become ready while prepare() is doing tablet setup. Apply it before
+            // open() so a newly pruned OLAP scanner never initializes its reader or eagerly reads.
+            if (!eos && !scanner->is_open()) {
+                append_late_arrival_runtime_filter();
+                if (scanner->is_pruned_by_runtime_filter()) {
+                    scanner->release_unopened_resources();
                     eos = true;
                 }
             }
@@ -196,11 +228,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 scanner->set_opened();
             }
 
-            Status rf_status = scanner->try_append_late_arrival_runtime_filter();
-            if (!rf_status.ok()) {
-                LOG(WARNING) << "Failed to append late arrival runtime filter: "
-                             << rf_status.to_string();
-            }
+            if (!eos) { append_late_arrival_runtime_filter(); }
+
+            // After processing late RFs, check whether this scanner's scan range was pruned.
+            if (!eos && scanner->is_pruned_by_runtime_filter()) { eos = true; }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             if (ctx->low_memory_mode()) {
@@ -211,9 +242,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             bool first_read = true;
-            int64_t limit = scanner->limit(); if (UNLIKELY(ctx->done())) {
-                eos = true;
-            } else if (ctx->remaining_limit() == 0) { eos = true; } else if (!eos) {
+            int64_t limit = scanner->limit();
+            if (UNLIKELY(ctx->done())) { eos = true; } else if (!eos) {
                 do {
                     DEFER_RELEASE_RESERVED();
                     BlockUPtr free_block;
@@ -248,22 +278,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     // Or it may cause a crash when the block is not normal.
                     _make_sure_virtual_col_is_materialized(scanner, free_block.get());
 
-                    // Shared limit quota: acquire rows from the context's shared pool.
-                    // Discard or truncate the block if quota is exhausted.
-                    if (free_block->rows() > 0) {
-                        int64_t block_rows = free_block->rows();
-                        int64_t granted = ctx->acquire_limit_quota(block_rows);
-                        if (granted == 0) {
-                            // No quota remaining, discard this block and mark eos.
-                            ctx->return_free_block(std::move(free_block));
-                            eos = true;
-                            break;
-                        } else if (granted < block_rows) {
-                            // Partial quota: truncate block to granted rows and mark eos.
-                            free_block->set_num_rows(granted);
-                            eos = true;
-                        }
-                    }
                     // Projection will truncate useless columns, makes block size change.
                     auto free_block_bytes = free_block->allocated_bytes();
                     ctx->reestimated_block_mem_bytes(cast_set<int64_t>(free_block_bytes));
@@ -289,11 +303,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } while (false);
             }
 
-                                              if (UNLIKELY(!status.ok())) {
-                                                  scan_task->set_status(status);
-                                                  eos = true;
-                                              },
-                                              status);
+            if (UNLIKELY(!status.ok())) {
+                scan_task->set_status(status);
+                eos = true;
+            },
+            status);
 
     if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
@@ -316,8 +330,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             "{}, eos: {}, status: {}",
             ctx->ctx_id, ctx->num_scheduled_scanners(), eos, status.to_string());
 
-    ctx->push_back_scan_task(scan_task);
+    ctx->push_completed_scan_task(scan_task);
 }
+// NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
+
 int ScannerScheduler::default_local_scan_thread_num() {
     return config::doris_scanner_thread_pool_thread_num > 0
                    ? config::doris_scanner_thread_pool_thread_num
@@ -362,25 +378,20 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
     size_t idx = 0;
     for (const auto& entry : *free_block) {
         // Virtual column must be materialized on the end of SegmentIterator's next batch method.
-        const ColumnNothing* column_nothing =
-                check_and_get_column<ColumnNothing>(entry.column.get());
+        const auto* column_nothing = check_and_get_column<ColumnNothing>(entry.column.get());
         if (column_nothing == nullptr) {
             idx++;
             continue;
         }
 
-        std::vector<std::string> vcid_to_idx;
-
-        for (const auto& pair : olap_scanner->_vir_cid_to_idx_in_block) {
-            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+        std::vector<ColumnId> virtual_column_ids;
+        for (const auto& pair : olap_scanner->_virtual_column_exprs) {
+            virtual_column_ids.push_back(pair.first);
         }
 
         std::string error_msg = fmt::format(
-                "Column in idx {} is nothing, block columns {}, normal_columns "
-                "{}, "
-                "vir_cid_to_idx_in_block_msg {}",
-                idx, free_block->columns(), olap_scanner->_return_columns.size(),
-                fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ",")));
+                "Column in idx {} is nothing, block columns {}, virtual_column_ids [{}]", idx,
+                free_block->columns(), fmt::join(virtual_column_ids, ","));
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
     }
 #endif

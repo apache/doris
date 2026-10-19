@@ -190,7 +190,7 @@ PhysicalResultSink
 
 -- !pushdown_left_outer_join_subquery --
 PhysicalResultSink
---filter(OR[(cast(id as BIGINT) = sum(id)),id IS NULL])
+--filter(OR[(cast(t1.id as BIGINT) = sum(id)),t1.id IS NULL])
 ----NestedLoopJoin[LEFT_OUTER_JOIN](id = 1)
 ------PhysicalOlapScan[t1]
 ------hashAgg[GLOBAL]

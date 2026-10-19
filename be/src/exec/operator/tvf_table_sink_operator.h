@@ -64,7 +64,7 @@ public:
         return VExpr::open(_output_vexpr_ctxs, state);
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -81,5 +81,8 @@ private:
     const std::vector<TExpr>& _t_output_expr;
     ObjectPool* _pool = nullptr;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VTVFTableWriter, TVFTableSinkOperatorX>;
 
 } // namespace doris

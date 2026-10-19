@@ -100,20 +100,20 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
     EXPECT_TRUE(sorter->prepare_for_read(false));
 
     {
-        Block block;
+        MutableBlock merged_block = ColumnHelper::create_block<DataTypeInt64>({}, {});
         bool eos = false;
-        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        while (!eos) {
+            Block block;
+            EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+            EXPECT_TRUE(merged_block.merge(block));
+        }
+
+        auto block = merged_block.to_block();
         EXPECT_EQ(block.rows(), 6);
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
                 Block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6}),
                        ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})}));
-
-        block.clear_column_data();
-
-        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
-        EXPECT_EQ(block.rows(), 0);
-        EXPECT_EQ(eos, true);
     }
 }
 

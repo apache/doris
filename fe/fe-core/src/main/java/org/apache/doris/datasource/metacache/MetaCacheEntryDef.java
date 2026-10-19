@@ -17,15 +17,17 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.CacheSpec;
+
 import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- * Immutable definition of a logical {@link MetaCacheEntry}.
+ * Immutable definition of a logical {@link FeMetaCacheEntry}.
  *
  * <p>This class only describes "what an entry is", not "entry runtime data".
- * Runtime instances are still created by {@link AbstractExternalMetaCache}
+ * Runtime instances are still created by {@link ExternalCatalogMetaCache}
  * per catalog during {@code initCatalog(long)}.
  *
  * <p>A definition contains:
@@ -68,7 +70,7 @@ public final class MetaCacheEntryDef<K, V> {
     /**
      * Declared key type of this entry.
      *
-     * <p>Used by {@link AbstractExternalMetaCache} to validate that callers use
+     * <p>Used by {@link ExternalCatalogMetaCache} to validate that callers use
      * the expected key class when obtaining the entry via
      * {@code entry(catalogId, def)}.
      */
@@ -77,13 +79,13 @@ public final class MetaCacheEntryDef<K, V> {
     /**
      * Declared value type of this entry.
      *
-     * <p>Used by {@link AbstractExternalMetaCache} to validate value type
+     * <p>Used by {@link ExternalCatalogMetaCache} to validate value type
      * compatibility for the requested entry and to prevent cross-entry misuse.
      */
     private final Class<V> valueType;
 
     /**
-     * Loader function used by {@link MetaCacheEntry#get(Object)}.
+     * Loader function used by {@link FeMetaCacheEntry#get(Object)}.
      *
      * <p>Cache miss triggers loader invocation. Loader is bound once at
      * definition creation time and reused by all per-catalog runtime entries.
@@ -131,7 +133,7 @@ public final class MetaCacheEntryDef<K, V> {
      * @param name logical entry name, unique in one cache implementation
      * @param keyType declared key class
      * @param valueType declared value class
-     * @param loader miss loader invoked by {@link MetaCacheEntry#get(Object)}
+     * @param loader miss loader invoked by {@link FeMetaCacheEntry#get(Object)}
      * @param defaultCacheSpec default cache policy used by this entry definition
      */
     public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
@@ -151,7 +153,7 @@ public final class MetaCacheEntryDef<K, V> {
      * @param name logical entry name, unique in one cache implementation
      * @param keyType declared key class
      * @param valueType declared value class
-     * @param loader miss loader invoked by {@link MetaCacheEntry#get(Object)}
+     * @param loader miss loader invoked by {@link FeMetaCacheEntry#get(Object)}
      * @param defaultCacheSpec default cache policy used by this entry definition
      * @param autoRefresh whether to enable refresh-after-write
      */

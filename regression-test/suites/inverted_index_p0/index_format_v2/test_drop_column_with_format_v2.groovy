@@ -70,7 +70,7 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
-    
+
     sql """
 	    CREATE TABLE ${tableName} (
             `id` int(11) NULL,
@@ -95,7 +95,7 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
     sql """ INSERT INTO ${tableName} VALUES (2, "bason", 99); """
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
 

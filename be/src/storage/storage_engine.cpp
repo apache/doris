@@ -59,9 +59,9 @@
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
-#include "storage/compaction/single_replica_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/id_manager.h"
 #include "storage/olap_common.h"
@@ -257,6 +257,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     stop();
 }
 
@@ -289,7 +290,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
             auto st = data_dir->load();
             if (!st.ok()) {
-                LOG(WARNING) << "error occured when init load tables. res=" << st
+                LOG(WARNING) << "error occurred when init load tables. res=" << st
                              << ", data dir=" << data_dir->path();
                 std::lock_guard lock(result_mtx);
                 result = std::move(st);
@@ -325,10 +326,12 @@ Status StorageEngine::_open() {
     _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
+                                       config::calc_delete_bitmap_max_thread);
 
     _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
                     : std::max(1, CpuInfo::num_cores() / 2));
@@ -737,13 +740,14 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
+    _stop_row_binlog_ttl_scanner();
 #define THREAD_JOIN(thread) \
     if (thread) {           \
         thread->join();     \
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    THREAD_JOIN(_update_replica_infos_thread);
+    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -771,8 +775,8 @@ void StorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
+    if (_binlog_compaction_thread_pool) {
+        _binlog_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {
@@ -943,6 +947,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
+            rowset_meta->set_rowset_id(rowset_id);
+            rowset_meta->set_tablet_uid(tablet_uid);
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -1016,6 +1022,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
+
         invalid_rowset_metas.clear();
     }
 }
@@ -1515,10 +1522,10 @@ bool BaseStorageEngine::notify_listener(std::string_view name) {
     return found;
 }
 
-void BaseStorageEngine::_evict_quring_rowset_thread_callback() {
+void BaseStorageEngine::_gc_expired_id_file_map_thread_callback() {
     int32_t interval = config::quering_rowsets_evict_interval;
     do {
-        _evict_querying_rowset();
+        _gc_expired_id_file_map();
         interval = config::quering_rowsets_evict_interval;
         if (interval <= 0) {
             LOG(WARNING) << "quering_rowsets_evict_interval config is illegal: " << interval
@@ -1539,23 +1546,6 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
         return _pending_local_rowsets.add(ctx.rowset_id);
     }
     return _pending_remote_rowsets.add(ctx.rowset_id);
-}
-
-bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
-                                          std::string* token) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
-        *replica = _peer_replica_infos[tablet_id];
-        *token = _token;
-        return true;
-    }
-    return false;
 }
 
 bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
@@ -1598,7 +1588,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                      << tablet_id;
         return false;
     }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
         if (reps.empty()) [[unlikely]] {
@@ -1636,25 +1625,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     return false;
 }
 
-bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
-#ifdef BE_TEST
-    if (tablet_id % 2 == 0) {
-        return true;
-    }
-    return false;
-#endif
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
-    }
-    return false;
-}
-
 // Return json:
 // {
 //   "CumulativeCompaction": {
@@ -1670,34 +1640,7 @@ void StorageEngine::get_compaction_status_json(std::string* result) {
     _compaction_submit_registry.jsonfy_compaction_status(result);
 }
 
-void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    _querying_rowsets.emplace(rs->rowset_id(), rs);
-}
-
-RowsetSharedPtr BaseStorageEngine::get_quering_rowset(RowsetId rs_id) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    auto it = _querying_rowsets.find(rs_id);
-    if (it != _querying_rowsets.end()) {
-        return it->second;
-    }
-    return nullptr;
-}
-
-void BaseStorageEngine::_evict_querying_rowset() {
-    {
-        std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-        for (auto it = _querying_rowsets.begin(); it != _querying_rowsets.end();) {
-            uint64_t now = UnixSeconds();
-            // We delay the GC time of this rowset since it's maybe still needed, see #20732
-            if (now > it->second->delayed_expired_timestamp()) {
-                it = _querying_rowsets.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-
+void BaseStorageEngine::_gc_expired_id_file_map() {
     uint64_t now = UnixSeconds();
     ExecEnv::GetInstance()->get_id_manager()->gc_expired_id_file_map(now);
 }

@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/field.h"
 #include "exprs/vexpr.h"
 
 namespace doris {
@@ -39,8 +40,17 @@ public:
     VLiteral(const TExprNode& node, bool should_init = true)
             : VExpr(node), _expr_name(_data_type->get_name()) {
         if (should_init) {
-            init(node);
+            Field field;
+            field = _data_type->get_field(node);
+            _column_ptr = _data_type->create_column_const(1, field);
         }
+    }
+
+    VLiteral(const DataTypePtr& type, const Field& field) : VExpr(type, false) {
+        _data_type = type;
+        _column_ptr = _data_type->create_column_const(1, field);
+        _node_type = TExprNodeType::LITERAL;
+        _expr_name = _data_type->get_name();
     }
 
 #ifdef BE_TEST
@@ -67,13 +77,18 @@ public:
     bool equals(const VExpr& other) override;
 
     uint64_t get_digest(uint64_t seed) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        Field field;
+        _column_ptr->get(0, field);
+        *cloned_expr = VLiteral::create_shared(_data_type, field);
+        return Status::OK();
+    }
 
 protected:
+    VLiteral(const DataTypePtr& type) : VExpr(type, false) {}
     ColumnPtr _column_ptr;
     std::string _expr_name;
-
-private:
-    void init(const TExprNode& node);
 };
 
 } // namespace doris

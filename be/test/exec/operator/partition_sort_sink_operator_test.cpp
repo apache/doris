@@ -37,12 +37,17 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -98,8 +103,8 @@ struct PartitionSortOperatorTest : public ::testing::Test {
             sink->_partition_expr_ctxs =
                     MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
         }
-        _child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+        _child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool));
 
         EXPECT_TRUE(sink->set_child(_child_op));
 

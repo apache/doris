@@ -32,10 +32,12 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionUtil;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -67,10 +69,15 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -147,6 +154,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public static final String IS_STATIC_LOAD = "static_load";
     public static final String EXPIRATION_TIME = "expiration_time";
     public static final String RUNTIME_VERSION = "runtime_version";
+    public static final String VOLATILITY = "volatility";
 
     private static final Pattern PYTHON_VERSION_PATTERN = Pattern.compile("^3\\.\\d{1,2}(?:\\.\\d{1,2})?$");
     private static final Logger LOG = LogManager.getLogger(CreateFunctionCommand.class);
@@ -177,6 +185,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // if not, will core dump when input is not null column, but need return null
     // like https://github.com/apache/doris/pull/14002/files
     private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
+    // Keep IMMUTABLE as the UDAF/UDTF default for compatibility with previous behavior.
+    private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
     private String functionCode;
 
@@ -215,6 +225,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
+            // TODO: Register global table functions as normal/_outer pairs when global UDTFs are supported.
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
             String dbName = functionName.getDb();
@@ -223,15 +234,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 functionName.setDb(dbName);
             }
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            db.addFunction(function, ifNotExists);
             if (function.isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = function.clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, ifNotExists);
+                db.addTableFunction(function, ifNotExists);
+            } else {
+                db.addFunction(function, ifNotExists);
             }
         }
     }
@@ -292,6 +298,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
+        if (Env.getCurrentEnv().getFunctionRegistry()
+                .isBuiltinAggStateCombinator(functionName.getFunction())) {
+            throw new AnalysisException("Function name '" + functionName.getFunction()
+                    + "' is reserved for built-in aggregate state combinators");
+        }
         // check argument
         argsDef.analyze();
 
@@ -315,14 +326,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
                     + "please use JAVA_UDF or RPC instead");
         }
-
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
-        // Convert userFile to realUrl only for FE checksum calculation
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
+        // Inline Python code is authoritative. Keep FILE in metadata for replay, but do not load or validate it here.
+        if (Strings.isNullOrEmpty(functionCode) && !Strings.isNullOrEmpty(userFile)
+                && binaryType != Function.BinaryType.RPC) {
             userFile = getRealUrl(userFile);
-        }
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
             try {
                 computeObjectChecksum();
             } catch (IOException | NoSuchAlgorithmException e) {
@@ -335,6 +344,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         if (binaryType == Function.BinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
+            checkUdfSupportedTypes();
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -349,6 +360,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             extractExpirationTime();
         } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
+            checkUdfSupportedTypes();
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -365,9 +378,40 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + "'3.X.X' or '3.XX.XX' (e.g. '3.10.2').", runtimeVersionString));
             }
             runtimeVersion = runtimeVersionString;
+        } else if (properties.containsKey(VOLATILITY)) {
+            throw new AnalysisException("volatility property only supports JAVA_UDF and PYTHON_UDF");
         }
     }
 
+    private FunctionVolatility defaultVolatility() {
+        return isAggregate || isTableFunction ? FunctionVolatility.IMMUTABLE : FunctionVolatility.VOLATILE;
+    }
+
+    private FunctionVolatility analyzeVolatility(FunctionVolatility defaultVolatility) throws AnalysisException {
+        if (!properties.containsKey(VOLATILITY)) {
+            return defaultVolatility;
+        }
+        try {
+            return FunctionVolatility.fromString(properties.get(VOLATILITY));
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    /**
+     * Parses and validates {@code EXPIRATION_TIME}, which is <b>accepted but no longer acted on</b>.
+     *
+     * <p>Its only consumer was the UDF class cache in the old shared {@code java-udf} runtime, which
+     * expired a loaded class after this many minutes. Plugin isolation replaced that cache with one
+     * keyed and bounded by the plugin runtime, and nothing reads the value any more - it is still
+     * carried on the {@code Function}, still serialized to the BE in {@code TFunction}, and still
+     * echoed back verbatim by {@code SHOW CREATE FUNCTION}, so a catalog defined with it round-trips
+     * unchanged. Kept rather than rejected for exactly that reason: failing the DDL would break every
+     * existing definition and every replayed edit log carrying the property.
+     *
+     * <p>Still validated, because a value that is one day acted on again must not have been allowed
+     * to be nonsense in the meantime.
+     */
     private void extractExpirationTime() throws AnalysisException {
         String expirationTimeString = properties.get(EXPIRATION_TIME);
         if (expirationTimeString != null) {
@@ -386,6 +430,36 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private static boolean validatePythonRuntimeVersion(String runtimeVersionString) {
         return runtimeVersionString != null && PYTHON_VERSION_PATTERN.matcher(runtimeVersionString).matches();
+    }
+
+    private void checkUdfSupportedTypes() throws AnalysisException {
+        Type[] argTypes = argsDef.getArgTypes();
+        for (int i = 0; i < argTypes.length; i++) {
+            checkUdfSupportedType(argTypes[i], "argument " + (i + 1));
+        }
+        checkUdfSupportedType(returnType.toCatalogDataType(), "return");
+        if (intermediateType != null) {
+            checkUdfSupportedType(intermediateType.toCatalogDataType(), "intermediate");
+        }
+    }
+
+    private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
+        // Reject bitmap/hll/quantile_state type
+        if (type.isObjectStored()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
+        }
+
+        if (type.isArrayType()) {
+            checkUdfSupportedType(((ArrayType) type).getItemType(), typePosition + " element");
+        } else if (type.isMapType()) {
+            checkUdfSupportedType(((MapType) type).getKeyType(), typePosition + " key");
+            checkUdfSupportedType(((MapType) type).getValueType(), typePosition + " value");
+        } else if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
+            }
+        }
     }
 
     private Boolean parseBooleanFromProperties(String propertyString) throws AnalysisException {
@@ -469,13 +543,16 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), argsDef.isVariadic(),
+                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), false,
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
     }
@@ -490,7 +567,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             location = null;
         }
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.toCatalogDataType())
-                .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.toCatalogDataType())
+                .hasVarArgs(false).intermediateType(intermediateType.toCatalogDataType())
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == Function.BinaryType.JAVA_UDF
@@ -550,6 +627,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -579,7 +657,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                returnType.toCatalogDataType(), argsDef.isVariadic(),
+                returnType.toCatalogDataType(), false,
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
@@ -587,6 +665,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {
@@ -1005,6 +1084,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
+            case TIMESTAMP_NS:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMP_NS);
+                break;
             case TIMESTAMPTZ:
                 typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);
                 break;
@@ -1026,6 +1108,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         .getDecimalTypeBuilder()
                         .setPrecision(((ScalarType) arg).getScalarPrecision())
                         .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case UUID:
+                typeBuilder.setId(Types.PGenericType.TypeId.UUID);
                 break;
             case LARGEINT:
                 typeBuilder.setId(Types.PGenericType.TypeId.INT128);
@@ -1111,7 +1196,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                Type.VARCHAR, false, parameters, translateToLegacyExpr(originFunction, ctx),
                 sessionVariables);
     }
 
@@ -1137,7 +1222,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
-        Map<String, DataType> argTypeMap = new CaseInsensitiveMap();
+        Map<String, DataType> argTypeMap = new CaseInsensitiveMap<>();
         List<DataType> argTypes = argsDef.getArgTypeDefs();
         if (!parameters.isEmpty()) {
             if (parameters.size() != argTypes.size()) {
@@ -1150,6 +1235,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(cascadesContext, argTypeMap);
         expression = analyzer.analyze(expression);
+
+        if (expression.containsType(
+                org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class,
+                GroupingScalarFunction.class, WindowExpression.class, Placeholder.class,
+                TableValuedFunction.class, SubqueryExpr.class)) {
+            throw new AnalysisException("Alias function only supports scalar functions.");
+        }
 
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
         ExpressionToExpr translator = new ExpressionToExpr();

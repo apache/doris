@@ -131,7 +131,9 @@ _get_pr_changed_files_count() {
     while [[ ${try_times} -gt 0 ]]; do
         set -x
         if ret=$(
-            curl -s -H "Accept: application/vnd.github+json" \
+            curl -s \
+                -H "Accept: application/vnd.github+json" \
+                ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \
                 https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}" | jq -e '.changed_files'
         ); then
             set +x
@@ -169,6 +171,7 @@ _get_pr_changed_files() {
             set -x
             if curl -s \
                 -H "Accept: application/vnd.github+json" \
+                ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \
                 https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?page="${page}"\&per_page="${per_page}" \
                 >>"${file_name}"; then
                 set +x
@@ -437,12 +440,33 @@ github_utils__maybe_enable_external_stage_timer() {
 
 github_utils__maybe_enable_external_stage_timer
 
+# Paths under thirdparty/ that produce nothing in thirdparty/installed/.
+# Changing only these must not force the pipeline into a full thirdparty
+# source build, which costs more than an hour of build time for nothing.
+# This is a denylist on purpose: any new path under thirdparty/ that is not
+# listed here still triggers a rebuild, so the unknown case stays on the safe
+# side.
+_thirdparty_change_affects_artifacts() {
+    local af="$1"
+    if [[ "${af}" == 'thirdparty/test/'* ]] ||
+        [[ "${af}" == 'thirdparty/CHANGELOG.md' ]] ||
+        [[ "${af}" == 'thirdparty/LICENSE.txt' ]] ||
+        [[ "${af}" == 'thirdparty/build-thirdparty.sh' ]]; then
+        return 1
+    fi
+    return 0
+}
+
 file_changed_thirdparty() {
     local all_files
     all_files=$(cat all_files)
     if [[ -z ${all_files} ]]; then echo "Failed to get pr changed files." && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'thirdparty/'* ]]; then
+            if ! _thirdparty_change_affects_artifacts "${af}"; then
+                echo "thirdparty file ${af} does not affect built artifacts, skip it"
+                continue
+            fi
             echo "thirdparty changed" && return 0
         fi
     done
