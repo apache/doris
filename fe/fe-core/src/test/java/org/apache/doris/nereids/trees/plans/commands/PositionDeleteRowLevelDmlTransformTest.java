@@ -418,7 +418,7 @@ public class PositionDeleteRowLevelDmlTransformTest {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
         Mockito.when(metadata.deleteUsingMetadata(
-                        Mockito.eq(session), Mockito.eq(handle), Mockito.any(), Mockito.any()))
+                        Mockito.eq(session), Mockito.eq(handle), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(OptionalLong.of(3L));
         PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
         SlotReference slot = slot(table, "id");
@@ -426,14 +426,14 @@ public class PositionDeleteRowLevelDmlTransformTest {
                 new TargetScan(table, ImmutableList.of(slot)));
 
         OptionalLong deleted = transform.deleteUsingMetadata(
-                Mockito.mock(ConnectContext.class), deleteArgs(table), plan);
+                Mockito.mock(ConnectContext.class), deleteArgs(table), plan, () -> false);
 
         Assertions.assertEquals(OptionalLong.of(3L), deleted);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Optional<org.apache.doris.connector.spi.pushdown.ConnectorExpression>> captor =
                 ArgumentCaptor.forClass(Optional.class);
         Mockito.verify(metadata).deleteUsingMetadata(
-                Mockito.eq(session), Mockito.eq(handle), captor.capture(), Mockito.any());
+                Mockito.eq(session), Mockito.eq(handle), captor.capture(), Mockito.any(), Mockito.any());
         Assertions.assertTrue(captor.getValue().isPresent(), "the statement predicate must reach the connector");
         Assertions.assertInstanceOf(org.apache.doris.connector.spi.pushdown.ConnectorComparison.class,
                 captor.getValue().get());
@@ -449,10 +449,10 @@ public class PositionDeleteRowLevelDmlTransformTest {
 
         // The leaf is not the target catalog relation, so completeness cannot be proven.
         OptionalLong deleted = transform.deleteUsingMetadata(
-                Mockito.mock(ConnectContext.class), deleteArgs(table), filterOver(table, "id"));
+                Mockito.mock(ConnectContext.class), deleteArgs(table), filterOver(table, "id"), () -> false);
 
         Assertions.assertEquals(OptionalLong.empty(), deleted);
         Mockito.verify(metadata, Mockito.never())
-                .deleteUsingMetadata(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+                .deleteUsingMetadata(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 }

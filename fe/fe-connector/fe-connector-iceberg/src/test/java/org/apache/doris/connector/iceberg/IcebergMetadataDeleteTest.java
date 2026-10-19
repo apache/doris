@@ -83,7 +83,7 @@ public class IcebergMetadataDeleteTest {
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
                         new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))),
-                null);
+                null, () -> false);
 
         Assertions.assertEquals(OptionalLong.of(20L), deleted,
                 "the two region=us files (10 records each) are the deleted rows");
@@ -105,7 +105,7 @@ public class IcebergMetadataDeleteTest {
                 .commit();
 
         // The engine passes no predicate for "DELETE FROM t": every row of the table is deleted.
-        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.empty(), null);
+        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.empty(), null, () -> false);
 
         Assertions.assertEquals(OptionalLong.of(15L), deleted);
         Assertions.assertTrue(dataFilePaths(reload(catalog)).isEmpty(),
@@ -124,7 +124,7 @@ public class IcebergMetadataDeleteTest {
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.GT,
                         new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5L))),
-                null);
+                null, () -> false);
 
         Assertions.assertFalse(deleted.isPresent(),
                 "a candidate file that is only partially matched must fall back to the row-level delete");
@@ -146,14 +146,14 @@ public class IcebergMetadataDeleteTest {
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
                         new ConnectorColumnRef("no_such_column", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(1L))),
-                null);
+                null, () -> false);
 
         Assertions.assertFalse(deleted.isPresent(), "an unliftable predicate must not be treated as always-true");
         Assertions.assertEquals(snapshotBefore, reload(catalog).currentSnapshot().snapshotId());
     }
 
     @Test
-    public void deletedRowCountExcludesRowsHiddenByExistingDeleteFiles() {
+    public void existingDeleteFilesFallBackToTheRowLevelPath() {
         InMemoryCatalog catalog = freshCatalog();
         PartitionSpec spec = PartitionSpec.builderFor(SCHEMA).identity("region").build();
         Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "3"));
@@ -162,18 +162,40 @@ public class IcebergMetadataDeleteTest {
         // Three of the ten rows are already deleted by a deletion vector for that data file.
         table.newRowDelta().addDeletes(deletionVector(spec, "s3://b/db1/t1/dv.puffin", dataFile, 3L)).commit();
         Assertions.assertEquals(1, attachedDeleteFileCount(table, dataFile.path().toString()),
-                "the deletion vector must be attached to its data file before the metadata delete");
+                "the deletion vector must be attached to its data file");
+        long snapshotBefore = table.currentSnapshot().snapshotId();
 
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
                         new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))),
-                null);
+                null, () -> false);
 
-        Assertions.assertEquals(OptionalLong.of(7L), deleted,
-                "deleted rows = the dropped file's records minus the rows its deletion vector already hid");
-        Assertions.assertTrue(dataFilePaths(reload(catalog)).isEmpty());
-        Assertions.assertEquals(0, liveDeleteFileCount(reload(catalog)),
-                "the deletion vector of the dropped data file is removed as well");
+        Assertions.assertFalse(deleted.isPresent(),
+                "the affected-row count cannot be derived exactly once the file is hidden by a delete file");
+        Assertions.assertEquals(snapshotBefore, reload(catalog).currentSnapshot().snapshotId(),
+                "the fallback must not commit");
+        Assertions.assertEquals(Collections.singletonList(dataFile.path().toString()),
+                dataFilePaths(reload(catalog)));
+        Assertions.assertEquals(1, attachedDeleteFileCount(reload(catalog), dataFile.path().toString()));
+    }
+
+    @Test
+    public void cancelledDeleteDoesNotCommit() {
+        InMemoryCatalog catalog = freshCatalog();
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db1/t1/a.parquet", 10L))
+                .appendFile(dataFile(spec, "s3://b/db1/t1/b.parquet", 5L))
+                .commit();
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+
+        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(
+                SESSION, HANDLE, Optional.empty(), null, () -> true);
+
+        Assertions.assertFalse(deleted.isPresent(), "a cancelled delete must not commit");
+        Assertions.assertEquals(snapshotBefore, reload(catalog).currentSnapshot().snapshotId());
+        Assertions.assertEquals(2, dataFilePaths(reload(catalog)).size());
     }
 
     private static IcebergConnectorMetadata metadata(InMemoryCatalog catalog) {

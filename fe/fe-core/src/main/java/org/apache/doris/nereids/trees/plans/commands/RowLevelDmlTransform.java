@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * Per-table strategy that turns a row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against an
@@ -93,7 +94,8 @@ public interface RowLevelDmlTransform {
      * {@code PARTITION(...)} clause), because a predicate that silently ignores another row restriction would
      * delete too much.</p>
      */
-    default OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan) {
+    default OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan,
+            BooleanSupplier isCancelled) {
         return OptionalLong.empty();
     }
 }

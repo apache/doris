@@ -53,6 +53,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -63,7 +64,6 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFiles;
-import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
@@ -79,6 +79,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
@@ -95,9 +96,7 @@ import org.apache.iceberg.expressions.StrictMetricsEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.SnapshotUtil;
-import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
@@ -110,7 +109,6 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -122,6 +120,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -1998,7 +1997,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
-            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity) {
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         String qualifiedName = iceHandle.getDbName() + "." + iceHandle.getTableName();
         try {
@@ -2006,7 +2006,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // FileIO on Glue / S3Tables / vended-credential REST catalogs, so it must not outlive this call.
             return executeAuthenticated(() -> catalogOps.withTable(
                     iceHandle.getDbName(), iceHandle.getTableName(),
-                    table -> deleteUsingMetadata(table, session, predicate, boundWriteMetadataIdentity)));
+                    table -> deleteUsingMetadata(table, session, predicate,
+                            boundWriteMetadataIdentity, isCancelled)));
         } catch (ValidationException e) {
             // A racing writer turned a candidate file into a partial match (or another writer already removed
             // it): nothing was committed, so the row-level path still produces the right result.
@@ -2021,7 +2022,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /** Body of the whole-file delete, run against a fresh table load inside {@code withTable}. */
     private OptionalLong deleteUsingMetadata(Table table, ConnectorSession session,
-            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity) {
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
+        if (isCancelled.getAsBoolean()) {
+            return OptionalLong.empty();
+        }
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
         Expression deleteExpr = predicate.isPresent()
                 ? wholeFileDeleteExpression(table, session, predicate.get())
@@ -2034,37 +2039,73 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // Nothing to delete; leave the empty-table path to the row-level plan.
             return OptionalLong.empty();
         }
-        long baseSnapshotId = base.snapshotId();
-        List<DeleteFile> liveDeletes = readLiveDeleteFiles(table, base);
-        List<DataFile> candidates = new ArrayList<>();
-        if (!matchesWholeFilesOnly(table, deleteExpr, !liveDeletes.isEmpty(), candidates)) {
+        // Candidate planning and delete-manifest reads fan out onto Iceberg's shared worker pool, which needs the
+        // plugin Kerberos FileIO; the caller-thread executeAuthenticated scope does not cover those workers.
+        Table scanTable = wrapTableForScan(table);
+        if (!readLiveDeleteFiles(scanTable, base).isEmpty()) {
+            // The affected-row count is only exact when nothing was hidden before: legacy position deletes,
+            // equality deletes (a key is not a row) and stale-delete cleanup all break the summary arithmetic.
+            LOG.info("Skipping metadata delete of {}: the table already carries delete files.", table.name());
             return OptionalLong.empty();
         }
-        if (!liveDeletes.isEmpty() && !onlyExactlyCountedDeletesApply(table, liveDeletes, candidates)) {
-            // The affected rows cannot be derived exactly from the snapshot summary; keeping the row-level path
-            // keeps the reported affected-row count exact.
-            LOG.info("Skipping metadata delete of {}: affected files carry delete files whose row count is not "
-                    + "exact (legacy position or equality deletes).", table.name());
+        if (!matchesWholeFilesOnly(scanTable, deleteExpr) || isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
         }
         // The load above is a metadata snapshot; re-read it immediately before committing so a drop/recreate or
-        // schema rebind between planning and commit aborts instead of hitting the new table.
+        // schema rebind between planning and commit aborts instead of hitting the new table, and so a
+        // concurrently added delete file cannot slip into the affected-row summary.
         table.refresh();
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
+        Snapshot refreshed = table.currentSnapshot();
+        if (refreshed == null || !readLiveDeleteFiles(scanTable, refreshed).isEmpty()) {
+            return OptionalLong.empty();
+        }
+        long refreshedSnapshotId = refreshed.snapshotId();
 
         // Use a transaction rather than table.newDelete(): its ops carry the plugin Kerberos FileIO for Iceberg's
         // worker-pool manifest work, and its table view keeps the metadata it committed, so currentSnapshot()
-        // below is this delete's own snapshot even if another writer committed meanwhile.
-        Transaction transaction = IcebergConnectorTransaction.openTransaction(table, context, null, false);
+        // below is this delete's own snapshot even if another writer committed meanwhile. The bound identity
+        // fences the final CAS and every retry replay against a table/schema generation change.
+        Transaction transaction = IcebergConnectorTransaction.openTransaction(
+                table, context, null, false, boundWriteMetadataIdentity);
         DeleteFiles deleteFiles = transaction.newDelete().deleteFromRowFilter(deleteExpr);
+        if (isCancelled.getAsBoolean()) {
+            return OptionalLong.empty();
+        }
         deleteFiles.commit();
+        if (isCancelled.getAsBoolean()) {
+            // The snapshot is staged on the transaction only, so dropping it leaves the table unchanged (the
+            // staged metadata files are unreferenced and are reclaimed by the existing orphan-file cleanup).
+            LOG.info("Metadata delete of {} was cancelled before the remote commit.", table.name());
+            return OptionalLong.empty();
+        }
         transaction.commitTransaction();
         Snapshot committed = transaction.table().currentSnapshot();
-        if (committed == null || committed.snapshotId() == baseSnapshotId) {
+        if (committed == null || committed.snapshotId() == refreshedSnapshotId) {
             // The predicate matched nothing; DeleteFiles does not create an empty snapshot.
             return OptionalLong.of(0L);
         }
         return OptionalLong.of(deletedRowCount(committed));
+    }
+
+    /**
+     * Authenticated view of {@code table} for candidate-scan manifest IO — the metadata-delete mirror of
+     * {@code IcebergScanPlanProvider.wrapTableForScan}. Non-Kerberos catalogs and offline fakes get the table
+     * unchanged; the wrapper delegates reads to the same underlying operations.
+     */
+    private Table wrapTableForScan(Table table) {
+        if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
+            return table;
+        }
+        HadoopAuthenticator auth = ((TcclPinningConnectorContext) context).getPluginAuthenticator();
+        if (auth == null) {
+            return table;
+        }
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        return new BaseTable(new IcebergAuthenticatedTableOperations(
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)),
+                table.name(), baseTable.reporter());
     }
 
     /** Aborts a stale statement when the table was dropped/recreated (or rebound) after it was planned. */
@@ -2145,14 +2186,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * evolution is covered); otherwise each candidate file — as enumerated by the very scan the engine would
      * run — must satisfy its own spec's strict partition projection or the strict metrics evaluator.
      *
-     * @param collectCandidates whether the candidate data files must be materialized (needed by the affected-row
-     *                          check when the table already has delete files)
      */
-    private static boolean matchesWholeFilesOnly(Table table, Expression deleteExpr, boolean collectCandidates,
-            List<DataFile> candidates) {
+    private static boolean matchesWholeFilesOnly(Table table, Expression deleteExpr) {
         boolean caseSensitive = false;
-        boolean wholePartitions = ExpressionUtil.selectsPartitions(deleteExpr, table, caseSensitive);
-        if (wholePartitions && !collectCandidates) {
+        if (ExpressionUtil.selectsPartitions(deleteExpr, table, caseSensitive)) {
             return true;
         }
         TableScan scan = table.newScan()
@@ -2166,12 +2203,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     new StrictMetricsEvaluator(table.schema(), deleteExpr, caseSensitive);
             for (FileScanTask task : tasks) {
                 DataFile file = task.file();
-                if (collectCandidates) {
-                    candidates.add(file);
-                }
-                if (wholePartitions) {
-                    continue;
-                }
                 PartitionSpec spec = task.spec();
                 Evaluator evaluator = evaluators.computeIfAbsent(spec.specId(), specId -> new Evaluator(
                         spec.partitionType(), Projections.strict(spec, caseSensitive).project(deleteExpr)));
@@ -2179,7 +2210,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     return false;
                 }
             }
-            return !collectCandidates || !candidates.isEmpty();
+            return true;
         } catch (IOException e) {
             LOG.warn("Failed to evaluate whole-file delete candidates for {}: {}",
                     table.name(), e.getMessage());
@@ -2206,68 +2237,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether the affected-row count can be derived exactly from the committed snapshot summary: the only
-     * delete files that may hide rows of the candidate data files are deletion vectors (whose record count is
-     * their hidden-row cardinality, at most one per file). Legacy file-scoped position deletes and partition
-     * scoped position/equality deletes have different cardinality semantics, so their presence falls back.
-     */
-    private static boolean onlyExactlyCountedDeletesApply(Table table, List<DeleteFile> liveDeletes,
-            List<DataFile> candidates) {
-        Set<String> candidatePaths = new HashSet<>();
-        Map<Integer, Set<StructLikeWrapper>> candidatePartitions = new HashMap<>();
-        for (DataFile candidate : candidates) {
-            candidatePaths.add(candidate.location().toString());
-            PartitionSpec spec = table.specs().get(candidate.specId());
-            if (spec == null) {
-                return false;
-            }
-            candidatePartitions.computeIfAbsent(candidate.specId(), specId -> new HashSet<>())
-                    .add(StructLikeWrapper.forType(spec.partitionType()).set(candidate.partition()));
-        }
-        Set<String> seenDvPaths = new HashSet<>();
-        for (DeleteFile deleteFile : liveDeletes) {
-            if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
-                if (inCandidatePartition(table, deleteFile, candidatePartitions)) {
-                    return false;
-                }
-                continue;
-            }
-            String referenced = ContentFileUtil.isFileScoped(deleteFile)
-                    ? ContentFileUtil.referencedDataFileLocation(deleteFile) : null;
-            if (!ContentFileUtil.isDV(deleteFile)) {
-                if (referenced != null
-                        ? candidatePaths.contains(referenced)
-                        : inCandidatePartition(table, deleteFile, candidatePartitions)) {
-                    return false;
-                }
-                continue;
-            }
-            if (referenced != null && candidatePaths.contains(referenced)) {
-                if (!seenDvPaths.add(referenced)) {
-                    return false;
-                }
-            } else if (inCandidatePartition(table, deleteFile, candidatePartitions)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean inCandidatePartition(Table table, DeleteFile deleteFile,
-            Map<Integer, Set<StructLikeWrapper>> candidatePartitions) {
-        Set<StructLikeWrapper> partitions = candidatePartitions.get(deleteFile.specId());
-        if (partitions == null) {
-            return false;
-        }
-        PartitionSpec spec = table.specs().get(deleteFile.specId());
-        return spec != null && partitions.contains(
-                StructLikeWrapper.forType(spec.partitionType()).set(deleteFile.partition()));
-    }
-
-    /**
      * Rows deleted by a metadata delete, derived from this delete's own committed snapshot. The pre-commit gate
-     * ensures the only delete files removed with the candidate data files are deletion vectors, whose record
-     * count is their hidden-row cardinality; equality-delete records are keys, so they are never subtracted.
+     * requires that no delete file existed on the table (checked again after the refresh), so no hidden rows need
+     * subtracting; a deletion vector added by a concurrent row-level delete between that check and our commit is
+     * still exact because its record count is its cardinality. Equality-delete records are keys, never rows, so
+     * they are not subtracted (a concurrent equality delete only logs a warning).
      */
     private static long deletedRowCount(Snapshot committed) {
         if (committed == null || committed.summary() == null) {

@@ -356,7 +356,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
      */
     private Transaction openTransaction(Table loaded, boolean requireCurrentPartitionSpec) {
-        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec);
+        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec, null);
     }
 
     /**
@@ -365,7 +365,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * Iceberg's shared worker pool still authenticates, and optionally installs the pinned write-schema validator.
      */
     static Transaction openTransaction(Table loaded, ConnectorContext context,
-            IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec) {
+            IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec,
+            String boundWriteMetadataIdentity) {
         HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
                 ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
                 : null;
@@ -380,9 +381,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             FileIO authIo = new IcebergAuthenticatedFileIO(realOps.io(), auth);
             writeOps = new IcebergAuthenticatedTableOperations(realOps, authIo);
         }
-        if (writeSchemaContext != null) {
+        if (writeSchemaContext != null || boundWriteMetadataIdentity != null) {
             writeOps = new ValidatingTableOperations(
-                    writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name());
+                    writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
+                    boundWriteMetadataIdentity);
         }
         if (writeOps == realOps) {
             return loaded.newTransaction();
@@ -409,14 +411,19 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         private final IcebergWriteSchemaContext writeSchemaContext;
         private final boolean requireCurrentPartitionSpec;
         private final String tableName;
+        // Non-null for a whole-file metadata delete: fences the final CAS (including retry replays) against a
+        // same-name table replacement or a schema/partition rebind that happened after planning.
+        private final String boundWriteMetadataIdentity;
 
         private ValidatingTableOperations(TableOperations delegate,
                 IcebergWriteSchemaContext writeSchemaContext,
-                boolean requireCurrentPartitionSpec, String tableName) {
+                boolean requireCurrentPartitionSpec, String tableName,
+                String boundWriteMetadataIdentity) {
             this.delegate = delegate;
             this.writeSchemaContext = writeSchemaContext;
             this.requireCurrentPartitionSpec = requireCurrentPartitionSpec;
             this.tableName = tableName;
+            this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         }
 
         @Override
@@ -444,8 +451,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     new StaticTableOperations(
                             currentMetadata, delegate.io(), delegate.locationProvider()),
                     tableName);
-            writeSchemaContext.validateCurrentSchema(
-                    currentTable, requireCurrentPartitionSpec);
+            if (writeSchemaContext != null) {
+                writeSchemaContext.validateCurrentSchema(
+                        currentTable, requireCurrentPartitionSpec);
+            }
+            if (boundWriteMetadataIdentity != null
+                    && !boundWriteMetadataIdentity.equals(
+                            IcebergWritePlanProvider.writeMetadataIdentity(currentTable))) {
+                throw new DorisConnectorException(
+                        "Iceberg write metadata changed after the write was bound; retry the statement");
+            }
             delegate.commit(base, metadata);
         }
 

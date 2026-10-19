@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * Write (DML) operations that a connector may support.
@@ -86,11 +87,14 @@ public interface ConnectorWriteOps {
      * @param boundWriteMetadataIdentity the write-metadata generation the statement was planned against, or
      *                  {@code null} when the engine has none; a connector whose writes are fenced by a table
      *                  generation MUST reject a mismatch before committing
+     * @param isCancelled checked before the remote commit; returning {@code true} must abort without committing
+     *                  (the engine then reports the retained cancellation reason)
      * @return the number of deleted rows when the delete was fully executed as a metadata delete; empty to fall
      *         back to row-level DML
      */
     default OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
-            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity) {
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
         return OptionalLong.empty();
     }
 

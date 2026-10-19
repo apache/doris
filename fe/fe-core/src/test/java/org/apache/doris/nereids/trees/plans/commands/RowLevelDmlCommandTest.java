@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -30,6 +32,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -128,5 +131,19 @@ public class RowLevelDmlCommandTest {
         captor.getValue().afterAnalyze(planner);
 
         Mockito.verify(planner).setAnalyzedPlan(analyzed);
+    }
+
+    @Test
+    public void retainedCancellationIsReplayedBeforeTheMetadataDelete() {
+        // The row-level path replays the retained cancellation when the coordinator is published. The metadata
+        // branch has no coordinator, so it must replay it explicitly before any remote mutation.
+        StmtExecutor stmtExecutor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(stmtExecutor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "query was killed"));
+
+        UserException thrown = Assertions.assertThrows(UserException.class,
+                () -> RowLevelDmlCommand.throwIfCancelled(stmtExecutor));
+
+        Assertions.assertTrue(thrown.getMessage().contains("query was killed"), thrown.getMessage());
     }
 }

@@ -117,15 +117,15 @@ public final class NereidsToConnectorExpressionConverter {
             ConnectorExpression child = convert(((Not) expr).child(), strict);
             return child == null ? null : new ConnectorNot(child);
         } else if (expr instanceof EqualTo) {
-            return convertComparison(expr, ConnectorComparison.Operator.EQ, strict);
+            return convertComparison(expr, ConnectorComparison.Operator.EQ);
         } else if (expr instanceof GreaterThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.GT, strict);
+            return convertComparison(expr, ConnectorComparison.Operator.GT);
         } else if (expr instanceof GreaterThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.GE, strict);
+            return convertComparison(expr, ConnectorComparison.Operator.GE);
         } else if (expr instanceof LessThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.LT, strict);
+            return convertComparison(expr, ConnectorComparison.Operator.LT);
         } else if (expr instanceof LessThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.LE, strict);
+            return convertComparison(expr, ConnectorComparison.Operator.LE);
         } else if (expr instanceof InPredicate) {
             return convertIn((InPredicate) expr);
         } else if (expr instanceof IsNull) {
@@ -193,8 +193,7 @@ public final class NereidsToConnectorExpressionConverter {
         return true;
     }
 
-    private static ConnectorExpression convertComparison(Expression cmp, ConnectorComparison.Operator op,
-            boolean strict) {
+    private static ConnectorExpression convertComparison(Expression cmp, ConnectorComparison.Operator op) {
         Expression left = cmp.child(0);
         Expression right = cmp.child(1);
         SlotReference slot;
@@ -205,12 +204,10 @@ public final class NereidsToConnectorExpressionConverter {
         } else if (left instanceof Literal && right instanceof SlotReference) {
             slot = (SlotReference) right;
             literal = (Literal) left;
-            // The operand order is flipped, so the operator must be flipped with it. The loose converter keeps
-            // the operator (a widened conflict filter), which is unacceptable for the exact delete predicate:
-            // `1 < id` must become `id > 1`, never `id < 1`.
-            if (strict) {
-                op = commute(op);
-            }
+            // The operand order is flipped, so the operator must be flipped with it: `1 < id` must become
+            // `id > 1`, never `id < 1`. Keeping the operator (as the loose converter used to) narrows a
+            // conflict-detection filter and makes it miss matching concurrent files.
+            op = commute(op);
         } else {
             return null;
         }

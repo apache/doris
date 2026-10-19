@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -99,12 +101,20 @@ public class RowLevelDmlCommand {
                 // row-level scan/sink never runs. Skipped for a PARTITION(...) scope, whose row restriction is
                 // carried by the scan rather than by the statement predicate the connector receives.
                 if (op == RowLevelDmlOp.DELETE && args.getPartitions().isEmpty() && !args.isTempPart()) {
+                    // The ordinary row-level path replays this retained cancellation when the executor publishes
+                    // its coordinator; this branch has no coordinator, so do it explicitly before touching the
+                    // remote table.
+                    throwIfCancelled(stmtExecutor);
                     OptionalLong metadataDeletedRows =
-                            transform.deleteUsingMetadata(ctx, args, planner.getAnalyzedPlan());
+                            transform.deleteUsingMetadata(ctx, args, planner.getAnalyzedPlan(),
+                                    () -> stmtExecutor.getPendingCancelReason() != null);
                     if (metadataDeletedRows.isPresent()) {
                         reportMetadataDelete(ctx, table, metadataDeletedRows.getAsLong());
                         return null;
                     }
+                    // The connector aborts before committing when the query was cancelled; surface the original
+                    // cancellation instead of falling back to a row-level write.
+                    throwIfCancelled(stmtExecutor);
                 }
 
                 PhysicalSink<?> physicalSink = transform.requirePhysicalSink(planner, op);
@@ -202,6 +212,15 @@ public class RowLevelDmlCommand {
     private static boolean childIsEmptyRelation(PhysicalSink<?> sink) {
         return sink.children() != null && sink.children().size() == 1
                 && sink.child(0) instanceof PhysicalEmptyRelation;
+    }
+
+    /** Replays a cancellation retained by the executor before the statement may mutate the remote table. */
+    @VisibleForTesting
+    static void throwIfCancelled(StmtExecutor stmtExecutor) throws UserException {
+        Status cancelReason = stmtExecutor.getPendingCancelReason();
+        if (cancelReason != null) {
+            throw new UserException(cancelReason.getErrorMsg());
+        }
     }
 
     /**

@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -215,7 +216,8 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
     }
 
     @Override
-    public OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan) {
+    public OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan,
+            BooleanSupplier isCancelled) {
         TableIf table = args.getTable();
         // The statement's predicate must be extractable *exactly*: the connector turns it into a whole-file
         // delete, where a dropped conjunct would drop data files that still hold live rows. extractCompletePredicate
@@ -241,7 +243,7 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
                 ((PluginDrivenExternalTable) table).getWriteSchemaSnapshot();
         String boundWriteMetadataIdentity =
                 writeSchema == null ? null : writeSchema.getWriteMetadataIdentity();
-        return metadata.deleteUsingMetadata(session, handle, predicate, boundWriteMetadataIdentity);
+        return metadata.deleteUsingMetadata(session, handle, predicate, boundWriteMetadataIdentity, isCancelled);
     }
 
     /** The connector-declared synthetic (non-statement) columns, excluded from a statement predicate. */

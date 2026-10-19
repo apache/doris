@@ -344,6 +344,19 @@ public class NereidsToConnectorExpressionConverterTest {
     }
 
     @Test
+    public void looseConversionAlsoCommutesLiteralLeftComparisons() {
+        // The row-level fallback still builds RowDelta.conflictDetectionFilter from this loose conversion, so a
+        // reversed inequality there would exclude matching concurrent files and miss their conflicts.
+        SlotReference id = slot("id", ScalarType.INT);
+
+        ConnectorComparison loose = (ConnectorComparison) NereidsToConnectorExpressionConverter.convert(
+                new LessThan(new IntegerLiteral(1), id));
+
+        Assertions.assertEquals(ConnectorComparison.Operator.GT, loose.getOperator());
+        Assertions.assertEquals("id", ((ConnectorColumnRef) loose.getLeft()).getColumnName());
+    }
+
+    @Test
     public void strictConversionRejectsSqlUnsafeNegations() {
         // NOT(col = 1) becomes iceberg notEqual, which treats NULL-only files as matching, while SQL
         // NOT(UNKNOWN) deletes nothing. IS NOT NULL is the only negation that keeps SQL semantics.
