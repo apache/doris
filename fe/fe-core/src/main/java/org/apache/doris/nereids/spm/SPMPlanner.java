@@ -725,7 +725,8 @@ public class SPMPlanner {
         // form of `KEY db.key` is a bound EncryptKeyRef (not an UnboundFunction): reject on
         // BOTH inputs before parameterizing / assembling anything.
         SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
-        Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
+        Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
+                new SPMPlaceholderBuilder());
         // the matching key is namespace-qualified like tryRewritePlan's user side, so the
         // in-memory (UT) create / rewrite pair stays consistent in any context
         ConnectContext ctx = ConnectContext.get();
@@ -878,7 +879,9 @@ public class SPMPlanner {
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
         // across bind / plan), then optimize the PARAMETERIZED plan tree so the frozen
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
-        Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
+        SPMPlaceholderBuilder parameterizeBuilder = new SPMPlaceholderBuilder();
+        Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
+                parameterizeBuilder);
         LogicalPlan parameterizedPlan = trees.second;
         // View guard: freeze no planSql from a tree that references a view. The frozen
         // text is replayed ahead of authorization, so replaying a view's expansion would
@@ -930,7 +933,9 @@ public class SPMPlanner {
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
             frozen = decompileFrozenPlan(referencesView, foldedSessionSensitivePayload,
-                    pinsExplicitIndex, optimizeResult, planSql);
+                    pinsExplicitIndex,
+                    parameterizeBuilder.hasParameterizedGroupByOrdinalTarget(),
+                    optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -1154,7 +1159,8 @@ public class SPMPlanner {
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
             boolean foldedSessionSensitivePayload, boolean pinsExplicitIndex,
-            SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
+            boolean parameterizedGroupByOrdinal, SPMOptimizer.OptimizeResult optimizeResult,
+            String planSql) {
         if (referencesView) {
             LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
                     + " so the rewrite replays the parameterized tree (view authorization"
@@ -1174,6 +1180,19 @@ public class SPMPlanner {
                     + " carry (dropping it would read the base table instead of the pinned"
                     + " index); keeping the user planSql so the rewrite replays the"
                     + " parameterized tree, whose analysis re-applies the pin");
+            return new DecompiledPlan(planSql, false);
+        }
+        if (parameterizedGroupByOrdinal) {
+            // `SELECT 1 AS c, count(*) ... GROUP BY 1`: the ordinal is a POSITIONAL
+            // reference to the (parameterized) SELECT item, and the capture optimizer
+            // renders that group key as a CHILD COLUMN - the frozen replay would group by
+            // k while the user's own query groups by the constant (same value-dependent
+            // digest, different result). Keeping the user planSql lets the rewrite replay
+            // the parameterized tree, whose analysis resolves the ordinal exactly like the
+            // caller's statement.
+            LOG.info("SPM freeze skipped: a bare integer GROUP BY ordinal references a"
+                    + " parameterized SELECT item; keeping the user planSql so the rewrite"
+                    + " replays the parameterized tree, which resolves the ordinal itself");
             return new DecompiledPlan(planSql, false);
         }
         try {
@@ -1201,8 +1220,7 @@ public class SPMPlanner {
      * mapping identical to the post-restart rebuild (rebuildParameterizedTrees).
      */
     private static Pair<LogicalPlan, LogicalPlan> parameterizeWholeTrees(
-            LogicalPlan bindPlan, LogicalPlan planPlan) {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+            LogicalPlan bindPlan, LogicalPlan planPlan, SPMPlaceholderBuilder builder) {
         LogicalPlan parameterizedBind = parameterizeWholeTree(builder, bindPlan);
         if (planPlan == bindPlan) {
             // bindSql == planSql: one parse, one parameterization serves both roles

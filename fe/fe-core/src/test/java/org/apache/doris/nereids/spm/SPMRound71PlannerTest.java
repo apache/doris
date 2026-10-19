@@ -157,10 +157,17 @@ public class SPMRound71PlannerTest {
                 "the all-NULL CASE carries two branch markers: " + markers);
     }
 
-    /** The same CASE in a NON-Boolean position keeps its NullType marker (no widening). */
+    /**
+     * The same CASE in a NON-Boolean, NON-projected position keeps its NullType marker (no
+     * widening). A PROJECTED all-NULL CASE is the round-66 exception: its derived / CTE
+     * output slot reaches a Boolean consumer across the query-block boundary, and a
+     * NullType slot there is replaced by a typed constant NULL (see
+     * SPMMatchingSafetyTest#testProjectedAllNullCaseKeepsItsMarkers).
+     */
     @Test
     public void testCaseOutsideBooleanContextKeepsNullMarkers() {
-        LogicalPlan plan = parse("SELECT CASE WHEN k = 0 THEN NULL ELSE NULL END AS c FROM t");
+        LogicalPlan plan = parse(
+                "SELECT (CASE WHEN k = 0 THEN NULL ELSE NULL END) + v AS c FROM t");
         SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
@@ -171,7 +178,7 @@ public class SPMRound71PlannerTest {
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 sawNullMarker = true;
                 Assertions.assertTrue(((SpmConstVar) placeholder).getDataType() instanceof NullType,
-                        "outside a Boolean operand the marker keeps the NULL type");
+                        "outside a Boolean operand / projection the marker keeps the NULL type");
             }
         }
         Assertions.assertTrue(sawNullMarker, "the branch NULLs are still parameterized");

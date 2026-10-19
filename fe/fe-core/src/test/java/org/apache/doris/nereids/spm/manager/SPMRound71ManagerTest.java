@@ -63,6 +63,8 @@ public class SPMRound71ManagerTest {
         boolean ambiguousInsert;
         /** How many reclaimed versions the prune probe still reads (0 = provably gone). */
         long readableReclaimedVersions;
+        /** When true the prune DELETE reports an error that may hide a commit. */
+        boolean pruneThrows;
 
         @Override
         public boolean isDurable() {
@@ -129,6 +131,9 @@ public class SPMRound71ManagerTest {
         @Override
         public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
             pruned.add(new long[] {identity.getId(), keepFromSecond});
+            if (pruneThrows) {
+                throw new RuntimeException("delete reported an error (statement timed out)");
+            }
         }
 
         @Override
@@ -214,6 +219,25 @@ public class SPMRound71ManagerTest {
         Assertions.assertFalse(store.windowOpen(),
                 "a provably reclaimed prune closes the window");
         Assertions.assertFalse(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+    }
+
+    /**
+     * Round-72 #5: a THROWN prune DELETE may have COMMITTED with its publication lagging -
+     * exactly like the unprovable one above. Treating it as "only leaves rows behind"
+     * closed the window, and a paginated reader positioned on a removed version then
+     * stepped past the intent row while that version was still readable.
+     */
+    @Test
+    public void testThrownPruneKeepsTheSharedWindowOpen() {
+        TestStore store = new TestStore();
+        BaselineManager manager = cachedEnabledManager(store);
+        store.pruneThrows = true;
+
+        Assertions.assertTrue(manager.updateStatus(5L, BaselineStatus.ENABLED));
+        Assertions.assertEquals(1, store.pruned.size(), "the prune was dispatched");
+        Assertions.assertTrue(store.windowOpen(),
+                "a thrown prune must keep the shared window OPEN (it may have committed)");
+        Assertions.assertTrue(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
     }
 
     // ==================== #10a: the same STATUS is not the outcome ====================

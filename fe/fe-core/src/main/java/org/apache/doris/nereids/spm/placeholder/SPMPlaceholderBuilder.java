@@ -139,6 +139,18 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private int booleanCaseDepth;
 
+    /**
+     * Whether a bare integer GROUP BY ordinal references a SELECT item that carries a
+     * placeholder (see SPMPlanTreeSupport#visitLogicalAggregate). The ordinal itself stays
+     * CONCRETE, but the analyzer resolves it to that item's (parameterized) expression, and
+     * the frozen rendering of a placeholder group key is NOT faithful: the capture optimizer
+     * rewrote `GROUP BY &lt;placeholder&gt;` into a child column, so a frozen replay of
+     * `SELECT 1 AS c, count(*) ... GROUP BY 1` grouped by `k` while the user's own query
+     * grouped by the constant. The CREATE keeps the user planSql then and replays the
+     * parameterized tree, whose analysis resolves the ordinal in the caller's own query.
+     */
+    private boolean parameterizedGroupByOrdinalTarget;
+
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock(). */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
 
@@ -148,6 +160,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /** Installs / clears the GROUP BY mirror lookup window (null = disabled). */
     public void setGroupByMirrorLookup(java.util.function.Function<String, Expression> lookup) {
         this.groupByMirrorLookup = lookup;
+    }
+
+    /** See parameterizedGroupByOrdinalTarget. */
+    public boolean hasParameterizedGroupByOrdinalTarget() {
+        return parameterizedGroupByOrdinalTarget;
+    }
+
+    /** Marks one bare integer GROUP BY ordinal whose SELECT item carries placeholders. */
+    public void noteParameterizedGroupByOrdinalTarget() {
+        this.parameterizedGroupByOrdinalTarget = true;
     }
 
     /**
@@ -549,8 +571,28 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // operand with a typed constant NULL - deleting every placeholder inside it
         // (`k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END` lost both ids and a TRUE
         // variant had nothing to substitute).
+        //
+        // A PROJECTED CASE (the expression of a SELECT item, `... AS n`) reaches its
+        // Boolean consumer through a DERIVED / CTE OUTPUT SLOT, i.e. across the
+        // producer/consumer query-block boundary: `SELECT k > 0 OR n FROM
+        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s`. The CASE
+        // has no direct Boolean parent here, so the guard above left its markers NullType,
+        // the derived slot n stayed NullType, and the CONSUMER's
+        // ExpressionAnalyzer.visitOr replaced that entire slot with a typed constant NULL
+        // while the frozen plan was optimized - the frozen projection became
+        // `k > _spm_const_var(A) OR NULL` and the matching ELSE TRUE variant returned NULL
+        // instead of TRUE. Typing the CASE's NULL markers BOOLEAN makes the projected
+        // column BOOLEAN, so the slot (and the markers inside it) survive any later
+        // binding; a NULL value stays NULL through any coercion. Same rule the projected
+        // NULL literal already follows (see markerPayload).
+        boolean projectedCase = expr instanceof CaseWhen && currentProjectItem() >= 0
+                && (parent == null
+                        || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
+                        || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
         boolean booleanCaseOperand = expr instanceof CaseWhen
-                && (parent instanceof And || parent instanceof Or || parent instanceof Not);
+                && (parent instanceof And || parent instanceof Or || parent instanceof Not
+                        || projectedCase);
+
         if (booleanCaseOperand) {
             booleanCaseDepth++;
         }

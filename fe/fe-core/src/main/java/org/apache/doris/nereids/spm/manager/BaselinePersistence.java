@@ -113,6 +113,19 @@ public interface BaselinePersistence {
         return isDurable();
     }
 
+    /**
+     * Whether the store MODELS the id-reservation readback (the sequence watermark and the
+     * identity record). The create's ownership proof (see
+     * BaselineManager#confirmReservationReadable) must not be skipped because a READBACK
+     * happens to return zero: a lagging readback on a fresh cluster answers 0 while the
+     * reservation it must prove is simply not visible yet, and a successor reusing the id
+     * let two rows publish under it. Only a store that models the reads is asked (the
+     * scripted collision / status stores answer false).
+     */
+    default boolean reservationReadsAvailable() {
+        return false;
+    }
+
     // ==================== row reads ====================
 
     /**

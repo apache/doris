@@ -1221,6 +1221,21 @@ public final class SPMPlanTreeSupport {
             int mirrorMark = groupByMirrors.size();
             List<Expression> newGroupBy = new ArrayList<>(aggregate.getGroupByExpressions().size());
             for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
+                // A BARE integer GROUP BY key is an ORDINAL - a positional reference to the
+                // SELECT item, resolved by bindWithOrdinal during analyze (exactly like the
+                // ORDER BY ordinal handling in visitLogicalSort), NOT the literal value of
+                // that item. Parameterizing it turned the ordinal into a placeholder
+                // function (the analyzer no longer resolves a position and groups by a
+                // constant), AND the group-by mirror recorded "1 -> ph1", which
+                // mirrorProjectItem then REUSED for the independent SELECT literal:
+                // `SELECT 1 AS c, count(*) AS n FROM t GROUP BY 1` recorded ph1=1 from the
+                // group expression during matching and the output expression then rejected
+                // the caller's ph1=2 - the valid `SELECT 2 AS c ... GROUP BY 1` variant
+                // could never hit its own baseline.
+                if (groupByExpr instanceof IntegerLikeLiteral) {
+                    newGroupBy.add(groupByExpr);
+                    continue;
+                }
                 Expression newExpr = transform.apply(groupByExpr);
                 newGroupBy.add(newExpr);
                 if (newExpr != groupByExpr) {
@@ -1239,6 +1254,27 @@ public final class SPMPlanTreeSupport {
                     aggregate.getOutputExpressions(), transform, mirrorMark);
             if (newOutput != aggregate.getOutputExpressions()) {
                 changed = true;
+            }
+            // A bare integer GROUP BY ordinal stays CONCRETE (see the loop above), but the
+            // ANALYZER resolves it to the SELECT item's expression - which carries
+            // placeholders. The frozen rendering of such a group key is NOT faithful (see
+            // SPMPlaceholderBuilder#hasParameterizedGroupByOrdinalTarget), so the CREATE
+            // must keep the user planSql and replay the parameterized tree.
+            if (newOutput != aggregate.getOutputExpressions()
+                    && transform instanceof SPMPlaceholderBuilder) {
+                List<? extends NamedExpression> outputs = aggregate.getOutputExpressions();
+                for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
+                    if (!(groupByExpr instanceof IntegerLikeLiteral)) {
+                        continue;
+                    }
+                    int ordinal = ((IntegerLikeLiteral) groupByExpr).getBigDecimalValue()
+                            .intValue();
+                    if (ordinal >= 1 && ordinal <= outputs.size()
+                            && newOutput.get(ordinal - 1) != outputs.get(ordinal - 1)) {
+                        ((SPMPlaceholderBuilder) transform)
+                                .noteParameterizedGroupByOrdinalTarget();
+                    }
+                }
             }
             if (!changed) {
                 return aggregate;
@@ -3203,11 +3239,12 @@ public final class SPMPlanTreeSupport {
                             // be positioned from the caller's own list
                             return null;
                         }
-                        labels.addAll(payloadAdjustedPrefixLabels(star, expanded.labels));
+                        labels.addAll(payloadAdjustedPrefixLabels(star, expanded.labels,
+                                node.child(0), scope));
                         labels.add(OPEN_TAIL_LABEL);
                         continue;
                     }
-                    labels.addAll(exceptAdjustedLabels(star, expanded.labels));
+                    labels.addAll(exceptAdjustedLabels(star, expanded.labels, node.child(0), scope));
                     continue;
                 }
                 if (expanded.openTail) {
@@ -3234,13 +3271,41 @@ public final class SPMPlanTreeSupport {
      * matches no derivable label declines: silently keeping the frozen list would
      * report the captured header of a column the caller removed.
      */
-    private static List<String> exceptAdjustedLabels(UnboundStar star, List<String> labels) {
-        return applyReplacedAliases(star, applyExceptedLabels(star, labels));
+    private static List<String> exceptAdjustedLabels(UnboundStar star, List<String> labels,
+            Plan relation, CteScope scope) {
+        return applyReplacedAliases(star, applyExceptedLabels(star, labels, false, relation,
+                scope));
     }
 
-    /** The EXCEPT removal half of one payload star's label derivation. */
-    private static List<String> applyExceptedLabels(UnboundStar star, List<String> labels) {
-        return applyExceptedLabels(star, labels, false);
+    /**
+     * Whether one EXCEPT entry addresses a column of the UNDERIVABLE tail of the star's
+     * relation, so it must NOT be removed from the DERIVABLE prefix. With t(k, v),
+     * u(k, q) and
+     * `SELECT * EXCEPT(u.k) FROM (SELECT k, v + 1 AS z FROM t) d CROSS JOIN u` the
+     * derivation yields the prefix [k, z] plus an open tail (u's unknown width), and
+     * outputLabelOf(u.k) is just `k`: the name-based removal deleted D's k from the
+     * prefix, the lenient tail accepted the shorter list, and alignRootOutputLabels
+     * renamed the correctly frozen first k to z - headers [z, z, q] even for identical
+     * SQL. A QUALIFIED entry names the RELATION too: resolve it against the star's join
+     * sides - an entry addressing an OPEN side is a real column of the tail (nothing to
+     * realign, keep the prefix's same-named column), an entry addressing a DERIVABLE
+     * side applies to the prefix, and an unresolvable qualifier DECLINES the alignment
+     * instead of guessing.
+     */
+    private static boolean exclusionAddressesUnderivableTail(Plan relation,
+            NamedExpression excluded, CteScope scope) {
+        List<String> qualifier = excluded instanceof UnboundSlot
+                ? ((UnboundSlot) excluded).getQualifier() : null;
+        if (qualifier == null || qualifier.isEmpty() || relation == null) {
+            return false;
+        }
+        StarLabels side = qualifiedStarExpansion(relation, qualifier, scope);
+        if (side == null) {
+            throw new UnalignableOutputLabelsException(
+                    "the caller's * EXCEPT column " + excluded.toSql() + " names no"
+                            + " relation of the replay; the headers cannot be positioned");
+        }
+        return side.openTail;
     }
 
     /**
@@ -3248,10 +3313,13 @@ public final class SPMPlanTreeSupport {
      * exceptAdjustedLabels). The LENIENT variant is used for a PREFIX whose tail is
      * underivable (see payloadAdjustedPrefixLabels): an EXCEPT name that matches no
      * prefix label addresses the unknown-width tail, whose frozen names are real column
-     * names - nothing to realign - so the entry is ignored instead of declining.
+     * names - nothing to realign - so the entry is ignored instead of declining. A
+     * QUALIFIED entry is resolved through the star's own relation (see
+     * exclusionAddressesUnderivableTail): it never removes the same-named column of the
+     * derivable prefix when it names a column of the underivable tail.
      */
     private static List<String> applyExceptedLabels(UnboundStar star, List<String> labels,
-            boolean lenientTail) {
+            boolean lenientTail, Plan relation, CteScope scope) {
         List<String> excepted = new ArrayList<>();
         for (NamedExpression slot : star.getExceptedSlots()) {
             String name = outputLabelOf(slot);
@@ -3259,6 +3327,13 @@ public final class SPMPlanTreeSupport {
                 throw new UnalignableOutputLabelsException(
                         "the caller's * EXCEPT column name cannot be read; the headers"
                                 + " cannot be positioned");
+            }
+            if (exclusionAddressesUnderivableTail(relation, slot, scope)) {
+                // the column lives in the UNDERIVABLE tail (a base table / join side
+                // behind the derivable prefix): its frozen name is a REAL column name,
+                // so nothing is realigned - and the prefix must keep ITS same-named
+                // column instead of losing it to this entry
+                continue;
             }
             excepted.add(name);
         }
@@ -3362,8 +3437,9 @@ public final class SPMPlanTreeSupport {
      * `SELECT * EXCEPT(v) FROM (SELECT a + 1 FROM t) d CROSS JOIN u` still realign.
      */
     private static List<String> payloadAdjustedPrefixLabels(UnboundStar star,
-            List<String> labels) {
-        return applyReplacedAliases(star, applyExceptedLabels(star, labels, true), true);
+            List<String> labels, Plan relation, CteScope scope) {
+        return applyReplacedAliases(star, applyExceptedLabels(star, labels, true, relation,
+                scope), true);
     }
 
     /** One slot name's last component (an EXCEPT column may be written qualified). */
@@ -3434,7 +3510,8 @@ public final class SPMPlanTreeSupport {
                                         + " cannot be positioned");
                     }
                     List<String> labels = hasStarPayload(star)
-                            ? exceptAdjustedLabels(star, expanded.labels)
+                            ? exceptAdjustedLabels(star, expanded.labels, userNode.child(0),
+                                    cteScope)
                             : expanded.labels;
                     for (String label : labels) {
                         precedingLabels.add(label);
@@ -3469,7 +3546,8 @@ public final class SPMPlanTreeSupport {
                                         + " cannot be positioned");
                     }
                     List<String> labels = hasStarPayload(star)
-                            ? exceptAdjustedLabels(star, expanded.labels)
+                            ? exceptAdjustedLabels(star, expanded.labels, userNode.child(0),
+                                    cteScope)
                             : expanded.labels;
                     for (String label : labels) {
                         followingLabels.add(label);
@@ -3539,18 +3617,25 @@ public final class SPMPlanTreeSupport {
     private static final class CteScope {
         final java.util.Map<String, CteBinding> queries;
         /**
-         * Names whose expansion is in progress: a recursive self-reference declines.
-         * The set is SHARED across derived scopes (see derive / collectShadowingCteQueries)
-         * so recursion detection still spans the whole expansion.
+         * Bindings whose expansion is in progress: a recursive self-reference declines.
+         * Keyed by the BINDING IDENTITY, not by the alias NAME: a name-keyed set shared
+         * across derived scopes declared a legal nested shadowing query recursive -
+         * `WITH c AS (WITH c AS (SELECT k + 1 FROM t) SELECT * FROM c) SELECT * FROM c`
+         * added the outer `c` while expanding the outer reference, so the DIFFERENT inner
+         * binding could not enter the set and was declared recursive; the alignment threw
+         * and the baseline could not be used at all. The set is SHARED across derived
+         * scopes (see derive / collectShadowingCteQueries) so recursion detection still
+         * spans the whole expansion, and a true self-reference re-enters the SAME binding
+         * instance (see CteBinding#expansionScope), which is what the guard detects.
          */
-        final java.util.Set<String> resolving;
+        final java.util.Set<CteBinding> resolving;
 
         CteScope() {
             this(new java.util.HashMap<>(), new java.util.HashSet<>());
         }
 
         private CteScope(java.util.Map<String, CteBinding> queries,
-                java.util.Set<String> resolving) {
+                java.util.Set<CteBinding> resolving) {
             this.queries = queries;
             this.resolving = resolving;
         }
@@ -3585,7 +3670,7 @@ public final class SPMPlanTreeSupport {
         }
 
         /** The scope one expansion of this alias's BODY runs in (see the CTE block). */
-        CteScope expansionScope(java.util.Set<String> resolving) {
+        CteScope expansionScope(java.util.Set<CteBinding> resolving) {
             // The DECLARATION-TIME environment, plus the alias ITSELF so a recursive
             // self-reference still reaches the recursion guard (scope.resolving).
             java.util.Map<String, CteBinding> environment =
@@ -3876,9 +3961,9 @@ public final class SPMPlanTreeSupport {
                 String cteName = normalizeCteName(parts.get(0));
                 CteBinding binding = scope.queries.get(cteName);
                 if (binding != null) {
-                    if (!scope.resolving.add(cteName)) {
+                    if (!scope.resolving.add(binding)) {
                         throw new UnalignableOutputLabelsException(
-                                "the caller's WITH reference " + cteName
+                                "the caller's WITH reference " + binding.name
                                         + " cannot be expanded (recursive); the caller's"
                                         + " headers cannot be positioned");
                     }
@@ -3891,7 +3976,7 @@ public final class SPMPlanTreeSupport {
                         return applyCteColumnList(starExpansion(binding.query,
                                 binding.expansionScope(scope.resolving)), binding.query);
                     } finally {
-                        scope.resolving.remove(cteName);
+                        scope.resolving.remove(binding);
                     }
                 }
             }
