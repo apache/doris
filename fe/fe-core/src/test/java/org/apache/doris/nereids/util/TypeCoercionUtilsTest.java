@@ -543,6 +543,50 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testTimestampNsNestedDateComparisonUsesStrictCastInBothModes() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = false;
+        connectContext.setThreadLocalInfo();
+        try {
+            for (boolean newBehavior : ImmutableList.of(false, true)) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                for (DataType dateType : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE)) {
+                    DataType temporalType = dateType;
+                    DataType timestampNsType = TimeStampNsType.INSTANCE;
+                    for (int depth = 1; depth <= 2; depth++) {
+                        temporalType = ArrayType.of(temporalType);
+                        timestampNsType = ArrayType.of(timestampNsType);
+                        Expression dates = new SlotReference("dates", temporalType);
+                        Expression stamps = new SlotReference("stamps", timestampNsType);
+                        for (ComparisonPredicate comparison : ImmutableList.of(
+                                new EqualTo(dates, stamps), new NullSafeEqual(dates, stamps),
+                                new LessThan(dates, stamps))) {
+                            for (ComparisonPredicate ordered : ImmutableList.of(comparison, comparison.commute())) {
+                                Expression normalized = TypeCoercionUtils.processComparisonPredicate(ordered);
+                                Assertions.assertEquals(timestampNsType, normalized.child(0).getDataType());
+                                Assertions.assertEquals(timestampNsType, normalized.child(1).getDataType());
+                                Expression cast = normalized.child(ordered.left() == dates ? 0 : 1);
+                                Assertions.assertInstanceOf(Cast.class, cast);
+                                Assertions.assertEquals(dates, cast.child(0));
+                                Assertions.assertTrue(((Cast) cast).isStrict());
+                                Assertions.assertFalse(((Cast) cast).isExplicitType());
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testTimestampNsLiteralAndCommonTypeCoercion() {
         String timestamp = "2024-01-02 03:04:05.123456789";
         Optional<Expression> literal = TypeCoercionUtils.characterLiteralTypeCoercion(

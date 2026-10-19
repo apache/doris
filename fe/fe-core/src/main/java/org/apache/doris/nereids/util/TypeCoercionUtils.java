@@ -1552,12 +1552,8 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            left = timeStampNsDateLikePair
-                    ? strictCastIfNotSameType(left, commonType.get())
-                    : castIfNotSameType(left, commonType.get());
-            right = timeStampNsDateLikePair
-                    ? strictCastIfNotSameType(right, commonType.get())
-                    : castIfNotSameType(right, commonType.get());
+            left = castIfNotSameTypeForTimeStampNsCoercion(left, commonType.get());
+            right = castIfNotSameTypeForTimeStampNsCoercion(right, commonType.get());
         } else {
             throw new AnalysisException("unsupported comparison predicate " + comparisonPredicate.toSql());
         }

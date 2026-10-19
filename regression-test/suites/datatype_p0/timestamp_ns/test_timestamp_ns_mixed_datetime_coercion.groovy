@@ -37,8 +37,59 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
         (5, null, null)
     """
 
+    sql "drop table if exists timestamp_ns_mixed_date_arrays"
+    sql """
+        create table timestamp_ns_mixed_date_arrays (
+            id int,
+            dates array<datev2>,
+            nested_dates array<array<datev2>>,
+            stamps array<timestamp_ns>,
+            nested_stamps array<array<timestamp_ns>>
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_mixed_date_arrays values
+            (1, ['2024-01-01'], [['2024-01-01']],
+                ['2024-01-01 00:00:00.000000001'], [['2024-01-01 00:00:00.000000001']]),
+            (2, ['2500-01-01'], [['2500-01-01']],
+                ['2024-01-01 00:00:00.000000001'], [['2024-01-01 00:00:00.000000001']]),
+            (3, ['1600-01-01'], [['1600-01-01']],
+                ['2024-01-01 00:00:00.000000001'], [['2024-01-01 00:00:00.000000001']]),
+            (4, null, null, null, null),
+            (5, [], [[]], [], [[]]),
+            (6, [null], [[null]], [null], [[null]])
+    """
+
     def checkCoercionMode = { mode ->
         sql "set global enable_new_type_coercion_behavior = ${mode}"
+
+        "qt_mixed_date_array_comparisons_${mode}" """
+            select id, dates = stamps, stamps = dates, dates < stamps, dates <=> stamps,
+                nested_dates = nested_stamps, nested_stamps = nested_dates,
+                nested_dates < nested_stamps, nested_dates <=> nested_stamps
+            from timestamp_ns_mixed_date_arrays
+            where id not in (2, 3)
+            order by id
+        """
+        // Both operand orders and both nesting levels must fail instead of replacing a bad
+        // temporal element with NULL when the session disables strict explicit casts.
+        for (def row : [2, 3]) {
+            for (def columns : [['dates', 'stamps'], ['nested_dates', 'nested_stamps']]) {
+                for (def operands : [columns, columns.reverse()]) {
+                    for (def op : ['=', '<', '<=>']) {
+                        test {
+                            sql """
+                                select ${operands[0]} ${op} ${operands[1]}
+                                from timestamp_ns_mixed_date_arrays where id = ${row}
+                            """
+                            exception "TIMESTAMP_NS overflow"
+                        }
+                    }
+                }
+            }
+        }
 
         "order_qt_mixed_column_comparison_${mode}" """
             select id, ts > dt, dt < ts, ts = dt
