@@ -50,7 +50,7 @@ public class SearchSignature {
     private final List<FunctionSignature> signatures;
     private final List<Expression> arguments;
     private final boolean hasTimeStampNsArgument;
-    private final boolean hasTimeStampNsCompatibleDateTimeArgument;
+    private final boolean hasOtherDateLikeArgument;
     private final boolean hasDateLikeSignature;
 
     // param1: signature type
@@ -66,10 +66,9 @@ public class SearchSignature {
         this.arguments = arguments;
         this.hasTimeStampNsArgument = arguments.stream()
                 .anyMatch(argument -> argument.getDataType().isTimeStampNsType());
-        this.hasTimeStampNsCompatibleDateTimeArgument = arguments.stream()
-                .anyMatch(argument -> argument.getDataType().isDateTimeType()
-                        || argument.getDataType().isDateTimeV2Type()
-                        || argument.getDataType().isTimeStampTzType());
+        this.hasOtherDateLikeArgument = arguments.stream()
+                .anyMatch(argument -> argument.getDataType().isDateLikeType()
+                        && !argument.getDataType().isTimeStampNsType());
         this.hasDateLikeSignature = signatures.stream().anyMatch(signature ->
                 signature.argumentsTypes.stream().anyMatch(DataType::isDateLikeType)
                         || signature.getVarArgType().filter(DataType::isDateLikeType).isPresent());
@@ -267,31 +266,20 @@ public class SearchSignature {
             DataType sigArgType = sig.getArgType(i);
             Expression argument = arguments.get(i);
             DataType realType = argument.getDataType();
-            if (hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument && hasDateLikeSignature
+            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasDateLikeSignature
                     && realType.isDateLikeType() && !sigArgType.isDateLikeType()) {
                 // Do not bypass temporal exactness checks through a generic string overload.
                 return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
-            if (hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument && hasDateLikeSignature
-                    && (realType.isTimeStampNsType() || realType.isDateTimeType()
-                            || realType.isDateTimeV2Type() || realType.isTimeStampTzType())
-                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()
-                    && !(computeSignature instanceof SupportsMixedTimeStampNsDateTime)) {
-                // Functions that need a common temporal type use the TIMESTAMP_NS overload.
-                // Functions without a common temporal result opt in to mixed physical signatures.
+            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasDateLikeSignature
+                    && realType.isDateLikeType()
+                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()) {
+                // Mixed temporal calls use TIMESTAMP_NS without truncation or nullable overflow.
                 return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
             if (sigArgType.isTimeStampNsType() && !hasTimeStampNsArgument) {
                 // TIMESTAMP_NS overloads preserve a typed nanosecond argument. They must not
                 // change the historical binding of character or other temporal input.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
-            }
-            if (sigArgType.isTimeStampNsType() && realType.isDateLikeType()
-                    && !realType.isTimeStampNsType()
-                    && !(hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument)
-                    && !TypeCoercionUtils.canExactlyCastToTimeStampNs(argument)) {
-                // Other date-like domains are wider than signed epoch nanoseconds. A typed
-                // TIMESTAMP_NS peer must not make a partial column conversion implicit.
                 return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
             if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()

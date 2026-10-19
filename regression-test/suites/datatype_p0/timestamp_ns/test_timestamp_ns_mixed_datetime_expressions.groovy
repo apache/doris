@@ -40,8 +40,8 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         (7, null, null)
     """
 
-    // Mixed comparisons use the exact heterogeneous BE comparator unless an exactly representable
-    // constant can be converted to the column type. Exercise both operand orders and NULL semantics.
+    // Mixed comparisons strictly promote the temporal peer to TIMESTAMP_NS.
+    // Exercise both operand orders and NULL semantics.
     order_qt_mixed_comparisons """
         select id,
                ts = dt, dt = ts,
@@ -113,7 +113,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         order by id
     """
 
-    // Difference functions execute directly on TIMESTAMP_NS and DATETIMEV2 physical arguments.
+    // Difference functions also promote mixed temporal arguments to TIMESTAMP_NS.
     qt_mixed_diff_to_timestamp_ns """
         select
             datediff(
@@ -146,7 +146,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         where id = 1
     """
 
-    // Both physical argument orders are registered without requiring a common temporal type.
+    // Both argument orders preserve nanosecond precision.
     qt_mixed_diff_to_datetimev2 """
         select
             datediff(
@@ -469,11 +469,11 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
             '2024-01-02 00:00:00', cast('2024-01-02 00:00:00+08:00' as timestamptz(6))),
         (2, '2024-01-02 00:00:00.000000001', '2024-01-02', '2024-01-02',
             '2024-01-02 00:00:00', cast('2024-01-02 00:00:00+08:00' as timestamptz(6))),
-        (3, '1677-09-21 00:12:43.145224192', '1677-09-21', '1677-09-21',
+        (3, '1677-09-21 00:12:43.145224192', '1677-09-22', '1677-09-22',
             '1700-01-01 00:00:00', cast('1700-01-01 00:00:00+08:00' as timestamptz(6))),
         (4, '2262-04-11 23:47:16.854775807', '2262-04-11', '2262-04-11',
             '2200-01-01 00:00:00', cast('2200-01-01 00:00:00+08:00' as timestamptz(6))),
-        (5, '1970-01-01 00:00:00.000000000', '2500-01-01', '2500-01-01',
+        (5, '1970-01-01 00:00:00.000000000', '2200-01-01', '2200-01-01',
             '2200-01-01 00:00:00', cast('2200-01-01 00:00:00+08:00' as timestamptz(6))),
         (6, null, null, null, null, null)
     """
@@ -495,14 +495,20 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         from timestamp_ns_mixed_date_families
         order by id
     """
-    order_qt_mixed_date_family_boundary_literals """
-        select id,
-               ts < cast('2500-01-01' as datev2),
-               ts in (cast('2500-01-01' as datev2), cast('1970-01-01' as datev2), null),
-               ts not in (cast('2500-01-01' as datev2), cast('1970-01-01' as datev2), null)
-        from timestamp_ns_mixed_date_families
-        order by id
-    """
+    test {
+        sql """
+            select ts < cast('2500-01-01' as datev2)
+            from timestamp_ns_mixed_date_families
+        """
+        exception "outside Int64 epoch nanosecond range"
+    }
+    test {
+        sql """
+            select ts in (cast('2500-01-01' as datev2), cast('1970-01-01' as datev2), null)
+            from timestamp_ns_mixed_date_families
+        """
+        exception "outside Int64 epoch nanosecond range"
+    }
 
     order_qt_mixed_datetime_family_functions """
         select id,
@@ -533,24 +539,27 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
             cast('2262-04-11 23:47:16.854776+08:00' as timestamptz(6)))
     """
 
-    // Comparisons, differences and NULLIF do not need a common result type, so values outside the
-    // TIMESTAMP_NS epoch-nanosecond range remain executable.
-    qt_mixed_datetime_overflow_without_narrowing """
-        select
-            cast('1970-01-01 00:00:00' as timestamp_ns) = dt,
-            cast('2262-04-11 23:47:16.854775807' as timestamp_ns) < dtv2,
-            cast('2262-04-11 23:47:16.854775807' as timestamp_ns)
-                < cast('9999-05-11 23:47:16' as datetimev2(6)),
-            cast('2262-04-11 23:47:16.854775807' as timestamp_ns) < tz,
-            datediff(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2),
-            seconds_diff(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2),
-            nullif(cast('2262-04-11 23:47:16.854775807' as timestamp_ns), dtv2),
-            nullif(dtv2, cast('2262-04-11 23:47:16.854775807' as timestamp_ns))
-        from timestamp_ns_mixed_datetime_overflow
-    """
+    // Conversion overflow fails even when the session disables strict explicit casts.
+    for (def expression : [
+            "cast('1970-01-01 00:00:00' as timestamp_ns) = dt",
+            "cast('2262-04-11 23:47:16.854775807' as timestamp_ns) < dtv2",
+            "datediff(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2)",
+            "seconds_diff(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2)",
+            "nullif(cast('2262-04-11 23:47:16.854775807' as timestamp_ns), dtv2)",
+            "nullif(dtv2, cast('2262-04-11 23:47:16.854775807' as timestamp_ns))"]) {
+        test {
+            sql "select ${expression} from timestamp_ns_mixed_datetime_overflow"
+            exception "TIMESTAMP_NS overflow"
+        }
+    }
+    test {
+        sql """
+            select cast('2262-04-11 23:47:16.854775807' as timestamp_ns) < tz
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "can not cast timestamptz"
+    }
 
-    // Expressions that produce a common temporal value still normalize to TIMESTAMP_NS and retain
-    // strict range checking.
     test {
         sql """
             select greatest(cast('1970-01-01 00:00:00' as timestamp_ns), tz)
