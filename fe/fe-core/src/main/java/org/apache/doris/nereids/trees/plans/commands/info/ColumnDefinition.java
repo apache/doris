@@ -384,6 +384,10 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
+        if (!nestedColumn && type.isVariantType() && name.indexOf('.') != -1) {
+            throw new AnalysisException(
+                    "Cannot use `VARIANT` type column named with a `.` character: " + name);
+        }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
