@@ -798,9 +798,13 @@ class IvmNormalizeUniqKeysMTMVTest {
                 Pair.of(new Count(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
                 Pair.of(new Min(nameSlot), concat(groupCount,
-                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
                 Pair.of(new Max(nameSlot), concat(groupCount,
-                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
                 Pair.of(new CollectList(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COLLECT_LIST"))),
                 Pair.of(new BitmapUnion(new BitmapFromString(nameSlot)), concat(groupCount,
@@ -1068,7 +1072,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
 
-        // Normalization should succeed; no hidden MIN column — only hidden COUNT
+        // Normalization should succeed; no hidden MIN column, but COUNT and MIN_COUNT state columns.
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
@@ -1076,12 +1080,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MIN, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT")));
     }
 
     @Test
@@ -1104,12 +1110,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MAX, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT")));
     }
 
     @Test

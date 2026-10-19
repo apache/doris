@@ -19,18 +19,17 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 
-/** MIN-specific extreme comparisons and merge expression. */
+/** MIN-specific extreme comparisons and delta state. */
 class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     IvmAggMinProcessor() {
-        super(IvmAggFunctionKind.MIN, "DELMIN");
+        super(IvmAggFunctionKind.MIN, IvmAggStateKey.MIN_COUNT, "DELMIN");
     }
 
     @Override
@@ -44,16 +43,18 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme,
-            Slot oldExtreme, Expression deltaInsertExtreme) {
-        return new Or(
-                new GreaterThan(deltaDeletedExtreme, oldExtreme),
-                new LessThanEqual(deltaInsertExtreme, oldExtreme));
+    protected Expression buildExtremeCountAggregate(Expression input) {
+        return new CountAtMin(input);
     }
 
     @Override
-    protected Expression mergeOldAndInsertedExtreme(Slot oldExtreme, Expression deltaInsertExtreme) {
-        return new Least(oldExtreme, deltaInsertExtreme);
+    protected Expression insertedIsBetter(Expression deltaInsert, Slot oldExtreme) {
+        return new LessThan(deltaInsert, oldExtreme);
+    }
+
+    @Override
+    protected Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme) {
+        return new GreaterThanEqual(deltaDelete, oldExtreme);
     }
 
     @Override
