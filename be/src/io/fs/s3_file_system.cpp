@@ -525,8 +525,9 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
     // endpoint of one generation with the client of another.
     auto state = _client->state();
     if (is_public_endpoint && state->config.endpoint().ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        // An S3FileSystem is always created from an S3Conf, so its holder keeps the legacy
-        // conf that the public-endpoint client is derived from.
+        // Only S3-protocol backends have an OSS private endpoint. Their file systems are
+        // created from an S3Conf (the typed constructor is used for Azure only), so the holder
+        // keeps the legacy conf that the public-endpoint client is derived from.
         DORIS_CHECK(state->legacy_conf.has_value());
         auto new_s3_conf = *state->legacy_conf;
         new_s3_conf.endpoint.erase(new_s3_conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
