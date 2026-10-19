@@ -125,6 +125,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
     private static final String ICEBERG_FILE_PATH_COL = "_file";
     private static final String ICEBERG_ROW_POSITION_COL = "_pos";
+    // The hidden DML row-id column, fe-core Column.ICEBERG_ROWID_COL (pinned by
+    // IcebergScanPlanProviderClassifyColumnTest through the scan provider's copy).
+    private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
@@ -783,7 +786,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             rejectReservedMetadataColumns(schema);
         }
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
-                fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
+                fields.size() + (appendDataFileMetadataColumns ? 3 : 0));
         for (Types.NestedField field : fields) {
             String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
@@ -791,6 +794,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (appendDataFileMetadataColumns) {
             handles.put(ICEBERG_FILE_PATH_COL, new IcebergColumnHandle(ICEBERG_FILE_PATH_COL, -1));
             handles.put(ICEBERG_ROW_POSITION_COL, new IcebergColumnHandle(ICEBERG_ROW_POSITION_COL, -1));
+            // Synthesized by the reader for DML and never in the schema. Its handle tells the scan provider that a
+            // scan produces row IDs (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData).
+            handles.put(DORIS_ICEBERG_ROWID_COL, new IcebergColumnHandle(DORIS_ICEBERG_ROWID_COL, -1));
         }
         return handles;
     }
@@ -939,16 +945,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== DDL writes (B1): create/drop database + table ==========
 
     /**
-     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
-     * properties are only honored by an HMS catalog; for every other flavor a non-empty property map fails
-     * loud (legacy parity) — the gate is a pure local check run BEFORE the auth context, like paimon.
-     * Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
+     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. HMS, JDBC
+     * and Glue catalogs store namespace properties; only HMS and Glue place new tables under a namespace
+     * {@code location}. Hadoop, REST, DLF and S3 Tables catalogs reject a non-empty property map (a REST
+     * server may ignore namespace properties). The gate is a pure local check run BEFORE the auth context,
+     * like paimon. Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
-        if (!properties.isEmpty() && !isHmsCatalog()) {
+        String catalogType = catalogType();
+        if (!properties.isEmpty() && !supportsDatabaseProperties(catalogType)) {
             throw new DorisConnectorException(
-                    "Not supported: create database with properties for iceberg catalog type: " + catalogType());
+                    "Not supported: create database with properties for iceberg catalog type: " + catalogType);
+        }
+        if (properties.containsKey("location") && !supportsDatabaseLocation(catalogType)) {
+            throw new DorisConnectorException("Not supported: database property 'location' for iceberg catalog type: "
+                    + catalogType + " because it does not determine the default table location");
         }
         try {
             executeAuthenticated(() -> {
@@ -959,6 +971,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException(
                     "Failed to create Iceberg database " + dbName + ": " + e.getMessage(), e);
         }
+    }
+
+    private static boolean supportsDatabaseProperties(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_JDBC.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
+    }
+
+    private static boolean supportsDatabaseLocation(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
     }
 
     /**
@@ -1043,6 +1066,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // CREATE properties (ConnectorFactory.createConnector(catalogProperty.getProperties())).
         Map<String, String> tableProperties =
                 IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
+        if (request.getColumns().stream().anyMatch(column -> IcebergSchemaBuilder.isVariant(column.getType()))) {
+            IcebergWriterHelper.validateVariantWriteFormat(
+                    IcebergSchemaBuilder.getEffectiveFormatVersion(tableProperties, properties),
+                    IcebergSchemaBuilder.getEffectiveFileFormat(tableProperties, properties));
+        }
         applyCreateTableComment(tableProperties, request.getComment());
         try {
             executeAuthenticated(() -> {
@@ -1463,7 +1491,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!column.isNullable()) {
             throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
         }
-        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
@@ -1550,7 +1578,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         Type icebergType;
         try {
-            icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+            icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         } catch (DorisConnectorException buildError) {
             // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
             throw upgradeNestedModifyError(iceHandle, path, column, buildError);

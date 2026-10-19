@@ -198,7 +198,9 @@ TEST_F(OrcReaderFillDataTest, TimestampTzV1RejectsOutOfRangeUtcYears) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
     auto reader = OrcReader::create_unique(params, range, 4096, "UTC", nullptr);
-    for (int64_t seconds : {-62135596801LL, 253402300800LL}) {
+    // TIMESTAMPTZ holds UTC years 0 through 9999, so the bounds are 0000-01-01T00:00:00Z and
+    // 9999-12-31T23:59:59Z.
+    for (int64_t seconds : {-62167219201LL, 253402300800LL}) {
         auto batch = create_timestamp_batch(1, {seconds}, {0});
         auto column = ColumnTimeStampTz::create();
         MutableColumnPtr mutable_column = column->assert_mutable();
@@ -206,17 +208,23 @@ TEST_F(OrcReaderFillDataTest, TimestampTzV1RejectsOutOfRangeUtcYears) {
                 reader->_decode_timestamp_tz_column<false>("ts", mutable_column, batch.get(), 1)
                         .ok());
     }
-    auto batch = create_timestamp_batch(3, {-62135596800LL, 253402300799LL, 253402300800LL},
-                                        {0, 999999000, 0});
+    auto batch = create_timestamp_batch(
+            4, {-62167219200LL, -62135596801LL, 253402300799LL, 253402300800LL},
+            {0, 0, 999999000, 0});
     batch->hasNulls = true;
-    batch->notNull[2] = false;
+    batch->notNull[3] = false;
     auto column = ColumnTimeStampTz::create();
     MutableColumnPtr mutable_column = column->assert_mutable();
     ASSERT_TRUE(
-            reader->_decode_timestamp_tz_column<false>("ts", mutable_column, batch.get(), 3).ok());
-    EXPECT_EQ(column->get_data()[0].year(), 1);
-    EXPECT_EQ(column->get_data()[1].year(), 9999);
-    EXPECT_EQ(column->get_data()[1].microsecond(), 999999);
+            reader->_decode_timestamp_tz_column<false>("ts", mutable_column, batch.get(), 4).ok());
+    EXPECT_EQ(column->get_data()[0].year(), 0);
+    EXPECT_EQ(column->get_data()[0].month(), 1);
+    EXPECT_EQ(column->get_data()[0].day(), 1);
+    EXPECT_EQ(column->get_data()[1].year(), 0);
+    EXPECT_EQ(column->get_data()[1].month(), 12);
+    EXPECT_EQ(column->get_data()[1].day(), 31);
+    EXPECT_EQ(column->get_data()[2].year(), 9999);
+    EXPECT_EQ(column->get_data()[2].microsecond(), 999999);
 }
 
 TEST_F(OrcReaderFillDataTest, TimestampTzV1RejectsOutOfRangeArrayElements) {

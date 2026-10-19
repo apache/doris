@@ -78,6 +78,20 @@ class IvmUtilTest {
         Assertions.assertInstanceOf(BitmapEmpty.class, skipBitmap);
     }
 
+    @Test
+    void testBaseScanStorageColumnToMask() {
+        Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL));
+        Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL.toLowerCase()));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.DELETE_SIGN));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.VERSION_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.COMMIT_TSO_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.ROW_LSN_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.ROW_STORE_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.IVM_ROW_ID_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask("id"));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(null));
+    }
+
     private SlotReference intSlot(String name, boolean nullable) {
         return new SlotReference(name, IntegerType.INSTANCE, nullable);
     }

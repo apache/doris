@@ -22,10 +22,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -34,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -44,6 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -170,6 +175,17 @@ class IvmDupDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertThrows(IvmException.class, () -> generateDelta(buildOuterJoin(scan, scan), mtmv));
     }
 
+    @Test
+    void testMarkJoinIsRejected() {
+        LogicalOlapScan scan = buildScanForTable(712, "dup_mark_reject");
+        Plan query = buildScanPlan(scan).child();
+        MTMV mtmv = dupMtmvWithPendingRows(query, 712_001L, ImmutableList.of(scan.getTable()));
+
+        // A mark join's mark can drop a row the MV already holds, so a refresh cannot express it by
+        // appending, and the shared join gate the detail normalize uses rejects it here as well.
+        Assertions.assertThrows(IvmException.class, () -> generateDelta(buildMarkJoin(scan, scan), mtmv));
+    }
+
     private Plan generateDelta(Plan query, MTMV mtmv) {
         ConnectContext connectContext = newConnectContext();
         IvmRewriteResult rewriteResult = new IvmRewriteResult();
@@ -218,6 +234,18 @@ class IvmDupDeltaRewriterTest extends IvmDeltaTestBase {
                 new Alias(rightScan.getOutput().get(0), "r_id")), rightScan);
         return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(new EqualTo(leftArm.getOutput().get(0), rightArm.getOutput().get(0))),
+                leftArm, rightArm, JoinReorderContext.EMPTY);
+    }
+
+    private Plan buildMarkJoin(LogicalOlapScan leftScan, LogicalOlapScan rightScan) {
+        LogicalProject<LogicalOlapScan> leftArm = new LogicalProject<>(
+                ImmutableList.copyOf(leftScan.getOutput()), leftScan);
+        LogicalProject<LogicalOlapScan> rightArm = new LogicalProject<>(
+                ImmutableList.copyOf(rightScan.getOutput()), rightScan);
+        return new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE),
+                Optional.of(new MarkJoinSlotReference("$mark")),
                 leftArm, rightArm, JoinReorderContext.EMPTY);
     }
 
