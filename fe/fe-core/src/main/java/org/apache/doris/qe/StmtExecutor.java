@@ -2170,7 +2170,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
+        // Proxy parsing creates a new context. Use the context marked as the prepare stage
+        // by PrepareCommand, rather than the one allocated before parsing in the constructor.
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(context.getStatementContext());
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
         return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }

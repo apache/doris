@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
@@ -93,6 +94,27 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleStmtResetById(stmtId);
     }
 
+    private void handleSendLongData() {
+        // This command never has a response, including when the upload fails. Report a known
+        // statement's upload error on EXECUTE instead, otherwise the connection gets out of sync.
+        ctx.getState().setNoop();
+        packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        if (packetBuf.remaining() < Integer.BYTES) {
+            return;
+        }
+        int stmtId = packetBuf.getInt();
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
+            return;
+        }
+        if (packetBuf.remaining() < Short.BYTES) {
+            prepared.setLongDataError("Missing parameter index in COM_STMT_SEND_LONG_DATA");
+            return;
+        }
+        int parameter = Short.toUnsignedInt(packetBuf.getShort());
+        prepared.appendLongData(parameter, packetBuf, ctx.getSessionVariable().getMaxAllowedPacket());
+    }
+
     private String getPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -131,6 +153,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // null bitmap
         String stmtStr = "";
         try {
+            if (prepCtx.getLongDataError() != null) {
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
+                return;
+            }
             ctx.getProtocolAdapter().beforeStatement(ctx);
             StatementContext statementContext = prepCtx.getStatementContext();
             if (!ctx.isProxy()) {
@@ -158,6 +184,21 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
                 }
+                // Inline uploaded values for forwarding: the master reparses this EXECUTE without
+                // the connection-local upload state. Include cached types even when bind_flag=0.
+                MysqlSerializer forwarded = prepCtx.hasLongData() ? MysqlSerializer.newInstance() : null;
+                if (forwarded != null) {
+                    for (int i = 0; i < paramCount; ++i) {
+                        if (prepCtx.hasLongData(i)) {
+                            nullbitmapData[i / 8] &= ~(1 << (i & 7));
+                        }
+                    }
+                    forwarded.writeBytes(nullbitmapData);
+                    forwarded.writeInt1(1);
+                    for (Placeholder placeholder : prepareCommand.getPlaceholders()) {
+                        forwarded.writeInt2(placeholder.getMysqlTypeCode());
+                    }
+                }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
                     PlaceholderId exprId = prepareCommand.getPlaceholders().get(i).getPlaceholderId();
@@ -168,8 +209,37 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     }
                     MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
                     boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
-                    Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                    byte[] longData = prepCtx.getLongData(i);
+                    Literal l;
+                    if (longData != null) {
+                        switch (type) {
+                            case MYSQL_TYPE_STRING:
+                            case MYSQL_TYPE_VARSTRING:
+                            case MYSQL_TYPE_VARCHAR:
+                            case MYSQL_TYPE_TINY_BLOB:
+                            case MYSQL_TYPE_MEDIUM_BLOB:
+                            case MYSQL_TYPE_LONG_BLOB:
+                            case MYSQL_TYPE_BLOB:
+                                break;
+                            default:
+                                throw new AnalysisException("Invalid MySQL type for long data: " + type);
+                        }
+                        MysqlSerializer value = MysqlSerializer.newInstance();
+                        value.writeLenEncodedBytes(longData);
+                        l = Literal.getLiteralByMysqlType(type, isUnsigned, value.toByteBuffer());
+                        forwarded.writeBytes(value.toArray());
+                    } else {
+                        int start = packetBuf.position();
+                        l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                        if (forwarded != null) {
+                            forwarded.writeBytes(packetBuf.array(), packetBuf.arrayOffset() + start,
+                                    packetBuf.position() - start);
+                        }
+                    }
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
+                }
+                if (forwarded != null && !ctx.isProxy()) {
+                    ctx.setPrepareExecuteBuffer(forwarded.toByteBuffer());
                 }
             }
             ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareCommand, statementContext);
@@ -196,8 +266,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        } finally {
+            prepCtx.clearLongData();
         }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog() && executor != null) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         } else {
             // When audit log is disabled for prepared statements, still update QPS metrics.
@@ -277,6 +349,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             case COM_STMT_EXECUTE:
                 handleExecute();
+                break;
+            case COM_STMT_SEND_LONG_DATA:
+                handleSendLongData();
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();

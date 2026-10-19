@@ -156,11 +156,13 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleStmtResetById(int stmtId) {
-        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
             return;
         }
+        prepared.clearLongData();
         ctx.getState().setOk();
     }
 
