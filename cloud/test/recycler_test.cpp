@@ -5205,6 +5205,85 @@ TEST(CheckerTest, normal_inverted_check) {
     ASSERT_EQ(checker.do_inverted_check(), 0);
 }
 
+TEST(CheckerTest, inverted_check_multi_vault) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto vault1 = std::make_shared<MockAccessor>("mock://vault1");
+    auto vault2 = std::make_shared<MockAccessor>("mock://vault2");
+    checker.TEST_add_accessor("vault1", vault1);
+    checker.TEST_add_accessor("vault2", vault2);
+
+    for (int t = 10001; t <= 10010; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", t, v, t * 2, 1, 0);
+        }
+    }
+    for (int t = 10011; t <= 10020; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", t, v, t * 2, 1, 0);
+        }
+    }
+    // Objects of both vaults are checked
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get({instance_id}), 60);
+    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get({instance_id}), 0);
+
+    // A leaked segment in each vault: one of a tablet without rowsets, one listed after the live
+    // rowsets of its tablet ("zzz" sorts after the numeric test rowset ids)
+    ASSERT_EQ(vault1->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10015, "zzz", 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get({instance_id}), 62);
+    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get({instance_id}), 2);
+}
+
+TEST(CheckerTest, inverted_check_same_location_once) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Two resources backed by the same storage location
+    auto accessor = std::make_shared<MockAccessor>("mock://shared");
+    checker.TEST_add_accessor("vault1", accessor);
+    checker.TEST_add_accessor("vault2", accessor);
+
+    for (int t = 10001; t <= 10010; ++t) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "vault1", t, 0, t * 2, 1, 0);
+    }
+    ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get({instance_id}), 11);
+    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get({instance_id}), 1);
+}
+
+TEST(CheckerTest, inverted_check_leak_after_live_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    // "zzz" sorts after the numeric test rowset ids, so the leaked segment is listed after the live
+    // one of the same tablet and is checked against the cached rowsets of the tablet
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get({instance_id}), 1);
+}
+
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
 // to do the following test
 TEST(CheckerTest, DISABLED_abnormal_inverted_check) {

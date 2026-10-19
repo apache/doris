@@ -57,7 +57,7 @@ private:
 
 class MockAccessor final : public StorageVaultAccessor {
 public:
-    explicit MockAccessor();
+    explicit MockAccessor(std::string uri = "mock");
 
     ~MockAccessor() override;
 
@@ -90,8 +90,8 @@ private:
     std::set<std::string> objects_;
 };
 
-inline MockAccessor::MockAccessor() : StorageVaultAccessor(AccessorType::MOCK) {
-    uri_ = "mock";
+inline MockAccessor::MockAccessor(std::string uri) : StorageVaultAccessor(AccessorType::MOCK) {
+    uri_ = std::move(uri);
 }
 
 inline MockAccessor::~MockAccessor() = default;

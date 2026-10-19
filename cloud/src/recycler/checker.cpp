@@ -884,12 +884,6 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned = 0;
@@ -950,8 +944,9 @@ int InstanceChecker::do_inverted_check() {
             if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
                 return 0;
             } else {
-                LOG(WARNING) << "rowset not exists, key=" << obj_key;
-                return -1;
+                // Garbage data leak, same as a cache miss below
+                LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
+                return 1;
             }
         }
         // Get all rowset id of this tablet
@@ -1049,7 +1044,17 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    // Several resources may be backed by the same storage location, e.g. storage vaults on the same
+    // bucket and prefix with different credentials. List each location only once, otherwise its
+    // objects would be scanned and their leaks counted repeatedly.
+    std::unordered_set<std::string> checked_uris;
+    for (auto& [resource_id, accessor] : accessor_map_) {
+        if (!checked_uris.insert(accessor->uri()).second) {
+            LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
+                      << instance_id_ << " resource_id=" << resource_id
+                      << " uri=" << accessor->uri();
+            continue;
+        }
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
