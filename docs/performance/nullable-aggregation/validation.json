@@ -1,0 +1,72 @@
+{
+  "unit_tests": {
+    "asan_passed": 407,
+    "suites": 67,
+    "log": "ut-review-fixes.log",
+    "full_ut_blocker": "Unchanged Variant fixtures call a missing JsonStringToVariantEncoder constructor; ut-build-3.log"
+  },
+  "regression": {
+    "passed_suites": 19,
+    "failed_suites": 0,
+    "golden_generation": "run-regression-test.sh --run -d datatype_p0/agg_state -s test_nullable_aggregation_v2_migration -forceGenOut",
+    "comparison": "run-regression-test.sh --run -d datatype_p0/agg_state",
+    "full_compaction_rowsets_before": 3,
+    "full_compaction_rowsets_after": 1,
+    "mixed_old_new_rowsets_before": 4,
+    "mixed_old_new_rowsets_after": 1
+  },
+  "compatibility": {
+    "final_old_fe_two_be": "mixed-final-old-fe-mixed-cluster.json",
+    "final_new_fe19_two_be": "mixed-final-new-fe19-mixed-cluster.json",
+    "final_new_fe19_write": "mixed-final-new-fe19-mixed-write.json",
+    "old_schema_compaction": "mixed-old-schema-compaction.json",
+    "mixed_old_new_full_compaction": "mixed-old-new-rowsets-compaction.json"
+  },
+  "builds": [
+    "RELEASE BE",
+    "FE",
+    "uninstrumented benchmark",
+    "allocation benchmark",
+    "ASAN focused UT"
+  ],
+  "style": {
+    "clang_format_version": 16,
+    "format_result": "passed",
+    "header_hygiene": "passed",
+    "whole_header_tidy_result": "nonzero: eight pre-existing diagnostics; zero on diff lines",
+    "new_codec_and_ut_tidy": "passed",
+    "git_diff_check_source": "passed",
+    "generated_out_whitespace": "The standard runner emits separator tabs for empty last fields and a final empty line; preserved without manual edits.",
+    "review_fixes_clang_tidy": "passed on all changed lines, including new codec and UT; matching resource-dir wrapper"
+  },
+  "correctness": {
+    "equivalent_sql_cases": 21,
+    "recorded_queries": 550,
+    "float_comparison": "rel_tol=1e-9,abs_tol=1e-9; integer/decimal/string exact"
+  },
+  "performance": {
+    "kernel_cases_migrated": 48,
+    "final_five_repetition_cv_max": 0.04707005813621173,
+    "maximum_kernel_mean_regression_vs_v2_pct": 1.312485002380348,
+    "query_mean_regressions_vs_v2_pct": {
+      "numeric_high_null0": 1.3206921244924619,
+      "numeric_low_null50": 1.0210117084218373,
+      "wide_string_set": 1.8003805812090379,
+      "wide_topn": 1.1051374064132702,
+      "stored_bulk_merge": 3.9180884483965617,
+      "stored_bulk_union_finalize": 0.5651441622459341
+    }
+  },
+  "review_fixes": {
+    "source_commit": "b8aaf699fa46b8baa73a84825d7bb0c4c9d2d430",
+    "legacy_foreach": "One preparation per batch and normalized nested column sizes verified for native and legacy String streaming",
+    "distribute_key": "Factory-created mixed-NULL streaming verifies each UInt64 payload and per-row reader output",
+    "profile_parser": "3 unittest cases cover composite durations, complete avg/min/max fields and rejection of truncated tokens",
+    "regression": "19 AGG_STATE suites pass at this source",
+    "release_be_max_glibc": "GLIBC_2.10",
+    "post_review_performance": "Separate SQL follow-up at this exact source; previous kernel measurements remain identified at 1a96ff98396",
+    "recorded_migrated_queries": 145,
+    "old_binary_recheck_queries": 25,
+    "all_followup_results_equivalent": true
+  }
+}

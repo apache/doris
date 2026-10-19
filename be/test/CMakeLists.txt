@@ -134,6 +134,14 @@ include_directories(
 # Removed test files are added back using separate compile arguments.
 add_subdirectory(storage/index/ann)
 
+if (DORIS_BE_UT_SOURCE_FILTER)
+    # Keep the normal test runner/support code while allowing a focused compile-and-run loop.
+    # GTest's runtime filter alone still compiles unrelated test sources.
+    list(FILTER UT_FILES INCLUDE REGEX
+        "${DORIS_BE_UT_SOURCE_FILTER}|/testutil/|/exec/exchange/exchange_sink_test.cpp|/exprs/function/function_throw_exception_test.cpp")
+    message(STATUS "BE UT source filter: ${DORIS_BE_UT_SOURCE_FILTER}")
+endif()
+
 add_executable(doris_be_test ${UT_FILES})
 if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)

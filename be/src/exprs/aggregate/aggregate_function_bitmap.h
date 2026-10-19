@@ -162,7 +162,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
-        char place[sizeof(Data)];
+        alignas(Data) char place[sizeof(Data)];
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -259,6 +259,11 @@ public:
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnBitmap;
+
+    // A serialized BitmapValue always starts with a nonzero length-of-varint byte.
+    // Nullable INTERSECT can reserve zero to distinguish no input from an empty bitmap.
+    static constexpr bool supports_empty_state_byte_marker =
+            std::is_same_v<Op, AggregateFunctionBitmapIntersectOp>;
 
     String get_name() const override { return Op::name; }
 

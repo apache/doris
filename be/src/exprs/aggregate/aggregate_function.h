@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -28,6 +29,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
@@ -50,7 +52,6 @@ class QueryContext;
 struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
-    bool enable_aggregate_function_null_v2 {false};
     bool new_version_percentile {false};
     std::vector<std::string> column_names;
     // Negotiated execution version propagated to nested aggregate function creators.
@@ -65,11 +66,35 @@ struct AggregateFunctionBitmapUnionOp;
 class IAggregateFunction;
 using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
 
+AggregateFunctionPtr make_agg_state_compatible_function(AggregateFunctionPtr function);
+AggregateFunctionPtr make_nullable_wire_compatible_function(AggregateFunctionPtr function,
+                                                            int be_exec_version,
+                                                            bool legacy_unary_v2);
+
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+
+// Own raw state storage with the aggregate's alignment; construction/destruction remain
+// the caller's responsibility. Byte allocation alone does not guarantee alignas(64) states.
+class AlignedAggregateData {
+public:
+    AlignedAggregateData(size_t size, size_t alignment) : _storage(size + alignment - 1) {
+        void* pointer = _storage.data();
+        size_t space = _storage.size();
+        _data = static_cast<AggregateDataPtr>(std::align(alignment, size, pointer, space));
+        DCHECK(_data != nullptr);
+    }
+    AlignedAggregateData(const AlignedAggregateData&) = delete;
+    AlignedAggregateData& operator=(const AlignedAggregateData&) = delete;
+    AggregateDataPtr data() const { return _data; }
+
+private:
+    std::vector<char> _storage;
+    AggregateDataPtr _data;
+};
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -263,6 +288,18 @@ public:
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
+
+    // AGG_STATE persists the historical nullable flag + nested byte stream, independently
+    // of the native intermediate column used by query execution.
+    virtual bool has_legacy_nullable_state_format() const { return false; }
+
+    // Construct the codec at the concrete nullable type, preserving static dispatch
+    // inside legacy String readers. Only functions advertising that codec call this.
+    virtual AggregateFunctionPtr create_legacy_nullable_codec(
+            AggregateFunctionPtr /* function */) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Aggregate function {} has no legacy nullable codec", get_name());
+    }
 
     virtual void set_version(const int version_) { version = version_; }
 
@@ -523,14 +560,22 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
+        if (num_rows == 0) {
+            return;
+        }
         VectorBufferWriter buf(assert_cast<ColumnString&>(*dst));
-        std::vector<char> place(size_of_data());
-        const Derived* derived = assert_cast<const Derived*>(this);
+        const auto* derived = assert_cast<const Derived*>(this);
+        AlignedAggregateData storage(derived->size_of_data(), derived->align_of_data());
+        auto* place = storage.data();
+        Arena row_arena;
         for (size_t i = 0; i != num_rows; ++i) {
-            derived->create(place.data());
-            DEFER({ derived->destroy(place.data()); });
-            derived->add(place.data(), columns, i, arena);
-            derived->serialize(place.data(), buf);
+            // String rows own their serialized bytes. Reclaim temporary array/key payloads
+            // after each state's destruction instead of retaining them in the caller's arena.
+            row_arena.clear();
+            derived->create(place);
+            DEFER({ derived->destroy(place); });
+            derived->add(place, columns, i, row_arena);
+            derived->serialize(place, buf);
             buf.commit();
         }
     }
@@ -567,56 +612,34 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        const Derived* derived = assert_cast<const Derived*>(this);
-        const auto size_of_data = derived->size_of_data();
-        const auto* column_string = assert_cast<const ColumnString*>(column);
-
-        size_t created_count = 0;
-        try {
-            for (size_t i = 0; i != num_rows; ++i) {
-                auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column_string->get_data_at(i));
-                derived->create(rhs_place);
-                ++created_count;
-                derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
-            }
-        } catch (...) {
-            for (size_t j = 0; j < created_count; ++j) {
-                auto place = rhs + size_of_data * j;
-                derived->destroy(place);
-            }
-            throw;
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto* strings = assert_cast<const ColumnString*>(column);
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto* state = rhs + size_of_data() * i;
+            derived->create(state);
+            DEFER({ derived->destroy(state); });
+            VectorBufferReader reader(strings->get_data_at(i));
+            derived->deserialize_and_merge(places[i] + offset, state, reader, arena);
         }
-
-        derived->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         const auto* derived = assert_cast<const Derived*>(this);
-        const auto size_of_data = derived->size_of_data();
-        const auto* column_string = assert_cast<const ColumnString*>(column);
-        size_t created_count = 0;
-        try {
-            for (size_t i = 0; i != num_rows; ++i) {
-                auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column_string->get_data_at(i));
-                derived->create(rhs_place);
-                ++created_count;
-                if (places[i]) {
-                    derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
-                                                   arena);
-                }
+        const auto* strings = assert_cast<const ColumnString*>(column);
+        for (size_t i = 0; i < num_rows; ++i) {
+            // A selected-out row may contain no readable state. Skip it before constructing
+            // or decoding scratch, rather than allocating one hash/string state per input row.
+            if (!places[i]) {
+                continue;
             }
-        } catch (...) {
-            for (size_t j = 0; j < created_count; ++j) {
-                auto place = rhs + size_of_data * j;
-                derived->destroy(place);
-            }
-            throw;
+            auto* state = rhs + size_of_data() * i;
+            derived->create(state);
+            DEFER({ derived->destroy(state); });
+            VectorBufferReader reader(strings->get_data_at(i));
+            derived->deserialize_and_merge(places[i] + offset, state, reader, arena);
         }
-        derived->destroy_vec(rhs, num_rows);
     }
 
     void merge_vec(const AggregateDataPtr __restrict* __restrict places, size_t offset,
@@ -626,6 +649,27 @@ public:
         const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
             derived->merge(places[i] + offset, rhs + size_of_data * i, arena);
+        }
+    }
+
+    // Native readers can consume a null map directly without materializing selected pointers.
+    template <bool selected, typename MarkValid>
+    void merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
+                                 ConstAggregateDataPtr rhs, const UInt8* null_map, Arena& arena,
+                                 size_t rows, const MarkValid& mark_valid) const {
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto state_size = derived->size_of_data();
+        for (size_t row = 0; row < rows; ++row) {
+            if (null_map[row]) {
+                continue;
+            }
+            if constexpr (selected) {
+                if (!places[row]) {
+                    continue;
+                }
+            }
+            mark_valid(row);
+            derived->merge(places[row] + offset, rhs + state_size * row, arena);
         }
     }
 
@@ -654,8 +698,8 @@ public:
                                                  Arena& arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        std::vector<char> deserialized_data(size_of_data());
-        auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
+        AlignedAggregateData deserialized_data(size_of_data(), align_of_data());
+        auto* deserialized_place = deserialized_data.data();
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = begin; i <= end; ++i) {
@@ -763,16 +807,15 @@ public:
     using AggregateData = std::remove_pointer_t<AggregateDataPtr>;
 
     explicit AggregateFunctionGuard(const IAggregateFunction* function)
-            : _function(function),
-              _data(std::make_unique<AggregateData[]>(function->size_of_data())) {
-        _function->create(_data.get());
+            : _function(function), _data(function->size_of_data(), function->align_of_data()) {
+        _function->create(_data.data());
     }
-    ~AggregateFunctionGuard() { _function->destroy(_data.get()); }
-    AggregateDataPtr data() { return _data.get(); }
+    ~AggregateFunctionGuard() { _function->destroy(_data.data()); }
+    AggregateDataPtr data() { return _data.data(); }
 
 private:
     const IAggregateFunction* _function;
-    std::unique_ptr<AggregateData[]> _data;
+    AlignedAggregateData _data;
 };
 
 //Hint information of AggregateFunction signature

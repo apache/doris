@@ -27,6 +27,8 @@
 #     --coverage         generate coverage report, does not take effect if --gdb is specified
 #     -j                 build parallel
 #     -h                 print this help message
+#  Environment:
+#     DORIS_BE_UT_SOURCE_FILTER  Optional CMake regex selecting test source paths.
 #
 # All BE tests must use "_test" as the file suffix, and add the file
 # to be/test/CMakeLists.txt.
@@ -127,6 +129,7 @@ Usage: $0 <options>
 
   Environment:
     DORIS_BE_UT_EXECUTABLE  Existing test binary to run after the build, for benchmark comparisons.
+    DORIS_BE_UT_SOURCE_FILTER  Optional regex selecting test sources; runner/support files remain.
 
   Eg.
     $0                                                              build tests
@@ -343,6 +346,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DMAKE_TEST=ON \
+    -DDORIS_BE_UT_SOURCE_FILTER="${DORIS_BE_UT_SOURCE_FILTER:-}" \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \

@@ -1,0 +1,58 @@
+[
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function.h",
+    "line": 468,
+    "message": "comparison between 'signed' and 'unsigned' integers [modernize-use-integer-sign-comparison,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function.h",
+    "line": 703,
+    "message": "use auto when initializing with a template cast to avoid duplicating the type name [modernize-use-auto,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function.h",
+    "line": 766,
+    "message": "pointer parameter 'place' can be pointer to const [readability-non-const-parameter,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function.h",
+    "line": 775,
+    "message": "pointer parameter 'place' can be pointer to const [readability-non-const-parameter,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function_null_v2.h",
+    "line": 604,
+    "message": "comparison between 'signed' and 'unsigned' integers [modernize-use-integer-sign-comparison,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function_null_v2.h",
+    "line": 613,
+    "message": "comparison between 'signed' and 'unsigned' integers [modernize-use-integer-sign-comparison,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function_null_v2.h",
+    "line": 685,
+    "message": "comparison between 'signed' and 'unsigned' integers [modernize-use-integer-sign-comparison,-warnings-as-errors]",
+    "on_changed_line": false
+  },
+  {
+    "log": "tidy-typed-wrapper.log",
+    "path": "be/src/exprs/aggregate/aggregate_function_null_v2.h",
+    "line": 702,
+    "message": "function 'execute_function_with_incremental' has cognitive complexity of 57 (threshold 50) [readability-function-cognitive-complexity,-warnings-as-errors]",
+    "on_changed_line": false
+  }
+]

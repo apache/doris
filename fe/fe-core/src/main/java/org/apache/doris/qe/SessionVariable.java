@@ -1714,7 +1714,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableParallelScan = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, fuzzy = true, needForward = true)
+    // Accepted for saved sessions and old clients; nullable aggregation always executes V2.
+    @Deprecated
+    @VarAttrDef.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, flag = VarAttrDef.INVISIBLE)
     private boolean enableAggregateFunctionNullV2 = true;
 
     @VarAttrDef.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
@@ -5762,7 +5764,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
-        tResult.setEnableAggregateFunctionNullV2(enableAggregateFunctionNullV2);
+        // String is the common codec for old V1-only BEs and old BEs with the V2 switch.
+        // Version 20 ignores this compatibility field and always uses native V2 columns.
+        tResult.setEnableAggregateFunctionNullV2(false);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);

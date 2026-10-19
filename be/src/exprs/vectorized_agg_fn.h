@@ -112,6 +112,9 @@ public:
     DataTypePtr get_return_type() const { return _function->get_return_type(); }
     size_t size_of_data() const { return _function->size_of_data(); }
     size_t align_of_data() const { return _function->align_of_data(); }
+    bool needs_deserialize_and_merge_scratch() const {
+        return _function->needs_deserialize_and_merge_scratch();
+    }
     bool result_column_could_resize() const { return _function->result_column_could_resize(); }
     bool supported_incremental_mode() const { return _function->supported_incremental_mode(); }
     // Whether the inline UInt64 count path can replace this aggregate function.

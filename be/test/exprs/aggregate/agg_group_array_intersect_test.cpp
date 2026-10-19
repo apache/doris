@@ -582,10 +582,13 @@ void validate_outer_nullable_array(const std::string& function_name, const DataT
         AggregateFunctionSimpleFactory factory;
         register_aggregate_function_group_array_set_op(factory);
         AggregateFunctionAttr attr;
-        attr.enable_aggregate_function_null_v2 = enable_null_v2;
+        // Exercise both the native intermediate and the stable AGG_STATE codec.
         auto agg_function =
                 factory.get(function_name, data_types, nullptr, false, -1, std::move(attr));
         ASSERT_NE(agg_function, nullptr);
+        if (!enable_null_v2) {
+            agg_function = make_agg_state_compatible_function(std::move(agg_function));
+        }
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);

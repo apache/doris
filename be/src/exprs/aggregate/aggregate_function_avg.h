@@ -260,7 +260,15 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena&) const override {
+                                           size_t num_rows, Arena&) const override {
+        streaming_agg_serialize_to_column_with_null_map(columns, dst, num_rows, nullptr);
+    }
+
+    // Nullable streaming writes the native fixed-width state directly. NULL rows get the
+    // empty state without constructing one temporary aggregate object per input row.
+    void streaming_agg_serialize_to_column_with_null_map(const IColumn** columns,
+                                                         MutableColumnPtr& dst, size_t num_rows,
+                                                         const UInt8* null_map) const {
         auto* src_data = assert_cast<const ColVecType&>(*columns[0]).get_data().data();
         auto& dst_col = assert_cast<ColumnFixedLengthObject&>(*dst);
         dst_col.set_item_size(sizeof(Data));
@@ -268,8 +276,12 @@ public:
         auto* data = dst_col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
-            state.sum = typename Data::ResultType(src_data[i]);
-            state.count = 1;
+            state.sum = {};
+            state.count = 0;
+            if (!null_map || !null_map[i]) {
+                state.sum = typename Data::ResultType(src_data[i]);
+                state.count = 1;
+            }
         }
     }
 
@@ -303,6 +315,17 @@ public:
         const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
         const auto* data = col.get_data().data();
         this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
+    }
+
+    template <bool selected, typename MarkValid>
+    void deserialize_and_merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
+                                                 const IColumn& column, const UInt8* null_map,
+                                                 Arena& arena, size_t rows,
+                                                 const MarkValid& mark_valid) const {
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        this->template merge_vec_with_null_map<selected>(
+                places, offset, reinterpret_cast<ConstAggregateDataPtr>(col.get_data().data()),
+                null_map, arena, rows, mark_valid);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,

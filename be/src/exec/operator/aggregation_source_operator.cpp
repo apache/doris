@@ -617,17 +617,19 @@ Status AggLocalState::merge_with_serialized_key_helper(Block* block) {
         auto col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
         auto column = block->get_by_position(col_id).column;
 
-        size_t buffer_size = Base::_shared_state->aggregate_evaluators[i]->size_of_data() * rows;
-        if (_deserialize_buffer.size() < buffer_size) {
-            _deserialize_buffer.resize(buffer_size);
+        const auto* evaluator = Base::_shared_state->aggregate_evaluators[i];
+        AggregateDataPtr scratch = nullptr;
+        if (evaluator->needs_deserialize_and_merge_scratch()) {
+            _deserialize_arena.clear();
+            scratch = _deserialize_arena.aligned_alloc(evaluator->size_of_data() * rows,
+                                                       evaluator->align_of_data());
         }
 
         {
             SCOPED_TIMER(_deserialize_data_timer);
             Base::_shared_state->aggregate_evaluators[i]->deserialize_and_merge_vec(
-                    _places.data(), _shared_state->offsets_of_aggregate_states[i],
-                    _deserialize_buffer.data(), column.get(), Base::_shared_state->agg_arena_pool,
-                    rows);
+                    _places.data(), _shared_state->offsets_of_aggregate_states[i], scratch,
+                    column.get(), Base::_shared_state->agg_arena_pool, rows);
         }
     }
 
@@ -735,9 +737,8 @@ Status AggLocalState::close(RuntimeState* state) {
 
     PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
+    _deserialize_arena.clear(true);
 
-    std::vector<char> tmp_deserialize_buffer;
-    _deserialize_buffer.swap(tmp_deserialize_buffer);
     return Base::close(state);
 }
 

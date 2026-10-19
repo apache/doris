@@ -285,9 +285,9 @@ public:
             const auto* data = col.get_data().data();
             this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
         } else {
-            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena, num_rows);
-            DEFER({ this->destroy_vec(rhs, num_rows); });
-            this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+            // Nullable partials and selected-out destinations may have no readable payload.
+            // The generic selected reader skips them before constructing or decoding a state.
+            Base::deserialize_and_merge_vec_selected(places, offset, rhs, column, arena, num_rows);
         }
     }
 

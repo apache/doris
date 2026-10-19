@@ -1,0 +1,266 @@
+{
+  "reference_commit": "e0bf4874070ba0b6837ad93f695ea63532b77a47",
+  "migrated_calculation_commit": "1a96ff98396f6004037075c37e1d8805b1005baa",
+  "measured_be_and_benchmark_build_commit": "0d2a6ed0269ed1dc5d33d589f79e6629f3525ab7",
+  "measured_fe_build_commit": "b9f0aed648ed3b12fdce476768b2dc53550b29b1",
+  "test_commit": "95254db71dedbe9514f346fded0b747ccfe64412",
+  "rechecked_upstream_master": "811de72f3fbf7fea03788b3744ce15ccd7dce0b5",
+  "sha256": {
+    "output/be/lib/doris_be": "3b74723daff178a4ed4ab965bcc8349655d021cdae9711c53acf728482b4805d",
+    ".nullable-migration/migrated-timing-benchmark": "6fb573f4051ab6413df2be996d372cfcab48d7d06134f7443f3307fe96216d3b",
+    "output/be/lib/benchmark_test": "a8ecdb71ae054e8147eb61a0361bd32241ffc7fd75ce8e2662c85b3ed6220d29",
+    "output/fe/lib/doris-fe.jar": "0d49bb2f7011cbdd5314381404e13af1b3156d6235a7f767b614ed214cb8965b",
+    ".nullable-migration/reference/output/be/lib/doris_be": "07ec712c344cb4e64d272faaafcb051da44675de4d76504caa088a695068ce0f",
+    ".nullable-migration/reference-timing-benchmark": "df3fe62803e500c6573039be560eb080dfdea4dad47c6a0ac6ddbb8e063d75ca",
+    ".nullable-migration/reference/output/be/lib/benchmark_test": "fdc54503b869dfed2466b03ecfa973d3cfa5ca4bb690326ad664addcf9121327",
+    ".nullable-migration/reference/output/fe/lib/doris-fe.jar": "83bf93493b725fa9b32763305509af55943aa95c0860f3982f41f0b7bf7638f6"
+  },
+  "build": {
+    "type": "RELEASE",
+    "cxx_flags": "-O3",
+    "compiler": "Clang 20",
+    "pch": false,
+    "jdk": "17.0.2",
+    "jobs": 32,
+    "datasketches_commit": "46025e9aeed8368b1184cbde9634dd99d0ee47c0",
+    "max_glibc": "GLIBC_2.10",
+    "entry_points": [
+      "build.sh --be",
+      "build.sh --fe",
+      "DORIS_BE_BENCHMARK=nullable_aggregation build.sh --benchmark",
+      "DORIS_BE_BENCHMARK=nullable_aggregation DORIS_BE_BENCHMARK_ALLOCATIONS=1 build.sh --benchmark"
+    ]
+  },
+  "hardware": {
+    "cpu": "Intel Xeon Platinum 8457C",
+    "sockets": 2,
+    "cores": 96,
+    "logical_cpus": 192,
+    "ram_bytes": 1622390288384,
+    "swap_bytes": 0,
+    "shared_host": true,
+    "frequency_scaling": true,
+    "kernel_cpu_affinity": [
+      12
+    ]
+  },
+  "cluster": {
+    "be_memory_limit": "16G",
+    "fe_heap": "8G",
+    "host": "10.26.20.3",
+    "fe_ports": {
+      "query": 22901,
+      "http": 21901,
+      "rpc": 22891,
+      "edit_log": 22881,
+      "arrow": 21941
+    },
+    "be_ports": {
+      "heartbeat": 22921,
+      "service": 22931,
+      "http": 21911,
+      "brpc": 21931,
+      "arrow": 21921
+    },
+    "secondary_heartbeat": 27175,
+    "timing_live_bes": 1,
+    "compatibility_live_bes": 2
+  },
+  "cohorts": {
+    "reference-v1": {
+      "recorded_queries": 150,
+      "warmup_repetitions": 5,
+      "settings": [
+        "enable_profile=true",
+        "profile_level=2",
+        "enable_agg_state=true",
+        "parallel_pipeline_task_num=4",
+        "agg_phase=2",
+        "enable_sql_cache=false",
+        "enable_aggregate_function_null_v2=false"
+      ]
+    },
+    "reference-v2": {
+      "recorded_queries": 185,
+      "warmup_repetitions": 5,
+      "settings": [
+        "enable_profile=true",
+        "profile_level=2",
+        "enable_agg_state=true",
+        "parallel_pipeline_task_num=4",
+        "agg_phase=2",
+        "enable_sql_cache=false",
+        "enable_aggregate_function_null_v2=true"
+      ]
+    },
+    "migrated": {
+      "recorded_queries": 215,
+      "warmup_repetitions": 5,
+      "settings": [
+        "enable_profile=true",
+        "profile_level=2",
+        "enable_agg_state=true",
+        "parallel_pipeline_task_num=4",
+        "agg_phase=2",
+        "enable_sql_cache=false",
+        "enable_aggregate_function_null_v2=true"
+      ]
+    }
+  },
+  "kernel_cases": {
+    "reference": 96,
+    "migrated": 48,
+    "max_final_migrated_five_repetition_cv": 0.04707005813621173
+  },
+  "limits": [
+    "Only execution-version-19 target-branch binaries were exercised as old BE, not every historical released binary.",
+    "Shared host: small latency differences and query peak maxima require the observed ranges.",
+    "Ordinary heap allocation request counters cover kernel operations, not every process allocator path or live memory.",
+    "Original external bitmap issue SQL/status was unavailable; equivalent sparse partial-state semantics were tested."
+  ],
+  "archives": {
+    "diagnostic-runs.tar.gz": {
+      "sha256": "0ac6fb948b1dad06c001e699c799008550550d0910a44ef96e4dbc5147893ff1",
+      "bytes": 438092,
+      "entries": 39
+    },
+    "raw-perf.tar.gz": {
+      "sha256": "e68b5ce7fe564ed56f12fcff20cd394300fd0d2cfa0db48ff9f8e306d6c27828",
+      "bytes": 1974461,
+      "entries": 16
+    },
+    "raw-profiles.tar.gz": {
+      "sha256": "4fa8e562d04e81d4b4201b83a8098ec4d047794dead0cbacecec80a611499c8c",
+      "bytes": 8556567,
+      "entries": 566
+    },
+    "raw-records.tar.gz": {
+      "sha256": "d358a1d7311e1827279cadad6f252e5094a30b3d3e872794fdeb480e4174b6f9",
+      "bytes": 427801,
+      "entries": 60
+    },
+    "validation-logs.tar.gz": {
+      "sha256": "eaec796ccce7e0c27c4aef2cee7b069eef728767b8020101ba1ba1620b73cb5e",
+      "bytes": 545594,
+      "entries": 31
+    },
+    "post-review.tar.gz": {
+      "sha256": "d3f09ee4363d2bdd0a944650ef7f9209ada78d140dc113cf059fc19714d5ae86",
+      "bytes": 3035284,
+      "entries": 201
+    }
+  },
+  "post_review": {
+    "source_commit": "b8aaf699fa46b8baa73a84825d7bb0c4c9d2d430",
+    "build_started_at_head": "1ab6fe72ce8261681460af6c5931346642649739",
+    "binary_sha256": "ae4537d999c7d80905996e168a75fb43cfa275f93f47457d611f742c9a05dbe2",
+    "baseline_commit": "e0bf4874070ba0b6837ad93f695ea63532b77a47",
+    "data": "Independent copies of stopped baseline FE metadata and BE storage; all 21 timed tables retain the original baseline data. Regression creates separate tables.",
+    "configuration": "Same RELEASE -O3 build, 16G BE, 8G FE, 1 online BE, DOP 4, agg_phase 2; original isolated ports.",
+    "prewarm": "run_queries.py prewarm --repetitions 0 --warmup-repetitions 5 (complete matrix)",
+    "measurement": "run_queries.py migrated --warmup-repetitions 5 --repetitions 5 --output .nullable-migration/post-review",
+    "kernel_evidence": "The earlier 48-case migrated kernel measurement remains at 1a96ff98396; this follow-up remeasures SQL only.",
+    "recorded_queries": {
+      "migrated": 145,
+      "reference-v2-nearby": 10,
+      "reference-v2-nearby-warmed": 15
+    },
+    "nearby_note": "reference-v2-nearby preserves the first startup probe (5 per-case warmups); reference-v2-nearby-warmed follows the same full-matrix prewarm as the main timing method. An additional 5 variadic_null50 repetitions are retained.",
+    "nearby_comparison": {
+      "variadic_null50": {
+        "reference-v2": {
+          "repetitions": 10,
+          "mean_ms": 83.21155480807647,
+          "median_ms": 82.82796750427224,
+          "min_ms": 76.02001799386926,
+          "max_ms": 90.2191530331038,
+          "cv": 0.057165575635799055,
+          "peak_mib_mean": 254.0577865600586,
+          "peak_mib_min": 252.01681518554688,
+          "peak_mib_max": 256.6867370605469
+        },
+        "reference-v2-nearby": {
+          "repetitions": 5,
+          "mean_ms": 105.43364920886233,
+          "median_ms": 104.49650697410107,
+          "min_ms": 98.5259700100869,
+          "max_ms": 111.98014300316572,
+          "cv": 0.049683001456522546,
+          "peak_mib_mean": 252.04896850585936,
+          "peak_mib_min": 242.22579956054688,
+          "peak_mib_max": 265.4621276855469
+        },
+        "reference-v2-nearby-warmed": {
+          "repetitions": 10,
+          "mean_ms": 85.08758950629272,
+          "median_ms": 82.01017801184207,
+          "min_ms": 78.62424099585041,
+          "max_ms": 102.80891199363396,
+          "cv": 0.08554494607325522,
+          "peak_mib_mean": 255.70045776367186,
+          "peak_mib_min": 242.80197143554688,
+          "peak_mib_max": 266.3309631347656
+        },
+        "migrated": {
+          "repetitions": 5,
+          "mean_ms": 60.415962408296764,
+          "median_ms": 60.13906799489632,
+          "min_ms": 59.29598101647571,
+          "max_ms": 61.78953201742843,
+          "cv": 0.016672136714070078,
+          "peak_mib_mean": 268.3714401245117,
+          "peak_mib_min": 256.29016876220703,
+          "peak_mib_max": 288.14361572265625
+        }
+      },
+      "stored_bulk_merge": {
+        "reference-v2": {
+          "repetitions": 5,
+          "mean_ms": 39.97806580737233,
+          "median_ms": 39.852092013461515,
+          "min_ms": 38.42740401159972,
+          "max_ms": 42.47576600755565,
+          "cv": 0.040129781049013255,
+          "peak_mib_mean": 231.980419921875,
+          "peak_mib_min": 228.245361328125,
+          "peak_mib_max": 244.2724609375
+        },
+        "reference-v2-nearby": {
+          "repetitions": 5,
+          "mean_ms": 58.27121479669586,
+          "median_ms": 57.753669971134514,
+          "min_ms": 52.82859498402104,
+          "max_ms": 63.84372600587085,
+          "cv": 0.07043596622240944,
+          "peak_mib_mean": 220.9772705078125,
+          "peak_mib_min": 195.9132080078125,
+          "peak_mib_max": 244.2724609375
+        },
+        "reference-v2-nearby-warmed": {
+          "repetitions": 5,
+          "mean_ms": 44.72762100631371,
+          "median_ms": 44.45277701597661,
+          "min_ms": 43.449657037854195,
+          "max_ms": 46.831056009978056,
+          "cv": 0.029588748699528523,
+          "peak_mib_mean": 229.9608642578125,
+          "peak_mib_min": 204.9288330078125,
+          "peak_mib_max": 244.2724609375
+        },
+        "migrated": {
+          "repetitions": 5,
+          "mean_ms": 42.08796819439158,
+          "median_ms": 41.633646993432194,
+          "min_ms": 40.150405024178326,
+          "max_ms": 44.31598604423925,
+          "cv": 0.037454974683464495,
+          "peak_mib_mean": 229.8014404296875,
+          "peak_mib_min": 214.1474609375,
+          "peak_mib_max": 245.3974609375
+        }
+      }
+    },
+    "all_followup_results_equivalent": true,
+    "nearby_binary_sha256": "07ec712c344cb4e64d272faaafcb051da44675de4d76504caa088a695068ce0f"
+  }
+}

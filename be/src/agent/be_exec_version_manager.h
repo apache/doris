@@ -41,6 +41,7 @@ constexpr inline int SUPPORT_PAIMON_WRITE_VERSION = 16;
 constexpr inline int SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION = 17;
 constexpr inline int SUPPORT_ICEBERG_TRANSFORM_ROUTING_VERSION = 18;
 constexpr inline int SUPPORT_VARBINARY_SHUFFLE_HASH_VERSION = 19;
+constexpr inline int USE_UNIFIED_NULLABLE_AGGREGATION_VERSION = 20;
 
 class BeExecVersionManager {
 public:
