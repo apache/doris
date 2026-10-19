@@ -19,9 +19,11 @@ package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Represent any datatype in type coercion.
@@ -83,5 +85,10 @@ public class AnyDataType extends DataType {
     @Override
     public int width() {
         return -1;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.empty();
     }
 }

@@ -19,7 +19,9 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 /**
  * Timestamp represented as signed nanoseconds since the Unix epoch.
@@ -95,5 +98,10 @@ public final class TimeStampNsType extends DateLikeType implements ScaleTimeType
     @Override
     public String toSql() {
         return "timestamp_ns";
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new TimeStampNsLiteral(1970, 1, 1, 0, 0, 0, 0));
     }
 }

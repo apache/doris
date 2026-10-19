@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.types.coercion.Int16OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+
+import java.util.Optional;
 
 /**
  * SmallInt type in Nereids.
@@ -66,5 +70,10 @@ public class SmallIntType extends IntegralType implements Int16OrLessType {
     @Override
     public int range() {
         return RANGE;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new SmallIntLiteral((short) 0));
     }
 }

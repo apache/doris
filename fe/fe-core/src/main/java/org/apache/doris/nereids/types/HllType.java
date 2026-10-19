@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * HyperLogLog type in Nereids.
@@ -65,5 +69,10 @@ public class HllType extends PrimitiveType {
     @Override
     public String toSql() {
         return "HLL";
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new HllEmpty());
     }
 }

@@ -19,9 +19,12 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Varchar type in Nereids.
@@ -94,5 +97,10 @@ public class VarcharType extends CharacterType {
 
     public boolean isWildcardVarchar() {
         return len == -1 || len == MAX_VARCHAR_LENGTH;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new VarcharLiteral("", width()));
     }
 }

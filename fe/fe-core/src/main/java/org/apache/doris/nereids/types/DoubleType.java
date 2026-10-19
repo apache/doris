@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+
+import java.util.Optional;
 
 /**
  * Double data type in Nereids.
@@ -59,5 +63,10 @@ public class DoubleType extends FractionalType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new DoubleLiteral(0));
     }
 }

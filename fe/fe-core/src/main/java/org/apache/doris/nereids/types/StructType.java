@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -196,5 +198,10 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public String toString() {
         return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.empty();
     }
 }

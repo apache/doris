@@ -19,12 +19,15 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 /**
  * Datetime type in Nereids.
@@ -93,5 +96,10 @@ public class DateTimeType extends DateLikeType {
         } catch (DateTimeException e) {
             return Double.POSITIVE_INFINITY;
         }
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new DateTimeLiteral(0, 1, 1, 0, 0, 0));
     }
 }

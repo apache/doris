@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * LargeInt type in Nereids.
@@ -75,5 +78,10 @@ public class LargeIntType extends IntegralType {
     @Override
     public int range() {
         return RANGE;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new LargeIntLiteral(BigInteger.ZERO));
     }
 }

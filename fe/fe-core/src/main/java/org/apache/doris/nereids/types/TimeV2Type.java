@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -27,6 +28,8 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
+
+import java.util.Optional;
 
 /**
  * Time v2 type in Nereids.
@@ -150,5 +153,10 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
     @Override
     public String toSql() {
         return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new TimeV2Literal(this, "00:00:00"));
     }
 }

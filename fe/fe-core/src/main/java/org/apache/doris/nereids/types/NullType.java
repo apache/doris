@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * Null data type in Nereids.
@@ -50,5 +53,10 @@ public class NullType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.empty();
     }
 }

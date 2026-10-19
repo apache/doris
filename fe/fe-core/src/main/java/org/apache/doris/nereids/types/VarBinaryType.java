@@ -19,12 +19,15 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.base.Preconditions;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * VarBinary type in Nereids.
@@ -113,5 +116,10 @@ public class VarBinaryType extends PrimitiveType {
 
     public boolean isWildcardVarBinary() {
         return len == -1 || len == MAX_VARBINARY_LENGTH;
+    }
+
+    @Override
+    public Optional<Expression> defaultValue() {
+        return Optional.of(new VarBinaryLiteral(this, new byte[0]));
     }
 }
