@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "format/table/index_disk_usage_reader.h"
@@ -40,6 +41,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 
@@ -181,6 +183,11 @@ TEST_F(IndexDiskUsageRowsetTest, RowCountFallsBackToSegmentFooters) {
 // A failed footer read must not stay cached in the rowset, where later queries and compactions
 // would keep getting it.
 TEST_F(IndexDiskUsageRowsetTest, RowCountFailureIsNotCachedInRowset) {
+    // The corruption test uses local files without a file cache.
+    const bool saved_enable_file_cache = config::enable_file_cache;
+    config::enable_file_cache = false;
+    Defer restore_file_cache {[&] { config::enable_file_cache = saved_enable_file_cache; }};
+
     RowsetSharedPtr rowset;
     const Status write_status = write_rowset(create_schema(), 20002, 8, &rowset);
     ASSERT_TRUE(write_status.ok()) << write_status;
