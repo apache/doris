@@ -19,12 +19,17 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -44,6 +49,7 @@ import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class AnalyzeTableCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -79,6 +85,40 @@ public class AnalyzeTableCommandTest {
         if (ctxMockedStatic != null) {
             ctxMockedStatic.close();
         }
+    }
+
+    @Test
+    void testAnalyzeMixedSpatialColumns() throws AnalysisException {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Set<Column> columns = Set.of(new Column("id", Type.INT),
+                new Column("geom", ScalarType.createGeometryType("EPSG:3857")),
+                new Column("geog", ScalarType.createGeographyType("projjson:my_crs", "vincenty")));
+        Mockito.when(table.getSchemaAllIndexes(false)).thenReturn(columns);
+        for (Column column : columns) {
+            Mockito.when(table.getColumn(column.getName())).thenReturn(column);
+        }
+        Mockito.when(accessManager.checkTblPriv(Mockito.eq(ctx), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+        TableNameInfo name = new TableNameInfo(internalCtl, "db", "mixed");
+        AnalyzeTableCommand implicit = new AnalyzeTableCommand(name, null, null,
+                new AnalyzeProperties(defaultAnalyzeProperties()));
+        Deencapsulation.setField(implicit, "table", table);
+        implicit.check();
+        Assertions.assertEquals(Set.of("id"), implicit.getColumnNames());
+
+        SessionVariable session = ctx.getSessionVariable();
+        session.enableAnalyzeComplexTypeColumn = false;
+        AnalyzeTableCommand explicit = new AnalyzeTableCommand(name, null, ImmutableList.of("id", "geom", "geog"),
+                new AnalyzeProperties(defaultAnalyzeProperties()));
+        Deencapsulation.setField(explicit, "table", table);
+        explicit.check();
+        Assertions.assertEquals(Set.of("id"), explicit.getColumnNames());
+
+        session.enableAnalyzeComplexTypeColumn = true;
+        AnalyzeTableCommand rejected = new AnalyzeTableCommand(name, null, ImmutableList.of("geom", "geog"),
+                new AnalyzeProperties(defaultAnalyzeProperties()));
+        Deencapsulation.setField(rejected, "table", table);
+        Assertions.assertThrows(AnalysisException.class, rejected::check);
     }
 
     @Test
