@@ -376,29 +376,30 @@ public:
 
 private:
     template <bool selected>
+    bool merge_native_serialized(const AggregateDataPtr* places, size_t offset,
+                                 const ColumnNullable& nullable, Arena& arena, size_t rows) const {
+        const auto& column = nullable.get_nested_column();
+        const auto* null_map = nullable.get_null_map_data().data();
+        const auto mark_valid = [places, offset](size_t row) { set_flag(places[row] + offset); };
+        if constexpr (requires(const NestFunction& function) {
+                          function.template deserialize_and_merge_vec_with_null_map<selected>(
+                                  places, offset, column, null_map, arena, rows, mark_valid);
+                      }) {
+            // Update validity and native payload together, avoiding a second NULL check
+            // and a separate validity pass over the destination states.
+            nested_function->template deserialize_and_merge_vec_with_null_map<selected>(
+                    places, offset + prefix_size, column, null_map, arena, rows, mark_valid);
+            return true;
+        }
+        return false;
+    }
+
+    template <bool selected>
     void merge_null_serialized(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
                                const ColumnNullable& nullable, Arena& arena,
                                size_t num_rows) const {
         const auto& nested_column = nullable.get_nested_column();
         const auto& null_map = nullable.get_null_map_data();
-        if constexpr (requires(const NestFunction& function) {
-                          function.template deserialize_and_merge_vec_with_null_map<selected>(
-                                  places, offset, nested_column, null_map.data(), arena, num_rows);
-                      }) {
-            for (size_t i = 0; i < num_rows; ++i) {
-                if constexpr (selected) {
-                    if (!places[i]) {
-                        continue;
-                    }
-                }
-                if (!null_map[i]) {
-                    set_flag(places[i] + offset);
-                }
-            }
-            nested_function->template deserialize_and_merge_vec_with_null_map<selected>(
-                    places, offset + prefix_size, nested_column, null_map.data(), arena, num_rows);
-            return;
-        }
         // Merging an empty bitmap is not equivalent to ignoring a NULL-only partial:
         // INTERSECT({1,2}, empty) loses the intersection. Never pass such rows to nested.
         DorisVector<AggregateDataPtr> valid_places(num_rows, nullptr);
@@ -431,6 +432,9 @@ private:
         if (native_state_is_nullable()) {
             const auto& nullable = assert_cast<const ColumnNullable&>(*column);
             const auto& nested_column = nullable.get_nested_column();
+            if (merge_native_serialized<selected>(places, offset, nullable, arena, num_rows)) {
+                return;
+            }
             if (nullable.has_null()) {
                 merge_null_serialized<selected>(places, offset, rhs, nullable, arena, num_rows);
                 return;

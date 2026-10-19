@@ -645,10 +645,10 @@ public:
     }
 
     // Native readers can consume a null map directly without materializing selected pointers.
-    template <bool selected>
+    template <bool selected, typename MarkValid>
     void merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
                                  ConstAggregateDataPtr rhs, const UInt8* null_map, Arena& arena,
-                                 size_t rows) const {
+                                 size_t rows, const MarkValid& mark_valid) const {
         const auto* derived = assert_cast<const Derived*>(this);
         const auto state_size = derived->size_of_data();
         for (size_t row = 0; row < rows; ++row) {
@@ -660,6 +660,7 @@ public:
                     continue;
                 }
             }
+            mark_valid(row);
             derived->merge(places[row] + offset, rhs + state_size * row, arena);
         }
     }

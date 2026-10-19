@@ -317,14 +317,15 @@ public:
         this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
-    template <bool selected>
+    template <bool selected, typename MarkValid>
     void deserialize_and_merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
                                                  const IColumn& column, const UInt8* null_map,
-                                                 Arena& arena, size_t rows) const {
+                                                 Arena& arena, size_t rows,
+                                                 const MarkValid& mark_valid) const {
         const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         this->template merge_vec_with_null_map<selected>(
                 places, offset, reinterpret_cast<ConstAggregateDataPtr>(col.get_data().data()),
-                null_map, arena, rows);
+                null_map, arena, rows, mark_valid);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
