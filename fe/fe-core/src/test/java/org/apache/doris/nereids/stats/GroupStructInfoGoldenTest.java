@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
@@ -442,6 +443,20 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testTheDistinctFlagOfAnAggregateFunctionIsIdentity() {
+        // COUNT(DISTINCT v) and COUNT(v) have equal children, while a v of [1, 1] satisfies `s = 1` for
+        // the second only: the flag has to be part of the expression identity
+        GroupStructInfo count = built("filter_above_an_aggregate_count");
+        GroupStructInfo distinct = built("filter_above_an_aggregate_count_distinct");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(count.getFingerprint(mode), distinct.getFingerprint(mode),
+                    "a distinct and a plain count share a key in mode " + mode);
+        }
+        Assertions.assertTrue(distinct.getCanonical(WITH_LITERAL).contains("Count<distinct>"),
+                "the distinct flag is not in the key: " + distinct.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -1068,6 +1083,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_above_an_aggregate_min",
                 "a filter on an aggregate function's output (MIN(v) AS s): s is the minimum of v",
                 GroupStructInfoGoldenTest::filterAboveAnAggregateMin));
+        cases.add(new PlanCase("filter_above_an_aggregate_count",
+                "a filter on a count's output (COUNT(v) AS s)",
+                GroupStructInfoGoldenTest::filterAboveAnAggregateCount));
+        cases.add(new PlanCase("filter_above_an_aggregate_count_distinct",
+                "the same filter on COUNT(DISTINCT v) AS s: the distinct flag is identity",
+                GroupStructInfoGoldenTest::filterAboveAnAggregateCountDistinct));
         cases.add(new PlanCase("filter_above_an_aggregate_max",
                 "the same filter with MAX(v) AS s: a different key although the aggregate header is the same",
                 GroupStructInfoGoldenTest::filterAboveAnAggregateMax));
@@ -1663,6 +1684,29 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<NamedExpression>of(x), t1);
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(x.toSlot(), new IntegerLiteral(1))), project));
+    }
+
+    private static GroupStructInfo filterAboveAnAggregateCount() {
+        return filterAboveAnAggregateCount(false);
+    }
+
+    /**
+     * A predicate which reads a count: {@code COUNT(DISTINCT v)} and {@code COUNT(v)} have the same child
+     * while they count different values, so a v of [1, 1] satisfies {@code s = 1} for the second only.
+     */
+    private static GroupStructInfo filterAboveAnAggregateCount(boolean distinct) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        SlotReference key = (SlotReference) t1.getOutput().get(0);
+        Expression value = t1.getOutput().get(1);
+        Alias s = new Alias(new Count(distinct, value), "s");
+        LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(ImmutableList.of(key),
+                ImmutableList.<NamedExpression>of(key, s), true, Optional.empty(), t1);
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(s.toSlot(), new IntegerLiteral(1))), aggregate));
+    }
+
+    private static GroupStructInfo filterAboveAnAggregateCountDistinct() {
+        return filterAboveAnAggregateCount(true);
     }
 
     private static GroupStructInfo filterAboveAnAggregateMin() {

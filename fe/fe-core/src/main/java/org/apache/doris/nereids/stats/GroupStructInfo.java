@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -2537,6 +2538,11 @@ public class GroupStructInfo {
                     ? "global:" + encodeSlotComponent(udf.getName())
                     : encodeSlotComponent(udf.getDbName()) + '.' + encodeSlotComponent(udf.getName());
             return className + '<' + qualifiedName + '#' + udf.getFunctionId() + '>';
+        }
+        if (expression instanceof AggregateFunction && ((AggregateFunction) expression).isDistinct()) {
+            // `COUNT(DISTINCT v)` and `COUNT(v)` have equal children; the flag is outside them, and it
+            // decides which values are counted, i.e. how many rows a predicate above the aggregation keeps
+            return className + "<distinct>";
         }
         if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
             // the session which evaluates the expression decides how an epoch value is read: the same
