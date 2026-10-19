@@ -350,6 +350,18 @@ public class HboStructFreshnessTest {
     }
 
     @Test
+    void testAScanAfterABranchMappingIsRecognized() {
+        // a set operation branch writes the mapping of its columns before the token of its sub tree:
+        // `[col(db.t.id)]S{...}` - the closing bracket is a token boundary like the opening parenthesis,
+        // otherwise the scan of such a branch is not seen by the readers of the canonical string
+        String mapped = "U{all,cols:[col(a)]}([col(db.t.id)]S{internal.db.t,v3,r1000};"
+                + "[col(db.u.id)]S{internal.db.u,v3,r1000})";
+        Assertions.assertEquals(2, HboScanDescriptor.parseAll(mapped).size());
+        Assertions.assertEquals("U{all,cols:[col(a)]}([col(db.t.id)]S{internal.db.t};"
+                + "[col(db.u.id)]S{internal.db.u})", GroupStructInfo.stripScanBaseline(mapped));
+    }
+
+    @Test
     void testTheCatalogVerdictComparesTheIndexTheEntryRead() {
         // a whole table query which the optimizer bound to an aggregate rollup records the rows of that
         // rollup in its token; the catalog verdict has to read the rows of the same index, otherwise an

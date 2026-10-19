@@ -531,15 +531,17 @@ public class HboScanDescriptor {
      *
      * <p>The boundaries the traversal emits in front of a token: the start of the text, the opening of a
      * header which wraps its child in parentheses, the separator between the leaves of a chain, a slot
-     * list, and the closing brace of a header which is written *without* parentheses (a top-n, a limit, a
-     * generate, a repeat, a set operation). A reader of the canonical string - the baseline stripping and
-     * the fold of a pasted struct info - uses this rule, so that a text which merely looks like a token
-     * (an escaped name, a literal value) is never taken for one.
+     * list, the closing bracket of a list (the column mapping a set operation branch writes is followed
+     * directly by the token of its sub tree), and the closing brace of a header which is written
+     * *without* parentheses (a top-n, a limit, a generate, a repeat, a set operation). A reader of the
+     * canonical string - the baseline stripping and the fold of a pasted struct info - uses this rule, so
+     * that a text which merely looks like a token (an escaped name, a literal value) is never taken for
+     * one.
      */
     static int nextTokenStart(String canonicalStructInfo, String marker, int from) {
         int index = from;
         while ((index = canonicalStructInfo.indexOf(marker, index)) >= 0) {
-            if (index == 0 || "();[}".indexOf(canonicalStructInfo.charAt(index - 1)) >= 0) {
+            if (index == 0 || "();[]}".indexOf(canonicalStructInfo.charAt(index - 1)) >= 0) {
                 return index;
             }
             index += marker.length();
