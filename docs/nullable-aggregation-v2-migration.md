@@ -31,7 +31,7 @@ their specialized implementations.
 
 The variadic wrapper unwraps every nullable argument and accepts a row only when
 all arguments are non-NULL. Its batch paths preserve selected destinations and
-the existing foreach batch-normalization contract. Streaming SUM/AVG, including
+the existing foreach batch-normalization contract. Native streaming and the legacy String codec share this preparation, including arrays whose hidden NULL rows shift physical offsets. Streaming SUM/AVG, including
 decimal variants, write native states directly with the input null map. Other
 streaming functions retain one aligned temporary state rather than constructing
 an entire batch of wide/string/set states.
@@ -165,7 +165,7 @@ DORIS_BE_UT_SOURCE_FILTER='exprs/aggregate/|exprs/function/function_agg_state_fi
   ./run-be-ut.sh --run --filter="$(cat docs/performance/nullable-aggregation/gtest-filter.txt)" -j 32
 ```
 
-406 related ASAN UT passed. The new tests cover nonnullable SQL bitmap results,
+407 related ASAN UT passed after the review fixes. The new tests cover nonnullable SQL bitmap results,
 old-schema marker preservation, mixed nullable variadic arguments, nullable and nonnullable
 results, four NULL ratios, native and persistent codecs, selected/nonselected
 merge, wide strings, empty batches, all-skipped batches, outer SQL NULL, bitmap

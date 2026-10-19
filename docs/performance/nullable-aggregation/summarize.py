@@ -20,8 +20,14 @@ import json
 import math
 from pathlib import Path
 import statistics as st
+import argparse
 
-root = Path(__file__).parent
+p = argparse.ArgumentParser()
+p.add_argument('--input', type=Path, default=Path(__file__).parent)
+p.add_argument('--output', type=Path, default=Path(__file__).parent)
+p.add_argument('--prefix', default='')
+a = p.parse_args()
+root = a.input
 labels = ['reference-v1', 'reference-v2', 'migrated']
 def equivalent(a, b):
     if isinstance(a, list) and isinstance(b, list):
@@ -62,12 +68,12 @@ for case in cases:
     row['change_vs_v1_pct'] = (row['migrated']['mean_ms']/row['reference-v1']['mean_ms']-1)*100
     row['change_vs_v2_pct'] = (row['migrated']['mean_ms']/row['reference-v2']['mean_ms']-1)*100
     summary.append(row)
-(root/'query-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+(a.output/f'{a.prefix}query-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
 lines = ['| Case | V1 ms | V2 ms | Migrated ms [min,max] | vs V2 | Peak MiB (V2 → migrated) |',
          '| --- | ---: | ---: | ---: | ---: | ---: |']
 for row in summary:
     x, y, z = (row[label] for label in labels)
     lines.append(f"| {row['case']} | {x['mean_ms']:.2f} | {y['mean_ms']:.2f} | {z['mean_ms']:.2f} [{z['min_ms']:.2f},{z['max_ms']:.2f}] | {row['change_vs_v2_pct']:+.1f}% | {y['peak_bytes_max']/2**20:.1f} → {z['peak_bytes_max']/2**20:.1f} |")
-(root/'query-summary.md').write_text('<!--\nLicensed to the Apache Software Foundation (ASF) under one\nor more contributor license agreements.  See the NOTICE file\ndistributed with this work for additional information\nregarding copyright ownership.  The ASF licenses this file\nto you under the Apache License, Version 2.0 (the\n"License"); you may not use this file except in compliance\nwith the License.  You may obtain a copy of the License at\n\n  http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing,\nsoftware distributed under the License is distributed on an\n"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\nKIND, either express or implied.  See the License for the\nspecific language governing permissions and limitations\nunder the License.\n-->\n\n'+'\n'.join(lines)+'\n')
+(a.output/f'{a.prefix}query-summary.md').write_text('<!--\nLicensed to the Apache Software Foundation (ASF) under one\nor more contributor license agreements.  See the NOTICE file\ndistributed with this work for additional information\nregarding copyright ownership.  The ASF licenses this file\nto you under the Apache License, Version 2.0 (the\n"License"); you may not use this file except in compliance\nwith the License.  You may obtain a copy of the License at\n\n  http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing,\nsoftware distributed under the License is distributed on an\n"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\nKIND, either express or implied.  See the License for the\nspecific language governing permissions and limitations\nunder the License.\n-->\n\n'+'\n'.join(lines)+'\n')
 print('Equivalent results:', len(cases), 'cases across all repetitions and cohorts')
 print('\n'.join(lines))

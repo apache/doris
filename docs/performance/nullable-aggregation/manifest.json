@@ -140,9 +140,127 @@
       "entries": 60
     },
     "validation-logs.tar.gz": {
-      "sha256": "0a969ac19f6d80c27f4a13c3e4dfd3e44916f7ab61dc02c0dc3f0526427943b2",
-      "bytes": 254773,
-      "entries": 22
+      "sha256": "eaec796ccce7e0c27c4aef2cee7b069eef728767b8020101ba1ba1620b73cb5e",
+      "bytes": 545594,
+      "entries": 31
+    },
+    "post-review.tar.gz": {
+      "sha256": "d3f09ee4363d2bdd0a944650ef7f9209ada78d140dc113cf059fc19714d5ae86",
+      "bytes": 3035284,
+      "entries": 201
     }
+  },
+  "post_review": {
+    "source_commit": "b8aaf699fa46b8baa73a84825d7bb0c4c9d2d430",
+    "build_started_at_head": "1ab6fe72ce8261681460af6c5931346642649739",
+    "binary_sha256": "ae4537d999c7d80905996e168a75fb43cfa275f93f47457d611f742c9a05dbe2",
+    "baseline_commit": "e0bf4874070ba0b6837ad93f695ea63532b77a47",
+    "data": "Independent copies of stopped baseline FE metadata and BE storage; all 21 timed tables retain the original baseline data. Regression creates separate tables.",
+    "configuration": "Same RELEASE -O3 build, 16G BE, 8G FE, 1 online BE, DOP 4, agg_phase 2; original isolated ports.",
+    "prewarm": "run_queries.py prewarm --repetitions 0 --warmup-repetitions 5 (complete matrix)",
+    "measurement": "run_queries.py migrated --warmup-repetitions 5 --repetitions 5 --output .nullable-migration/post-review",
+    "kernel_evidence": "The earlier 48-case migrated kernel measurement remains at 1a96ff98396; this follow-up remeasures SQL only.",
+    "recorded_queries": {
+      "migrated": 145,
+      "reference-v2-nearby": 10,
+      "reference-v2-nearby-warmed": 15
+    },
+    "nearby_note": "reference-v2-nearby preserves the first startup probe (5 per-case warmups); reference-v2-nearby-warmed follows the same full-matrix prewarm as the main timing method. An additional 5 variadic_null50 repetitions are retained.",
+    "nearby_comparison": {
+      "variadic_null50": {
+        "reference-v2": {
+          "repetitions": 10,
+          "mean_ms": 83.21155480807647,
+          "median_ms": 82.82796750427224,
+          "min_ms": 76.02001799386926,
+          "max_ms": 90.2191530331038,
+          "cv": 0.057165575635799055,
+          "peak_mib_mean": 254.0577865600586,
+          "peak_mib_min": 252.01681518554688,
+          "peak_mib_max": 256.6867370605469
+        },
+        "reference-v2-nearby": {
+          "repetitions": 5,
+          "mean_ms": 105.43364920886233,
+          "median_ms": 104.49650697410107,
+          "min_ms": 98.5259700100869,
+          "max_ms": 111.98014300316572,
+          "cv": 0.049683001456522546,
+          "peak_mib_mean": 252.04896850585936,
+          "peak_mib_min": 242.22579956054688,
+          "peak_mib_max": 265.4621276855469
+        },
+        "reference-v2-nearby-warmed": {
+          "repetitions": 10,
+          "mean_ms": 85.08758950629272,
+          "median_ms": 82.01017801184207,
+          "min_ms": 78.62424099585041,
+          "max_ms": 102.80891199363396,
+          "cv": 0.08554494607325522,
+          "peak_mib_mean": 255.70045776367186,
+          "peak_mib_min": 242.80197143554688,
+          "peak_mib_max": 266.3309631347656
+        },
+        "migrated": {
+          "repetitions": 5,
+          "mean_ms": 60.415962408296764,
+          "median_ms": 60.13906799489632,
+          "min_ms": 59.29598101647571,
+          "max_ms": 61.78953201742843,
+          "cv": 0.016672136714070078,
+          "peak_mib_mean": 268.3714401245117,
+          "peak_mib_min": 256.29016876220703,
+          "peak_mib_max": 288.14361572265625
+        }
+      },
+      "stored_bulk_merge": {
+        "reference-v2": {
+          "repetitions": 5,
+          "mean_ms": 39.97806580737233,
+          "median_ms": 39.852092013461515,
+          "min_ms": 38.42740401159972,
+          "max_ms": 42.47576600755565,
+          "cv": 0.040129781049013255,
+          "peak_mib_mean": 231.980419921875,
+          "peak_mib_min": 228.245361328125,
+          "peak_mib_max": 244.2724609375
+        },
+        "reference-v2-nearby": {
+          "repetitions": 5,
+          "mean_ms": 58.27121479669586,
+          "median_ms": 57.753669971134514,
+          "min_ms": 52.82859498402104,
+          "max_ms": 63.84372600587085,
+          "cv": 0.07043596622240944,
+          "peak_mib_mean": 220.9772705078125,
+          "peak_mib_min": 195.9132080078125,
+          "peak_mib_max": 244.2724609375
+        },
+        "reference-v2-nearby-warmed": {
+          "repetitions": 5,
+          "mean_ms": 44.72762100631371,
+          "median_ms": 44.45277701597661,
+          "min_ms": 43.449657037854195,
+          "max_ms": 46.831056009978056,
+          "cv": 0.029588748699528523,
+          "peak_mib_mean": 229.9608642578125,
+          "peak_mib_min": 204.9288330078125,
+          "peak_mib_max": 244.2724609375
+        },
+        "migrated": {
+          "repetitions": 5,
+          "mean_ms": 42.08796819439158,
+          "median_ms": 41.633646993432194,
+          "min_ms": 40.150405024178326,
+          "max_ms": 44.31598604423925,
+          "cv": 0.037454974683464495,
+          "peak_mib_mean": 229.8014404296875,
+          "peak_mib_min": 214.1474609375,
+          "peak_mib_max": 245.3974609375
+        }
+      }
+    },
+    "all_followup_results_equivalent": true,
+    "nearby_binary_sha256": "07ec712c344cb4e64d272faaafcb051da44675de4d76504caa088a695068ce0f"
   }
 }

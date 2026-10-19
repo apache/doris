@@ -668,12 +668,12 @@
     "ordinal": 3,
     "operator": "STREAMING_AGGREGATION",
     "repetitions": 5,
-    "task_avg_ms_mean": 1000.0,
-    "task_avg_ms_median": 1000.0,
-    "task_avg_ms_min": 1000.0,
-    "task_avg_ms_max": 1000.0,
-    "task_min_ms_min": 1000.0,
-    "task_max_ms_max": 1000.0
+    "task_avg_ms_mean": 1147.2,
+    "task_avg_ms_median": 1140.0,
+    "task_avg_ms_min": 1130.0,
+    "task_avg_ms_max": 1183.0,
+    "task_min_ms_min": 1116.0,
+    "task_max_ms_max": 1198.0
   },
   {
     "cohort": "reference-v1",
@@ -1812,12 +1812,12 @@
     "ordinal": 3,
     "operator": "STREAMING_AGGREGATION",
     "repetitions": 10,
-    "task_avg_ms_mean": 1000.0,
-    "task_avg_ms_median": 1000.0,
-    "task_avg_ms_min": 1000.0,
-    "task_avg_ms_max": 1000.0,
+    "task_avg_ms_mean": 1122.5,
+    "task_avg_ms_median": 1130.5,
+    "task_avg_ms_min": 1067.0,
+    "task_avg_ms_max": 1187.0,
     "task_min_ms_min": 945.88,
-    "task_max_ms_max": 1000.0
+    "task_max_ms_max": 1212.0
   },
   {
     "cohort": "reference-v2",
@@ -2930,12 +2930,12 @@
     "ordinal": 3,
     "operator": "STREAMING_AGGREGATION",
     "repetitions": 10,
-    "task_avg_ms_mean": 1000.0,
-    "task_avg_ms_median": 1000.0,
-    "task_avg_ms_min": 1000.0,
-    "task_avg_ms_max": 1000.0,
+    "task_avg_ms_mean": 1130.1,
+    "task_avg_ms_median": 1143.0,
+    "task_avg_ms_min": 1030.0,
+    "task_avg_ms_max": 1166.0,
     "task_min_ms_min": 985.88,
-    "task_max_ms_max": 1000.0
+    "task_max_ms_max": 1214.0
   },
   {
     "cohort": "migrated",

@@ -1,8 +1,8 @@
 {
   "unit_tests": {
-    "asan_passed": 406,
+    "asan_passed": 407,
     "suites": 67,
-    "log": "ut-typed-codec.log",
+    "log": "ut-review-fixes.log",
     "full_ut_blocker": "Unchanged Variant fixtures call a missing JsonStringToVariantEncoder constructor; ut-build-3.log"
   },
   "regression": {
@@ -36,7 +36,8 @@
     "whole_header_tidy_result": "nonzero: eight pre-existing diagnostics; zero on diff lines",
     "new_codec_and_ut_tidy": "passed",
     "git_diff_check_source": "passed",
-    "generated_out_whitespace": "The standard runner emits separator tabs for empty last fields and a final empty line; preserved without manual edits."
+    "generated_out_whitespace": "The standard runner emits separator tabs for empty last fields and a final empty line; preserved without manual edits.",
+    "review_fixes_clang_tidy": "passed on all changed lines, including new codec and UT; matching resource-dir wrapper"
   },
   "correctness": {
     "equivalent_sql_cases": 21,
@@ -55,5 +56,17 @@
       "stored_bulk_merge": 3.9180884483965617,
       "stored_bulk_union_finalize": 0.5651441622459341
     }
+  },
+  "review_fixes": {
+    "source_commit": "b8aaf699fa46b8baa73a84825d7bb0c4c9d2d430",
+    "legacy_foreach": "One preparation per batch and normalized nested column sizes verified for native and legacy String streaming",
+    "distribute_key": "Factory-created mixed-NULL streaming verifies each UInt64 payload and per-row reader output",
+    "profile_parser": "3 unittest cases cover composite durations, complete avg/min/max fields and rejection of truncated tokens",
+    "regression": "19 AGG_STATE suites pass at this source",
+    "release_be_max_glibc": "GLIBC_2.10",
+    "post_review_performance": "Separate SQL follow-up at this exact source; previous kernel measurements remain identified at 1a96ff98396",
+    "recorded_migrated_queries": 145,
+    "old_binary_recheck_queries": 25,
+    "all_followup_results_equivalent": true
   }
 }

@@ -45,13 +45,74 @@ Query peak memory does not uniformly decrease. Weighted AVG/50%-NULL mean is 254
 
 Complete [query results](query-summary.md), [kernel results](kernel-summary.md), [operator avg/min/max](operator-summary.md), [binary/environment manifest](manifest.json), and [validation record](validation.json) accompany the raw archives.
 
+## Post-review SQL follow-up
+
+BE source `b8aaf699fa4` fixes the two execution findings from the first local
+review: share foreach batch preparation with the legacy String writer and append
+distribute-key states at UInt64 object offsets. The accompanying report fix parses
+every component of profile durations.
+The operator summaries above were regenerated from the unchanged original tokens;
+for example, `1sec153ms` is 1153 ms. Three Python parser tests pass.
+
+At this source, 407 ASAN tests / 67 suites and all 19 AGG_STATE SQL suites pass.
+RELEASE BE, clang-format 16, header hygiene and clang-tidy on all changed lines pass.
+The new ELF's maximum GLIBC requirement is still 2.10. Validation logs retain both
+the earlier runs and these follow-up runs.
+
+The final SQL recheck uses independent copies of the stopped reference FE metadata
+and BE storage, preserving the original timed tables before upgrade writes or
+compaction. It records 145 queries across all 21 cases: full-matrix prewarm, five
+per-case warmups, five recorded repetitions, and five additional repetitions for
+eight cases whose first-round CV exceeds 5%. Every result agrees with the reference.
+[Query statistics](post-review-query-summary.md) and
+[operator task avg/min/max](post-review-operator-summary.md) are separate from the
+550 earlier queries; the kernel/allocation measurements remain explicitly at
+`1a96ff98396` and are not relabeled as measurements of the follow-up source.
+
+| Case | Earlier reference V2 ms | Post-review ms | Change |
+| --- | ---: | ---: | ---: |
+| numeric_high_null50 | 179.45 | 158.59 | -11.6% |
+| variadic_null50 | 83.21 | 60.42 | -27.4% |
+| stored_bulk_merge | 39.98 | 42.09 | +5.3% |
+| tpcds_sf1_q78 | 125.34 | 125.85 | +0.4% |
+
+For the apparent bulk-MERGE increase, a nearby recheck of the **same old binary**
+first preserves a startup probe, then performs the full-matrix prewarm and records
+five more repetitions. The fully warmed old mean is 44.73 ms [43.45,46.83], versus
+42.09 [40.15,44.32] after the fixes. Thus the unchanged old binary itself shifts
+from its earlier 39.98 ms, and the follow-up does not establish a MERGE regression.
+All startup and warmed samples remain in the follow-up archive, clearly identified.
+
+Query peak memory remains a measured tradeoff, not a universal reduction. For
+weighted AVG/50%-NULL, the nearby warmed old run (10 retained repetitions) has
+mean/max 255.70/266.33 MiB, versus 268.37/288.14 MiB after the fixes. The aggregate
+state counters still report 7.64 MB at each aggregation phase. Overlapping buffered
+blocks and spare capacity can affect query-level concurrency peaks; this is an
+inference, not an exact attribution of the remaining bytes. The disposition is to
+retain the bounded state/queue contracts, disclose these query peaks and ranges,
+and avoid claiming either a universal memory win or a byte-by-byte explanation.
+The [JSON details](post-review-query-summary.json) include every case's CPU,
+throughput, CV and peak ranges.
+
+`post-review.tar.gz` contains the 145 migrated profiles and 25 old-binary recheck
+profiles, query results/settings, audit metrics, startup/warmed labels and a manifest
+with exact source and binary hashes. The 10 initial old startup samples are
+explicit diagnostics; the 15 warmed recheck samples are reported separately.
+To reproduce the summaries after extracting it under this directory:
+
+```bash
+python3 summarize.py --input post-review --output . --prefix post-review-
+python3 summarize_operators.py --input post-review --output . --prefix post-review-
+python3 -m unittest discover -s . -p 'test_*.py' -v
+```
+
 ## Builds and dataset
 
 The reference is `e0bf4874070ba0b6837ad93f695ea63532b77a47`. Its production
 aggregation implementation is unchanged; the benchmark harness from this change
 is copied into that checkout, with `DORIS_NULLABLE_AGGREGATION_REFERENCE` selecting
-the original V1/V2 attribute. The migrated calculation implementation is
-`1a96ff98396`; subsequent test/report commits do not change it. The manifest records
+the original V1/V2 attribute. The primary migrated measurements use calculation source `1a96ff98396`.
+The post-review SQL follow-up below measures source `b8aaf699fa4` separately. The manifest records
 binary hashes and the precise build metadata. These are new measurements,
 independent of the timings reported by PR #60228.
 
@@ -217,6 +278,7 @@ verified that external issue's exact SQL or resolution status.
 * `raw-records.tar.gz`: original SQL/settings/results/query IDs, audit counters, kernel repetitions and allocation JSONL, CPU symbol reports, compatibility-stage records, and hardware descriptions. Final two-BE proofs use `mixed-final-*`; earlier stages retain their actual binary versions.
 * `raw-profiles.tar.gz`: all final timing-query profiles and compatibility profiles, in the same file names expected by the collectors.
 * `raw-perf.tar.gz`: original perf.data files and recording logs for old V1/V2 and migrated kernels/queries, plus the old/new wide-string workload.
+* `post-review.tar.gz`: final-source SQL recheck and nearby old-binary probes, kept separate from the original comparison.
 * `validation-logs.tar.gz`: standard build, UT, regression, formatting, hygiene and tidy logs, including the unrelated full-UT build blocker.
 * `diagnostic-runs.tar.gz`: cold/earlier implementation measurements and an early registration-only mixed-cluster probe; those records are excluded from the final cohorts. The registration-only probe does not prove both BEs executed a query.
 

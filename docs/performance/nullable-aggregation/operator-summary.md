@@ -70,7 +70,7 @@ under the License.
 | reference-v1 | wide_string_set/AGGREGATION_SINK#0 | 0.061 | 0.051/0.079 |
 | reference-v1 | wide_string_set/AGGREGATION_SINK#1 | 0.053 | 0.029/0.079 |
 | reference-v1 | wide_string_set/AGGREGATION_SINK#2 | 29.457 | 19.399/35.585 |
-| reference-v1 | wide_string_set/STREAMING_AGGREGATION#3 | 1000.000 | 1000.000/1000.000 |
+| reference-v1 | wide_string_set/STREAMING_AGGREGATION#3 | 1147.200 | 1116.000/1198.000 |
 | reference-v1 | wide_string_streaming/AGGREGATION_SINK#0 | 0.075 | 0.057/0.104 |
 | reference-v1 | wide_string_streaming/AGGREGATION_SINK#1 | 0.299 | 0.276/0.341 |
 | reference-v1 | wide_string_streaming/AGGREGATION_SINK#2 | 173.896 | 149.403/185.816 |
@@ -158,7 +158,7 @@ under the License.
 | reference-v2 | wide_string_set/AGGREGATION_SINK#0 | 0.059 | 0.043/0.078 |
 | reference-v2 | wide_string_set/AGGREGATION_SINK#1 | 0.054 | 0.030/0.085 |
 | reference-v2 | wide_string_set/AGGREGATION_SINK#2 | 30.492 | 19.535/38.884 |
-| reference-v2 | wide_string_set/STREAMING_AGGREGATION#3 | 1000.000 | 945.880/1000.000 |
+| reference-v2 | wide_string_set/STREAMING_AGGREGATION#3 | 1122.500 | 945.880/1212.000 |
 | reference-v2 | wide_string_streaming/AGGREGATION_SINK#0 | 0.070 | 0.053/0.095 |
 | reference-v2 | wide_string_streaming/AGGREGATION_SINK#1 | 0.329 | 0.287/0.469 |
 | reference-v2 | wide_string_streaming/AGGREGATION_SINK#2 | 172.145 | 141.582/194.961 |
@@ -244,7 +244,7 @@ under the License.
 | migrated | wide_string_set/AGGREGATION_SINK#0 | 0.062 | 0.040/0.073 |
 | migrated | wide_string_set/AGGREGATION_SINK#1 | 0.053 | 0.042/0.075 |
 | migrated | wide_string_set/AGGREGATION_SINK#2 | 29.837 | 19.239/37.955 |
-| migrated | wide_string_set/STREAMING_AGGREGATION#3 | 1000.000 | 985.880/1000.000 |
+| migrated | wide_string_set/STREAMING_AGGREGATION#3 | 1130.100 | 985.880/1214.000 |
 | migrated | wide_string_streaming/AGGREGATION_SINK#0 | 0.082 | 0.067/0.105 |
 | migrated | wide_string_streaming/AGGREGATION_SINK#1 | 0.335 | 0.301/0.377 |
 | migrated | wide_string_streaming/AGGREGATION_SINK#2 | 160.297 | 137.381/195.758 |
