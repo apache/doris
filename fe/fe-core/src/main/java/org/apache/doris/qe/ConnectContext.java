@@ -1002,10 +1002,19 @@ public class ConnectContext {
         return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
     }
 
+    public void restoreNameSpaceContext(NameSpaceContext namespace) {
+        // Restoring a captured namespace must not contact a catalog that may now be unavailable.
+        defaultCatalog = namespace.getDefaultCatalog();
+        currentDb = namespace.getCurrentDb();
+        currentDbId = namespace.getCurrentDbId();
+    }
+
     public void setDatabase(String db) {
-        currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
-        currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+        long dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+        // A failed lookup must leave the previously selected database name and ID together.
+        currentDb = db;
+        currentDbId = dbId;
     }
 
     void restoreDatabaseName(String db) {
