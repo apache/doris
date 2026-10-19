@@ -755,29 +755,49 @@ Status find_projected_minmax_leaf(const ::orc::Type& root_type,
 // resulting decode context and never need to infer which reader strategy produced a batch.
 class OrcTimestampReadPlan {
 public:
-    void configure(const ::orc::Type& file_schema,
-                   const std::vector<format::LocalColumnId>& read_columns,
-                   const cctz::time_zone& session_timezone) {
+    Status configure(const ::orc::Type& file_schema,
+                     const std::vector<format::LocalColumnId>& read_columns,
+                     const format::FileScanRequest& request,
+                     const cctz::time_zone& session_timezone) {
         _context = OrcTimestampDecodeContext(session_timezone);
-        // An unprojected NANOS sibling can affect the SDK's ordinary timestamp decoding.
-        const bool needs_writer_timezone =
-                orc_serde_utils::has_nanosecond_timestamp(file_schema) &&
-                std::ranges::any_of(read_columns, [&](const auto column_id) {
-                    return !is_virtual_column(column_id) &&
-                           has_timestamp(*file_schema.getSubtype(column_id.value()), false);
-                });
+        _timezone_source = TimezoneSource::SESSION;
+        _timestamp_columns.clear();
+        if (!orc_serde_utils::has_nanosecond_timestamp(file_schema)) {
+            return Status::OK();
+        }
+        bool needs_writer_timezone = false;
+        for (const auto column_id : read_columns) {
+            if (is_virtual_column(column_id)) {
+                continue;
+            }
+            const auto& type = *file_schema.getSubtype(column_id.value());
+            const auto* projection = find_request_projection(request, column_id);
+            DORIS_CHECK(projection != nullptr);
+            std::set<uint64_t> projected_ids;
+            const auto* selected_ids = projection->project_all_children ? nullptr : &projected_ids;
+            if (selected_ids != nullptr) {
+                RETURN_IF_ERROR(collect_projected_type_ids(type, *projection, &projected_ids));
+            }
+            // A NANOS sibling affects the SDK only when a plain timestamp is decoded. Match
+            // includeTypes so unread nested leaves cannot trigger footer reads or dense decoding.
+            needs_writer_timezone |= has_timestamp(type, false, selected_ids);
+            if (has_timestamp(type, true, selected_ids)) {
+                _timestamp_columns.insert(column_id);
+            }
+        }
         _timezone_source =
                 needs_writer_timezone ? TimezoneSource::STRIPE_WRITER : TimezoneSource::SESSION;
+        return Status::OK();
     }
 
     bool requires_stripe_reader() const {
         return _timezone_source == TimezoneSource::STRIPE_WRITER;
     }
 
-    bool requires_dense_decoding(const ::orc::Type& column_type) const {
+    bool requires_dense_decoding(format::LocalColumnId column_id) const {
         // The pinned SDK's selected timestamp decoder checks a fraction at the wrong row index.
         // Decode timestamp leaders densely while retaining lazy reads for other followers.
-        return requires_stripe_reader() && has_timestamp(column_type, true);
+        return requires_stripe_reader() && _timestamp_columns.contains(column_id);
     }
 
     Status configure_stripe(const std::string& writer_timezone, ::orc::WriterId writer,
@@ -814,19 +834,24 @@ public:
 private:
     enum class TimezoneSource { SESSION, STRIPE_WRITER };
 
-    static bool has_timestamp(const ::orc::Type& type, bool include_instant) {
+    static bool has_timestamp(const ::orc::Type& type, bool include_instant,
+                              const std::set<uint64_t>* selected_ids) {
+        if (selected_ids != nullptr && !selected_ids->contains(type.getColumnId())) {
+            return false;
+        }
         if (type.getKind() == ::orc::TIMESTAMP ||
             (include_instant && type.getKind() == ::orc::TIMESTAMP_INSTANT)) {
             return true;
         }
         for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
-            if (has_timestamp(*type.getSubtype(child), include_instant)) {
+            if (has_timestamp(*type.getSubtype(child), include_instant, selected_ids)) {
                 return true;
             }
         }
         return false;
     }
 
+    std::set<format::LocalColumnId> _timestamp_columns;
     TimezoneSource _timezone_source = TimezoneSource::SESSION;
     OrcTimestampDecodeContext _context {cctz::utc_time_zone()};
 };
@@ -1593,14 +1618,13 @@ Status OrcReader::_configure_row_reader_projection() {
         DORIS_CHECK(projection != nullptr);
         has_complex_projection = has_complex_projection || has_pruned_projection(*projection);
     }
-    _state->timestamp_plan.configure(*_state->root_type, _state->read_columns,
-                                     _state->timezone_obj);
+    RETURN_IF_ERROR(_state->timestamp_plan.configure(*_state->root_type, _state->read_columns,
+                                                     *_request, _state->timezone_obj));
     auto filter_projections = _request->predicate_columns;
     if (_state->orc_lazy_read_enabled) {
         for (const auto column_id : _state->read_columns) {
             if (!is_virtual_column(column_id) &&
-                _state->timestamp_plan.requires_dense_decoding(
-                        *_state->root_type->getSubtype(column_id.value())) &&
+                _state->timestamp_plan.requires_dense_decoding(column_id) &&
                 std::ranges::none_of(filter_projections, [column_id](const auto& projection) {
                     return projection.column_id() == column_id;
                 })) {

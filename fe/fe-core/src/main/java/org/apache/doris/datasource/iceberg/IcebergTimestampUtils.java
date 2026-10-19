@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 
 import org.apache.iceberg.Schema;
@@ -83,6 +84,11 @@ public final class IcebergTimestampUtils {
 
     public static boolean referencesUnsafe(org.apache.doris.nereids.trees.expressions.Expression expr,
             Schema schema, Set<Integer> unsafe) {
-        return expr.getInputSlots().stream().anyMatch(slot -> unsafeName(slot.getName(), schema, unsafe));
+        return expr.getInputSlots().stream().anyMatch(slot -> {
+            // Match IcebergNereidsUtils: SQL-rendered names add quoting to literal dots/backticks.
+            String name = slot instanceof UnboundSlot && ((UnboundSlot) slot).getNameParts().size() == 1
+                    ? ((UnboundSlot) slot).getNameParts().get(0) : slot.getName();
+            return unsafeName(name, schema, unsafe);
+        });
     }
 }

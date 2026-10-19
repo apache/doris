@@ -3780,37 +3780,81 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testManifestCacheKeepsEqualityDeleteAfterDateToNanosPromotion() throws Exception {
-        Schema schema = new Schema(Types.NestedField.required(1, "ts", Types.DateType.get()));
+        checkDateToNanosEqualityDeletes(false, true);
+    }
+
+    @Test
+    public void testManifestCacheKeepsDroppedDateToNanosEqualityDelete() throws Exception {
+        checkDateToNanosEqualityDeletes(true, true);
+    }
+
+    @Test
+    public void testSdkKeepsDateToNanosEqualityDelete() throws Exception {
+        checkDateToNanosEqualityDeletes(false, false);
+    }
+
+    @Test
+    public void testSdkKeepsDroppedDateToNanosEqualityDelete() throws Exception {
+        checkDateToNanosEqualityDeletes(true, false);
+    }
+
+    private void checkDateToNanosEqualityDeletes(boolean dropped, boolean manifestCache) throws Exception {
+        checkDateToNanosEqualityDeletes(dropped, manifestCache, false);
+    }
+
+    @Test
+    public void testHistoricalDateDeleteBoundsAfterDroppingPromotedKey() throws Exception {
+        checkDateToNanosEqualityDeletes(true, false, true);
+        checkDateToNanosEqualityDeletes(true, true, true);
+    }
+
+    private void checkDateToNanosEqualityDeletes(boolean dropped, boolean manifestCache,
+            boolean dateDelete) throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "ts", Types.DateType.get()),
+                Types.NestedField.optional(2, "id", Types.IntegerType.get()));
         String tableLocation = temporaryFolder.getRoot().toPath()
-                .resolve("manifest_cache_date_to_nanos").toUri().toString();
+                .resolve("manifest_cache_date_to_nanos_" + manifestCache + "_" + dateDelete).toUri().toString();
         Table table = new HadoopTables(new Configuration()).create(
                 schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"), tableLocation);
         Map<Integer, java.nio.ByteBuffer> dateBounds = ImmutableMap.of(1,
                 org.apache.iceberg.types.Conversions.toByteBuffer(Types.DateType.get(), 19724));
-        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+        Map<Integer, java.nio.ByteBuffer> nanosBounds = ImmutableMap.of(1,
+                org.apache.iceberg.types.Conversions.toByteBuffer(
+                        Types.TimestampNanoType.withoutZone(), 1704153600000000000L));
+        DataFile dataFile = DataFiles.builder(table.spec())
                 .withPath(tableLocation + "/data/old.parquet")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
-                        ImmutableMap.of(1, 0L), null, dateBounds, dateBounds))
-                .build()).commit();
+                        ImmutableMap.of(1, 0L), null,
+                        dateDelete ? nanosBounds : dateBounds, dateDelete ? nanosBounds : dateBounds))
+                .build();
+        if (!dateDelete) {
+            table.newFastAppend().appendFile(dataFile).commit();
+        }
         TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
         TableMetadata before = operations.current();
         operations.commit(before, TableMetadata.buildFrom(before).setCurrentSchema(new Schema(
-                Types.NestedField.required(1, "ts", Types.TimestampNanoType.withoutZone())), 1).build());
+                Types.NestedField.required(1, "ts", Types.TimestampNanoType.withoutZone()),
+                Types.NestedField.optional(2, "id", Types.IntegerType.get())), 2).build());
         table.refresh();
-        Map<Integer, java.nio.ByteBuffer> nanosBounds = ImmutableMap.of(1,
-                org.apache.iceberg.types.Conversions.toByteBuffer(
-                        Types.TimestampNanoType.withoutZone(), 1704153600000000000L));
+        if (dateDelete) {
+            table.newFastAppend().appendFile(dataFile).commit();
+        }
         table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
                 .ofEqualityDeletes(1)
                 .withPath(tableLocation + "/data/eq-delete.parquet")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
-                        ImmutableMap.of(1, 0L), null, nanosBounds, nanosBounds))
+                        ImmutableMap.of(1, 0L), null,
+                        dateDelete ? dateBounds : nanosBounds, dateDelete ? dateBounds : nanosBounds))
                 .build()).commit();
+
+        if (dropped) {
+            table.updateSchema().deleteColumn("ts").commit();
+        }
 
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         IcebergSource source = Mockito.mock(IcebergSource.class);
@@ -3845,12 +3889,34 @@ public class IcebergScanNodeTest {
                         return ManifestCacheValue.forDataFiles(files);
                     });
 
-            List<FileScanTask> tasks = node.loadFileScanTasksWithManifestCache(
-                    table.newScan(), table.currentSnapshot());
+            TableScan scan = org.apache.iceberg.DorisDataTableScan.wrap(table.newScan().project(table.schema()));
+            Assert.assertEquals(dropped, scan.schema().findField("ts") == null);
+            List<FileScanTask> tasks;
+            if (manifestCache) {
+                tasks = node.loadFileScanTasksWithManifestCache(scan, table.currentSnapshot());
+            } else {
+                tasks = new ArrayList<>();
+                try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
+                    planned.forEach(tasks::add);
+                }
+            }
 
             // Historical DATE bounds are days, not nanos; they must not exclude the later delete.
             Assert.assertEquals(1, tasks.size());
             Assert.assertEquals(1, tasks.get(0).deletes().size());
+            if (!dateDelete) {
+                Map<Integer, java.nio.ByteBuffer> otherNanos = ImmutableMap.of(1,
+                        org.apache.iceberg.types.Conversions.toByteBuffer(
+                                Types.TimestampNanoType.withoutZone(), 1704240000000000000L));
+                DataFile disjoint = DataFiles.builder(table.spec()).withPath("disjoint.parquet")
+                        .withFormat(FileFormat.PARQUET).withFileSizeInBytes(10)
+                        .withMetrics(new org.apache.iceberg.Metrics(1L, null, ImmutableMap.of(1, 1L),
+                                ImmutableMap.of(1, 0L), null, otherNanos, otherNanos)).build();
+                // Compatible nanos bounds still prune; only historical day bounds are unknown.
+                Assert.assertEquals(0, org.apache.iceberg.DeleteFileIndex
+                        .builderFor(tasks.get(0).deletes()).schemasById(table.schemas())
+                        .specsById(table.specs()).build().forDataFile(0L, disjoint).length);
+            }
         }
     }
 
