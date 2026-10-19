@@ -430,19 +430,12 @@ void CacheBlockMetaStore::clear() {
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
 }
 
-namespace {
-
-// Tablet policies are keyed by this prefix and the tablet id in the default column family.
-constexpr char TABLET_POLICY_KEY_PREFIX = 0x1;
-
 std::string tablet_policy_key(int64_t tablet_id) {
     std::string key;
-    key.push_back(TABLET_POLICY_KEY_PREFIX);
+    key.push_back(static_cast<char>(MetaKeyKind::TABLET_POLICY));
     get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT)->full_encode_ascending(&tablet_id, &key);
     return key;
 }
-
-} // namespace
 
 void CacheBlockMetaStore::put_tablet_policy(int64_t tablet_id, const TabletCachePolicy& policy) {
     cache::TabletCachePolicyPb pb;
@@ -469,20 +462,24 @@ void CacheBlockMetaStore::for_each_tablet_policy(
     if (!_db) {
         return;
     }
-    const std::string prefix(1, TABLET_POLICY_KEY_PREFIX);
+    const std::string prefix(1, static_cast<char>(MetaKeyKind::TABLET_POLICY));
     std::unique_ptr<rocksdb::Iterator> iter(
             _db->NewIterator(rocksdb::ReadOptions(), _default_cf_handle.get()));
     auto* coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+        // A protobuf parses from most bytes, so check everything that can be checked: a row that
+        // is not a policy must not be taken for one, it would decide the protection of blocks.
         Slice key(iter->key().data(), iter->key().size());
         key.remove_prefix(1);
         int64_t tablet_id = 0;
         Status st = coder->decode_ascending(&key, sizeof(int64_t),
                                             reinterpret_cast<uint8_t*>(&tablet_id));
         cache::TabletCachePolicyPb pb;
-        if (!st.ok() ||
-            !pb.ParseFromArray(iter->value().data(), static_cast<int>(iter->value().size()))) {
-            LOG(WARNING) << "skip malformed file cache tablet policy in " << _db_path;
+        if (!st.ok() || key.size != 0 || tablet_id <= 0 ||
+            !pb.ParseFromArray(iter->value().data(), static_cast<int>(iter->value().size())) ||
+            !pb.has_ttl_seconds() || !pb.has_ctime() || pb.ttl_seconds() < 0 || pb.ctime() < 0) {
+            LOG(WARNING) << "skip malformed file cache tablet policy in " << _db_path
+                         << ", key size " << iter->key().size();
             continue;
         }
         fn(tablet_id, TabletCachePolicy {pb.ttl_seconds(), pb.ctime()});

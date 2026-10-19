@@ -661,6 +661,68 @@ TEST_F(BlockFileCacheTest, ttl_policy_meta_store_keeps_tablet_policies) {
     EXPECT_EQ(blocks, 1);
 }
 
+// A row of the tablet policy kind is only taken for a policy when everything about it checks out.
+TEST_F(BlockFileCacheTest, ttl_policy_meta_store_skips_malformed_tablet_policies) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    const std::string db_path = cache_base_path + "/meta";
+    {
+        CacheBlockMetaStore store(db_path);
+        store.put_tablet_policy(1, {3600, 1000});
+    }
+    {
+        // Write the rows behind the store's back, the way another version could have.
+        std::vector<rocksdb::ColumnFamilyDescriptor> column_families {
+                {rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions()},
+                {"file_cache_meta", rocksdb::ColumnFamilyOptions()}};
+        std::vector<rocksdb::ColumnFamilyHandle*> handles;
+        rocksdb::DB* db = nullptr;
+        ASSERT_TRUE(rocksdb::DB::Open(rocksdb::Options(), db_path, column_families, &handles, &db)
+                            .ok());
+        auto policy_value = [](std::optional<int64_t> ttl_seconds, std::optional<int64_t> ctime) {
+            cache::TabletCachePolicyPb pb;
+            if (ttl_seconds) {
+                pb.set_ttl_seconds(*ttl_seconds);
+            }
+            if (ctime) {
+                pb.set_ctime(*ctime);
+            }
+            return pb.SerializeAsString();
+        };
+        auto put = [&](const std::string& key, const std::string& value) {
+            ASSERT_TRUE(db->Put(rocksdb::WriteOptions(), handles[0], key, value).ok());
+        };
+        // A key longer than a policy's, such as a block metadata key in the wrong family.
+        put(serialize_key(BlockMetaKey(2, BlockFileCache::hash("key"), 0)),
+            serialize_value(BlockMeta(FileCacheType::NORMAL, 100, 0)));
+        // A key shorter than a policy's.
+        put(tablet_policy_key(3).substr(0, 5), policy_value(3600, 1000));
+        // Tablet ids that are never cached under.
+        put(tablet_policy_key(0), policy_value(3600, 1000));
+        put(tablet_policy_key(-4), policy_value(3600, 1000));
+        // Fields missing or out of range.
+        put(tablet_policy_key(5), policy_value(3600, std::nullopt));
+        put(tablet_policy_key(6), policy_value(std::nullopt, 1000));
+        put(tablet_policy_key(7), policy_value(-1, 1000));
+        put(tablet_policy_key(8), policy_value(3600, -1));
+        // Not a protobuf.
+        put(tablet_policy_key(9), "\xff\xff\xff");
+        for (auto* handle : handles) {
+            db->DestroyColumnFamilyHandle(handle);
+        }
+        delete db;
+    }
+    CacheBlockMetaStore store(db_path);
+    std::map<int64_t, TabletCachePolicy> policies;
+    store.for_each_tablet_policy([&](int64_t tablet_id, const TabletCachePolicy& policy) {
+        policies.emplace(tablet_id, policy);
+    });
+    ASSERT_EQ(policies.size(), 1);
+    EXPECT_EQ(policies[1], (TabletCachePolicy {3600, 1000}));
+}
+
 // The copy of a tablet's policy ends with the last change, whichever threads made the changes.
 TEST_F(BlockFileCacheTest, ttl_policy_meta_store_keeps_last_policy_change) {
     if (fs::exists(cache_base_path)) {

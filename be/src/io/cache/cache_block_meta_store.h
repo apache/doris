@@ -39,6 +39,16 @@
 
 namespace doris::io {
 
+// The first byte of every key in rocksdb's default column family, telling what the record is.
+// Block metadata has its own column family; every other record goes in the default one.
+// A BE reads only the kinds it knows, and a BE older than this enum never reads the default
+// column family. Never reuse or renumber a value, even after its kind is no longer written:
+// rows written by an earlier version may still be on disk.
+enum class MetaKeyKind : uint8_t {
+    // The TTL policy of a tablet: the kind, then the tablet id encoded ascending.
+    TABLET_POLICY = 0x1,
+};
+
 struct BlockMeta {
     FileCacheType type;
     size_t size;
@@ -166,5 +176,6 @@ std::string serialize_value(const BlockMeta& meta);
 std::optional<BlockMetaKey> deserialize_key(const std::string& key_str, Status* status = nullptr);
 std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status* status = nullptr);
 std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* status = nullptr);
+std::string tablet_policy_key(int64_t tablet_id);
 
 } // namespace doris::io
