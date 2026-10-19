@@ -1000,6 +1000,30 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteEmptyStaticPartitionClearsOnlyThatPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend()
+                .appendFile(partitionedDataFile(spec, "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us"))
+                .appendFile(partitionedDataFile(spec, "s3://b/db1/t1/region=eu/seed.parquet", 1L, "region=eu"))
+                .commit();
+
+        // INSERT OVERWRITE ... PARTITION(region='us') of a source with no rows: no commit data, and the 'us'
+        // partition is still replaced with nothing while the 'eu' file stays.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(catalog.loadTable(id), Collections.singletonMap("region", "us")));
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(1, files.size(), files.toString());
+        Assertions.assertTrue(files.get(0).path().toString().contains("region=eu"),
+                files.get(0).path().toString());
+    }
+
+    @Test
     public void promotedDateStaticOverwriteRejectsUnsafeRetainedBounds() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
