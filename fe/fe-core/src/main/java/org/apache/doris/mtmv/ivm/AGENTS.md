@@ -137,6 +137,20 @@ side. Only the legacy fallback for a DUP_KEYS table without row binlog -- the no
 trigger table -- is still rejected on the retained side. FULL OUTER JOIN requires deterministic
 row-ids on both sides.
 
+## Shared Acceptance Gates
+
+Both normalize paths and the append-only detail delta rewriter accept the same query shapes, and the
+gates that reject the rest live in one place, `IvmNormalizeCommonChecker` (a DISTINCT project, a
+UNION DISTINCT or constant-arm UNION ALL, a reserved output column name, an unsupported node type).
+Add a new acceptance gate there rather than to a single class, or the paths drift apart on what they
+accept -- which is how the join gate below went unshared.
+
+The join gate carries a per-model accepted set (the detail model maintains only inner and cross joins,
+the unique-key model also the outer joins) but is otherwise shared, and it tests the mark-join mark as
+well as the join type. The mark is orthogonal to the type -- an apply rewrite puts one on a LEFT_SEMI,
+a LEFT_ANTI, or a CROSS join -- so a type-only test accepts a mark join whose type happens to be an
+accepted one, and a mark join can stop matching a row the MV already holds.
+
 ## Recursive Delta Rewrite
 
 - `IvmNormalizeUniqKeysMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
