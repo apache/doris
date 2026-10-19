@@ -38,6 +38,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
+#include "exprs/aggregate/aggregate_function_legacy_nullable.h"
 
 namespace doris {
 
@@ -181,6 +182,12 @@ public:
     bool is_trivial() const override { return false; }
 
     bool has_legacy_nullable_state_format() const override { return true; }
+
+    AggregateFunctionPtr create_legacy_nullable_codec(
+            AggregateFunctionPtr function) const override {
+        return std::make_shared<AggregateFunctionLegacyNullableState<Derived>>(
+                std::static_pointer_cast<Derived>(std::move(function)));
+    }
 
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
@@ -957,5 +964,18 @@ private:
     size_t number_of_arguments = 0;
     std::array<char, MAX_ARGS>
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
+};
+// Stable transfer changes the nested DISTINCT type while preserving the nullable
+// wrapper. The typed legacy codec uses the same mapping as the nullable creator.
+template <typename Nested, bool result_is_nullable>
+struct FunctionStableTransfer<AggregateFunctionNullUnaryInlineV2<Nested, result_is_nullable>> {
+    using FunctionStable = AggregateFunctionNullUnaryInlineV2<
+            typename FunctionStableTransfer<Nested>::FunctionStable, result_is_nullable>;
+};
+
+template <typename Nested, bool result_is_nullable>
+struct FunctionStableTransfer<AggregateFunctionNullVariadicInlineV2<Nested, result_is_nullable>> {
+    using FunctionStable = AggregateFunctionNullVariadicInlineV2<
+            typename FunctionStableTransfer<Nested>::FunctionStable, result_is_nullable>;
 };
 } // namespace doris

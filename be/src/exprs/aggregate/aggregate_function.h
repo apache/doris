@@ -293,6 +293,14 @@ public:
     // of the native intermediate column used by query execution.
     virtual bool has_legacy_nullable_state_format() const { return false; }
 
+    // Construct the codec at the concrete nullable type, preserving static dispatch
+    // inside legacy String readers. Only functions advertising that codec call this.
+    virtual AggregateFunctionPtr create_legacy_nullable_codec(
+            AggregateFunctionPtr /* function */) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Aggregate function {} has no legacy nullable codec", get_name());
+    }
+
     virtual void set_version(const int version_) { version = version_; }
 
     virtual IAggregateFunction* transmit_to_stable() { return nullptr; }
