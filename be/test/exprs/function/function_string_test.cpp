@@ -24,11 +24,14 @@
 #include <string>
 #include <vector>
 
+#include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/simple_function_factory.h"
 #include "util/defer_op.h"
 #include "util/encryption_util.h"
 #include "util/md5.h"
@@ -2904,24 +2907,59 @@ TEST(function_string_test, function_parse_url_null_invalid_part_test) {
 }
 
 TEST(function_string_test, function_translate_mixed_const_map_test) {
-    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
-                                      Consted {PrimitiveType::TYPE_VARCHAR},
-                                      Consted {PrimitiveType::TYPE_VARCHAR}};
-    const DataSet replace_rows = {
-            {{std::string("aba"), std::string("ab"), std::string("XY")}, std::string("XYX")},
-            {{std::string("a你b好a"), std::string("ab"), std::string("XY")},
-             std::string("X你Y好X")},
-            {{std::string(""), std::string("ab"), std::string("XY")}, std::string("")},
-            {{Null(), std::string("ab"), std::string("XY")}, Null()}};
-    static_cast<void>(check_function<DataTypeString, true>("translate", input_types, replace_rows));
+    const auto check_batch = [](const std::string& to, const DataSet& data_set) {
+        const auto type = make_nullable(std::make_shared<DataTypeString>());
+        const size_t row_count = data_set.size();
+        auto source = type->create_column();
+        auto expected = type->create_column();
+        for (const auto& row : data_set) {
+            ASSERT_TRUE(insert_cell(source, type, row.first[0]));
+            ASSERT_TRUE(insert_cell(expected, type, row.second));
+        }
 
-    const DataSet delete_rows = {
-            {{std::string("aba"), std::string("ab"), std::string("X")}, std::string("XX")},
-            {{std::string("a你b好a"), std::string("ab"), std::string("X")}, std::string("X你好X")},
-            {{std::string("bbb"), std::string("ab"), std::string("X")}, std::string("")},
-            {{std::string(""), std::string("ab"), std::string("X")}, std::string("")},
-            {{Null(), std::string("ab"), std::string("X")}, Null()}};
-    static_cast<void>(check_function<DataTypeString, true>("translate", input_types, delete_rows));
+        // Keep mixed source rows in one batch, with singleton nested mapping columns.
+        Block block;
+        block.insert({std::move(source), type, "source"});
+        block.insert(
+                {type->create_column_const(row_count, Field(std::string("ab"))), type, "from"});
+        block.insert({type->create_column_const(row_count, Field(to)), type, "to"});
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "translate", block.get_columns_with_type_and_name(), type);
+        ASSERT_NE(function, nullptr);
+
+        FunctionUtils function_utils(type, {type, type, type}, false);
+        auto* context = function_utils.get_fn_ctx();
+        context->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
+        ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+        block.insert({nullptr, type, "result"});
+        ASSERT_TRUE(function->execute(context, block, {0, 1, 2}, 3, row_count).ok());
+        ASSERT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+
+        const auto& result = block.get_by_position(3).column;
+        ASSERT_EQ(row_count, result->size());
+        for (size_t row = 0; row < row_count; ++row) {
+            EXPECT_EQ(0, result->compare_at(row, row, *expected, 1))
+                    << "row " << row << ", result: " << type->to_string(*result, row)
+                    << ", expected: " << type->to_string(*expected, row);
+        }
+    };
+
+    const DataSet replace_rows = {{{std::string("aba")}, std::string("XYX")},
+                                  {{std::string("a你b好a")}, std::string("X你Y好X")},
+                                  {{std::string("")}, std::string("")},
+                                  {{Null()}, Null()}};
+    check_batch("XY", replace_rows);
+
+    const DataSet delete_rows = {{{std::string("aba")}, std::string("XX")},
+                                 {{std::string("a你b好a")}, std::string("X你好X")},
+                                 {{std::string("bbb")}, std::string("")},
+                                 {{std::string("")}, std::string("")},
+                                 {{Null()}, Null()}};
+    check_batch("X", delete_rows);
 }
 
 TEST(function_string_test, function_hex_test) {
