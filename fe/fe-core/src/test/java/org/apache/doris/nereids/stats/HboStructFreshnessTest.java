@@ -362,6 +362,20 @@ public class HboStructFreshnessTest {
     }
 
     @Test
+    void testARecordedTableWhichWasReplacedIsNotJudgedLive() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(20L);
+        // the entry was recorded for the table with id 10; the name now resolves to another table
+        Assertions.assertTrue(HboStructFreshness.tableReplaced(
+                HboScanDescriptor.parse("internal.db.t#ti:10,v2,r1000"), table));
+        Assertions.assertFalse(HboStructFreshness.tableReplaced(
+                HboScanDescriptor.parse("internal.db.t#ti:20,v2,r1000"), table));
+        // an entry of the older format carries no id: it cannot be judged
+        Assertions.assertFalse(HboStructFreshness.tableReplaced(
+                HboScanDescriptor.parse("internal.db.t,v2,r1000"), table));
+    }
+
+    @Test
     void testTheCatalogVerdictComparesTheIndexTheEntryRead() {
         // a whole table query which the optimizer bound to an aggregate rollup records the rows of that
         // rollup in its token; the catalog verdict has to read the rows of the same index, otherwise an

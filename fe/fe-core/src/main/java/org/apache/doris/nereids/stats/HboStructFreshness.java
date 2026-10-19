@@ -254,6 +254,18 @@ public class HboStructFreshness {
         long liveRows = HboScanDescriptor.UNKNOWN;
         for (HboScanDescriptor recorded : recordedScans) {
             OlapTable table = resolveTable(recorded.getTable());
+            if (table != null && tableReplaced(recorded, table)) {
+                // the name now resolves to another table (the recorded one was dropped and created again):
+                // the entry describes data which is gone, and no plan of the new table can produce its
+                // key, so judging that key by the replacement's state would keep a dead row as LIVE
+                liveTexts.add(recorded.getTable() + ":replaced#" + table.getId());
+                if (worse(STATE_STALE, state).equals(STATE_STALE)) {
+                    state = STATE_STALE;
+                    recordedRows = HboScanDescriptor.UNKNOWN;
+                    liveRows = HboScanDescriptor.UNKNOWN;
+                }
+                continue;
+            }
             if (table == null) {
                 if (worse(STATE_UNKNOWN, state).equals(STATE_UNKNOWN)) {
                     state = STATE_UNKNOWN;
@@ -339,6 +351,16 @@ public class HboStructFreshness {
         }
         return new HboStructFreshness(state, renderScans(recordedScans), String.join("; ", liveTexts),
                 recordedRows, liveRows);
+    }
+
+    /**
+     * Whether the table a recorded scan names was dropped and created again under the same name: the token
+     * carries the id of the table it read, so a different id means the entry describes data which no
+     * longer exists. An entry of the older format carries none and cannot be judged.
+     */
+    static boolean tableReplaced(HboScanDescriptor recorded, OlapTable table) {
+        return recorded.getTableId() != HboScanDescriptor.UNKNOWN
+                && recorded.getTableId() != table.getId();
     }
 
     /**
