@@ -9629,7 +9629,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private List<String> indexWarmupColumns(DorisParser.WarmUpSelectContext ctx, List<Expression> projects) {
         DorisParser.WarmUpSingleTableRefContext table = ctx.warmUpSingleTableRef();
         List<String> qualifier = visitMultipartIdentifier(table.multipartIdentifier());
-        if (table.tableAlias() != null && table.tableAlias().strictIdentifier() != null) {
+        boolean hasAlias = table.tableAlias() != null && table.tableAlias().strictIdentifier() != null;
+        if (hasAlias) {
             if (table.tableAlias().identifierList() != null) {
                 throw new AnalysisException("Index-only WARM UP SELECT does not support column aliases");
             }
@@ -9642,6 +9643,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             Slot slot = (Slot) expression;
             List<String> actual = slot.getQualifier();
+            if (!hasAlias && actual.size() > qualifier.size() && ConnectContext.get() != null) {
+                // A projection may spell out catalog/database defaults omitted by FROM.
+                // Aliases hide the original table name and must never receive those defaults.
+                qualifier = RelationUtil.getQualifierName(ConnectContext.get(), qualifier);
+            }
             if (actual.size() > qualifier.size()) {
                 throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
             }

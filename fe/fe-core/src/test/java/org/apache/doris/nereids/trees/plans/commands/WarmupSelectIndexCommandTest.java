@@ -18,14 +18,66 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.WarmupSelectCommand;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class WarmupSelectIndexCommandTest {
+    @Test
+    void resolvesDefaultCatalogAndDatabaseForQualifiedProjections() {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("lake");
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext() {
+            @Override
+            public CatalogIf getCurrentCatalog() {
+                return catalog;
+            }
+
+            @Override
+            public String getDatabase() {
+                return "demo";
+            }
+        };
+        context.setThreadLocalInfo();
+        try {
+            // Projection qualifiers may spell out defaults omitted by the FROM clause.
+            for (String query : new String[] {
+                    "SELECT demo.items.embedding FROM items",
+                    "SELECT lake.demo.items.embedding FROM items",
+                    "SELECT lake.demo.items.embedding FROM demo.items",
+                    "SELECT demo.items.* FROM items",
+                    "SELECT lake.demo.items.* FROM items",
+                    "SELECT lake.demo.items.* FROM demo.items",
+                    "SELECT i.embedding FROM items i",
+                    "SELECT i.* FROM demo.items i"}) {
+                Assertions.assertInstanceOf(WarmupSelectCommand.class, new NereidsParser().parseSingle(
+                        "WARM UP " + query + " PROPERTIES (read_index_only=true)"), query);
+            }
+            for (String query : new String[] {
+                    "SELECT other.items.embedding FROM items",
+                    "SELECT other.demo.items.* FROM items",
+                    "SELECT lake.other.items.embedding FROM demo.items",
+                    "SELECT demo.items.embedding FROM items i",
+                    "SELECT lake.demo.items.* FROM demo.items i",
+                    "SELECT demo.i.* FROM items i"}) {
+                Assertions.assertThrows(AnalysisException.class, () -> new NereidsParser().parseSingle(
+                        "WARM UP " + query + " PROPERTIES (read_index_only=true)"), query);
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     void reusesWarmupSelectForIndexOnlyMode() {
         Assertions.assertInstanceOf(WarmupSelectCommand.class, new NereidsParser().parseSingle(
