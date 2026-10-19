@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -2273,15 +2274,22 @@ public class GroupStructInfo {
 
     /**
      * The name one expression contributes to a canonical. For a built-in operator the class name is the
-     * identity, but every Java and Python udf is wrapped in a handful of classes: the function it calls,
-     * the database which holds it and the catalog id of that overload live in fields, not in
-     * {@code children()}. Two unrelated udfs with the same argument list would render alike, although a
-     * predicate above them keeps a different number of rows. The three components are encoded like a slot
-     * name, so a function or database name which contains one of the delimiters of the canonical form
-     * cannot be read as the start of another token.
+     * identity, but a few expressions carry a part of it in a field rather than in {@code children()}:
+     * every Java and Python udf keeps the function it calls, the database which holds it and the
+     * catalog id of that overload in fields, and a match predicate keeps the analyzer which tokenizes
+     * its argument there. Two of them would render alike although a predicate above them keeps a
+     * different number of rows. The field is encoded like a slot name, so a value which contains one of
+     * the delimiters of the canonical form cannot be read as the start of another token.
      */
     private static String expressionName(Expression expression) {
         String className = expression.getClass().getSimpleName();
+        if (expression instanceof Match) {
+            // `MATCH 'foo-bar' USING ANALYZER a1` and the same predicate with a2 have equal children
+            // but select a different analyzer index, so they tokenize the string differently
+            return ((Match) expression).getAnalyzer()
+                    .map(analyzer -> className + '<' + encodeSlotComponent(analyzer) + '>')
+                    .orElse(className);
+        }
         if (!(expression instanceof Udf)) {
             return className;
         }

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -349,6 +350,20 @@ public class GroupStructInfoGoldenTest {
                 "the aggregate function is not in the filter key: " + min.getCanonical(WITH_LITERAL));
         Assertions.assertFalse(min.getCanonical(WITH_LITERAL).contains("col(s)"),
                 "the filter still names the aggregate's alias: " + min.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testAMatchPredicateKeepsItsAnalyzer() {
+        // the analyzer is the tokenizer execution selects, so two MATCH predicates over the same
+        // argument are two predicates although their children are equal
+        GroupStructInfo a1 = built("filter_match_using_analyzer_a1");
+        GroupStructInfo a2 = built("filter_match_using_analyzer_a2");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(a1.getFingerprint(mode), a2.getFingerprint(mode),
+                    "two analyzers share a key in mode " + mode);
+        }
+        Assertions.assertTrue(a1.getCanonical(WITH_LITERAL).contains("MatchAll<a1>"),
+                "the analyzer is not in the key: " + a1.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -886,6 +901,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_above_an_aggregate_max",
                 "the same filter with MAX(v) AS s: a different key although the aggregate header is the same",
                 GroupStructInfoGoldenTest::filterAboveAnAggregateMax));
+        cases.add(new PlanCase("filter_match_using_analyzer_a1",
+                "a filter with MATCH ... USING ANALYZER a1 over a scan",
+                GroupStructInfoGoldenTest::filterMatchUsingAnalyzerA1));
+        cases.add(new PlanCase("filter_match_using_analyzer_a2",
+                "the same match predicate with a2: the analyzer tokenizes the argument differently",
+                GroupStructInfoGoldenTest::filterMatchUsingAnalyzerA2));
         cases.add(new PlanCase("aggregate_no_keys", "aggregation without group by keys over a scan",
                 GroupStructInfoGoldenTest::aggregateNoKeys));
         cases.add(new PlanCase("self_join_one_table",
@@ -1368,6 +1389,24 @@ public class GroupStructInfoGoldenTest {
                 ImmutableList.<NamedExpression>of(key, s), true, Optional.empty(), t1);
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(s.toSlot(), new IntegerLiteral(1))), aggregate));
+    }
+
+    private static GroupStructInfo filterMatchUsingAnalyzerA1() {
+        return filterMatchUsingAnalyzer("a1");
+    }
+
+    private static GroupStructInfo filterMatchUsingAnalyzerA2() {
+        return filterMatchUsingAnalyzer("a2");
+    }
+
+    /**
+     * `MATCH 'foo-bar' USING ANALYZER a1` and the same predicate with a2 have equal children but
+     * select a different analyzer index, so the predicate keeps a different number of rows.
+     */
+    private static GroupStructInfo filterMatchUsingAnalyzer(String analyzer) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        MatchAll match = new MatchAll(t1.getOutput().get(1), new VarcharLiteral("foo-bar"), analyzer);
+        return describe(new LogicalFilter<>(ImmutableSet.of(match), t1));
     }
 
     private static GroupStructInfo aggregateNoKeys() {
