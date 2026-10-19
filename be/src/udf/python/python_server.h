@@ -53,7 +53,7 @@ public:
 
     static Status fork(const PythonVersion& version, ProcessPtr* process);
 
-    // Remove this function's pool. Existing clients keep their processes and zip alive.
+    // Stop accepting new clients. Health check removes the pool after its last client closes.
     void drop_function(int64_t function_id);
 
     void shutdown();
@@ -87,7 +87,7 @@ private:
         // 1. All process slots have attempted initialization.
         // 2. At least one live process is available for requests.
         INITIALIZED,
-        // Prevent the pool from being incorrectly reused after `shutdown()`
+        // Reject new clients and late fork publication after DROP, shutdown or idle reclamation.
         STOPPED,
     };
 
@@ -146,10 +146,12 @@ private:
 
     /**
      * Start health check background thread when the first function pool is created
-     * Thread periodically checks process health and refreshes memory stats
+     * Thread periodically reclaims pools, checks process health and refreshes memory stats.
      */
     void _start_health_check_thread();
 
+    // Only reclaim pools with no active clients: STOPPED pools on the next scan; other pools
+    // after auto_suspend seconds without a client (negative values disable idle reclamation).
     void _reclaim_idle_pools(std::chrono::steady_clock::time_point now);
 
     /**

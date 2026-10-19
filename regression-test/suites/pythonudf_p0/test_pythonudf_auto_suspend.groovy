@@ -37,6 +37,13 @@ def evaluate(v):
             "qt_result_0_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input ORDER BY v")
             Thread.sleep(2500)
             "qt_result_1_${index}"("SELECT py_auto_suspend(v) FROM py_auto_suspend_input ORDER BY v")
+            // DROP now leaves a STOPPED pool until the monitor reclaims it. The next
+            // iteration recreates the same SQL name with a new function id and must still work.
+            sql "DROP FUNCTION py_auto_suspend(INT)"
+            test {
+                sql "SELECT py_auto_suspend(v) FROM py_auto_suspend_input"
+                exception "Can not found function"
+            }
         }
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
