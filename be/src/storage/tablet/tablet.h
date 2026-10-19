@@ -482,10 +482,6 @@ public:
     bool enable_ccr_binlog() const {
         return enable_binlog() && _tablet_meta->binlog_config().is_ccr_binlog_format();
     }
-    bool enable_row_binlog() const {
-        return _tablet_meta->binlog_config().is_enable() &&
-               _tablet_meta->binlog_config().is_row_binlog_format();
-    }
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
