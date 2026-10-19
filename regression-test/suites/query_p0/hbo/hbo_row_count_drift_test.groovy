@@ -83,7 +83,13 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
         // the struct info records the data state the entry is measured in; the row count is tagged
         // 'r' (measured from the partitions) or 'e' (derived from the table), which the assertions
         // below normalise because both are the same number for these tables
-        def normalizeRows = { String text -> text.replaceAll(/,[re](\d+)/, ',r$1') }
+        // the row-count tag is normalized (a measurement and an estimate are compared as one), and the
+        // identity a scan token carries - the id of its table and the alias of its relation - is
+        // normalized away: these assertions check the partitions and the row state of a scan, while the
+        // identity itself is pinned by the unit tests and the golden corpus
+        def normalizeRows = { String text ->
+            text.replaceAll(/,[re](\d+)/, ',r$1').replaceAll(/#t[ia]:[^,}]*/, '')
+        }
         assertTrue(normalizeRows(structCanonical).contains("S{internal.hbo_test.hbo_dr_t,v2,r1000}"),
                 structCanonical)
         // ... and the row count carries the tag of how it was obtained: 'r' when every selected

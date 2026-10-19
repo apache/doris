@@ -78,7 +78,13 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         // partition reported its own count, 'e' when it was derived from the table. Both are the
         // same number for a freshly loaded table, and the tag is an annotation of the struct info,
         // never part of the fingerprint, so the assertions normalise it.
-        def normalizeRows = { String text -> text.replaceAll(/,[re](\d+)/, ',r$1') }
+        // the row-count tag is normalized (a measurement and an estimate are compared as one), and the
+        // identity a scan token carries - the id of its table and the alias of its relation - is
+        // normalized away: these assertions check the partitions and the row state of a scan, while the
+        // identity itself is pinned by the unit tests and the golden corpus
+        def normalizeRows = { String text ->
+            text.replaceAll(/,[re](\d+)/, ',r$1').replaceAll(/#t[ia]:[^,}]*/, '')
+        }
         def t1Scan = "S{internal.hbo_test.hbo_sg_t1,v2,r1000}"
         def t2Scan = "S{internal.hbo_test.hbo_sg_t2,v2,r1000}"
         def t3Scan = "S{internal.hbo_test.hbo_sg_t3,v2,r1000}"
