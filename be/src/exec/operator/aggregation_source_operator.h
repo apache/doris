@@ -20,6 +20,7 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
@@ -64,6 +65,8 @@ protected:
                                   uint32_t num_rows);
 
     PODArray<AggregateDataPtr> _places;
+    // Lazy, aligned scratch reused across functions and input batches.
+    Arena _deserialize_arena;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;

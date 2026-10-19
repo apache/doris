@@ -118,19 +118,30 @@ inline void merge(benchmark::State& state, const char* name, bool decimal = fals
     // Model the actual sink's scratch allocation policy on each revision.
 #ifdef DORIS_NULLABLE_AGGREGATION_REFERENCE
     const bool allocate_scratch = true;
+    std::vector<char> legacy_scratch;
 #else
     const bool allocate_scratch = function->needs_deserialize_and_merge_scratch();
 #endif
+    Arena scratch_arena;
     for (auto _ : state) {
         [[maybe_unused]] AllocationScope allocation_scope;
         for (auto place : group_places) {
             function->reset(place);
         }
-        Arena scratch_arena;
         AggregateDataPtr scratch = nullptr;
         if (allocate_scratch) {
+#ifdef DORIS_NULLABLE_AGGREGATION_REFERENCE
+            // The old sink grows a retained byte vector, rather than allocating every batch.
+            const auto bytes = rows * function->size_of_data();
+            if (legacy_scratch.size() < bytes) {
+                legacy_scratch.resize(bytes);
+            }
+            scratch = legacy_scratch.data();
+#else
+            scratch_arena.clear();
             scratch = scratch_arena.aligned_alloc(rows * function->size_of_data(),
                                                   function->align_of_data());
+#endif
         }
         function->deserialize_and_merge_vec(places.data(), 0, scratch, serialized.get(), arena,
                                             rows);

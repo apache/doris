@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include "core/arena.h"
 #include "exec/common/agg_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/exec_env.h"
@@ -122,6 +123,8 @@ protected:
     bool _should_limit_output = false;
 
     PODArray<AggregateDataPtr> _places;
+    // Lazy, aligned scratch reused across functions and input batches.
+    Arena _deserialize_arena;
 
     Block _preagg_block;
 

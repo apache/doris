@@ -331,11 +331,11 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                 auto column = block->get_by_position(col_id).column;
 
                 const auto* evaluator = Base::_shared_state->aggregate_evaluators[i];
-                Arena scratch_arena;
                 AggregateDataPtr scratch = nullptr;
                 if (evaluator->needs_deserialize_and_merge_scratch()) {
-                    scratch = scratch_arena.aligned_alloc(evaluator->size_of_data() * rows,
-                                                          evaluator->align_of_data());
+                    _deserialize_arena.clear();
+                    scratch = _deserialize_arena.aligned_alloc(evaluator->size_of_data() * rows,
+                                                               evaluator->align_of_data());
                 }
 
                 {
@@ -391,11 +391,11 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                     auto column = block->get_by_position(col_id).column;
 
                     const auto* evaluator = Base::_shared_state->aggregate_evaluators[i];
-                    Arena scratch_arena;
                     AggregateDataPtr scratch = nullptr;
                     if (evaluator->needs_deserialize_and_merge_scratch()) {
-                        scratch = scratch_arena.aligned_alloc(evaluator->size_of_data() * rows,
-                                                              evaluator->align_of_data());
+                        _deserialize_arena.clear();
+                        scratch = _deserialize_arena.aligned_alloc(evaluator->size_of_data() * rows,
+                                                                   evaluator->align_of_data());
                     }
 
                     {
@@ -1040,6 +1040,7 @@ Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _preagg_block.clear();
     PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
+    _deserialize_arena.clear(true);
 
     return Base::close(state, exec_status);
 }
