@@ -22,6 +22,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -1553,11 +1554,16 @@ TEST_F(SegmentIteratorExprZonemapTest, ClassifiesReadTimeHiddenColumnsByName) {
     EXPECT_EQ(column_type, get_read_time_hidden_column_type(_tablet_schema->column(1)));
     EXPECT_EQ(ReadTimeHiddenColumnType::NONE,
               get_read_time_hidden_column_type(_tablet_schema->column(0)));
-    EXPECT_EQ(kVersion, get_read_time_hidden_column_value(column_type, Version(kVersion, kVersion),
-                                                          TsoRange())
-                                ->get<TYPE_BIGINT>());
-    EXPECT_FALSE(get_read_time_hidden_column_value(column_type, Version(2, kVersion), TsoRange())
-                         .has_value());
+    std::optional<Field> value;
+    ASSERT_TRUE(get_read_time_hidden_column_value(column_type, Version(kVersion, kVersion),
+                                                  TsoRange(), &value)
+                        .ok());
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(kVersion, value->get<TYPE_BIGINT>());
+    ASSERT_TRUE(
+            get_read_time_hidden_column_value(column_type, Version(2, kVersion), TsoRange(), &value)
+                    .ok());
+    EXPECT_FALSE(value.has_value());
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedIndex) {

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "common/status.h"
 #include "core/field.h"
 #include "storage/olap_common.h"
 
@@ -59,13 +60,20 @@ inline bool row_store_value_may_be_stale(ReadTimeHiddenColumnType column_type) {
 // substituting. BINLOG_TSO lives only on row-binlog tablets, whose link path never reaches this.
 bool has_load_placeholder_hidden_column(const TabletSchema& schema);
 
-// The logical value every row of a single-version rowset carries for `column_type`, or nullopt
-// when the stored value is the one to read: a multi-version rowset, an unassigned commit TSO, or
-// BINLOG_TSO. Point-query and row-ID direct reads use this to answer VERSION/COMMIT_TSO without
-// opening the segment; every other column, BINLOG_TSO included, goes through Segment, which serves
-// a single-version read-time value with a ConstantColumnReader built from the same read options.
-std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
-                                                       const Version& version,
-                                                       const TsoRange& commit_tso);
+// The single VERSION/COMMIT_TSO/BINLOG_TSO resolution policy shared by Segment and direct reads.
+// On success, `value` receives the logical constant every row of the rowset carries, or nullopt
+// when the stored value is the one to read: a multi-version rowset, the pre-publish placeholder
+// rowset, or (for BINLOG_TSO) a value direct reads leave to the segment. A singleton rowset whose
+// TSO range is unassigned or not a singleton is rejected, exactly as a segment scan rejects it.
+Status resolve_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
+                                             const Version& version, const TsoRange& commit_tso,
+                                             std::optional<Field>* value);
+
+// Direct-read entry point for point-query and row-ID reads. VERSION/COMMIT_TSO resolve from rowset
+// metadata without opening a segment; BINLOG_TSO keeps its separate semantics and is always left
+// to the segment reader.
+Status get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
+                                         const Version& version, const TsoRange& commit_tso,
+                                         std::optional<Field>* value);
 
 } // namespace doris

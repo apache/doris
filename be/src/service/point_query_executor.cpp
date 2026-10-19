@@ -27,6 +27,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -622,10 +623,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                 const auto tablet_schema = _tablet->tablet_schema();
                 std::vector<int32_t> column_store_reads;
                 for (int cid : _reusable->column_store_col_uids()) {
-                    if (auto hidden_value = get_read_time_hidden_column_value(
-                                get_read_time_hidden_column_type(*tablet_schema, cid),
-                                rowset->version(), rowset->commit_tso());
-                        hidden_value.has_value()) {
+                    std::optional<Field> hidden_value;
+                    RETURN_IF_ERROR(get_read_time_hidden_column_value(
+                            get_read_time_hidden_column_type(*tablet_schema, cid),
+                            rowset->version(), rowset->commit_tso(), &hidden_value));
+                    if (hidden_value.has_value()) {
                         result_columns[_reusable->get_col_uid_to_idx().at(cid)]->insert(
                                 *hidden_value);
                         continue;

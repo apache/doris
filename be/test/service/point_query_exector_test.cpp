@@ -22,6 +22,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -372,27 +373,51 @@ TEST_F(PointQueryHiddenColumnTest, BinlogTsoStaysInJsonbAndKeepsRowCache) {
 }
 
 TEST_F(PointQueryHiddenColumnTest, RowsetDerivedValueOnlyForSingletonRowsets) {
+    std::optional<Field> value;
     // A compacted rowset keeps its materialized per-row values.
-    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(2, 3),
-                                                   TsoRange(2, 3))
-                         .has_value());
-    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(2, 3), TsoRange(2, 3))
-                         .has_value());
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(2, 3),
+                                                  TsoRange(2, 3), &value)
+                        .ok());
+    EXPECT_FALSE(value.has_value());
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                  Version(2, 3), TsoRange(2, 3), &value)
+                        .ok());
+    EXPECT_FALSE(value.has_value());
     // A singleton rowset answers with its own version and assigned commit TSO.
-    EXPECT_EQ(7, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(7, 7),
-                                                   TsoRange(8, 8))
-                         ->get<TYPE_BIGINT>());
-    EXPECT_EQ(8, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(7, 7), TsoRange(8, 8))
-                         ->get<TYPE_BIGINT>());
-    // An unassigned commit TSO keeps the stored value; BINLOG_TSO is always left to the segment.
-    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(7, 7), TsoRange())
-                         .has_value());
-    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::BINLOG_TSO,
-                                                   Version(7, 7), TsoRange(8, 8))
-                         .has_value());
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(7, 7),
+                                                  TsoRange(8, 8), &value)
+                        .ok());
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(7, value->get<TYPE_BIGINT>());
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                  Version(7, 7), TsoRange(8, 8), &value)
+                        .ok());
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(8, value->get<TYPE_BIGINT>());
+    // The pre-publish placeholder stays a physical read.
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                  Version(0, 0), TsoRange(-1, -1), &value)
+                        .ok());
+    EXPECT_FALSE(value.has_value());
+    // BINLOG_TSO keeps its separate semantics: direct reads always leave it to the segment.
+    ASSERT_TRUE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::BINLOG_TSO,
+                                                  Version(7, 7), TsoRange(8, 8), &value)
+                        .ok());
+    EXPECT_FALSE(value.has_value());
+
+    // A singleton rowset without a usable TSO is rejected, matching Segment, instead of exposing
+    // the on-disk placeholder.
+    auto st = get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO, Version(7, 7),
+                                                TsoRange(), &value);
+    EXPECT_FALSE(st.ok()) << st;
+    EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
+    EXPECT_FALSE(value.has_value());
+
+    st = get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO, Version(7, 7),
+                                           TsoRange(100, 200), &value);
+    EXPECT_FALSE(st.ok()) << st;
+    EXPECT_NE(st.to_string().find("requires a singleton commit tso"), std::string::npos) << st;
+    EXPECT_FALSE(value.has_value());
 }
 
 // RowCache test class
