@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -2078,7 +2079,7 @@ public class GroupStructInfo {
                     .append(':').append(literal.getDataType()).append(')');
             noLiteral.append("lit(*)");
         } else if (expression.children().isEmpty()) {
-            String name = expression.getClass().getSimpleName();
+            String name = expressionName(expression);
             withLiteral.append(name);
             noLiteral.append(name);
         } else {
@@ -2098,7 +2099,7 @@ public class GroupStructInfo {
                 withLiteralChildren.sort(String::compareTo);
                 noLiteralChildren.sort(String::compareTo);
             }
-            String name = expression.getClass().getSimpleName();
+            String name = expressionName(expression);
             withLiteral.append(name).append('(').append(String.join(",", withLiteralChildren)).append(')');
             noLiteral.append(name).append('(').append(String.join(",", noLiteralChildren)).append(')');
         }
@@ -2111,6 +2112,25 @@ public class GroupStructInfo {
         } else {
             appendNormalizedExpression(expression, out, new StringBuilder());
         }
+    }
+
+    /**
+     * The name one expression contributes to a canonical. For a built-in operator the class name is the
+     * identity, but every Java and Python udf is wrapped in a handful of classes: the function it calls,
+     * the database which holds it and the catalog id of that overload live in fields, not in
+     * {@code children()}. Two unrelated udfs with the same argument list would render alike, although a
+     * predicate above them keeps a different number of rows. The three components are encoded like a slot
+     * name, so a function or database name which contains one of the delimiters of the canonical form
+     * cannot be read as the start of another token.
+     */
+    private static String expressionName(Expression expression) {
+        String className = expression.getClass().getSimpleName();
+        if (!(expression instanceof Udf)) {
+            return className;
+        }
+        Udf udf = (Udf) expression;
+        return className + '<' + encodeSlotComponent(udf.getDbName()) + '.'
+                + encodeSlotComponent(udf.getName()) + '#' + udf.getFunctionId() + '>';
     }
 
     /**

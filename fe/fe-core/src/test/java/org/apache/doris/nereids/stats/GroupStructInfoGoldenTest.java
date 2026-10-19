@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.CopyInResult;
@@ -39,8 +43,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -70,6 +76,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MutableState;
@@ -269,6 +276,31 @@ public class GroupStructInfoGoldenTest {
                 Assertions.assertEquals(info.getCanonical(NO_LITERAL),
                         GroupStructInfo.toNoLiteral(info.getCanonical(WITH_LITERAL)),
                         "the fold of the literal carrying text is not the constant agnostic text");
+            }
+        }
+    }
+
+    @Test
+    void testTwoUdfsWhichOnlyDifferByIdentityAreTwoPredicates() {
+        // a filter whose only predicate is a udf call: the wrapper class is the same for every java or
+        // python udf, so a key built from the class name and the arguments alone would let the four
+        // cases below share one pinned row count. The corpus records the texts; this pins the rule: a
+        // different function name, database or overload id is a different predicate
+        GroupStructInfo active = built("filter_udf_is_active");
+        Assertions.assertTrue(active.getCanonical(WITH_LITERAL).contains("JavaUdf<db1.is_active#1>"),
+                "the udf identity is not in the canonical: " + active.getCanonical(WITH_LITERAL));
+        String[][] distinct = {
+                {"filter_udf_is_active", "filter_udf_is_deleted"},
+                {"filter_udf_is_active", "filter_udf_is_active_in_another_database"},
+                {"filter_udf_is_active", "filter_udf_is_active_other_overload"},
+        };
+        for (String[] pair : distinct) {
+            GroupStructInfo left = built(pair[0]);
+            GroupStructInfo right = built(pair[1]);
+            for (GroupStructInfo.LiteralMode mode
+                    : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+                Assertions.assertNotEquals(left.getFingerprint(mode), right.getFingerprint(mode),
+                        pair[0] + " and " + pair[1] + " share a key in mode " + mode);
             }
         }
     }
@@ -837,6 +869,18 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_two_conjuncts_which_fold_alike",
                 "a filter with two conjuncts on one slot which fold to one text: both stay in the key",
                 GroupStructInfoGoldenTest::filterTwoConjunctsWhichFoldAlike));
+        cases.add(new PlanCase("filter_udf_is_active",
+                "a filter whose only predicate is the java udf is_active over a scan",
+                GroupStructInfoGoldenTest::filterUdfIsActive));
+        cases.add(new PlanCase("filter_udf_is_deleted",
+                "the same argument passed to another udf of the same database: a different key",
+                GroupStructInfoGoldenTest::filterUdfIsDeleted));
+        cases.add(new PlanCase("filter_udf_is_active_in_another_database",
+                "the same udf name and catalog id in another database: a different key",
+                GroupStructInfoGoldenTest::filterUdfIsActiveInAnotherDatabase));
+        cases.add(new PlanCase("filter_udf_is_active_other_overload",
+                "the same udf name in the same database, another overload (catalog id): a different key",
+                GroupStructInfoGoldenTest::filterUdfIsActiveOtherOverload));
         cases.add(new PlanCase("topn_with_a_literal_in_the_ordering_key",
                 "top-n ordered by slot * 1: the factor decides which rows survive",
                 GroupStructInfoGoldenTest::topnWithOneInTheOrderingKey));
@@ -950,6 +994,38 @@ public class GroupStructInfoGoldenTest {
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(slot, new IntegerLiteral(1)),
                 new EqualTo(slot, new IntegerLiteral(2))), t1));
+    }
+
+    private static GroupStructInfo filterUdfIsActive() {
+        return filterUdf("is_active", 1, "db1");
+    }
+
+    private static GroupStructInfo filterUdfIsDeleted() {
+        return filterUdf("is_deleted", 1, "db1");
+    }
+
+    private static GroupStructInfo filterUdfIsActiveInAnotherDatabase() {
+        return filterUdf("is_active", 1, "db2");
+    }
+
+    private static GroupStructInfo filterUdfIsActiveOtherOverload() {
+        return filterUdf("is_active", 2, "db1");
+    }
+
+    /**
+     * A filter whose only predicate is a java udf call. Every java udf renders as the same wrapper
+     * class, while the function it calls, the database which holds it and the catalog id of that
+     * overload live in fields of the wrapper: the canonical form has to carry all three, otherwise the
+     * four cases below share a key although a predicate above them keeps a different number of rows.
+     */
+    private static GroupStructInfo filterUdf(String name, long functionId, String dbName) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        JavaUdf udf = new JavaUdf(name, functionId, dbName, Function.BinaryType.JAVA_UDF,
+                FunctionSignature.ret(BooleanType.INSTANCE).args(IntegerType.INSTANCE),
+                NullableMode.ALWAYS_NULLABLE, FunctionVolatility.IMMUTABLE,
+                Udf.createVolatileIdentity(FunctionVolatility.IMMUTABLE),
+                null, "evaluate", null, null, "", false, 360, t1.getOutput().get(0));
+        return describe(new LogicalFilter<>(ImmutableSet.of(udf), t1));
     }
 
     private static GroupStructInfo topnWithOneInTheOrderingKey() {

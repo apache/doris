@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 41, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 45, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -184,6 +184,54 @@ WITH_LITERAL.fingerprint = c3eefab74e79ee3fda5ed185f12d09fd8e94254ecf8e5475aa321
 NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1,v1,r0})
 NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*));EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1})
 NO_LITERAL.fingerprint = 446d4d8927b4d5a5adc07cb70c2552c748dd5d961d226697c2f5b8b11b704c6e
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_udf_is_active]
+desc = a filter whose only predicate is the java udf is_active over a scan
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = cf9aa4863b8913f1afdf73178e45387c4bef000cc419bfd82e046f69524eed3e
+NO_LITERAL.canonical = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_active#1>(col(db.t1.id))}(S{null.null.t1})
+NO_LITERAL.fingerprint = cf9aa4863b8913f1afdf73178e45387c4bef000cc419bfd82e046f69524eed3e
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_udf_is_active_in_another_database]
+desc = the same udf name and catalog id in another database: a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = 68e248481464b85557efd58521fbc0fe25f3710ebcdc7cf1fa2b4c810545d429
+NO_LITERAL.canonical = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db2.is_active#1>(col(db.t1.id))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 68e248481464b85557efd58521fbc0fe25f3710ebcdc7cf1fa2b4c810545d429
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_udf_is_active_other_overload]
+desc = the same udf name in the same database, another overload (catalog id): a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = 8cfb0962cb1b270718ffb36f1580eb1dd30a911d712ac4ff977b03c6681dabd9
+NO_LITERAL.canonical = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_active#2>(col(db.t1.id))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 8cfb0962cb1b270718ffb36f1580eb1dd30a911d712ac4ff977b03c6681dabd9
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_udf_is_deleted]
+desc = the same argument passed to another udf of the same database: a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+WITH_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1})
+WITH_LITERAL.fingerprint = 6af67fc96c6a414b346106edaad1dee7698ec895447cbd44e1313169fece4025
+NO_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1,v1,r0})
+NO_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1})
+NO_LITERAL.fingerprint = 6af67fc96c6a414b346106edaad1dee7698ec895447cbd44e1313169fece4025
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1 render=null.null.t1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_explode_split]
