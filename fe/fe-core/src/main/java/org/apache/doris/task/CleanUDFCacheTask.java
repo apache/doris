@@ -30,7 +30,13 @@ public class CleanUDFCacheTask extends AgentTask {
     private long functionId;
 
     public CleanUDFCacheTask(long backendId, String signature, long functionId) {
-        super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1, -1, -1);
+        this(backendId, signature, functionId, false);
+    }
+
+    public CleanUDFCacheTask(long backendId, String signature, long functionId, boolean retry) {
+        // Use functionId to track retries; -1 means no execution result is expected.
+        super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1,
+                retry ? functionId : -1, -1);
         this.functionSignature = signature;
         this.functionId = functionId;
     }
