@@ -150,6 +150,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -381,17 +382,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * returns the sum of deltaRowCount for all selected partitions or for the table.
+     * The rows loaded into the base index which the collected column statistics don't describe yet, i.e. the
+     * population {@link FilterEstimation#estimate} retries a zero estimate with. It is deliberately not
+     * restricted to an index which keeps one row per base row: such an index must not add the delta to its own
+     * row count ({@link TableStatsMeta#getRowCountWithDeltaRows} gates that), but stale column statistics
+     * affect every index in the same way, and for an index which aggregates the rows the delta is an upper
+     * bound of the rows it gained.
      */
-    private long computeDeltaRowCount(OlapScan olapScan) {
+    @VisibleForTesting
+    long computeDeltaRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        // The delta rows are the rows loaded into the base index which the collected base index row count
-        // doesn't include yet. They are not the rows of an index which aggregates them: such an index has its
-        // own (usually much smaller) row count, so the delta only applies to a scan of an index which keeps
-        // one row per base row.
-        if (!TableStatsMeta.keepsOneRowPerBaseRow(olapTable, olapScan.getSelectedIndexId())) {
-            return 0;
-        }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapTable.getId());
         long deltaRowCount = 0;
