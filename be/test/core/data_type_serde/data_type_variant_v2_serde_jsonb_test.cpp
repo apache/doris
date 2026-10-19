@@ -112,8 +112,9 @@ std::string json_at(const DataTypeVariantV2SerDe& serde, const IColumn& column, 
 }
 
 ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view> rows) {
-    JsonStringToVariantEncoder encoder(
-            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     for (std::string_view row : rows) {
         encoder.add_json({row.data(), row.size()});
     }

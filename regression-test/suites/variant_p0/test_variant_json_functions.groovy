@@ -30,7 +30,7 @@ suite("test_variant_json_functions", "p0") {
             UNION ALL SELECT 2, '{"a":2,"s":"yz","b":{"c":[3]},"n":{"m":true}}'
             UNION ALL SELECT 3, '[1,"two",{"three":3}]'
             UNION ALL SELECT 4, '42'
-            UNION ALL SELECT 5, '"abc"'
+            UNION ALL SELECT 5, 'abc'
             UNION ALL SELECT 6, NULL) t
     """
 

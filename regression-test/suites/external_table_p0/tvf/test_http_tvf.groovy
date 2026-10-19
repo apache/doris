@@ -239,14 +239,14 @@ suite("test_http_tvf", "p0") {
         );
     """
 
-    // Preserve the fixture's INT96 wall-clock values; applying Asia/Shanghai adds eight hours.
-    // Specify UTC explicitly so the result does not depend on the reader's default timezone.
+    // The Spark INT96 fixture stores timestamps normalized to UTC; the golden uses Asia/Shanghai.
+    // Specify the INT96 timezone explicitly instead of relying on the reader's default semantics.
     qt_sql08 """
         select * from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "UTC"
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         ) order by id limit 10;
     """
 
@@ -255,7 +255,7 @@ suite("test_http_tvf", "p0") {
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "UTC"
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         ) order by id limit 10;
     """
 
@@ -264,7 +264,7 @@ suite("test_http_tvf", "p0") {
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "UTC"
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         );
     """
 

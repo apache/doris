@@ -231,7 +231,7 @@ suite("test_streaming_insert_job_crud") {
             "s3.secret_key" = "${getS3SK()}"
         );
         """
-    }, "Invalid scheme")
+    }, "Invalid uri")
 
     jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
     assert jobCount.get(0).get(0) == 0
