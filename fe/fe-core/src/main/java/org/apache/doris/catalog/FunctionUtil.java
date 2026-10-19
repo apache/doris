@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CleanUDFCacheTask;
 
 import com.google.common.collect.ImmutableList;
@@ -60,8 +61,12 @@ public class FunctionUtil {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds(false)) {
             for (Map.Entry<Long, String> function : functionSignatures.entrySet()) {
-                CleanUDFCacheTask task = new CleanUDFCacheTask(backendId, function.getValue(), function.getKey());
-                batchTask.addTask(task);
+                CleanUDFCacheTask task = new CleanUDFCacheTask(backendId, function.getValue(), function.getKey(), true);
+                // A temporarily unavailable backend can miss cleanup after the database is erased.
+                // Queue it for retry when the backend recovers; no database remains to trigger cleanup again.
+                if (AgentTaskQueue.addTask(task)) {
+                    batchTask.addTask(task);
+                }
                 LOG.info("clean udf cache in be {}, functionId {}", backendId, function.getKey());
             }
         }
