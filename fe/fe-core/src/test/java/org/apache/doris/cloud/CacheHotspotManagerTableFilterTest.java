@@ -829,11 +829,14 @@ public class CacheHotspotManagerTableFilterTest {
                 job.getCurrentTableIds());
     }
 
-    // ========== Performance tests: regex matching throughput at scale ==========
+    // ========== Large-input correctness tests with diagnostic timing ==========
+
+    // Shared CI scheduling, JVM warm-up and instrumentation affect elapsed time independently of
+    // matching correctness. Keep exact result assertions here; throughput limits need a benchmark.
 
     /**
-     * Generate table name strings (db.table) for timing shouldWarmUp regex calls.
-     * No mocks needed — we test the filter's regex matching performance directly.
+     * Generate table name strings (db.table) for large-input shouldWarmUp checks.
+     * Exercise the real filter and record elapsed time for diagnostics.
      */
     private List<String[]> generateTableNames(int dbCount, int tablesPerDb) {
         List<String[]> names = new ArrayList<>(dbCount * tablesPerDb);
@@ -863,8 +866,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(10000, matched);
         System.out.println("[Perf] 10K tables, wildcard match-all: " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 500,
-                "10K regex matches should complete within 500ms, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -884,8 +885,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(50000, matched);
         System.out.println("[Perf] 50K tables, wildcard match-all: " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 500,
-                "50K regex matches should complete within 500ms, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -905,9 +904,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(200000, matched);
         System.out.println("[Perf] 200K tables, wildcard match-all: " + elapsedMs + " ms");
-        // Shared FE UT workers need a broad guardrail; exact throughput belongs in dedicated benchmarks.
-        Assertions.assertTrue(elapsedMs < 3000,
-                "200K regex matches should complete within 3s, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -927,8 +923,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(500000, matched);
         System.out.println("[Perf] 500K tables, wildcard match-all: " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 4000,
-                "500K regex matches should complete within 4s, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -949,8 +943,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(1000, matched);
         System.out.println("[Perf] 50K tables, selective db_0 pattern: " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 500,
-                "50K regex matches (selective) should complete within 500ms, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -975,8 +967,6 @@ public class CacheHotspotManagerTableFilterTest {
         // Result = 11000 - 11*100 = 9900
         Assertions.assertEquals(9900, matched);
         System.out.println("[Perf] 50K tables, include+exclude: " + elapsedMs + " ms, matched=" + matched);
-        Assertions.assertTrue(elapsedMs < 500,
-                "50K regex matches (multi-rule) should complete within 500ms, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -1012,8 +1002,6 @@ public class CacheHotspotManagerTableFilterTest {
         // 10 dbs × 2000 tables = 20000 included, minus 10 × 5 excluded = 19950
         Assertions.assertEquals(19950, matched);
         System.out.println("[Perf] 200K tables, 15 rules (10 incl + 5 excl): " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 3000,
-                "200K regex matches with 15 rules should complete within 3s, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -1042,9 +1030,6 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(200000 * iterations, totalMatched);
         System.out.println("[Perf] 200K tables × 5 cycles: total=" + totalMs + " ms, avg=" + avgMs + " ms/cycle");
-        // Shared FE UT workers need a broad guardrail; exact throughput belongs in dedicated benchmarks.
-        Assertions.assertTrue(avgMs < 2000,
-                "Avg per refresh cycle for 200K tables should be < 2s, avg=" + avgMs + " ms");
     }
 
     private static class RecordingAppender extends AbstractAppender {

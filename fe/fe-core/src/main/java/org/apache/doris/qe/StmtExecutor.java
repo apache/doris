@@ -146,6 +146,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -192,6 +193,11 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Prepared plans are retained across EXECUTEs; cancellation belongs to this invocation,
+    // including cancellation received before the command starts running.
+    @Getter
+    private volatile boolean cancelled;
+
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -1224,6 +1230,7 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        cancelled = true;
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();

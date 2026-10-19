@@ -168,6 +168,7 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
         // arrow_flight_deferred_query_idle_timeout_second, never before the query's own execution
         // timeout, and without killing the session.
         sql """ ADMIN SET FRONTEND CONFIG ('arrow_flight_deferred_query_idle_timeout_second' = '${idleTimeoutS}') """
+        def originalQueryTimeout = flightSql """ select @@query_timeout """
         flightSql """ set query_timeout = ${idleTimeoutS} """
         def flightReap = flightSql """ select * from ${table} limit 13 """
         assertEquals(13, flightReap.size())
@@ -189,6 +190,8 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
         assert deferredQuery().isEmpty() : "the idle reaper did not release the deferred Flight query within 60s"
 
         // ... and the session survives: it still runs queries.
+        // The short timeout only bounds the idle-reaper probe; a new scan needs its normal budget.
+        flightSql """ set query_timeout = ${originalQueryTimeout[0][0]} """
         def afterReap = flightSql """ select * from ${table} limit 1 """
         assertEquals(1, afterReap.size())
     } finally {
