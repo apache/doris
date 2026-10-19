@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
@@ -86,6 +87,9 @@ public class RowLevelDmlCommand {
             Callable<Void> execute = () -> {
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+                if (op == RowLevelDmlOp.DELETE) {
+                    captureAnalyzedPlan(ctx);
+                }
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
                 stmtExecutor.setPlanner(planner);
                 stmtExecutor.checkBlockRules();
@@ -198,6 +202,28 @@ public class RowLevelDmlCommand {
     private static boolean childIsEmptyRelation(PhysicalSink<?> sink) {
         return sink.children() != null && sink.children().size() == 1
                 && sink.child(0) instanceof PhysicalEmptyRelation;
+    }
+
+    /**
+     * Registers the analyzed-plan capture the whole-file DELETE fast path consumes.
+     *
+     * <p>{@link NereidsPlanner} only retains {@code analyzedPlan} for {@code EXPLAIN ANALYZED}/{@code ALL} or when
+     * a {@link PlannerHook} records it; a plain DELETE leaves {@code getAnalyzedPlan()} null, which would make
+     * {@code extractCompletePredicate} return empty and silently disable the optimization. The hook runs right
+     * after analysis and before rewrite, so the captured plan still carries the bound statement predicate rather
+     * than a rewrite-pruned one — the same capture the lineage extractor installs.</p>
+     */
+    @VisibleForTesting
+    static void captureAnalyzedPlan(ConnectContext ctx) {
+        ctx.getStatementContext().addPlannerHook(new PlannerHook() {
+            @Override
+            public void afterAnalyze(NereidsPlanner planner) {
+                if (planner.getCascadesContext() != null
+                        && planner.getCascadesContext().getRewritePlan() != null) {
+                    planner.setAnalyzedPlan(planner.getCascadesContext().getRewritePlan());
+                }
+            }
+        });
     }
 
     /**

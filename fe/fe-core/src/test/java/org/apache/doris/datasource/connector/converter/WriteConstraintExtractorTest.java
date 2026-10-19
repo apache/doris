@@ -361,7 +361,10 @@ public class WriteConstraintExtractorTest {
     }
 
     @Test
-    public void completePredicateIgnoresSyntheticConjuncts() {
+    public void completePredicateBailsOutOnSyntheticConjuncts() {
+        // Provenance between an engine-injected $row_id conjunct and a user column that merely shares a
+        // synthetic-looking name cannot be established here, so the exact extractor must fall back instead of
+        // dropping the conjunct (dropping it would widen the delete).
         ExternalTable externalTarget = targetTableWithId();
         SlotReference id = externalSlot(externalTarget, "id");
         SlotReference rowId = externalSlot(externalTarget, "__DORIS_ICEBERG_ROWID_COL__");
@@ -373,10 +376,7 @@ public class WriteConstraintExtractorTest {
         Optional<ConnectorExpression> result =
                 WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, excludeRowId);
 
-        Assertions.assertTrue(result.isPresent(), "engine-injected synthetic conjuncts are not user predicates");
-        Assertions.assertTrue(result.get() instanceof ConnectorComparison);
-        Assertions.assertEquals("id",
-                ((ConnectorColumnRef) ((ConnectorComparison) result.get()).getLeft()).getColumnName());
+        Assertions.assertFalse(result.isPresent(), "a synthetic conjunct must disable the fast path");
     }
 
     @Test
@@ -396,5 +396,34 @@ public class WriteConstraintExtractorTest {
 
         Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, NO_EXCLUSION)
                 .isPresent(), "a non-table leaf cannot prove the delete touches whole table files");
+    }
+
+    @Test
+    public void completePredicateBailsOutOnAliasRenamedSlots() {
+        // Alias.toSlot keeps the original table/column but renames the slot. Emitting that name would target a
+        // different physical column, so the exact extractor must fall back instead of trusting it.
+        ExternalTable externalTarget = targetTableWithId();
+        SlotReference physical = externalSlot(externalTarget, "b");
+        SlotReference renamed = physical.withName("a");
+        Plan plan = completePlanOver(ImmutableSet.of(new EqualTo(renamed, new IntegerLiteral(1))), renamed);
+
+        Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(plan, TARGET_ID, NO_EXCLUSION)
+                .isPresent(), "a renamed slot no longer denotes its physical column");
+    }
+
+    @Test
+    public void completePredicateBailsOutOnSyntheticNameCollision() {
+        // $partition_spec_id is both an Iceberg-injected name and a legal physical column name. The exclusion
+        // list is name-based, so a matching conjunct must be rejected rather than silently dropped as
+        // "synthetic" (which would turn the predicate into always-true and delete every file).
+        ExternalTable externalTarget = targetTableWithId();
+        SlotReference physical = externalSlot(externalTarget, "$partition_spec_id");
+        Plan plan = completePlanOver(ImmutableSet.of(new EqualTo(physical, new IntegerLiteral(1))), physical);
+        Predicate<SlotReference> excludeSyntheticNames =
+                slot -> "$partition_spec_id".equalsIgnoreCase(slot.getName());
+
+        Assertions.assertFalse(WriteConstraintExtractor.extractCompletePredicate(
+                        plan, TARGET_ID, excludeSyntheticNames).isPresent(),
+                "a name collision must fall back; dropping the conjunct would widen the delete to everything");
     }
 }

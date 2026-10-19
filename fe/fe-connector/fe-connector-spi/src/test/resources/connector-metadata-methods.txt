@@ -17,7 +17,7 @@ createOrReplaceBranch(org.apache.doris.connector.spi.ConnectorSession,org.apache
 createOrReplaceTag(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.TagChange)
 createTable(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest)
 databaseExists(org.apache.doris.connector.spi.ConnectorSession,java.lang.String)
-deleteUsingMetadata(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional)
+deleteUsingMetadata(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional,java.lang.String)
 dropBranch(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.DropRefChange)
 dropColumn(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.lang.String)
 dropDatabase(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,boolean,boolean)

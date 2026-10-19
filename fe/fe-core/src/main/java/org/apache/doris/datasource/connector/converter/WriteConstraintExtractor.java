@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.connector.converter;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -120,8 +121,12 @@ public final class WriteConstraintExtractor {
      * references another table (join / subquery), any conjunct whose Nereids form is outside the neutral matrix,
      * or any plan node that could restrict/reshape rows without appearing as a {@link LogicalFilter}.</p>
      *
-     * <p>Conjuncts over the excluded synthetic columns (the connector's {@code $row_id} metadata column) are
-     * ignored rather than rejected: they are injected by the engine, not authored by the statement.</p>
+     * <p>Every conjunct must be a physical target-table predicate. A conjunct is rejected — not silently
+     * dropped — when it references a synthetic column: the exclusion list is name-based, and a name such as the
+     * connector's {@code $partition_spec_id} can also be a legitimate user column, so provenance cannot be
+     * proven here. A conjunct whose slot name differs from the physical column it came from is rejected too:
+     * an alias/mask projection renames a slot while keeping its original column, and emitting the alias name
+     * would target a different physical column.</p>
      *
      * @param analyzedPlan  the analyzed DELETE plan
      * @param targetTableId the id of the DELETE target table
@@ -139,7 +144,7 @@ public final class WriteConstraintExtractor {
             return Optional.empty();
         }
         if (targetConjuncts.isEmpty()) {
-            // No WHERE clause (or only engine-injected conjuncts): the statement deletes every row.
+            // No WHERE clause at all: the statement deletes every row.
             return Optional.of(ConnectorLiteral.ofBoolean(true));
         }
         List<ConnectorExpression> converted = new ArrayList<>(targetConjuncts.size());
@@ -163,11 +168,10 @@ public final class WriteConstraintExtractor {
             Predicate<SlotReference> exclusion, List<Expression> output) {
         if (plan instanceof LogicalFilter) {
             for (Expression conjunct : ((LogicalFilter<?>) plan).getConjuncts()) {
-                if (isTargetOnlyPredicate(conjunct, targetTableId, exclusion)) {
-                    output.add(conjunct);
-                } else if (!isSyntheticOnlyPredicate(conjunct, exclusion)) {
+                if (!isExactPhysicalTargetPredicate(conjunct, targetTableId, exclusion)) {
                     return false;
                 }
+                output.add(conjunct);
             }
         } else if (!(plan instanceof LogicalSink) && !(plan instanceof LogicalProject)
                 && !(plan instanceof LogicalCheckPolicy) && !(plan instanceof LogicalSubQueryAlias)
@@ -185,17 +189,19 @@ public final class WriteConstraintExtractor {
         return collectCompletePredicate(children.get(0), targetTableId, exclusion, output);
     }
 
-    /** Whether every slot of {@code predicate} is a synthetic (engine-injected) slot, so it can be ignored. */
-    private static boolean isSyntheticOnlyPredicate(Expression predicate, Predicate<SlotReference> exclusion) {
-        if (exclusion == null) {
+    /**
+     * A conjunct that can be lowered to a physical predicate with no loss: target-only, and every slot still
+     * carries the name of the column it was created from (no alias/mask rename).
+     */
+    private static boolean isExactPhysicalTargetPredicate(Expression predicate, long targetTableId,
+            Predicate<SlotReference> exclusion) {
+        if (!isTargetOnlyPredicate(predicate, targetTableId, exclusion)) {
             return false;
         }
-        Set<Slot> slots = predicate.getInputSlots();
-        if (slots.isEmpty()) {
-            return false;
-        }
-        for (Slot slot : slots) {
-            if (!(slot instanceof SlotReference) || !exclusion.test((SlotReference) slot)) {
+        for (Slot slot : predicate.getInputSlots()) {
+            SlotReference reference = (SlotReference) slot;
+            Optional<Column> originalColumn = reference.getOriginalColumn();
+            if (!originalColumn.isPresent() || !reference.getName().equals(originalColumn.get().getName())) {
                 return false;
             }
         }

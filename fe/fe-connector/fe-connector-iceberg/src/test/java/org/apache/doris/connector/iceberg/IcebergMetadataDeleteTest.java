@@ -82,7 +82,8 @@ public class IcebergMetadataDeleteTest {
 
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                        new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))));
+                        new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))),
+                null);
 
         Assertions.assertEquals(OptionalLong.of(20L), deleted,
                 "the two region=us files (10 records each) are the deleted rows");
@@ -104,7 +105,7 @@ public class IcebergMetadataDeleteTest {
                 .commit();
 
         // The engine passes no predicate for "DELETE FROM t": every row of the table is deleted.
-        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.empty());
+        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.empty(), null);
 
         Assertions.assertEquals(OptionalLong.of(15L), deleted);
         Assertions.assertTrue(dataFilePaths(reload(catalog)).isEmpty(),
@@ -122,7 +123,8 @@ public class IcebergMetadataDeleteTest {
 
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.GT,
-                        new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5L))));
+                        new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5L))),
+                null);
 
         Assertions.assertFalse(deleted.isPresent(),
                 "a candidate file that is only partially matched must fall back to the row-level delete");
@@ -143,7 +145,8 @@ public class IcebergMetadataDeleteTest {
         // every row of every file.
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                        new ConnectorColumnRef("no_such_column", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(1L))));
+                        new ConnectorColumnRef("no_such_column", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(1L))),
+                null);
 
         Assertions.assertFalse(deleted.isPresent(), "an unliftable predicate must not be treated as always-true");
         Assertions.assertEquals(snapshotBefore, reload(catalog).currentSnapshot().snapshotId());
@@ -154,16 +157,17 @@ public class IcebergMetadataDeleteTest {
         InMemoryCatalog catalog = freshCatalog();
         PartitionSpec spec = PartitionSpec.builderFor(SCHEMA).identity("region").build();
         Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "3"));
-        table.newAppend()
-                .appendFile(partitionedDataFile(spec, "s3://b/db1/t1/region=us/a.parquet", 10L, "region=us"))
-                .commit();
+        DataFile dataFile = partitionedDataFile(spec, "s3://b/db1/t1/region=us/a.parquet", 10L, "region=us");
+        table.newAppend().appendFile(dataFile).commit();
         // Three of the ten rows are already deleted by a deletion vector for that data file.
-        table.newRowDelta().addDeletes(deletionVector(spec, "s3://b/db1/t1/dv.puffin",
-                "s3://b/db1/t1/region=us/a.parquet", 3L)).commit();
+        table.newRowDelta().addDeletes(deletionVector(spec, "s3://b/db1/t1/dv.puffin", dataFile, 3L)).commit();
+        Assertions.assertEquals(1, attachedDeleteFileCount(table, dataFile.path().toString()),
+                "the deletion vector must be attached to its data file before the metadata delete");
 
         OptionalLong deleted = metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.of(
                 new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                        new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))));
+                        new ConnectorColumnRef("region", ConnectorType.of("STRING")), ConnectorLiteral.ofString("us"))),
+                null);
 
         Assertions.assertEquals(OptionalLong.of(7L), deleted,
                 "deleted rows = the dropped file's records minus the rows its deletion vector already hid");
@@ -255,7 +259,7 @@ public class IcebergMetadataDeleteTest {
     }
 
     /** A v3 deletion vector for {@code referencedDataFile} that already hides {@code cardinality} rows. */
-    private static DeleteFile deletionVector(PartitionSpec spec, String puffin, String referencedDataFile,
+    private static DeleteFile deletionVector(PartitionSpec spec, String puffin, DataFile referencedDataFile,
             long cardinality) {
         return FileMetadata.deleteFileBuilder(spec)
                 .ofPositionDeletes()
@@ -263,10 +267,26 @@ public class IcebergMetadataDeleteTest {
                 .withFormat(FileFormat.PUFFIN)
                 .withFileSizeInBytes(128L)
                 .withRecordCount(cardinality)
-                .withReferencedDataFile(referencedDataFile)
+                // The deletion vector must carry the data file's partition tuple; otherwise iceberg treats the
+                // pair as corrupt metadata and a scan cannot attach the vector to its data file.
+                .withPartition(referencedDataFile.partition())
+                .withReferencedDataFile(referencedDataFile.path().toString())
                 .withContentOffset(0L)
                 .withContentSizeInBytes(64L)
                 .build();
+    }
+
+    private static int attachedDeleteFileCount(Table table, String dataFilePath) {
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            for (FileScanTask task : tasks) {
+                if (task.file().path().toString().equals(dataFilePath)) {
+                    return task.deletes().size();
+                }
+            }
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+        return -1;
     }
 
     /** Minimal {@link ConnectorSession} exposing a time zone (partition-timestamp parsing); no Mockito. */

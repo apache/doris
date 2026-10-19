@@ -356,6 +356,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
      */
     private Transaction openTransaction(Table loaded, boolean requireCurrentPartitionSpec) {
+        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec);
+    }
+
+    /**
+     * Transaction-opening seam shared by the row-level write path and the whole-file metadata delete: wraps the
+     * table's {@link TableOperations#io()} in the plugin Kerberos {@code doAs} so manifest work fanned onto
+     * Iceberg's shared worker pool still authenticates, and optionally installs the pinned write-schema validator.
+     */
+    static Transaction openTransaction(Table loaded, ConnectorContext context,
+            IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec) {
         HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
                 ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
                 : null;

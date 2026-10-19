@@ -329,4 +329,29 @@ public class NereidsToConnectorExpressionConverterTest {
                         new And(new EqualTo(a, new IntegerLiteral(1)), new GreaterThan(b, new IntegerLiteral(2)))),
                 strict, "with nothing to drop, strict and loose agree");
     }
+
+    @Test
+    public void strictConversionCommutesLiteralLeftComparisons() {
+        // Analysis keeps the operand order as written, so `1 < id` reaches the converter literal-first. The
+        // exact delete predicate must become `id > 1`; keeping `<` would select the wrong files.
+        SlotReference id = slot("id", ScalarType.INT);
+
+        ConnectorComparison strict = (ConnectorComparison) NereidsToConnectorExpressionConverter.convertStrict(
+                new LessThan(new IntegerLiteral(1), id));
+
+        Assertions.assertEquals(ConnectorComparison.Operator.GT, strict.getOperator());
+        Assertions.assertEquals("id", ((ConnectorColumnRef) strict.getLeft()).getColumnName());
+    }
+
+    @Test
+    public void strictConversionRejectsSqlUnsafeNegations() {
+        // NOT(col = 1) becomes iceberg notEqual, which treats NULL-only files as matching, while SQL
+        // NOT(UNKNOWN) deletes nothing. IS NOT NULL is the only negation that keeps SQL semantics.
+        SlotReference id = slot("id", ScalarType.INT);
+
+        Assertions.assertNull(NereidsToConnectorExpressionConverter.convertStrict(
+                new Not(new EqualTo(id, new IntegerLiteral(1)))));
+        Assertions.assertInstanceOf(ConnectorNot.class,
+                NereidsToConnectorExpressionConverter.convertStrict(new Not(new IsNull(id))));
+    }
 }

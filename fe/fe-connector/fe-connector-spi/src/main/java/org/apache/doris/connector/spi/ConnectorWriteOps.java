@@ -83,11 +83,14 @@ public interface ConnectorWriteOps {
      * @param handle    the target table handle
      * @param predicate the statement's complete delete predicate over the target's own columns, or empty for an
      *                  unfiltered delete (always true)
+     * @param boundWriteMetadataIdentity the write-metadata generation the statement was planned against, or
+     *                  {@code null} when the engine has none; a connector whose writes are fenced by a table
+     *                  generation MUST reject a mismatch before committing
      * @return the number of deleted rows when the delete was fully executed as a metadata delete; empty to fall
      *         back to row-level DML
      */
     default OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
-            Optional<ConnectorExpression> predicate) {
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity) {
         return OptionalLong.empty();
     }
 

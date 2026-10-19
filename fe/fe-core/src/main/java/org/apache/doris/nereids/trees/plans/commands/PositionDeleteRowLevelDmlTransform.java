@@ -235,7 +235,13 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
                 .orElseThrow(() -> new AnalysisException("Table not found: "
                         + externalTable.getRemoteDbName() + "." + externalTable.getRemoteName()
                         + " in catalog " + catalog.getName()));
-        return metadata.deleteUsingMetadata(session, handle, predicate);
+        // Fence the fresh by-name load against a drop/recreate (or schema rebind) that happened after analysis,
+        // exactly like the row-level write path does with its pinned write-metadata identity.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) table).getWriteSchemaSnapshot();
+        String boundWriteMetadataIdentity =
+                writeSchema == null ? null : writeSchema.getWriteMetadataIdentity();
+        return metadata.deleteUsingMetadata(session, handle, predicate, boundWriteMetadataIdentity);
     }
 
     /** The connector-declared synthetic (non-statement) columns, excluded from a statement predicate. */

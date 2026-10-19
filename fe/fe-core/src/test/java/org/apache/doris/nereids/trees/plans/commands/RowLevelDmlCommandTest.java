@@ -18,16 +18,22 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
@@ -99,5 +105,28 @@ public class RowLevelDmlCommandTest {
 
         Mockito.verify(coordinator).setTxnId(42L);
         Mockito.verify(executor, Mockito.never()).onFail(Mockito.any());
+    }
+
+    @Test
+    public void deleteCapturesThePreRewriteAnalyzedPlan() {
+        // NereidsPlanner leaves analyzedPlan null for a plain DELETE, so without this hook the whole-file fast
+        // path silently never fires. The hook must record the plan captured right after analysis.
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+
+        RowLevelDmlCommand.captureAnalyzedPlan(ctx);
+
+        ArgumentCaptor<PlannerHook> captor = ArgumentCaptor.forClass(PlannerHook.class);
+        Mockito.verify(statementContext).addPlannerHook(captor.capture());
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Plan analyzed = Mockito.mock(Plan.class);
+        Mockito.when(planner.getCascadesContext()).thenReturn(cascadesContext);
+        Mockito.when(cascadesContext.getRewritePlan()).thenReturn(analyzed);
+
+        captor.getValue().afterAnalyze(planner);
+
+        Mockito.verify(planner).setAnalyzedPlan(analyzed);
     }
 }
