@@ -85,6 +85,22 @@
 [k]	1	10
 [q]	1	30
 
+-- !orc_cross_partition_upsert --
+[k]	1	2	p2
+[m]	1	2	p2
+
+-- !orc_partition_key_merge --
+[k]	9	[x  ]
+
+-- !avro_level0_keys_read_back --
+[k  ]	3	2
+[q]	1	1
+
+-- !avro_level0_merge --
+[abc]	3	30
+[k  ]	3	20
+[q]	1	1
+
 -- !bucketed_route_plan --
 PhysicalConnectorTableSink
 --PhysicalDistribute[DistributionSpecGather]

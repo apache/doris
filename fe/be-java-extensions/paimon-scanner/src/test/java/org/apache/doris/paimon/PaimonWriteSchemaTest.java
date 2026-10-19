@@ -17,11 +17,17 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.paimon.PaimonWriteSchema.OrcFiles;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.paimon.arrow.writer.ArrowFieldWriterFactoryVisitor;
 import org.apache.paimon.casting.DefaultValueRow;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
@@ -29,6 +35,13 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -40,15 +53,20 @@ import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayInputStream;
+import java.nio.file.Path;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 public class PaimonWriteSchemaTest {
 
@@ -447,7 +465,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(3, "code", new CharType(3))));
         String[] columns = {"id", "p", "kind", "code"};
         PaimonWriteSchema overwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), false, true);
+                Arrays.asList("id", "p"), Collections.singletonList("p"), OrcFiles.NONE, true);
         for (String kind : Arrays.asList("+I", "+U", "-D", "-U")) {
             InternalRow row = tableRow(overwrite, 1, string("x"), string(kind), string("k"));
             Assertions.assertEquals("x  ", row.getString(1).toString(), kind);
@@ -456,13 +474,13 @@ public class PaimonWriteSchemaTest {
         }
 
         PaimonWriteSchema orcOverwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), true, true);
+                Arrays.asList("id", "p"), Collections.singletonList("p"), OrcFiles.ALL, true);
         InternalRow orcRow = tableRow(orcOverwrite, 1, string("x"), string("+U"), string("k"));
         Assertions.assertEquals("x  ", orcRow.getString(1).toString());
         Assertions.assertEquals("k  ", orcRow.getString(3).toString());
 
         PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), false, false);
+                Arrays.asList("id", "p"), Collections.singletonList("p"), OrcFiles.NONE, false);
         Assertions.assertEquals("x",
                 tableRow(insert, 1, string("x"), string("+U"), string("k")).getString(1).toString());
     }
@@ -710,7 +728,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "code", new CharType(false, 3)),
                 new DataField(2, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.INT()))));
         PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, new String[] {"p", "code", "labels"},
-                false, true, null, Arrays.asList("p", "code"), true, false);
+                false, true, null, Arrays.asList("p", "code"), Collections.singletonList("p"), OrcFiles.ALL, false);
 
         InternalRow row = tableRow(insert, string("x"), string("k"),
                 map(new Object[] {string("k")}, new Object[] {1}));
@@ -724,7 +742,7 @@ public class PaimonWriteSchemaTest {
 
         PaimonWriteSchema changelog = PaimonWriteSchema.create(tableType,
                 new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code"}, true, true, null,
-                Arrays.asList("p", "code"), true, false);
+                Arrays.asList("p", "code"), Collections.singletonList("p"), OrcFiles.ALL, false);
         for (byte operation : new byte[] {PaimonWriteSchema.UPDATE_OPERATION, PaimonWriteSchema.DELETE_OPERATION}) {
             InternalRow changed = tableRow(changelog, operation, string("x"), string("k"));
             Assertions.assertEquals("x  ", changed.getString(0).toString());
@@ -744,7 +762,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "kind", new CharType(3)),
                 new DataField(2, "label", new CharType(3))));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"code", "kind", "label"},
-                false, true, "kind", Collections.singletonList("code"), true, false);
+                false, true, "kind", Collections.singletonList("code"), Collections.emptyList(), OrcFiles.ALL, false);
 
         for (String kind : Arrays.asList("+I", "-D", "-U", "+U", "+X")) {
             InternalRow row = tableRow(schema, string("k"), string(kind), string("a"));
@@ -766,7 +784,7 @@ public class PaimonWriteSchemaTest {
         // check of a table that writes no ORC files, or checking UPDATE / DELETE rows -> red.
         PaimonWriteSchema schema = PaimonWriteSchema.create(charKeyTableType(),
                 new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
-                Collections.singletonList("code"), true, false);
+                Collections.singletonList("code"), Collections.emptyList(), OrcFiles.ALL, false);
 
         Assertions.assertEquals("k  ", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("k"),
                 string("x")).getString(0).toString());
@@ -790,18 +808,162 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
+    public void testMergeIntoAnOrcTableChecksItsPartitionKeysAsTheyAreStored() {
+        // Paimon keeps the value of a partition column in the partition, so Doris reads it back as it is stored, with
+        // its padding, from an ORC table too. MERGE then did not match 'x' to the stored 'x  ', and padding it would
+        // let a NOT MATCHED row replace the stored row of key ('x  ', 'k  '), so a partition key shorter than its
+        // column fails the row as on a table that writes no ORC files, while the other key keeps the check of an ORC
+        // table. MUTATION: checking the partition key as the keys of an ORC table -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "p", new CharType(false, 3)),
+                new DataField(1, "code", new CharType(false, 3)),
+                new DataField(2, "label", new CharType(3))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code", "label"}, true, true, null,
+                Arrays.asList("p", "code"), Collections.singletonList("p"), OrcFiles.ALL, false);
+
+        IllegalArgumentException shortPartition = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("x"), string("k"), string("a")));
+        Assertions.assertTrue(shortPartition.getMessage().contains("CHAR(3) primary key column 'p'"),
+                shortPartition.getMessage());
+        Assertions.assertTrue(shortPartition.getMessage().contains("rpad(<key>, 3, ' ')"), shortPartition.getMessage());
+        InternalRow row = tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("x  "), string("k"),
+                string("a"));
+        Assertions.assertEquals("x  ", row.getString(0).toString());
+        Assertions.assertEquals("k  ", row.getString(1).toString());
+        Assertions.assertEquals("a  ", row.getString(2).toString());
+        IllegalArgumentException trailingSpace = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("x  "), string("k "),
+                        string("a")));
+        Assertions.assertTrue(trailingSpace.getMessage().contains("CHAR(3) primary key column 'code'"),
+                trailingSpace.getMessage());
+        Assertions.assertTrue(trailingSpace.getMessage().contains("rtrim(<key>)"), trailingSpace.getMessage());
+    }
+
+    @Test
+    public void testMergeIntoATableWithOrcFilesAtSomeLevelsFailsForShortKeysAndKeysEndingWithASpace() {
+        // A table that writes ORC files at some levels only, such as file.format = 'orc' with
+        // file.format.per.level = '0:avro', gives Doris a stored 'k  ' back as 'k  ' from its other files and as 'k'
+        // from its ORC files. A key that MERGE inserts is safe only when padding does not change it and no stored key
+        // reads back as it does without its trailing spaces: as long as the column, and not ending with a space.
+        // UPDATE and DELETE rows are padded as on an ORC table. MUTATION: the check of a table that writes only ORC
+        // files, or of one that writes none -> red.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
+                Collections.singletonList("code"), Collections.emptyList(), OrcFiles.SOME, false);
+
+        for (String key : Arrays.asList("k", "k ", "ab ", " ", "中中")) {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string(key), string("x")));
+            Assertions.assertTrue(e.getMessage().contains("CHAR(3) primary key column 'code'"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("at some levels only"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("enable_paimon_write_char_padding"), e.getMessage());
+        }
+        Assertions.assertEquals("abc", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("abc"),
+                string("x")).getString(0).toString());
+        Assertions.assertEquals("abcd", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("abcd"),
+                null).getString(0).toString());
+        for (byte operation : new byte[] {PaimonWriteSchema.UPDATE_OPERATION, PaimonWriteSchema.DELETE_OPERATION}) {
+            Assertions.assertEquals("k  ", tableRow(schema, operation, string("k"), string("x"))
+                    .getString(0).toString());
+        }
+    }
+
+    @Test
     public void testOrcFilesAreReadFromTheTableFormatOptions() {
-        // MUTATION: ignoring file.format.per.level -> red.
-        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "orc")));
-        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "ORC")));
-        Map<String, String> perLevel = new HashMap<>();
-        perLevel.put("file.format", "parquet");
-        perLevel.put("file.format.per.level", "0:avro,5:orc");
-        Assertions.assertTrue(PaimonWriteSchema.writesOrcFiles(perLevel));
-        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(Collections.emptyMap()));
-        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(Collections.singletonMap("file.format", "avro")));
-        Assertions.assertFalse(PaimonWriteSchema.writesOrcFiles(
-                Collections.singletonMap("file.format.per.level", "0:avro")));
+        // Paimon writes the files of a level, 0 to num-levels - 1, in the format that file.format.per.level names for
+        // the level, or else in file.format. MUTATION: ignoring file.format.per.level, or the levels that it does not
+        // name, or the number of levels -> red.
+        Assertions.assertEquals(OrcFiles.ALL,
+                PaimonWriteSchema.orcFiles(Collections.singletonMap("file.format", "orc")));
+        Assertions.assertEquals(OrcFiles.ALL,
+                PaimonWriteSchema.orcFiles(Collections.singletonMap("file.format", "ORC")));
+        Assertions.assertEquals(OrcFiles.NONE, PaimonWriteSchema.orcFiles(Collections.emptyMap()));
+        Assertions.assertEquals(OrcFiles.NONE,
+                PaimonWriteSchema.orcFiles(Collections.singletonMap("file.format", "avro")));
+        Assertions.assertEquals(OrcFiles.NONE,
+                PaimonWriteSchema.orcFiles(Collections.singletonMap("file.format.per.level", "0:avro")));
+        Assertions.assertEquals(OrcFiles.SOME, PaimonWriteSchema.orcFiles(formatOptions("parquet", "0:avro,5:orc")));
+        Assertions.assertEquals(OrcFiles.SOME, PaimonWriteSchema.orcFiles(formatOptions("orc", "0:avro")));
+        Assertions.assertEquals(OrcFiles.ALL,
+                PaimonWriteSchema.orcFiles(formatOptions("parquet", "0:orc,1:orc,2:orc,3:orc,4:orc,5:orc")));
+        Assertions.assertEquals(OrcFiles.NONE, PaimonWriteSchema.orcFiles(formatOptions("parquet", "6:orc")));
+        Map<String, String> threeLevels = formatOptions("parquet", "0:orc,1:orc,2:orc");
+        threeLevels.put("num-levels", "3");
+        Assertions.assertEquals(OrcFiles.ALL, PaimonWriteSchema.orcFiles(threeLevels));
+    }
+
+    @Test
+    public void testBootstrapKeysOfAnOrcTableArePaddedAsTheWrittenKeys() {
+        // The global index of a key-dynamic table is bootstrapped from rows of the primary keys that are no partition
+        // keys, as the data files give them back, then the partition and the bucket. ORC gives back 'k' for the
+        // stored 'k  ', so on a table that writes ORC files those keys are padded as the rows written are, while the
+        // partition, the stored one, is kept: 'x' stays 'x'. Other files give the keys back as they are stored, and
+        // with padding off the writer pads nothing. MUTATION: padding no key, or the partition -> red.
+        TableSchema schema = new TableSchema(0L, Arrays.asList(
+                new DataField(0, "c", new CharType(false, 3)),
+                new DataField(1, "v", new IntType()),
+                new DataField(2, "p", new CharType(false, 3))),
+                2, Collections.singletonList("p"), Collections.singletonList("c"), Collections.emptyMap(), "");
+        String[] columns = {"v", "p", "c"};
+        InternalRow bootstrapRow = GenericRow.of(string("k"), string("x"), 7);
+
+        InternalRow padded = PaimonWriteSchema.create(schema.logicalRowType(), columns, false, true, null,
+                schema.primaryKeys(), schema.partitionKeys(), OrcFiles.SOME, false)
+                .bootstrapKeyPadder(schema).apply(bootstrapRow);
+        Assertions.assertEquals("k  ", padded.getString(0).toString());
+        Assertions.assertEquals("x", padded.getString(1).toString());
+        Assertions.assertEquals(7, padded.getInt(2));
+        for (PaimonWriteSchema unpadded : Arrays.asList(
+                PaimonWriteSchema.create(schema.logicalRowType(), columns, false, true, null, schema.primaryKeys(),
+                        schema.partitionKeys(), OrcFiles.NONE, false),
+                PaimonWriteSchema.create(schema.logicalRowType(), columns, false, false, null, schema.primaryKeys(),
+                        schema.partitionKeys(), OrcFiles.ALL, false))) {
+            Assertions.assertSame(bootstrapRow, unpadded.bootstrapKeyPadder(schema).apply(bootstrapRow));
+        }
+    }
+
+    @Test
+    public void testBootstrappedIndexOfAnOrcTableFindsTheKeyThatTheWriterPads(@TempDir Path warehouse)
+            throws Exception {
+        // A row of 'k' that a second writer writes into partition p2 of a cross-partition ORC table, padded to 'k  ',
+        // has to find the 'k  ' stored in p1 in the index that this writer bootstraps from the files, so that the
+        // stored row is deleted from p1, or the table keeps two rows of one key. MUTATION: bootstrapping the keys
+        // as ORC gives them back -> red.
+        FileStoreTable table;
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "cross_partition");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("c", DataTypes.CHAR(3).notNull())
+                    .column("v", DataTypes.INT())
+                    .column("p", DataTypes.STRING().notNull())
+                    .partitionKeys("p")
+                    .primaryKey("c")
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            table = (FileStoreTable) catalog.getTable(id);
+        }
+        BatchWriteBuilder builder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
+            write.write(GenericRow.of(string("k  "), 1, string("p1")), 0);
+            commit.commit(write.prepareCommit());
+        }
+
+        PaimonWriteSchema writeSchema = PaimonWriteSchema.create(table.rowType(), new String[] {"c", "v", "p"},
+                false, true, null, table.primaryKeys(), table.partitionKeys(),
+                PaimonWriteSchema.orcFiles(table.options()), false);
+        List<String> written = new ArrayList<>();
+        GlobalIndexAssigner assigner = new GlobalIndexAssigner(table, 1 << 20);
+        assigner.open(1, 0, (row, bucket) -> written.add(String.format("%s [%s] %s %d",
+                row.getRowKind().shortString(), row.getString(0), row.getString(2), bucket)));
+        UnaryOperator<InternalRow> bootstrapKeyPadder = writeSchema.bootstrapKeyPadder(table.schema());
+        new IndexBootstrap(table).bootstrap(1, 0, row -> assigner.bootstrapKey(bootstrapKeyPadder.apply(row)));
+        assigner.finishBootstrap();
+        assigner.processInput(writeSchema.tableRow(GenericRow.of(string("k"), 2, string("p2"))));
+        Assertions.assertEquals(Arrays.asList("-D [k  ] p1 0", "+I [k  ] p2 0"), written);
     }
 
     @Test
@@ -907,6 +1069,13 @@ public class PaimonWriteSchemaTest {
 
     private static BinaryString string(String value) {
         return BinaryString.fromString(value);
+    }
+
+    private static Map<String, String> formatOptions(String format, String formatPerLevel) {
+        Map<String, String> options = new HashMap<>();
+        options.put("file.format", format);
+        options.put("file.format.per.level", formatPerLevel);
+        return options;
     }
 
     /** A map over key and value arrays, which unlike GenericMap can hold one key twice. */

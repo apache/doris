@@ -159,6 +159,39 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'file.format' = 'orc'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_cross_partition;
+        CREATE TABLE paimon.${dbName}.t_char_orc_cross_partition (
+            c CHAR(3), v INT, p STRING
+        ) USING paimon
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '-1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_partition_key_merge;
+        CREATE TABLE paimon.${dbName}.t_char_orc_partition_key_merge (
+            c CHAR(3), v INT, p CHAR(3)
+        ) USING paimon
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'primary-key' = 'c,p',
+            'bucket' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_avro_level0_merge;
+        CREATE TABLE paimon.${dbName}.t_char_avro_level0_merge (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'file.format' = 'orc',
+            'file.format.per.level' = '0:avro'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_rowkind;
         CREATE TABLE paimon.${dbName}.t_char_orc_spark_rowkind (
             c CHAR(3), rk STRING, v INT
@@ -491,6 +524,78 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_orc_spark_merge_trailing_space_fails """
             SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_merge
         """
+
+        // Each writer of a cross-partition table bootstraps its global key index from the keys the files hold, which
+        // ORC gives back without the trailing spaces that the keys Doris and Spark write carry. The writer indexes
+        // them padded, so a key written again into another partition, 'k' written by Doris and 'm' by Spark, finds
+        // the stored row and deletes it from its old partition: each key keeps one row, in its last partition.
+        spark_paimon """INSERT INTO paimon.${dbName}.t_char_orc_cross_partition VALUES ('m', 1, 'p1')"""
+        sql """refresh table t_char_orc_cross_partition"""
+        sql """INSERT INTO t_char_orc_cross_partition VALUES ('k', 1, 'p1')"""
+        sql """INSERT INTO t_char_orc_cross_partition VALUES ('k', 2, 'p2'), ('m', 2, 'p2')"""
+        order_qt_orc_cross_partition_upsert """
+            SELECT concat('[', c, ']'), char_length(c), v, p FROM t_char_orc_cross_partition
+        """
+
+        // Paimon keeps a partition value in the partition, so Doris reads it back as it is stored, padded, from an ORC
+        // table too. MERGE does not match 'x' to the stored 'x  ', and padding 'x' would let it replace the row it did
+        // not match, so that MERGE fails as on a table that writes no ORC files; one that pads the partition key in
+        // the MERGE matches the row and updates it.
+        spark_paimon """INSERT INTO paimon.${dbName}.t_char_orc_partition_key_merge VALUES ('k', 1, 'x')"""
+        sql """refresh table t_char_orc_partition_key_merge"""
+        test {
+            sql """
+                MERGE INTO t_char_orc_partition_key_merge t
+                USING (SELECT 'k' AS c, 9 AS v, 'x' AS p) s ON t.c = s.c AND t.p = s.p
+                WHEN MATCHED THEN UPDATE SET v = s.v
+                WHEN NOT MATCHED THEN INSERT (c, v, p) VALUES (s.c, s.v, s.p)
+            """
+            exception "rpad(<key>, 3, ' ')"
+        }
+        sql """
+            MERGE INTO t_char_orc_partition_key_merge t
+            USING (SELECT 'k' AS c, 9 AS v, 'x' AS p) s ON t.c = s.c AND t.p = rpad(s.p, 3, ' ')
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v, p) VALUES (s.c, s.v, rpad(s.p, 3, ' '))
+        """
+        order_qt_orc_partition_key_merge """
+            SELECT concat('[', c, ']'), v, concat('[', p, ']') FROM t_char_orc_partition_key_merge
+        """
+
+        // A table that writes ORC files at some levels only, here all but level 0, which writes Avro, gives a key back
+        // padded from its Avro files and without its trailing spaces from its ORC files: 'q', whose two files the
+        // compaction merges into an ORC file (it would only move a single file up a level), comes back as 'q', and
+        // 'k', written after, as 'k  '. MERGE does not match 'k' to the stored 'k  ', nor 'q  ' to the stored 'q', and
+        // padding either would let it replace the row it did not match, so both fail; a key as long as the column,
+        // which padding does not change, is inserted, and 'k  ', which matches, is updated.
+        spark_paimon_multi """
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('q', 0);
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('q', 1);
+            CALL paimon.sys.compact(table => '${dbName}.t_char_avro_level0_merge');
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('k', 2);
+        """
+        sql """refresh table t_char_avro_level0_merge"""
+        order_qt_avro_level0_keys_read_back """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_avro_level0_merge
+        """
+        for (String key : ["k", "q  "]) {
+            test {
+                sql """
+                    MERGE INTO t_char_avro_level0_merge t
+                    USING (SELECT '${key}' AS c, 9 AS v) s ON t.c = s.c
+                    WHEN MATCHED THEN UPDATE SET v = s.v
+                    WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+                """
+                exception "at some levels only"
+            }
+        }
+        sql """
+            MERGE INTO t_char_avro_level0_merge t
+            USING (SELECT 'k  ' AS c, 20 AS v UNION ALL SELECT 'abc', 30) s ON t.c = s.c
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+        """
+        order_qt_avro_level0_merge """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_avro_level0_merge"""
 
         // BE cannot route a CHAR bucket key that the writer pads by Paimon's bucket, since it would hash the
         // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
