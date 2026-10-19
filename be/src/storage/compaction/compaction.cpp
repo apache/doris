@@ -70,6 +70,8 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/clucene/inverted_index_compaction.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
@@ -1749,6 +1751,25 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         }
         // Avoid doing inverted index compaction on non-slice type columns
         if (!field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
+            continue;
+        }
+
+        // A norms-bearing index without term frequencies cannot reconstruct its exact
+        // token count after rows are removed or split across destination segments.
+        // Byte norms are lossy (for example, length 41 decodes as 40), so rebuild from
+        // the raw column. CLucene compaction is selected per column: a sibling index
+        // must not re-enable native merging for this column later in this loop.
+        const auto column_indexes = _cur_tablet_schema->inverted_indexs(col_unique_id);
+        const bool needs_norms_rebuild = std::any_of(
+                column_indexes.begin(), column_indexes.end(), [](const TabletIndex* column_index) {
+                    return segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                                   column_index->properties()) &&
+                           should_write_index_norms(*column_index) &&
+                           get_parser_phrase_support_string_from_properties(
+                                   column_index->properties()) !=
+                                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+                });
+        if (needs_norms_rebuild) {
             continue;
         }
 
