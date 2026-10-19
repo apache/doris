@@ -198,6 +198,7 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // ENUM is textual despite its BYTE_ARRAY storage; its expected cells must stay strings.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/parquet-thrift-compat.snappy.parquet"
             order_qt_test_24 """ select * from HDFS(
                         "uri" = "${uri}",

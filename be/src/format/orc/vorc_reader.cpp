@@ -1736,13 +1736,14 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        if (_scan_params.__isset.enable_mapping_varbinary &&
-            _scan_params.enable_mapping_varbinary) {
+        // Logical UUID annotations take precedence over the default for raw binary fields.
+        if (orc_type->hasAttributeKey("doris.logical_type") &&
+            orc_type->getAttributeValue("doris.logical_type") == "uuid") {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
+        } else if (_scan_params.__isset.enable_mapping_varbinary &&
+                   _scan_params.enable_mapping_varbinary) {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
                                                                 true);
-        } else if (orc_type->hasAttributeKey("doris.logical_type") &&
-                   orc_type->getAttributeValue("doris.logical_type") == "uuid") {
-            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
         } else {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
         }
@@ -2414,6 +2415,12 @@ Status OrcReader::_orc_column_to_doris_column(
     MutableColumnPtr data_column;
     if (orc_column_type != nullptr) {
         auto src_type = convert_to_doris_type(orc_column_type);
+        if (src_type->get_primitive_type() == TYPE_UUID &&
+            data_type->get_primitive_type() == TYPE_VARBINARY) {
+            // Hive BINARY keeps the file bytes even when the ORC carrier has a UUID annotation.
+            // Decode that carrier directly, including recursively visited complex-type children.
+            src_type = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, true);
+        }
         bool is_dict_filter_col = false;
         for (const std::pair<std::string, int>& dict_col : _dict_filter_cols) {
             if (col_name == dict_col.first) {

@@ -69,6 +69,48 @@ TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
     }
 }
 
+TEST(ParquetSchemaTest, LogicalAnnotationsOverrideBinaryDefault) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(3);
+    tparquet::SchemaElement modern_enum;
+    modern_enum.__set_name("modern_enum");
+    modern_enum.__set_type(tparquet::Type::BYTE_ARRAY);
+    modern_enum.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    modern_enum.__set_logicalType(tparquet::LogicalType());
+    modern_enum.logicalType.__set_ENUM(tparquet::EnumType());
+    auto legacy_enum = modern_enum;
+    legacy_enum.__set_name("legacy_enum");
+    legacy_enum.__isset.logicalType = false;
+    legacy_enum.__set_converted_type(tparquet::ConvertedType::ENUM);
+    auto uuid = modern_enum;
+    uuid.__set_name("uuid");
+    uuid.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    uuid.__set_type_length(16);
+    uuid.__set_logicalType(tparquet::LogicalType());
+    uuid.logicalType.__set_UUID(tparquet::UUIDType());
+    for (bool binary_mapping : {false, true}) {
+        const std::vector<tparquet::SchemaElement> schema {root, modern_enum, legacy_enum, uuid};
+        doris::FieldDescriptor legacy;
+        legacy.set_enable_mapping_varbinary(binary_mapping);
+        ASSERT_TRUE(legacy.parse_from_thrift(schema).ok());
+        for (int i = 0; i < 3; ++i) {
+            EXPECT_EQ(legacy.get_column(i)->data_type->get_primitive_type(), TYPE_STRING);
+        }
+        NativeFieldDescriptor native;
+        native.set_enable_mapping_varbinary(binary_mapping);
+        ASSERT_TRUE(native.parse_from_thrift(schema).ok());
+        EXPECT_EQ(native.get_column(0)->data_type->get_primitive_type(), TYPE_STRING);
+        EXPECT_EQ(native.get_column(1)->data_type->get_primitive_type(), TYPE_STRING);
+        EXPECT_EQ(native.get_column(2)->data_type->get_primitive_type(), TYPE_UUID);
+        NativeFieldDescriptor iceberg;
+        iceberg.set_enable_mapping_varbinary(binary_mapping);
+        iceberg.set_preserve_binary_uuid(true);
+        ASSERT_TRUE(iceberg.parse_from_thrift(schema).ok());
+        EXPECT_EQ(iceberg.get_column(2)->data_type->get_primitive_type(), TYPE_STRING);
+    }
+}
+
 namespace {
 
 std::vector<tparquet::SchemaElement> unshredded_variant_schema(

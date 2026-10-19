@@ -261,9 +261,10 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     } else if (is_parquet_native_type(src_logical_primitive)) {
         bool is_string_logical_type = is_string_type(src_logical_primitive);
         if (is_string_logical_type && src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            if (parquet_schema.logicalType.__isset.UUID && !preserve_binary_uuid) {
-                // Ordinary Parquet scans expose canonical text, as in File Scanner V2.
-                // Iceberg retains its raw 16-byte STRING carrier for equality deletes/defaults.
+            if (parquet_schema.logicalType.__isset.UUID && !preserve_binary_uuid &&
+                dst_logical_type->get_primitive_type() != TYPE_VARBINARY) {
+                // Inferred STRING fields expose canonical text. Explicit BINARY targets and
+                // Iceberg's equality-delete carrier must retain the original 16 bytes.
                 if (parquet_schema.type_length != UUIDValue::BINARY_LENGTH) {
                     physical_converter = std::make_unique<UnsupportedConverter>(src_physical_type,
                                                                                 src_logical_type);
