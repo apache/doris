@@ -65,6 +65,46 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
     def checkCoercionMode = { mode ->
         sql "set global enable_new_type_coercion_behavior = ${mode}"
 
+        "qt_mixed_temporal_container_literals_${mode}" """
+            select
+                array(cast('2024-01-01' as datev2))
+                    < array(cast('2024-01-01 00:00:00.000000001' as timestamp_ns)),
+                array(array(cast('2024-01-01' as datev2)))
+                    = array(array(cast('2024-01-01 00:00:00' as timestamp_ns))),
+                coalesce({1: datev2 '2024-01-01'},
+                         map(1, cast('2024-01-01 00:00:00' as timestamp_ns))),
+                coalesce({1, datev2 '2024-01-01'},
+                         struct(1, cast('2024-01-01 00:00:00' as timestamp_ns))),
+                cast(array(cast('2500-01-01' as datev2)) as array<timestamp_ns>),
+                cast(array(array(cast('2500-01-01' as datev2))) as array<array<timestamp_ns>>)
+        """
+        // Constant folding must propagate the implicit cast's forced strictness to every leaf.
+        for (def date : ['1600-01-01', '2500-01-01']) {
+            def dt = "cast('${date}' as datev2)"
+            def ns = "cast('2024-01-01 00:00:00' as timestamp_ns)"
+            for (def containers : [["array(${dt})", "array(${ns})"],
+                                   ["array(array(${dt}))", "array(array(${ns}))"]]) {
+                for (def operands : [containers, containers.reverse()]) {
+                    for (def op : ['=', '<', '<=>']) {
+                        test {
+                            sql "select ${operands[0]} ${op} ${operands[1]}"
+                            exception "outside Int64 epoch nanosecond range"
+                        }
+                    }
+                }
+            }
+            // A leading integer avoids JDBC interpreting {datev2 ...} as a date escape.
+            for (def containers : [["{1: datev2 '${date}'}", "map(1, ${ns})"],
+                                   ["{1, datev2 '${date}'}", "struct(1, ${ns})"],
+                                   ["[{{1: [datev2 '${date}']}}]",
+                                    "array(struct(map(1, array(${ns}))))"]]) {
+                test {
+                    sql "select coalesce(${containers[0]}, ${containers[1]})"
+                    exception "outside Int64 epoch nanosecond range"
+                }
+            }
+        }
+
         "qt_mixed_date_array_comparisons_${mode}" """
             select id, dates = stamps, stamps = dates, dates < stamps, dates <=> stamps,
                 nested_dates = nested_stamps, nested_stamps = nested_dates,
