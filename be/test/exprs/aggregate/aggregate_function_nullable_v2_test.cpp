@@ -235,6 +235,69 @@ TEST(NullableAggregationV2Test, BitmapIntersectionIgnoresNullOnlyPartialStates) 
     EXPECT_TRUE(result.get_data()[0].contains(2));
 }
 
+TEST(NullableAggregationV2Test, NonNullableBitmapResultStillMarksEmptyPartials) {
+    auto type = make_nullable(std::make_shared<DataTypeBitMap>());
+    auto function = nullable_function("bitmap_intersect", {type}, false);
+    auto bitmaps = ColumnBitmap::create();
+    for (const auto* text : {"1,2", "", "2,3", "", "2", ""}) {
+        BitmapValue value;
+        if (std::string_view(text) == "1,2") {
+            value.add(1);
+            value.add(2);
+        } else if (std::string_view(text) == "2,3") {
+            value.add(2);
+            value.add(3);
+        } else if (std::string_view(text) == "2") {
+            value.add(2);
+        }
+        bitmaps->insert_value(value);
+    }
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 1, 0, 1, 0, 1});
+    ColumnPtr input = ColumnNullable::create(std::move(bitmaps), std::move(nulls));
+    EXPECT_FALSE(function->get_return_type()->is_nullable());
+    EXPECT_TRUE(function->get_serialized_type()->is_nullable());
+    check_streaming(function, {input});
+    check_streaming(make_agg_state_compatible_function(function), {input});
+}
+
+TEST(NullableAggregationV2Test, BitmapStateMarkerSurvivesOldSchemaCompactionCodec) {
+    auto type = std::make_shared<DataTypeAggState>(
+            DataTypes {make_nullable(std::make_shared<DataTypeBitMap>())}, false,
+            "bitmap_intersect", 19);
+    auto function = type->get_nested_function();
+    auto serialized = type->create_column();
+    // New no-input state versus the legal historical encoding of an actual empty bitmap.
+    const std::array<char, 1> no_input {0};
+    const std::array<char, 3> empty_bitmap {1, 1, 0};
+    auto& strings = assert_cast<ColumnString&>(*serialized);
+    strings.insert_data(no_input.data(), no_input.size());
+    strings.insert_data(empty_bitmap.data(), empty_bitmap.size());
+    Arena arena;
+    for (size_t row = 0; row < 2; ++row) {
+        AggregateFunctionGuard state(function.get());
+        AggregateFunctionGuard partial(function.get());
+        function->deserialize_from_column_row(partial.data(), *serialized, row, arena);
+        auto reencoded = type->create_column();
+        function->serialize_without_key_to_column(partial.data(), *reencoded);
+        EXPECT_EQ(reencoded->get_data_at(0), serialized->get_data_at(row));
+        auto values = ColumnBitmap::create();
+        BitmapValue bitmap;
+        bitmap.add(1);
+        bitmap.add(2);
+        values->insert_value(bitmap);
+        auto nulls = ColumnUInt8::create(1, 0);
+        auto input = ColumnNullable::create(std::move(values), std::move(nulls));
+        const IColumn* columns[] = {input.get()};
+        function->add(state.data(), columns, 0, arena);
+        function->merge(state.data(), partial.data(), arena);
+        auto result = function->get_return_type()->create_column();
+        function->insert_result_into(state.data(), *result);
+        const auto& bitmap_result = assert_cast<const ColumnBitmap&>(*result).get_data()[0];
+        EXPECT_EQ(bitmap_result.cardinality(), row == 0 ? 2 : 0);
+    }
+}
+
 TEST(NullableAggregationV2Test, EmptyBatchAndEntirelySkippedStringStates) {
     auto type = make_nullable(std::make_shared<DataTypeString>());
     auto function = nullable_function("min", {type});

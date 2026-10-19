@@ -260,6 +260,11 @@ public:
     using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnBitmap;
 
+    // A serialized BitmapValue always starts with a nonzero length-of-varint byte.
+    // Nullable INTERSECT can reserve zero to distinguish no input from an empty bitmap.
+    static constexpr bool supports_empty_state_byte_marker =
+            std::is_same_v<Op, AggregateFunctionBitmapIntersectOp>;
+
     String get_name() const override { return Op::name; }
 
     AggregateFunctionBitmapOp(const DataTypes& argument_types_)

@@ -151,7 +151,8 @@ struct creator_without_type {
                     [&](auto multi_arguments, auto result_is_nullable) {
                         result.reset(new NullableV2T<multi_arguments, result_is_nullable,
                                                      AggregateFunctionTemplate>(
-                                result.release(), argument_types_, attr.is_window_function));
+                                result.release(), argument_types_, attr.is_window_function,
+                                attr.be_exec_version));
                     },
                     make_bool_variant(argument_types_.size() > 1),
                     make_bool_variant(result_is_nullable));
@@ -174,11 +175,13 @@ struct creator_without_type {
         if (have_nullable(argument_types_)) {
             if (argument_types_.size() > 1) {
                 result.reset(new NullableV2T<true, false, AggregateFunctionTemplate>(
-                        result.release(), argument_types_, attr.is_window_function));
+                        result.release(), argument_types_, attr.is_window_function,
+                        attr.be_exec_version));
 
             } else {
                 result.reset(new NullableV2T<false, false, AggregateFunctionTemplate>(
-                        result.release(), argument_types_, attr.is_window_function));
+                        result.release(), argument_types_, attr.is_window_function,
+                        attr.be_exec_version));
             }
         }
 
@@ -202,7 +205,8 @@ struct creator_without_type {
                     [&](auto result_is_nullable) {
                         result.reset(new NullableV2T<true, result_is_nullable,
                                                      AggregateFunctionTemplate>(
-                                result.release(), argument_types_, attr.is_window_function));
+                                result.release(), argument_types_, attr.is_window_function,
+                                attr.be_exec_version));
                     },
                     make_bool_variant(result_is_nullable));
         }
@@ -228,7 +232,8 @@ struct creator_without_type {
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
             result.reset(new NullableV2T<true, false, AggregateFunctionTemplate>(
-                    result.release(), argument_types_, attr.is_window_function));
+                    result.release(), argument_types_, attr.is_window_function,
+                    attr.be_exec_version));
         }
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result.release());
@@ -250,7 +255,8 @@ struct creator_without_type {
                     [&](auto result_is_nullable) {
                         result.reset(new NullableV2T<false, result_is_nullable,
                                                      AggregateFunctionTemplate>(
-                                result.release(), argument_types_, attr.is_window_function));
+                                result.release(), argument_types_, attr.is_window_function,
+                                attr.be_exec_version));
                     },
                     make_bool_variant(result_is_nullable));
         }
@@ -275,7 +281,8 @@ struct creator_without_type {
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
             result.reset(new NullableV2T<false, false, AggregateFunctionTemplate>(
-                    result.release(), argument_types_, attr.is_window_function));
+                    result.release(), argument_types_, attr.is_window_function,
+                    attr.be_exec_version));
         }
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result.release());
