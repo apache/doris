@@ -11825,6 +11825,104 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, CreateS3VaultWithPathFormat) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("PathFormatTestInstance");
+    instance.set_enable_storage_vault(true);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
+                            const StorageVaultPB::PathFormat* path_format) {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix(prefix);
+        vault.mutable_obj_info()->set_ak("ak");
+        vault.mutable_obj_info()->set_sk("sk");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.set_name(name);
+        if (path_format != nullptr) {
+            vault.mutable_path_format()->CopyFrom(*path_format);
+        }
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res;
+    };
+
+    auto get_vault = [&](const std::string& vault_id) {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        EXPECT_EQ(txn->get(storage_vault_key({instance.instance_id(), vault_id}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB vault;
+        vault.ParseFromString(val);
+        return vault;
+    };
+
+    {
+        StorageVaultPB::PathFormat path_format;
+        path_format.set_path_version(1);
+        path_format.set_shard_num(1024);
+        auto res = add_s3_vault("s3_vault_path_v1", "prefix_v1", &path_format);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        auto vault = get_vault(res.storage_vault_id());
+        ASSERT_TRUE(vault.has_path_format());
+        ASSERT_EQ(vault.path_format().path_version(), 1);
+        ASSERT_EQ(vault.path_format().shard_num(), 1024);
+    }
+
+    {
+        auto res = add_s3_vault("s3_vault_path_absent", "prefix_absent", nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        auto vault = get_vault(res.storage_vault_id());
+        ASSERT_FALSE(vault.has_path_format());
+    }
+
+    std::vector<std::pair<int64_t, int64_t>> invalid_path_formats {
+            {1, 0}, {1, -1}, {2, 16}, {-1, 0}};
+    for (size_t i = 0; i < invalid_path_formats.size(); ++i) {
+        StorageVaultPB::PathFormat path_format;
+        path_format.set_path_version(invalid_path_formats[i].first);
+        path_format.set_shard_num(invalid_path_formats[i].second);
+        auto res = add_s3_vault(fmt::format("s3_vault_invalid_{}", i),
+                                fmt::format("prefix_invalid_{}", i), &path_format);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+                << path_format.ShortDebugString();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, AddObjInfoWithRole) {
     auto meta_service = get_meta_service();
 

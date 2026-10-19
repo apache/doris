@@ -702,6 +702,31 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
 
 } // namespace detail
 
+// Validate the object key layout of a storage vault, see `StorageResource` in BE.
+// Absent path format means version 0.
+static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& code,
+                                 std::string& msg) {
+    if (!vault.has_path_format()) {
+        return true;
+    }
+    const auto& path_format = vault.path_format();
+    if (path_format.path_version() != 0 && path_format.path_version() != 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("vault_name={} invalid path_version={}, only 0 and 1 are supported",
+                          vault.name(), path_format.path_version());
+        return false;
+    }
+    if (path_format.path_version() == 1 && path_format.shard_num() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "vault_name={} invalid shard_num={}, it must be positive when "
+                "path_version is 1",
+                vault.name(), path_format.shard_num());
+        return false;
+    }
+    return true;
+}
+
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
@@ -833,6 +858,10 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
         instance.storage_vault_names().end()) {
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = fmt::format("vault_name={} already created", vault_param.name());
+        return -1;
+    }
+
+    if (!validate_path_format(vault_param, code, msg)) {
         return -1;
     }
 
@@ -1482,6 +1511,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             msg = "s3 conf lease provider info";
             return;
         }
+        if (!validate_path_format(request->vault(), code, msg)) {
+            return;
+        }
         if (instance.obj_info().size() >= 10) {
             code = MetaServiceCode::UNDEFINED_ERR;
             msg = "this instance history has greater than 10 objs, please new another instance";
@@ -1538,6 +1570,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         *instance.mutable_resource_ids()->Add() = vault.id();
         *instance.mutable_storage_vault_names()->Add() = vault.name();
         vault.mutable_obj_info()->MergeFrom(last_item);
+        if (request->vault().has_path_format()) {
+            vault.mutable_path_format()->CopyFrom(request->vault().path_format());
+        }
         auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
         txn->put(vault_key, vault.SerializeAsString());
         if (request->has_set_as_default_storage_vault() &&

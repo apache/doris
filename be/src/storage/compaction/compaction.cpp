@@ -2556,7 +2556,8 @@ Status CloudCompactionMixin::garbage_collection() {
         auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
         DCHECK(beta_rowset_writer);
         for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
-            auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
+            auto file_key = io::BlockFileCache::hash(
+                    io::BlockFileCache::doris_table_cache_file_name(file_writer->path().native()));
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
         }

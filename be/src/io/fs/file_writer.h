@@ -113,7 +113,8 @@ protected:
             return;
         }
 
-        io::UInt128Wrapper path_hash = BlockFileCache::hash(path.filename().native());
+        io::UInt128Wrapper path_hash =
+                BlockFileCache::hash(BlockFileCache::doris_table_cache_file_name(path.native()));
         BlockFileCache* file_cache_ptr = FileCacheFactory::instance()->get_by_path(path_hash);
 
         bool has_enough_file_cache_space = opts->allow_adaptive_file_cache_write &&

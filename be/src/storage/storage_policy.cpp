@@ -163,6 +163,12 @@ StorageResource::StorageResource(io::RemoteFileSystemSPtr fs_,
     case 0:
         break;
     case 1:
+        if (path_format.shard_num() <= 0) {
+            throw Exception(Status::FatalError(
+                    "invalid shard num, it must be positive when path version is 1. "
+                    "resource_id={} shard_num={}",
+                    fs->id(), path_format.shard_num()));
+        }
         shard_fn = [shard_num = path_format.shard_num()](int64_t tablet_id) {
             return HashUtil::murmur_hash64A(static_cast<void*>(&tablet_id), sizeof(tablet_id),
                                             HashUtil::MURMUR_SEED) %

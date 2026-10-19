@@ -133,7 +133,8 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
 }
 
 void CachedRemoteFileReader::_init_doris_table_cache() {
-    _cache_hash = BlockFileCache::hash(path().filename().native());
+    _cache_hash =
+            BlockFileCache::hash(BlockFileCache::doris_table_cache_file_name(path().native()));
     _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     if (_can_read_cache_file_directly()) {
         // this is designed for and test in doris table, external table need extra tests
