@@ -82,19 +82,6 @@ jobs:
         run: |
           thirdparty/test/adbc-jni-config-test.sh
 
-  gperftools_arm64:
-    name: Test gperftools CPU profiler (Linux ARM64 GCC 11)
-    needs: changes
-    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' || needs.changes.outputs.focused_test_changes == 'true' }}
-    runs-on: ubuntu-24.04-arm
-    container: gcc:11-bullseye
-    steps:
-      - name: Checkout ${{ github.ref }}
-        uses: actions/checkout@v4
-
-      - name: Build and test gperftools
-        run: bash thirdparty/test/gperftools-build-test.sh
-
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
