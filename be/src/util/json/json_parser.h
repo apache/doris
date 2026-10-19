@@ -101,7 +101,11 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
 
 struct ParseConfig {
     bool deprecated_enable_flatten_nested = false;
-    bool check_duplicate_json_path = false;
+    // Duplicate paths in one JSON document are always rejected.
+    bool check_duplicate_json_path = true;
+    // Text that is not a JSON document keeps its text, like the CAST and load paths expect. Only
+    // parse_to_variant() turns this on.
+    bool throw_on_invalid_json = false;
     enum class ParseTo {
         OnlySubcolumns = 0,
         OnlyDocValueColumn = 1,

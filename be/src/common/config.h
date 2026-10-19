@@ -1558,10 +1558,6 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
-// Treat invalid json format str as string, instead of throwing exception if false
-DECLARE_mBool(variant_throw_exeception_on_invalid_json);
-// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
-DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);

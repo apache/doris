@@ -412,7 +412,6 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
 
     ParseConfig config;
     config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
-    config.check_duplicate_json_path = batch.check_duplicate_json_path;
     config.parse_to =
             column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn : batch.parse_to;
     variant_util::parse_json_to_variant(*variant_column, *json_column, config);

@@ -1868,7 +1868,7 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        if (config::variant_throw_exeception_on_invalid_json) {
+        if (config.throw_on_invalid_json) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
                                    std::string_view(src, length));
         }
@@ -2266,7 +2266,6 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         // Deprecated legacy flatten-nested switch. Distinct from variant_enable_nested_group.
         configs[i].deprecated_enable_flatten_nested =
                 tablet_schema.deprecated_variant_flatten_nested();
-        configs[i].check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",
