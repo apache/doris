@@ -25,6 +25,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.rules.Rule;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.AnnTopNInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -65,6 +67,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -165,13 +168,22 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // into the result. Snapshot/tag/version selectors are fine -- they are
         // resolved into the table handle before the vector search -- so only the
         // file-level bound forces the decline.
+        //
+        // `scan.creation-time-millis` must decline as well: when a snapshot exists
+        // past the bound it resolves into an ordinary snapshot pin (safe), but when
+        // none does — the exact read state the option exists for — PaimonScanParams
+        // resolves it into the SAME internal file-creation bound (resolveOptions
+        // falls through to resolveFileCreationTime), which the vector path again
+        // never consults. Which case applies depends on the snapshot manager's
+        // state, so the raw option key is declined unconditionally.
         if (scan.getScanParams().isPresent()) {
             TableScanParams scanParams = scan.getScanParams().get();
             if (scanParams.incrementalRead()) {
                 return null;
             }
             Map<String, String> rawParams = scanParams.getMapParams();
-            if (rawParams.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())) {
+            if (rawParams.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())
+                    || rawParams.containsKey(CoreOptions.SCAN_CREATION_TIME_MILLIS.key())) {
                 return null;
             }
         }
@@ -243,6 +255,16 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         if (!(left instanceof SlotReference && right.isConstant() && right instanceof ArrayLiteral)) {
             return null;
         }
+        // A typed NULL inside the query vector ([CAST(NULL AS FLOAT), 0.0, ...]) is a
+        // NullLiteral whose getDouble() returns 0, so extracting the coordinates
+        // would silently search against a zero vector. The ordinary path raises
+        // instead (FunctionArrayDistance::_validate_no_nulls: "Second argument ...
+        // cannot have null"), and the rewrite must not replace that error with rows
+        // for a different input, so any null element declines the rewrite. Both
+        // supported metrics share this.
+        if (((ArrayLiteral) right).getValue().stream().anyMatch(NullLiteral.class::isInstance)) {
+            return null;
+        }
         SlotReference vectorSlot = (SlotReference) left;
         if (!vectorSlot.getOriginalColumn().isPresent() || !vectorSlot.getOriginalTable().isPresent()) {
             return null;
@@ -270,6 +292,43 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         String metric = coreOptions.primaryKeyVectorDistanceMetric(annColumnName);
         String expectedMetric = l2Dist ? "l2" : "inner_product";
         if (!expectedMetric.equals(metric)) {
+            return null;
+        }
+
+        // A data predicate additionally requires the SDK's "physical row read"
+        // table mode: the predicate itself converts fine, but the pinned
+        // paimon-rust PkVectorSearchParams::resolve rejects every DATA predicate
+        // unless deletion vectors are enabled and merge-on-read is disabled —
+        // so the failure lands AFTER this one-way rewrite replaced the distance
+        // expression, turning a query that the ordinary path answers into a
+        // user-facing error. Partition-only conjuncts are enforced by the search
+        // planning itself and stay fine, so decline only on a non-partition one.
+        //
+        // The synthetic distance slot is named after a legal paimon user column
+        // name (__paimon_search_score_to_dis, see the BE reader). A table that
+        // actually HAS a column of that name would collide with the synthetic
+        // slot's block-column matching; decline and run the ordinary path.
+        //
+        // A complex-typed column (STRUCT/MAP/nested ARRAY) must ride as a whole
+        // column: nested pruning rewrites a slot whose fields are accessed —
+        // Project(struct_element(payload, 'b')) materializes the scan tuple as
+        // ROW<b> — but the vector reader projects only root names and returns
+        // the full Arrow value, and the struct SerDe then binds children by
+        // ORDINAL: the wrong child comes back. Filter conjuncts cannot reach
+        // this (the whitelist admits only scalar columns); the order-key alias
+        // is replaced by the synthetic slot and cannot reach it either; so only
+        // a Project output expression over a complex column has to decline.
+        try {
+            Table table = paimonTable.getPaimonTable(Optional.empty());
+            if ((optionalFilter.isPresent()
+                    && filterHasDataConjunct(optionalFilter.get(), table)
+                    && !PaimonScanNode.vectorSearchSupportsDataPredicate(table))
+                    || table.rowType().getFieldNames().stream().anyMatch(
+                            name -> name.equalsIgnoreCase(PaimonVectorSearch.SEARCH_DISTANCE_COLUMN))
+                    || !complexColumnsRideAsWholeColumns(project, orderKeyAlias)) {
+                return null;
+            }
+        } catch (Throwable t) {
             return null;
         }
 
@@ -328,11 +387,15 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         } catch (Throwable t) {
             return null;
         }
-        // NOTE: the FE-side data-predicate interception is intentionally not done. The
-        // data predicate is handed in full to the BE via the vector search builder's
-        // residual filter, where the Rust candidate search stage applies it together
-        // with deletion vectors. If some table shape cannot be handled correctly, it is
-        // Rust's responsibility to reject it or return correct data, not the planner's.
+        // NOTE: the FE-side data-predicate interception is intentionally MINIMAL.
+        // The data predicate is handed in full to the BE via the vector search
+        // builder's residual filter, where the Rust candidate search stage applies
+        // it together with deletion vectors. The two planner-side exceptions above
+        // (unridable conjunct shapes, and the SDK's no-deletion-vector table mode)
+        // exist because those failures would surface only AFTER the one-way rewrite
+        // replaced the distance expression. Any other table shape Rust cannot
+        // handle correctly is Rust's responsibility to reject or answer correctly,
+        // not the planner's.
 
         // paimon-rust's vector index operates on f32, so carry the query as floats
         // rather than List<Double>: it avoids a double→float narrowing on the wire
@@ -404,13 +467,13 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
     private static boolean conjunctRidesIntoVectorSearch(Expression conjunct) {
         if (conjunct instanceof ComparisonPredicate) {
             ComparisonPredicate compare = (ComparisonPredicate) conjunct;
-            return (isVectorFilterColumnSlot(compare.left()) && compare.right() instanceof Literal)
-                    || (compare.left() instanceof Literal && isVectorFilterColumnSlot(compare.right()));
+            return (isVectorFilterColumnSlot(compare.left()) && ridesAsLiteral(compare.right()))
+                    || (ridesAsLiteral(compare.left()) && isVectorFilterColumnSlot(compare.right()));
         }
         if (conjunct instanceof InPredicate) {
             InPredicate in = (InPredicate) conjunct;
             return isVectorFilterColumnSlot(in.getCompareExpr())
-                    && in.getOptions().stream().allMatch(Literal.class::isInstance);
+                    && in.getOptions().stream().allMatch(PushDownVectorTopNIntoPaimonScan::ridesAsLiteral);
         }
         if (conjunct instanceof IsNull) {
             return isVectorFilterColumnSlot(((IsNull) conjunct).child());
@@ -419,6 +482,81 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
             return isVectorFilterColumnSlot(((IsNull) ((Not) conjunct).child()).child());
         }
         return false;
+    }
+
+    /**
+     * A literal the BE paimon-rust predicate converter accepts. A {@link NullLiteral}
+     * is a Literal and passes the earlier instanceof check, but
+     * {@code _convert_literal} rejects it ({@code is_null_at(0)}), which rejects the
+     * WHOLE predicate — an IN option of {@code tag IN (1, 2, NULL)} silently rejects
+     * the entire IN, leaving it in the post-fetch residual. That reintroduces the
+     * bounded-TopK truncation the whitelist exists to prevent, so a null literal
+     * never rides.
+     */
+    private static boolean ridesAsLiteral(Expression expr) {
+        return expr instanceof Literal && !(expr instanceof NullLiteral);
+    }
+
+    /**
+     * Whether the filter carries a conjunct on a non-partition column — the DATA
+     * half of the predicate, the half the paimon-rust vector search applies per
+     * candidate row. Every conjunct already passed the riding whitelist, so each
+     * is a simple comparison / IN / null-check whose slots map to original table
+     * columns; a conjunct touching only partition columns is enforced by split
+     * planning and needs no per-row filtering.
+     */
+    private static boolean filterHasDataConjunct(LogicalFilter<?> filter, Table paimonTable) {
+        Set<String> partitionKeys = new HashSet<>(paimonTable.partitionKeys());
+        for (Expression conjunct : filter.getConjuncts()) {
+            Set<SlotReference> slots = conjunct.collect(SlotReference.class::isInstance);
+            for (SlotReference slot : slots) {
+                if (slot.getOriginalColumn().isPresent()
+                        && !partitionKeys.contains(slot.getOriginalColumn().get().getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether every complex-typed column referenced by the projection rides as a
+     * whole column. Nested pruning materializes the scan tuple with a REDUCED type
+     * for a column whose fields are accessed ({@code Project(struct_element(payload,
+     * 'b'))} prunes {@code payload ROW<a,b>} to {@code ROW<b>}), but the vector
+     * reader projects only root names and returns the full Arrow value, whose
+     * struct SerDe binds children by ordinal — the wrong child comes back. A bare
+     * slot output keeps the full type, and a complex slot consumed ONLY by a
+     * distance function never reaches the scan at all (this rewrite replaces every
+     * occurrence of the function with the synthetic distance slot, order-key alias
+     * included), so only any OTHER expression over a complex column forces the
+     * decline. Filter conjuncts cannot reach this: the shape whitelist admits only
+     * scalar columns.
+     */
+    private static boolean complexColumnsRideAsWholeColumns(LogicalProject<?> project,
+            Alias orderKeyAlias) {
+        for (NamedExpression projection : project.getProjects()) {
+            if (!(projection instanceof Alias)) {
+                continue;
+            }
+            Alias alias = (Alias) projection;
+            if (alias.equals(orderKeyAlias) || alias.child() instanceof SlotReference) {
+                continue;
+            }
+            Set<SlotReference> replacedSlots = new HashSet<>();
+            Set<Expression> distanceCalls = alias.child().collect(e ->
+                    e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
+            for (Expression call : distanceCalls) {
+                replacedSlots.addAll(call.collect(SlotReference.class::isInstance));
+            }
+            Set<SlotReference> slots = alias.child().collect(SlotReference.class::isInstance);
+            for (SlotReference slot : slots) {
+                if (!replacedSlots.contains(slot) && slot.getDataType().isComplexType()) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static boolean isVectorFilterColumnSlot(Expression expr) {

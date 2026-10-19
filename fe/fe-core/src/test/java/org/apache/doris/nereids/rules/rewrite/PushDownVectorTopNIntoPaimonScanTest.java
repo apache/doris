@@ -35,18 +35,22 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AnnTopNInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -113,9 +117,12 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         cascadesContext = Mockito.mock(CascadesContext.class);
         // The rewrite's pre-flight (PaimonVectorSearch.vectorScanEligible) requires a
         // rust-capable BE via the all-backend capability negotiation, mirroring
-        // PaimonScanNodeTest's routing fixture.
+        // PaimonScanNodeTest's routing fixture — and the VECTOR capability bit on
+        // top of the batch one, since an older rust-capable BE would reject the
+        // vector payload ("missing paimon_split").
         Backend rustBackend = GsonUtils.GSON.fromJson(
-                "{\"supportsPaimonRustReader\":true}", Backend.class);
+                "{\"supportsPaimonRustReader\":true,\"supportsPaimonRustVectorReader\":true}",
+                Backend.class);
         systemInfo = Mockito.mock(SystemInfoService.class);
         Mockito.when(systemInfo.getAllClusterBackends(true))
                 .thenReturn(ImmutableList.of(rustBackend));
@@ -307,7 +314,8 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         // bounded top-N sees the predicate and the rewrite stays sound.
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
-                "fields.vec.pk-vector.distance.metric", "l2"));
+                "fields.vec.pk-vector.distance.metric", "l2",
+                "deletion-vectors.enabled", "true"));
         SlotReference vec = vecSlot(scan);
         SlotReference tag = (SlotReference) scan.getOutput().get(3);
         Assertions.assertEquals("tag", tag.getName());
@@ -501,7 +509,8 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         // comparison rides into the vector search, so the rewrite stays sound.
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
-                "fields.vec.pk-vector.distance.metric", "l2"));
+                "fields.vec.pk-vector.distance.metric", "l2",
+                "deletion-vectors.enabled", "true"));
         SlotReference vec = vecSlot(scan);
         SlotReference tag = (SlotReference) scan.getOutput().get(3);
         LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
@@ -665,6 +674,168 @@ public class PushDownVectorTopNIntoPaimonScanTest {
     }
 
     @Test
+    public void testCreationTimeScanNotPushedDown() {
+        // t@options('scan.creation-time-millis'='...'): when a snapshot exists past
+        // the bound this resolves into an ordinary snapshot pin (safe), but when none
+        // does it resolves into the SAME internal file-creation bound the vector
+        // search never consults — which case applies depends on the snapshot
+        // manager's state, so the raw key declines unconditionally (contrast with
+        // scan.snapshot-id, which stays eligible).
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.of(new TableScanParams("options",
+                        ImmutableMap.of("scan.creation-time-millis", "1791793167062"),
+                        ImmutableList.of())));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testNullQueryVectorElementNotPushedDown() {
+        // [CAST(NULL AS FLOAT), 0.0]: a NullLiteral's getDouble() is 0, so the
+        // rewrite would silently search a zero vector and return rows for a
+        // different input, while the ordinary path raises (the distance functions
+        // reject NULL elements). Any null element declines.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        ArrayLiteral nullVector = new ArrayLiteral(ImmutableList.of(
+                new NullLiteral(), new FloatLiteral(2.0f)));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), nullVector), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testInPredicateWithNullOptionNotPushedDown() {
+        // tag IN (1, 2, NULL): every option is a Literal so the shape whitelist
+        // passes, but the BE converter rejects the null literal and with it the
+        // WHOLE predicate, leaving the IN in the post-fetch residual — the bounded
+        // fetch then returns the wrong rows. A null option never rides.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2",
+                "deletion-vectors.enabled", "true"));
+        SlotReference tag = (SlotReference) scan.getOutput().get(3);
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new InPredicate(tag, ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2),
+                        new NullLiteral()))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true));
+    }
+
+    @Test
+    public void testInPredicateStillPushedDown() {
+        // Control for the NULL-option case: tag IN (1, 2) with every option a
+        // non-null literal on a supported column rides into the vector search.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2",
+                "deletion-vectors.enabled", "true"));
+        SlotReference tag = (SlotReference) scan.getOutput().get(3);
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new InPredicate(tag, ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2)))),
+                scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        Plan rewritten = applyRule(1, topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true));
+        Assertions.assertNotSame(scan, ((LogicalFileScan) ((LogicalFilter<?>)
+                ((LogicalProject<?>) rewritten.child(0)).child(0)).child(0)));
+        Assertions.assertTrue(((LogicalFileScan) ((LogicalFilter<?>)
+                ((LogicalProject<?>) rewritten.child(0)).child(0)).child(0)).getAnnTopN().isPresent());
+    }
+
+    @Test
+    public void testFilterWithoutDeletionVectorsNotPushedDown() {
+        // WHERE tag < 3 on a table without deletion vectors: the predicate
+        // converts fine, but paimon-rust's PkVectorSearchParams::resolve rejects
+        // every data predicate unless deletion vectors are enabled and
+        // merge-on-read is disabled — so the failure would land AFTER the
+        // one-way rewrite, as a user-facing error on a query the ordinary path
+        // answers. Decline instead (first-row tables allow the index without DV).
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference tag = (SlotReference) scan.getOutput().get(3);
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(tag, new IntegerLiteral(3))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true));
+    }
+
+    @Test
+    public void testSyntheticDistanceColumnCollisionNotPushedDown() {
+        // __paimon_search_score_to_dis is also a legal paimon user column name; a
+        // table that HAS such a column collides with the synthetic slot's
+        // block-column matching, so the rewrite declines.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.empty(),
+                ImmutableList.of("id", "vec", PaimonVectorSearch.SEARCH_DISTANCE_COLUMN));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testPrunedComplexProjectionNotPushedDown() {
+        // Project(pmap['k'], dis): nested pruning materializes the scan tuple with
+        // a REDUCED type for pmap, but the vector reader projects only root names
+        // and returns the full Arrow value, whose SerDe binds children by ordinal —
+        // the wrong child comes back. Only a whole-column (bare slot) projection
+        // keeps the rewrite sound.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference pmap = (SlotReference) scan.getOutput().get(6);
+        Assertions.assertEquals("pmap", pmap.getName());
+        Assertions.assertTrue(pmap.getDataType().isComplexType());
+        Alias field = new Alias(new ElementAt(pmap, new StringLiteral("k")), "pk");
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), field, dis), scan), dis, true));
+    }
+
+    @Test
+    public void testWholeComplexProjectionStillPushedDown() {
+        // Control for the pruned case: the complex column rides as a whole column
+        // (bare slot output), which nested pruning leaves untouched.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference pmap = (SlotReference) scan.getOutput().get(6);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        Plan rewritten = applyRule(0, topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), pmap, dis), scan), dis, true));
+        Assertions.assertNotSame(scan, ((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0)).child(0)));
+        Assertions.assertTrue(((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0)).child(0))
+                .getAnnTopN().isPresent());
+    }
+
+    @Test
+    public void testBackendWithoutVectorCapabilityNotPushedDown() {
+        // Rolling upgrade: a BE that reports the batch rust bit but not the vector
+        // bit would reject the rewritten payload ("missing paimon_split"), so the
+        // rewrite must decline and leave the query on the ordinary path it can
+        // still run. Re-stub the shared SystemInfoService with such a BE.
+        Backend legacyBackend = GsonUtils.GSON.fromJson(
+                "{\"supportsPaimonRustReader\":true}", Backend.class);
+        Mockito.when(systemInfo.getAllClusterBackends(true))
+                .thenReturn(ImmutableList.of(legacyBackend));
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
     public void testSnapshotScanStillPushedDown() {
         // t@options('scan.snapshot-id'='1'): snapshot selectors are resolved into
         // the table handle before the vector search plans its splits, so they do
@@ -760,13 +931,28 @@ public class PushDownVectorTopNIntoPaimonScanTest {
 
     private LogicalFileScan paimonScan(Map<String, String> options,
             Optional<TableScanParams> scanParams) {
+        return paimonScan(options, scanParams, null);
+    }
+
+    /** {@code paimonFieldNames} overrides the schema-derived names the collision
+     *  pre-flight reads off the mocked paimon rowType. */
+    private LogicalFileScan paimonScan(Map<String, String> options,
+            Optional<TableScanParams> scanParams, List<String> paimonFieldNames) {
         List<Column> schema = ImmutableList.of(
                 new Column("id", Type.INT, true),
                 new Column("vec", new ArrayType(Type.FLOAT), true),
                 new Column("vec2", new ArrayType(Type.FLOAT), true),
                 new Column("tag", Type.INT, true),
                 new Column("score", Type.DOUBLE, true),
-                new Column("payload", Type.VARIANT, true));
+                new Column("payload", Type.VARIANT, true),
+                // A complex column the pruned-projection tests access with
+                // ElementAt (the former struct_element): only the isComplexType()
+                // verdict matters to the pre-flight, so a Doris MAP stands in for
+                // a STRUCT this fixture cannot express through catalog types.
+                new Column("pmap", new org.apache.doris.catalog.MapType(), true));
+        if (paimonFieldNames == null) {
+            paimonFieldNames = schema.stream().map(Column::getName).collect(Collectors.toList());
+        }
 
         PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(table.getName()).thenReturn("paimon_tbl");
@@ -785,6 +971,12 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(paimonTable.options()).thenReturn(options);
         Mockito.when(paimonTable.location())
                 .thenReturn(new Path("file:///warehouse/wh/paimon_db.db/paimon_tbl"));
+        // rowType drives the synthetic-distance-column collision pre-flight; its
+        // field names track the fixture schema (or the test's explicit names).
+        org.apache.paimon.types.RowType rowType = Mockito.mock(
+                org.apache.paimon.types.RowType.class);
+        Mockito.when(rowType.getFieldNames()).thenReturn(paimonFieldNames);
+        Mockito.when(paimonTable.rowType()).thenReturn(rowType);
         Mockito.when(paimonTable.fileIO()).thenReturn(null);
         Mockito.when(paimonTable.coreOptions()).thenReturn(null);
         Mockito.when(paimonTable.schema()).thenReturn(null);

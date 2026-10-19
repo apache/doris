@@ -154,11 +154,18 @@ final class PaimonRustEligibility {
     // supports_paimon_rust_reader.
     final boolean allBackendsRustCapable;
 
+    // The PK-vector (ANN) protocol is negotiated separately: an older
+    // rust-capable BE reports the batch bit but would reject an empty
+    // paimon_split + vector payload ("missing paimon_split"), so the one-way
+    // vector rewrite must require this bit on every candidate backend too.
+    final boolean allBackendsVectorCapable;
+
     private PaimonRustEligibility(boolean isFileStoreTable, boolean fallbackReadTable,
             boolean restTokenTable, boolean queryAuthTable, boolean puAggDeletionVectors,
             boolean dvMergeOnRead, boolean deduplicateIgnoreDelete, boolean rustUnsupportedMergeOption,
             boolean scanModeNotDefault, boolean providerModeTranslatable, boolean schemeCapabilityVerified,
-            boolean hdfsBackendVerified, boolean allBackendsRustCapable) {
+            boolean hdfsBackendVerified, boolean allBackendsRustCapable,
+            boolean allBackendsVectorCapable) {
         this.isFileStoreTable = isFileStoreTable;
         this.fallbackReadTable = fallbackReadTable;
         this.restTokenTable = restTokenTable;
@@ -172,6 +179,7 @@ final class PaimonRustEligibility {
         this.schemeCapabilityVerified = schemeCapabilityVerified;
         this.hdfsBackendVerified = hdfsBackendVerified;
         this.allBackendsRustCapable = allBackendsRustCapable;
+        this.allBackendsVectorCapable = allBackendsVectorCapable;
     }
 
     /**
@@ -280,10 +288,13 @@ final class PaimonRustEligibility {
                 tableLocation, backendStorageProperties);
         boolean allBackendsRustCapable = backends != null && !backends.isEmpty()
                 && backends.stream().allMatch(Backend::isPaimonRustReaderSupported);
+        boolean allBackendsVectorCapable = backends != null && !backends.isEmpty()
+                && backends.stream().allMatch(Backend::isPaimonRustVectorReaderSupported);
         return new PaimonRustEligibility(isFileStoreTable, fallbackReadTable, restTokenTable,
                 queryAuthTable, puAggDeletionVectors, dvMergeOnRead, deduplicateIgnoreDelete,
                 rustUnsupportedMergeOption, scanModeNotDefault, providerModeTranslatable,
-                schemeCapabilityVerified, hdfsBackendVerified, allBackendsRustCapable);
+                schemeCapabilityVerified, hdfsBackendVerified, allBackendsRustCapable,
+                allBackendsVectorCapable);
     }
 
     /** Whether the table, storage and backend shapes all admit the paimon-rust reader. */
@@ -294,5 +305,15 @@ final class PaimonRustEligibility {
                 && !scanModeNotDefault
                 && providerModeTranslatable && schemeCapabilityVerified && hdfsBackendVerified
                 && allBackendsRustCapable;
+    }
+
+    /**
+     * Whether they all admit the PK-vector (ANN) search path on top of the batch
+     * rust gates: the vector protocol needs every candidate backend to report
+     * the vector capability bit as well, since a rewritten vector split has no
+     * JNI fallback and an older rust-capable BE cannot decode it.
+     */
+    boolean vectorEligible() {
+        return eligible() && allBackendsVectorCapable;
     }
 }

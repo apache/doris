@@ -409,7 +409,10 @@ struct TPaimonFileDesc {
     // Primary-key vector (ANN) search payload for this split. When set, BE
     // routes to the paimon-rust vector-search read path instead of the normal
     // split read; paimon_split is set but empty in that case.
-    20: optional TPaimonVectorPayload vector_payload;
+    // Field 21: id 20 is reserved as `original_file_path` on master and must not
+    // be reused here — a mixed-version cluster skips mismatched wire types
+    // instead of receiving either field.
+    21: optional TPaimonVectorPayload vector_payload;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -770,7 +773,10 @@ struct TFileScanRangeParams {
     // primary-key vector (ANN) top-N pushed down into the scan. Set at ScanNode level
     // (shared by all splits); the per-split physical payload stays in
     // TPaimonFileDesc.vector_payload. Lance requests use lance_scan_params instead.
-    41: optional TExternalSearchRequest external_search_request
+    // Field 42: id 41 is reserved as `fluss_properties` on master and must not be
+    // reused here — a mixed-version cluster skips mismatched wire types instead
+    // of receiving either field.
+    42: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {

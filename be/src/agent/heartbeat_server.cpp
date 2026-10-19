@@ -97,6 +97,10 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
         // Reader enum support cannot be inferred from a release version during rolling upgrades.
         heartbeat_result.backend_info.__set_supports_paimon_rust_reader(true);
+        // The PK-vector (ANN) protocol is a separate negotiation: an older
+        // rust-capable BE would reject an empty paimon_split + vector payload as
+        // "missing paimon_split", so only BEs carrying the vector protocol report it.
+        heartbeat_result.backend_info.__set_supports_paimon_rust_vector_reader(true);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

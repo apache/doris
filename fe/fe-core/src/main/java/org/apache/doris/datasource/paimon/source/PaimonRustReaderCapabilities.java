@@ -109,7 +109,7 @@ final class PaimonRustReaderCapabilities {
         return true;
     }
 
-    private static boolean hasFullNestedProjection(TupleDescriptor tuple) {
+    static boolean hasFullNestedProjection(TupleDescriptor tuple) {
         for (SlotDescriptor slot : tuple.getSlots()) {
             // The ABI projects only root names, while Arrow struct SerDes bind by ordinal.
             // A pruned slot must use JNI's recursive read type, even inside arrays or maps.

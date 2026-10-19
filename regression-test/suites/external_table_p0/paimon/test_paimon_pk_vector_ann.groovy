@@ -244,6 +244,126 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         assertEquals(bruteOld, annOld, "a file-creation-time bound must be honored on the vector path")
         assertEquals(bruteNone, annNone, "a far-future file bound must exclude all files on both paths")
 
+        // -------------------------------------------------------- more fixtures
+        // Two additional shapes the bounded rewrite must handle: a PK-vector table
+        // whose merge engine permits the index WITHOUT deletion vectors (first-row,
+        // allowed since paimon 2.1), and a partitioned PK-vector table (whose vector
+        // splits must carry the derived partition values or every scan fails with
+        // "Missing partition values").
+        spark_paimon_multi """
+            CREATE TABLE IF NOT EXISTS paimon.${database}.ann_l2_nodv (
+                id BIGINT, tag INT, embedding ARRAY<FLOAT>
+            ) USING paimon TBLPROPERTIES (
+                'primary-key' = 'id', 'bucket' = '2',
+                'merge-engine' = 'first-row',
+                'changelog-producer' = 'none',
+                'vector-field' = 'embedding',
+                'field.embedding.vector-dim' = '${dimension}',
+                'pk-vector.index.columns' = 'embedding',
+                'fields.embedding.pk-vector.index.type' = 'ivf-rq',
+                'fields.embedding.pk-vector.distance.metric' = 'l2',
+                'fields.embedding.pk-vector.index.options' = '${vectorOptions}',
+                'ivf.nprobe' = '4'
+            );
+            INSERT INTO paimon.${database}.ann_l2_nodv ${generatedRows};
+        """
+        spark_paimon_multi """
+            CREATE DATABASE IF NOT EXISTS paimon.${database};
+            DROP TABLE IF EXISTS paimon.${database}.ann_l2_part;
+            CREATE TABLE paimon.${database}.ann_l2_part (
+                id BIGINT, dt STRING, tag INT, embedding ARRAY<FLOAT>
+            ) USING paimon PARTITIONED BY (dt) TBLPROPERTIES (
+                'primary-key' = 'id', 'bucket' = '2',
+                'merge-engine' = 'partial-update',
+                'deletion-vectors.enabled' = 'true',
+                'deletion-vectors.merge-on-read' = 'false',
+                'changelog-producer' = 'none',
+                'vector-field' = 'embedding',
+                'field.embedding.vector-dim' = '${dimension}',
+                'pk-vector.index.columns' = 'embedding',
+                'fields.embedding.pk-vector.index.type' = 'ivf-rq',
+                'fields.embedding.pk-vector.distance.metric' = 'l2',
+                'fields.embedding.pk-vector.index.options' = '${vectorOptions}',
+                'ivf.nprobe' = '4'
+            );
+            INSERT INTO paimon.${database}.ann_l2_part
+                SELECT id, IF(id % 2 = 0, '2026-01-01', '2026-01-02'), CAST(id % 7 AS INT),
+                       transform(sequence(0, 15),
+                           i -> CAST(((id * 17 + i * 13) % 521 - 260) AS FLOAT) / 260.0)
+                FROM (SELECT explode(sequence(1, ${rows})) AS id);
+        """
+        assertEquals(rows.toLong(), sql("select count(*) from ann_l2_nodv")[0][0])
+        assertEquals(rows.toLong(), sql("select count(*) from ann_l2_part")[0][0])
+
+        // ------------------------------------------------ no-deletion-vector shape
+        // Unfiltered: paimon-rust's vector search has no data predicate, so the
+        // rewrite stays sound on the no-DV table.
+        sql "set enable_paimon_rust_reader=0"
+        def bruteNoDv = idsOf(sql("""select id from ann_l2_nodv
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        // Filtered: the rust PkVectorSearchParams rejects every data predicate
+        // unless deletion vectors are enabled without merge-on-read, so the rewrite
+        // must decline here and both legs agree through the ordinary path.
+        def bruteNoDvFilter = idsOf(sql("""select id from ann_l2_nodv where tag < 3
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        sql "set enable_paimon_rust_reader=1"
+        def annNoDv = idsOf(sql("""select id from ann_l2_nodv
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        def annNoDvFilter = idsOf(sql("""select id from ann_l2_nodv where tag < 3
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        assertEquals(bruteNoDv, annNoDv, "unfiltered ANN must match brute force on the no-DV table")
+        assertEquals(bruteNoDvFilter, annNoDvFilter,
+                "a data predicate on a no-deletion-vector table must not run as a bounded ANN")
+
+        // ------------------------------------------------------------ partitioned
+        // The vector splits of a partitioned table must carry the derived partition
+        // values (setPaimonParams throws "Missing partition values" otherwise), and
+        // the ANN result must still match the ordinary brute-force answer.
+        sql "set enable_paimon_rust_reader=0"
+        def brutePart = idsOf(sql("""select id from ann_l2_part
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        sql "set enable_paimon_rust_reader=1"
+        def annPart = idsOf(sql("""select id from ann_l2_part
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        assertEquals(brutePart, annPart, "partitioned ANN must match brute force")
+
+        // ---------------------------------------------- NULL query-vector element
+        // A NULL element inside the query vector must not become a zero coordinate:
+        // the ordinary function rejects it, and the rewrite must decline so both
+        // legs raise the same validation error.
+        String nullVector = "array(cast(null as float)" +
+                (1..(dimension.toInteger() - 1)).collect { ", 0.0" }.join() + ")"
+        def queryWithNulls = """select id from ann_l2
+                order by l2_distance_approximate(embedding, ${nullVector}) limit 5"""
+        def expectValidationError = { String q ->
+            try {
+                sql q
+                return null
+            } catch (Throwable t) {
+                return t.getMessage()
+            }
+        }
+        sql "set enable_paimon_rust_reader=0"
+        def bruteError = expectValidationError(queryWithNulls)
+        sql "set enable_paimon_rust_reader=1"
+        def annError = expectValidationError(queryWithNulls)
+        assertNotNull("the ordinary path must reject a NULL query vector", bruteError)
+        assertEquals(bruteError, annError,
+                "the ANN path must reject a NULL query vector the same way, not search a zero vector")
+
+        // ------------------------------------------- IN predicate with a NULL option
+        // tag IN (0, 1, NULL) passes the shape whitelist (every option is a
+        // literal) but the BE converter rejects the null option and with it the
+        // whole predicate, so the rewrite must decline: the IN stays in the
+        // residual and both legs must agree.
+        sql "set enable_paimon_rust_reader=0"
+        def bruteInNull = idsOf(sql("""select id from ann_l2 where tag in (0, 1, null)
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        sql "set enable_paimon_rust_reader=1"
+        def annInNull = idsOf(sql("""select id from ann_l2 where tag in (0, 1, null)
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        assertEquals(bruteInNull, annInNull, "an IN with a NULL option must not run as a bounded ANN")
+
         // -------------------------------------------------------- inner product
         compareTopN("ann_ip", true, 5)
     } finally {

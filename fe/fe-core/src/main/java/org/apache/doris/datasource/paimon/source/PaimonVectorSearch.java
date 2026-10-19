@@ -96,12 +96,15 @@ public final class PaimonVectorSearch {
      * raw cached table, so a {@code t@options} override can still make the
      * scan node reject a split the pre-flight accepted — the scan node stays
      * authoritative and fails loudly. The BE capability negotiation requires
-     * every candidate backend to report {@code supports_paimon_rust_reader}:
-     * a PK-vector split is only decodable by a rust-capable BE.
+     * every candidate backend to report {@code supports_paimon_rust_reader} AND
+     * {@code supports_paimon_rust_vector_reader}: the vector protocol rides an
+     * empty {@code paimon_split} plus a vector payload, which an older
+     * rust-capable BE (rolling upgrade) rejects as "missing paimon_split", so
+     * the vector bit is negotiated separately from the batch rust bit.
      */
     public static boolean vectorScanEligible(Table paimonTable, String tableLocation,
             Map<String, String> backendStorageProperties, Collection<Backend> backends) {
         return PaimonRustEligibility.of(paimonTable, tableLocation,
-                backendStorageProperties, backends).eligible();
+                backendStorageProperties, backends).vectorEligible();
     }
 }

@@ -662,6 +662,27 @@ public class PaimonScanNode extends FileQueryScanNode {
         return key.startsWith("fields.") && key.endsWith(suffix);
     }
 
+    /**
+     * Whether the pinned paimon-rust vector search can take a DATA predicate on
+     * this table. Paimon 2.1 permits a PK-vector index on tables without deletion
+     * vectors (first-row merge engines especially), but the rust
+     * {@code PkVectorSearchParams::resolve} rejects every data predicate unless
+     * deletion vectors are enabled AND {@code deletion-vectors.merge-on-read} is
+     * disabled: its post-recall per-candidate filtering re-reads each candidate
+     * file's physical rows, which only agrees with the bucket search when the
+     * table exposes physical rows directly. The options are read raw from the
+     * table map BE itself deserializes, so the values cannot diverge from what
+     * the rust reader sees.
+     */
+    public static boolean vectorSearchSupportsDataPredicate(Table paimonTable) {
+        Map<String, String> options = paimonTable.options();
+        boolean deletionVectors = "true".equalsIgnoreCase(
+                options.get(CoreOptions.DELETION_VECTORS_ENABLED.key()));
+        boolean mergeOnRead = "true".equalsIgnoreCase(
+                options.get(DELETION_VECTORS_MERGE_ON_READ));
+        return deletionVectors && !mergeOnRead;
+    }
+
     // Whether the schema options carry any option key the pinned paimon-rust
     // read rejects for this merge engine.
     @VisibleForTesting
@@ -1048,6 +1069,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             // executes paimon-rust's eager Top-K chain, which applies deletion
             // vectors and the merge inside the search itself), so it does not
             // consult them.
+            //
+            // The nested-projection bound is NOT DataSplit-specific: the ABI
+            // projects only root names and the Arrow struct SerDe binds children by
+            // ordinal, so a pruned complex slot (nested pruning, on by default)
+            // would return the wrong child on the vector path exactly as it would
+            // on the batch path. The rewrite pre-flights this and declines; this
+            // is the loud backstop for shapes the raw-table pre-flight cannot see.
+            if (vectorSearchSplit) {
+                canUseRust = canUseRust && rustEligibility.vectorEligible()
+                        && PaimonRustReaderCapabilities.hasFullNestedProjection(desc);
+            }
             if (!vectorSearchSplit && canUseRust) {
                 canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
                         && !externalFileSplit;
@@ -1118,6 +1150,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 if (!rustEligibility.allBackendsRustCapable) {
                     reasons.add("backend_without_rust_support");
+                }
+                if (vectorSearchSplit && !rustEligibility.allBackendsVectorCapable) {
+                    reasons.add("backend_without_vector_support");
+                }
+                if (vectorSearchSplit
+                        && !PaimonRustReaderCapabilities.hasFullNestedProjection(desc)) {
+                    reasons.add("pruned_nested_projection");
                 }
                 if (reasons.isEmpty()) {
                     reasons.add(vectorSearchSplit ? "unknown" : "capability_whitelist");
@@ -1569,6 +1608,12 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         List<Split> splits = new ArrayList<>();
         Set<BinaryRow> partitions = new HashSet<>();
+        // Same partition-metadata requirement as the ordinary split loop below: a
+        // table with partition keys makes setPaimonParams call setPartitionValues,
+        // which throws "Missing partition values" on a null map, so every vector
+        // split over a partitioned table must carry the derived values too.
+        boolean needPartitionMetadata = !getOrderedPathPartitionKeys().isEmpty();
+        Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         for (VectorSearchSplit vectorSplit : plan.splits()) {
             if (!(vectorSplit instanceof BucketVectorSearchSplit)) {
                 throw new UserException("Unexpected PK-vector split type: "
@@ -1591,6 +1636,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             DataSplit dataSplit = bucketSplit.dataSplit();
             PaimonSplit split = new PaimonSplit(dataSplit);
             split.setVectorPayloadBytes(payloadBytes);
+            if (needPartitionMetadata) {
+                Map<String, String> partitionInfoMap =
+                        partitionInfoMaps.computeIfAbsent(dataSplit.partition(), k -> PaimonUtil.getPartitionInfoMap(
+                                paimonTable, k, sessionVariable.getTimeZone(),
+                                source.getCatalog().getEnableMappingTimestampTz()));
+                split.setPaimonPartitionValues(partitionInfoMap);
+            }
             splits.add(split);
             partitions.add(dataSplit.partition());
             ++paimonSplitNum;

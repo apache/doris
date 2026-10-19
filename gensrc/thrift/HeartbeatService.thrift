@@ -64,6 +64,12 @@ struct TBackendInfo {
     9: optional Types.TPort arrow_flight_sql_port
     10: optional i64 be_mem // The physical memory available for use by BE.
     11: optional bool supports_paimon_rust_reader
+    // The paimon-rust PK-vector (ANN) search protocol: paimon_split is empty and the
+    // split rides TPaimonFileDesc.vector_payload, which an older rust-capable BE
+    // rejects as "missing paimon_split". Set only by BEs that implement the vector
+    // protocol, so a mixed-version cluster keeps ordinary rust reads working and
+    // only declines the vector rewrite against older BEs. Field 12 is free on master.
+    12: optional bool supports_paimon_rust_vector_reader
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

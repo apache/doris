@@ -40,8 +40,8 @@
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "format/table/paimon_rust_predicate_converter.h"
 #include "format_v2/column_data.h"
+#include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -274,6 +274,38 @@ TEST_F(PaimonRustTableReaderTest, ValidatesVectorSplit) {
     EXPECT_TRUE(reader.TEST_validate_rust_split(make_vector_range()).ok());
 }
 
+TEST_F(PaimonRustTableReaderTest, OrdinaryScanKeepsSyntheticDistanceNamedColumn) {
+    // __paimon_search_score_to_dis is also a legal Paimon user column name. The
+    // synthetic-distance exclusion must therefore apply ONLY to a real vector
+    // split: an ordinary rust scan of `SELECT id, __paimon_search_score_to_dis`
+    // over a table that really has such a column must keep reading it (skipping
+    // it would drop the column from the read projection and fill NULLs through
+    // _fill_non_arrow_columns).
+    PaimonRustTableReader reader;
+    reader.TEST_set_projected_columns(
+            {make_column("id", std::make_shared<DataTypeInt32>()),
+             make_column(kPaimonSearchDistanceColumn, std::make_shared<DataTypeString>())});
+
+    // Ordinary split: the same-named real column rides in the projection.
+    TFileRangeDesc ordinary = make_rust_range();
+    auto ordinaryColumns = reader.TEST_build_read_columns(ordinary);
+    ASSERT_EQ(2u, ordinaryColumns.size());
+    EXPECT_EQ("id", ordinaryColumns[0]);
+    EXPECT_EQ(kPaimonSearchDistanceColumn, ordinaryColumns[1]);
+
+    // Vector split (empty paimon_split + vector_payload): the synthetic slot is
+    // reader-produced by paimon-rust itself, so it must NOT be requested.
+    TFileRangeDesc vectorRange = make_rust_range();
+    vectorRange.table_format_params.paimon_params.__set_paimon_split("");
+    TPaimonVectorPayload payload;
+    payload.__set_payload_type(TPaimonVectorPayloadType::BUCKET_SPLIT_BYTES);
+    payload.__set_bytes("PKVSPLIT-dummy");
+    vectorRange.table_format_params.paimon_params.__set_vector_payload(payload);
+    auto vectorColumns = reader.TEST_build_read_columns(vectorRange);
+    ASSERT_EQ(1u, vectorColumns.size());
+    EXPECT_EQ("id", vectorColumns[0]);
+}
+
 // ---------------------------------------------------------------- score -> distance
 //
 // paimon-rust encodes the distance as a score per metric (see
@@ -332,12 +364,12 @@ TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceClampsCatastrophicCancel
     // The lumina kernel computes squared L2 as ||a||^2 + ||b||^2 - 2<a,b>, which can
     // yield a small negative residual when a ~= b, i.e. score slightly ABOVE 1. That
     // is a near-exact hit, not corruption: it clamps to distance 0. Only a score past
-    // kScoreAboveOneTolerance is sentineled.
+    // kScoreAboveOneTolerance maps to kCorruptScoreDistance.
     Block block = _score_block({1.0F + 1e-4F, 1.0F + 5e-2F}, /*nullable=*/false);
     PaimonRustTableReader::_convert_score_to_distance(&block, 0, 0, 2, L2);
 
     EXPECT_FLOAT_EQ(0.0F, _score_at(block, 0));
-    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreAboveOne, _score_at(block, 1));
+    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreDistance, _score_at(block, 1));
 }
 
 TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceSkipsRowsBeforeOffset) {
@@ -377,23 +409,25 @@ TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceNullable) {
 }
 
 TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceFlagsOutOfRangeScores) {
-    // Unreachable for a well-formed index (d >= 0 implies score in (0, 1]), but the
-    // distances come out of the closed-source lumina kernel unclamped. Computing the
-    // inverse anyway would give +inf (1/0) and NaN (sqrt of a negative), either of
-    // which makes the coordinator's Top-N comparisons ill-defined. Each case maps to
-    // its own negative sentinel: negative is unreachable for a real Euclidean
-    // distance, stays finite and totally ordered, and tells which way it broke.
-    Block block = _score_block({0.0F, -1.0F, 1.5F}, /*nullable=*/false);
-    PaimonRustTableReader::_convert_score_to_distance(&block, 0, 0, 3, L2);
+    // A well-formed index keeps d >= 0 and score in (0, 1], but the distances
+    // come out of the closed-source lumina kernel unclamped, and a score of
+    // exactly 0 is also REACHABLE from a genuine huge distance: the exact
+    // fallback (vector-index.search-mode=full) computes squared L2 in f32, so
+    // norms above ~1.8e19 overflow to +inf and 1/(1+d^2) rounds to 0. Every
+    // out-of-range case maps to kCorruptScoreDistance (+inf): it sorts LAST in
+    // an ASC Top-N, so it can never displace a valid closer row, and it cannot
+    // invert the coordinator's final ordering the way a negative sentinel
+    // (row 0 beating real finite distances) did.
+    Block block = _score_block({0.0F, -1.0F, 1.5F, 0.5F}, /*nullable=*/false);
+    PaimonRustTableReader::_convert_score_to_distance(&block, 0, 0, 4, L2);
 
-    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreNotPositive, _score_at(block, 0));
-    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreNotPositive, _score_at(block, 1));
-    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreAboveOne, _score_at(block, 2));
+    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreDistance, _score_at(block, 0));
+    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreDistance, _score_at(block, 1));
+    EXPECT_FLOAT_EQ(PaimonRustTableReader::kCorruptScoreDistance, _score_at(block, 2));
+    // A legal score between the corrupt rows still converts exactly.
+    EXPECT_FLOAT_EQ(1.0F, _score_at(block, 3));
     for (size_t i = 0; i < 3; ++i) {
-        const float distance = _score_at(block, i);
-        EXPECT_TRUE(std::isfinite(distance)) << "row " << i << " = " << distance;
-        // Must be distinguishable from any genuine distance, which is >= 0.
-        EXPECT_LT(distance, 0.0F) << "row " << i;
+        EXPECT_TRUE(std::isinf(_score_at(block, i))) << "row " << i;
     }
 }
 
