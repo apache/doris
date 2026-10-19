@@ -622,17 +622,23 @@ Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
                                               bool prepare_fts_context) {
     DatasetKey key;
     RETURN_IF_ERROR(_dataset_key(range, &key));
-    if (_dataset == nullptr) {
-        RETURN_IF_ERROR(_open_dataset(key));
-        _opened_dataset_key = key;
-    } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
-        return Status::InvalidArgument(
-                "Lance reader cannot mix dataset snapshots or storage options");
+    // A different dataset is a different split, not a mixing error: the split says which dataset it
+    // reads, so the previous one is closed and this one opened. Only a split that names the dataset
+    // already open reuses the handle, which keeps the common single-dataset scan on one open.
+    if (_dataset == nullptr || !_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
+        RETURN_IF_ERROR(_switch_dataset(key));
     }
     if (_search_kind == SearchKind::FULL_TEXT && prepare_fts_context &&
         _fts_query_context == nullptr) {
         RETURN_IF_ERROR(_prepare_fts_query_context());
     }
+    return Status::OK();
+}
+
+Status LanceTableReader::_switch_dataset(const DatasetKey& key) {
+    _close_dataset();
+    RETURN_IF_ERROR(_open_dataset(key));
+    _opened_dataset_key = key;
     return Status::OK();
 }
 
@@ -661,8 +667,16 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     // EXPLAIN plans a moving selector separately, so only the profile shows what this execution
     // read. The version is the one opened, which version 0 (the latest) resolves.
     _opened_version = static_cast<int64_t>(lance_dataset_version(dataset.get()));
-    _scanner_profile->add_info_string("LanceDatasetVersion", std::to_string(_opened_version));
-    _scanner_profile->add_info_string("LanceDatasetUri", display_uri(key.uri));
+    // The profile holds one entry per dataset this reader opens, so each open appends the URI and
+    // version it read.
+    if (!_opened_dataset_uris.empty()) {
+        _opened_dataset_uris += ", ";
+        _opened_dataset_versions += ", ";
+    }
+    _opened_dataset_uris += display_uri(key.uri);
+    _opened_dataset_versions += std::to_string(_opened_version);
+    _scanner_profile->add_info_string("LanceDatasetVersion", _opened_dataset_versions);
+    _scanner_profile->add_info_string("LanceDatasetUri", _opened_dataset_uris);
     _dataset = dataset.release();
     return Status::OK();
 }
@@ -1283,8 +1297,8 @@ void LanceTableReader::_collect_data_cache_statistics() {
         return;
     }
 
-    const auto set_counter = [](RuntimeProfile::Counter* counter, uint64_t value,
-                                std::string_view metric_name) {
+    const auto accumulate_counter = [](RuntimeProfile::Counter* counter, uint64_t* total,
+                                       uint64_t value, std::string_view metric_name) {
         if (counter == nullptr) {
             return;
         }
@@ -1293,12 +1307,13 @@ void LanceTableReader::_collect_data_cache_statistics() {
                          << value << " because it exceeds INT64_MAX";
             return;
         }
-        COUNTER_SET(counter, static_cast<int64_t>(value));
+        *total += value;
+        COUNTER_SET(counter, static_cast<int64_t>(*total));
     };
-    set_counter(_data_cache_bytes_read_from_cache, statistics.bytes_read_from_cache,
-                "bytes_read_from_cache");
-    set_counter(_data_cache_bytes_read_from_remote, statistics.bytes_read_from_remote,
-                "bytes_read_from_remote");
+    accumulate_counter(_data_cache_bytes_read_from_cache, &_data_cache_bytes_read_from_cache_total,
+                       statistics.bytes_read_from_cache, "bytes_read_from_cache");
+    accumulate_counter(_data_cache_bytes_read_from_remote, &_data_cache_bytes_read_from_remote_total,
+                       statistics.bytes_read_from_remote, "bytes_read_from_remote");
 }
 
 Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* block,

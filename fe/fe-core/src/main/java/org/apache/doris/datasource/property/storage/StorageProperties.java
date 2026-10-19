@@ -380,16 +380,81 @@ public abstract class StorageProperties extends ConnectionProperties {
     public abstract String validateAndNormalizeUri(String url) throws UserException;
 
     /**
-     * Extracts the URI string from the provided properties map, validates it, and returns the normalized URI.
-     * <p>
-     * This method checks that the 'uri' key exists in the property map, retrieves the value,
-     * and then delegates to {@link #validateAndNormalizeUri(String)} for further validation and normalization.
+     * Ensures the single-location key of this storage and {@code uris} are not both present.
      *
-     * @param loadProps the map containing load-related properties, including the URI under the key 'uri'
-     * @return a normalized and validated URI string
-     * @throws UserException if the 'uri' property is missing, empty, or invalid
+     * @param loadProps the properties map
+     * @throws UserException if the single-location key and {@code uris} are both present
      */
-    public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
+    protected abstract void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException;
+
+    /**
+     * Ensures {@code locationKey} and {@code uris} are not both present.
+     *
+     * @param loadProps the properties map
+     * @param locationKey the single-location key of the storage
+     * @throws UserException if {@code locationKey} and {@code uris} are both present
+     */
+    protected static void requireMutuallyExclusive(Map<String, String> loadProps, String locationKey)
+            throws UserException {
+        boolean hasLocation = loadProps.keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase(locationKey));
+        boolean hasUris = loadProps.keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase(Uris.KEY));
+        if (hasLocation && hasUris) {
+            throw new UserException("'" + locationKey + "' and '" + Uris.KEY
+                    + "' are mutually exclusive: '" + locationKey + "' names one location and '"
+                    + Uris.KEY + "' names several, so supply one or the other");
+        }
+    }
+
+    /**
+     * Validates and normalizes the single location this storage names.
+     *
+     * @param loadProps the properties map
+     * @return the normalized and validated location string
+     * @throws UserException if the single-location key and {@code uris} are both present, or the
+     *         location is missing, empty, or invalid
+     */
+    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps);
+        return validateAndGetLocation(loadProps);
+    }
+
+    /**
+     * Reads and validates the one location this storage names.
+     *
+     * @param loadProps the properties map
+     * @return the normalized location string
+     * @throws UserException if the location is missing, empty, or invalid
+     */
+    protected abstract String validateAndGetLocation(Map<String, String> loadProps)
+            throws UserException;
+
+    /**
+     * Validates and normalizes every URI named by {@code uris}.
+     *
+     * @param loadProps the properties map containing the {@code uris} key
+     * @return the normalized URIs, in the order written, without duplicates
+     * @throws UserException if the single-location key and {@code uris} are both present, or
+     *         {@code uris} is missing, or any element cannot be parsed or normalized
+     */
+    public List<String> validateAndNormalizeUris(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps);
+        String rawUris = loadProps.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(Uris.KEY))
+                .map(Map.Entry::getValue)
+                .findFirst().orElse(null);
+        if (rawUris == null) {
+            throw new UserException("'" + Uris.KEY + "' is required to name several "
+                    + "locations");
+        }
+        List<String> parsed = Uris.parse(rawUris);
+        List<String> normalized = new ArrayList<>(parsed.size());
+        for (String uri : parsed) {
+            normalized.add(validateAndNormalizeUri(uri));
+        }
+        return normalized;
+    }
 
     public abstract String getStorageName();
 

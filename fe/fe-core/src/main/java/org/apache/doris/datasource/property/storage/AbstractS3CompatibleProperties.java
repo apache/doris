@@ -256,8 +256,13 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+    protected String validateAndGetLocation(Map<String, String> loadProps) throws UserException {
         return S3PropertyUtils.validateAndGetUri(loadProps);
+    }
+
+    @Override
+    protected void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps, URI_KEY);
     }
 
     @Override

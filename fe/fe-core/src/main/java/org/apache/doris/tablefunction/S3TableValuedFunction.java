@@ -23,10 +23,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.metadata.LanceMultiSnapshotLoader;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.Uris;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Collections;
 import java.util.List;
@@ -54,15 +59,26 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             throws AnalysisException {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
+        boolean hasUris = props.keySet().stream().anyMatch(key -> key.equalsIgnoreCase(Uris.KEY));
+        List<String> locations = Collections.emptyList();
         try {
             this.storageProperties = StorageProperties.createPrimary(props);
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-            String uri = storageProperties.validateAndGetUri(props);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
-            this.backendConnectProperties.put(URI_KEY, filePath);
+            if (hasUris) {
+                if (!isLanceFormat()) {
+                    throw new AnalysisException(
+                            "'" + Uris.KEY + "' is supported only for the Lance format");
+                }
+                locations = storageProperties.validateAndNormalizeUris(props);
+            } else {
+                String uri = storageProperties.validateAndGetUri(props);
+                filePath = storageProperties.validateAndNormalizeUri(uri);
+                this.backendConnectProperties.put(URI_KEY, filePath);
+            }
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
+
         if (FeConstants.runningUnitTest) {
             // Just check
             // Fixme wait to be done  #50320
@@ -72,21 +88,36 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             }
             return;
         }
-        if (isLanceFormat()) {
+
+        if (!isLanceFormat()) {
+            parseFile(files);
+            return;
+        }
+        List<LancePlannedDataset> datasets;
+        Schema referenceSchema;
+        if (hasUris) {
+            LanceMultiSnapshotLoader.Loaded loaded =
+                    LanceMultiSnapshotLoader.load(locations, storageProperties);
+            datasets = loaded.datasets;
+            referenceSchema = loaded.referenceSchema;
+        } else {
+            LanceTableMetadata metadata;
             try {
-                LanceTableMetadata metadata = LanceMetadataLoader.loadLatestForTvf(
+                metadata = LanceMetadataLoader.loadLatestForTvf(
                         filePath, Collections.singletonList(storageProperties));
-                setLanceTableMetadata(metadata);
             } catch (Exception e) {
                 throw new AnalysisException(
                         "Failed to load Lance metadata from S3 dataset '" + filePath + "': "
                                 + e.getMessage(),
-                        e);
+                                e);
             }
-        } else {
-            parseFile(files);
+            datasets = Collections.singletonList(new LancePlannedDataset(
+                    metadata.getDatasetUri(), metadata.getVersion(), metadata.getFragments()));
+            referenceSchema = metadata.getSchema();
         }
+        setLancePlannedDatasets(datasets, referenceSchema);
     }
+
 
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
