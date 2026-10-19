@@ -17,10 +17,9 @@
 
 package org.apache.doris.maxcompute;
 
-import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.VectorColumn;
-import org.apache.doris.common.jni.vec.VectorTable;
-import org.apache.doris.common.maxcompute.MCProperties;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.vec.VectorColumn;
+import org.apache.doris.jni.spi.vec.VectorTable;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
@@ -51,7 +50,10 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
+import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TimeStampMilliVector;
+import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -59,7 +61,8 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -78,10 +81,12 @@ import java.util.Objects;
 
 /**
  * MaxComputeJniWriter writes C++ Block data to MaxCompute tables via Storage API (Arrow).
- * Loaded by C++ as: org/apache/doris/maxcompute/MaxComputeJniWriter
+ *
+ * <p>BE never names this class. It asks for the {@code (max-compute, writer)} pair and gets back
+ * whatever {@link MaxComputeWriterFactory} builds; the class name is this plugin's business alone.
  */
 public class MaxComputeJniWriter extends JniWriter {
-    private static final Logger LOG = Logger.getLogger(MaxComputeJniWriter.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MaxComputeJniWriter.class);
 
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
@@ -159,7 +164,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         try {
             Odps odps = MCUtils.createMcClient(params);
             odps.setDefaultProject(project);
@@ -191,7 +196,7 @@ public class MaxComputeJniWriter extends JniWriter {
             // set it via reflection to avoid NPE in ArrowWriterImpl
             ArrowOptions arrowOptions = ArrowOptions.newBuilder()
                     .withDatetimeUnit(TimestampUnit.MILLI)
-                    .withTimestampUnit(TimestampUnit.MILLI)
+                    .withTimestampUnit(TimestampUnit.MICRO)
                     .build();
             java.lang.reflect.Field arrowField = writeSession.getClass()
                     .getSuperclass().getDeclaredField("arrowOptions");
@@ -564,8 +569,24 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
-            case DATETIME:
             case TIMESTAMP: {
+                // TIMESTAMPTZ's JNI carrier is UTC and must retain microseconds on write.
+                org.apache.arrow.vector.TimeStampVector vec =
+                        (org.apache.arrow.vector.TimeStampVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (vc.isNullAt(rowOffset + i)) {
+                        vec.setNull(i);
+                    } else {
+                        LocalDateTime utc = vc.getTimeStampTz(rowOffset + i);
+                        vec.setSafe(i, utc.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000L
+                                + utc.getNano() / 1000);
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DATETIME: {
                 TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
@@ -759,8 +780,25 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
-            case DATETIME:
             case TIMESTAMP: {
+                org.apache.arrow.vector.TimeStampVector vec =
+                        (org.apache.arrow.vector.TimeStampVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
+                        vec.setNull(i);
+                    } else {
+                        java.time.Instant instant = value instanceof java.sql.Timestamp
+                                ? ((java.sql.Timestamp) value).toInstant()
+                                : ((LocalDateTime) value).toInstant(java.time.ZoneOffset.UTC);
+                        vec.setSafe(i, instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000);
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DATETIME: {
                 TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
@@ -926,6 +964,12 @@ public class MaxComputeJniWriter extends JniWriter {
             BigDecimal bd = elem instanceof BigDecimal ? (BigDecimal) elem
                     : new BigDecimal(elem.toString());
             ((DecimalVector) vec).setSafe(idx, bd);
+        } else if (vec instanceof TimeStampMicroVector || vec instanceof TimeStampMicroTZVector) {
+            // Nested TIMESTAMPTZ uses the same UTC microsecond carrier as top-level TIMESTAMP writes.
+            java.time.Instant instant = elem instanceof java.sql.Timestamp
+                    ? ((java.sql.Timestamp) elem).toInstant()
+                    : ((LocalDateTime) elem).toInstant(java.time.ZoneOffset.UTC);
+            ((TimeStampVector) vec).setSafe(idx, instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000);
         } else if (vec instanceof StructVector) {
             StructVector structVec = (StructVector) vec;
             structVec.setIndexDefined(idx);
@@ -968,7 +1012,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             closeCurrentBatchWriterAndCollectCommit();
             if (allocator != null) {
@@ -990,7 +1034,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("mc_partition_spec", partitionSpec != null ? partitionSpec : "");
 

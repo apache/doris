@@ -72,6 +72,8 @@ public final class ConnectorColumn {
     // Connectors keep it null in their cached schema so DESCRIBE/SHOW CREATE never expose a remote write
     // default that is only meaningful for a pinned write statement.
     private final String defaultValueSql;
+    // Optional semantic type for textual write input, separate from the exposed binary column type.
+    private final ConnectorType stringWriteType;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -92,14 +94,14 @@ public final class ConnectorColumn {
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
         this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
-                UNSET_UNIQUE_ID, false, false, false, null);
+                UNSET_UNIQUE_ID, false, false, false, null, null);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId,
             boolean reservedPassthrough, boolean nullableSpecified, boolean commentSpecified,
-            String defaultValueSql) {
+            String defaultValueSql, ConnectorType stringWriteType) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -115,6 +117,7 @@ public final class ConnectorColumn {
         this.nullableSpecified = nullableSpecified;
         this.commentSpecified = commentSpecified;
         this.defaultValueSql = defaultValueSql;
+        this.stringWriteType = stringWriteType;
     }
 
     /**
@@ -125,7 +128,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
     }
 
     /**
@@ -135,7 +138,7 @@ public final class ConnectorColumn {
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
     }
 
     /**
@@ -147,7 +150,7 @@ public final class ConnectorColumn {
     public ConnectorColumn reservedPassthrough() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
     }
 
     /**
@@ -158,7 +161,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withSpecified(boolean nullableSpecified, boolean commentSpecified) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
     }
 
     /**
@@ -170,7 +173,7 @@ public final class ConnectorColumn {
     public ConnectorColumn withUniqueId(int uniqueId) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
     }
 
     /**
@@ -179,7 +182,22 @@ public final class ConnectorColumn {
     public ConnectorColumn withDefaultValueSql(String defaultValueSql) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
                 isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
-                nullableSpecified, commentSpecified, defaultValueSql);
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+    }
+
+    /**
+     * Declares the semantic type of text supplied to this write column. UUID text is normalized to
+     * its 16-byte binary representation; already typed binary input retains its bytes. Read schemas
+     * leave this unset. The engine applies the same conversion to rows and static partition values.
+     */
+    public ConnectorColumn withStringWriteType(ConnectorType stringWriteType) {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified, defaultValueSql, stringWriteType);
+    }
+
+    public ConnectorType getStringWriteType() {
+        return stringWriteType;
     }
 
     public String getName() {
@@ -265,13 +283,14 @@ public final class ConnectorColumn {
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
                 && Objects.equals(defaultValue, that.defaultValue)
-                && Objects.equals(defaultValueSql, that.defaultValueSql);
+                && Objects.equals(defaultValueSql, that.defaultValueSql)
+                && Objects.equals(stringWriteType, that.stringWriteType);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
-                withTimeZone, visible, uniqueId, reservedPassthrough, defaultValueSql);
+                withTimeZone, visible, uniqueId, reservedPassthrough, defaultValueSql, stringWriteType);
     }
 
     @Override

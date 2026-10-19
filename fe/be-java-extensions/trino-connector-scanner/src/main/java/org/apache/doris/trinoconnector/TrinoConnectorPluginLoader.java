@@ -17,8 +17,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.common.EnvUtils;
-
 import com.google.common.util.concurrent.MoreExecutors;
 import io.trino.FeaturesConfig;
 import io.trino.metadata.HandleResolver;
@@ -26,24 +24,41 @@ import io.trino.metadata.TypeRegistry;
 import io.trino.server.ServerPluginsProvider;
 import io.trino.server.ServerPluginsProviderConfig;
 import io.trino.spi.type.TypeOperators;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.logging.ConsoleHandler;
-import java.util.logging.FileHandler;
-import java.util.logging.Level;
-import java.util.logging.SimpleFormatter;
 
+/**
+ * Loads the Trino connectors installed under {@code plugins/trino_plugins}, once per process.
+ *
+ * <h2>A second classloader inside this one</h2>
+ *
+ * <p>Each installed connector gets a Trino {@code PluginClassLoader} of its own, so a Trino
+ * connector is isolated from this plugin exactly as this plugin is isolated from BE - and by the
+ * same construction, since BE's plugin loader was modelled on this one. Two consequences are worth
+ * spelling out because they are what makes the nesting work at all:
+ *
+ * <ul>
+ *   <li>Its parent is the platform classloader, not this plugin's loader. An installed connector
+ *       therefore brings its own hadoop, its own filesystems and its own everything; nothing this
+ *       plugin's directory holds is visible to it, and nothing it holds leaks back.
+ *   <li>The exception is the handful of packages Trino calls its SPI - {@code io.trino.spi.} and
+ *       friends - which are delegated to the classloader of this class, so a connector's handle
+ *       classes and this plugin's Trino engine agree on the interfaces between them.
+ * </ul>
+ *
+ * <p>That is why isolating this module needed no filesystem implementations of its own, unlike
+ * every other plugin that reads files: this one never touches a file. It deserializes a split and
+ * hands it to a connector that reads on its own terms.
+ */
 // Noninstancetiable utility class
 public class TrinoConnectorPluginLoader {
-    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TrinoConnectorPluginLoader.class);
 
-    // Overwritten via setPluginsDir() with BE config trino_connector_plugin_dir before the plugins are
-    // loaded (see be/src/format*/**/trino_connector_jni_reader.cpp); this initializer only matters if
-    // that call is ever missed. Mirrors that config's default.
-    private static String pluginsDir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
+    // Set from the scan parameter BE sends before the first scan opens - see
+    // TrinoConnectorScannerFactory. Read exactly once, when the holder below initializes.
+    private static volatile String pluginsDir = "";
 
     // Suppress default constructor for noninstantiability
     private TrinoConnectorPluginLoader() {
@@ -55,33 +70,16 @@ public class TrinoConnectorPluginLoader {
         private static TrinoConnectorPluginManager trinoConnectorPluginManager;
 
         static {
+            String dir = pluginsDir;
             try {
-                // Initialize log4j2 configuration FIRST to ensure all logging works
-                initializeLog4j2Configuration();
-
-                // Allow self-attachment for Java agents,this is required for certain debugging and monitoring functions
+                // Allow self-attachment for Java agents, which is how jol measures object sizes -
+                // Trino uses it to account for the memory a page holds.
                 System.setProperty("jdk.attach.allowAttachSelf", "true");
-                // Get the operating system name
                 String osName = System.getProperty("os.name").toLowerCase();
                 // Skip HotSpot SAAttach for Mac/Darwin systems to avoid potential issues
                 if (osName.contains("mac") || osName.contains("darwin")) {
                     System.setProperty("jol.skipHotspotSAAttach", "true");
                 }
-
-                // Configure JUL for Trino's internal logging (trino itself uses JUL)
-                // This is separate from our log4j2 configuration
-                System.setProperty("java.util.logging.SimpleFormatter.format",
-                        "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
-                java.util.logging.Logger julLogger = java.util.logging.Logger.getLogger("");
-                julLogger.setUseParentHandlers(false);
-                Arrays.stream(julLogger.getHandlers())
-                        .filter(handler -> handler instanceof ConsoleHandler)
-                        .forEach(handler -> handler.setLevel(Level.OFF));
-                FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log",
-                        500000000, 10, true);
-                fileHandler.setLevel(Level.INFO);
-                fileHandler.setFormatter(new SimpleFormatter());
-                julLogger.addHandler(fileHandler);
 
                 LOG.info("TrinoConnectorPluginLoader starting to load plugins...");
 
@@ -90,7 +88,7 @@ public class TrinoConnectorPluginLoader {
                 TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
 
                 ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
-                        .setInstalledPluginsDir(new File(pluginsDir));
+                        .setInstalledPluginsDir(new File(dir));
                 ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
                         MoreExecutors.directExecutor());
                 HandleResolver handleResolver = new HandleResolver();
@@ -98,26 +96,20 @@ public class TrinoConnectorPluginLoader {
                         typeRegistry, handleResolver);
                 trinoConnectorPluginManager.loadPlugins();
 
-                LOG.info("TrinoConnectorPluginLoader successfully loaded plugins from: " + pluginsDir);
+                LOG.info("TrinoConnectorPluginLoader successfully loaded plugins from: {}", dir);
             } catch (Exception e) {
-                LOG.warn("Failed load trino-connector plugins from  " + pluginsDir
+                LOG.warn("Failed load trino-connector plugins from " + dir
                         + ", Exception:" + e.getMessage(), e);
-            }
-        }
-
-        private static void initializeLog4j2Configuration() {
-            // Ensure log4j2 is configured before any logging happens
-            // by forcing ScannerLoader class to load (triggers its static block)
-            try {
-                Class.forName("org.apache.doris.common.classloader.ScannerLoader");
-            } catch (ClassNotFoundException e) {
-                System.err.println("Failed to initialize log4j2: " + e.getMessage());
             }
         }
     }
 
-    // called by c++
-    public static void setPluginsDir(String pluginsDir) {
+    /**
+     * Must be called before the first scan opens; the connectors are loaded once and a later call
+     * has no effect. BE sends the directory on every scan, so this is a repeated write of the same
+     * value in practice.
+     */
+    static void setPluginsDir(String pluginsDir) {
         TrinoConnectorPluginLoader.pluginsDir = pluginsDir;
     }
 

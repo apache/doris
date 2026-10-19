@@ -21,9 +21,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
@@ -34,7 +34,7 @@ public class AlterJobV2RetryTest {
 
     private SchemaChangeJobV2 job;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Config.enable_schema_change_retry = true;
         Config.schema_change_max_retry_time = 3;
@@ -51,38 +51,38 @@ public class AlterJobV2RetryTest {
     @Test
     public void testScCompactionConflictIsRetryable() {
         AgentTask task = makeTask(TStatusCode.SC_COMPACTION_CONFLICT);
-        Assert.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
+        Assertions.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
     }
 
     @Test
     public void testDeleteBitmapLockErrorIsRetryable() {
         AgentTask task = makeTask(TStatusCode.DELETE_BITMAP_LOCK_ERROR);
-        Assert.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
+        Assertions.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
     }
 
     @Test
     public void testNetworkErrorIsRetryable() {
         AgentTask task = makeTask(TStatusCode.NETWORK_ERROR);
-        Assert.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
+        Assertions.assertEquals(Config.schema_change_max_retry_time, job.getRetryTimes(task));
     }
 
     @Test
     public void testInternalErrorIsNotRetryable() {
         AgentTask task = makeTask(TStatusCode.INTERNAL_ERROR);
-        Assert.assertEquals(0, job.getRetryTimes(task));
+        Assertions.assertEquals(0, job.getRetryTimes(task));
     }
 
     @Test
     public void testAnalysisErrorIsNotRetryable() {
         AgentTask task = makeTask(TStatusCode.ANALYSIS_ERROR);
-        Assert.assertEquals(0, job.getRetryTimes(task));
+        Assertions.assertEquals(0, job.getRetryTimes(task));
     }
 
     @Test
     public void testNullErrorCodeIsNotRetryable() {
         AgentTask task = Mockito.mock(AgentTask.class);
         Mockito.when(task.getErrorCode()).thenReturn(null);
-        Assert.assertEquals(0, job.getRetryTimes(task));
+        Assertions.assertEquals(0, job.getRetryTimes(task));
     }
 
     @Test
@@ -90,10 +90,10 @@ public class AlterJobV2RetryTest {
         Config.enable_schema_change_retry = false;
         try {
             AgentTask task = makeTask(TStatusCode.SC_COMPACTION_CONFLICT);
-            Assert.assertEquals(0, job.getRetryTimes(task));
+            Assertions.assertEquals(0, job.getRetryTimes(task));
 
             task = makeTask(TStatusCode.DELETE_BITMAP_LOCK_ERROR);
-            Assert.assertEquals(0, job.getRetryTimes(task));
+            Assertions.assertEquals(0, job.getRetryTimes(task));
         } finally {
             Config.enable_schema_change_retry = true;
         }

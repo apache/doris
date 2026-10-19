@@ -20,8 +20,8 @@ package org.apache.doris.statistics.util;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.statistics.util.InternalSqlTemplate.QueryType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -43,7 +43,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.processTemplate(template, params);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -55,7 +55,7 @@ public class InternalSqlTemplateTest {
         params.put("table", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.processTemplate(template, params));
     }
 
@@ -73,7 +73,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsMinMaxNdvValueSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -91,7 +91,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsMinMaxNdvValueSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -101,7 +101,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsMinMaxNdvValueSql(params, QueryType.FULL));
     }
 
@@ -120,7 +120,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionMinMaxNdvValueSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -139,7 +139,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionMinMaxNdvValueSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -149,7 +149,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsPartitionMinMaxNdvValueSql(params, QueryType.FULL));
     }
 
@@ -165,7 +165,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsRowCountSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -181,7 +181,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsRowCountSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -191,7 +191,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsRowCountSql(params, QueryType.FULL));
     }
 
@@ -208,7 +208,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionRowCountSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -226,7 +226,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionRowCountSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -236,7 +236,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsPartitionRowCountSql(params, QueryType.FULL));
     }
 
@@ -254,7 +254,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsMaxAvgSizeSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -272,7 +272,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsMaxAvgSizeSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -282,7 +282,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsMaxAvgSizeSql(params, QueryType.FULL));
     }
 
@@ -301,7 +301,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionMaxAvgSizeSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -320,7 +320,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionMaxAvgSizeSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -330,7 +330,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsPartitionMaxAvgSizeSql(params, QueryType.FULL));
     }
 
@@ -347,7 +347,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsNumNullsSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -365,7 +365,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsNumNullsSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -375,7 +375,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsNumNullsSql(params, QueryType.FULL));
     }
 
@@ -394,7 +394,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionNumNullsSql(params, QueryType.FULL);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -413,7 +413,7 @@ public class InternalSqlTemplateTest {
         String result = InternalSqlTemplate.buildStatsPartitionNumNullsSql(params, QueryType.SAMPLE);
 
         // Verify the results
-        Assert.assertEquals(expectSQL, result);
+        Assertions.assertEquals(expectSQL, result);
     }
 
     @Test
@@ -423,7 +423,7 @@ public class InternalSqlTemplateTest {
         params.put("xxx", "table0");
 
         // Run the test
-        Assert.assertThrows(InvalidFormatException.class,
+        Assertions.assertThrows(InvalidFormatException.class,
                 () -> InternalSqlTemplate.buildStatsPartitionNumNullsSql(params, QueryType.FULL));
     }
 }

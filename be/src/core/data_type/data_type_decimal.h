@@ -95,9 +95,6 @@ constexpr size_t max_decimal_precision<TYPE_DECIMAL256>() {
     return BeConsts::MAX_DECIMAL256_PRECISION;
 }
 
-// Change precision to default value for DecimalV2. This transformation needs to be removed later.
-DataTypePtr get_data_type_with_default_argument(DataTypePtr type);
-
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
 template <PrimitiveType T>
@@ -147,15 +144,20 @@ class DecimalScaleInfo<TYPE_DECIMALV2> : public DecimalScaleInfoBase<TYPE_DECIMA
 protected:
     DecimalScaleInfo(UInt32 arg_precision, UInt32 arg_scale, UInt32 arg_original_precision,
                      UInt32 arg_original_scale)
-            : DecimalScaleInfoBase<TYPE_DECIMALV2>(arg_precision, arg_scale),
-              original_precision(arg_original_precision),
-              original_scale(arg_original_scale) {
-        if (UINT32_MAX != original_precision) {
-            check_type_precision(original_precision);
+            : DecimalScaleInfoBase<TYPE_DECIMALV2>(BeConsts::MAX_DECIMALV2_PRECISION,
+                                                   BeConsts::MAX_DECIMALV2_SCALE),
+              original_precision(arg_original_precision == UINT32_MAX ? arg_precision
+                                                                      : arg_original_precision),
+              original_scale(arg_original_scale == UINT32_MAX ? arg_scale : arg_original_scale) {
+        // Validate the input before normalizing it: invalid declarations must still fail.
+        check_type_precision(arg_precision);
+        check_type_scale(arg_scale);
+        if (arg_scale > arg_precision) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "scale({}) is greater than precision({})",
+                            arg_scale, arg_precision);
         }
-        if (UINT32_MAX != original_scale) {
-            check_type_scale(original_scale);
-        }
+        check_type_precision(original_precision);
+        check_type_scale(original_scale);
         if (original_scale > original_precision) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "original_scale({}) is greater than original_precision({})",
@@ -167,22 +169,15 @@ protected:
             : DecimalScaleInfoBase<TYPE_DECIMALV2>(rhs.precision, rhs.scale),
               original_precision(rhs.original_precision),
               original_scale(rhs.original_scale) {}
-    // For decimalv2 only, record the original(schema) precision and scale.
-    // UINT32_MAX means original precision and scale are unknown.
-    // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
-    // but when casting decimalv2 to string, it's better to keep the presion and
-    // scale of it's original value in schema.
-    const UInt32 original_precision = UINT32_MAX;
-    const UInt32 original_scale = UINT32_MAX;
+    // DecimalV2(18, 2) executes as Decimal(27, 9), but retains (18, 2) for formatting
+    // and schema metadata. Unspecified original parameters fall back to the input parameters.
+    const UInt32 original_precision;
+    const UInt32 original_scale;
 
 public:
-    [[nodiscard]] UInt32 get_original_precision() const {
-        return UINT32_MAX == original_precision ? precision : original_precision;
-    }
+    [[nodiscard]] UInt32 get_original_precision() const { return original_precision; }
     [[nodiscard]] UInt32 get_original_scale() const { return get_format_scale(); }
-    [[nodiscard]] UInt32 get_format_scale() const {
-        return UINT32_MAX == original_scale ? scale : original_scale;
-    }
+    [[nodiscard]] UInt32 get_format_scale() const { return original_scale; }
 };
 /// Implements Decimal(P, S), where P is precision, S is scale.
 /// Maximum precisions for underlying types are:
@@ -207,15 +202,13 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(
-            UInt32 arg_precision = max_decimal_precision<T>(),
-            UInt32 arg_scale = default_decimal_scale<T>(),
-            // For decimalv2 only, record the original(schema) precision and scale.
-            // UINT32_MAX means original precision and scale are unknown.
-            // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
-            // but when casting decimalv2 to string, it's better to keep the presion and
-            // scale of it's original value in schema.
-            UInt32 arg_original_precision = UINT32_MAX, UInt32 arg_original_scale = UINT32_MAX)
+    DataTypeDecimal(UInt32 arg_precision = max_decimal_precision<T>(),
+                    UInt32 arg_scale = default_decimal_scale<T>(),
+                    // For decimalv2 only, record the original(schema) precision and scale.
+                    // UINT32_MAX falls back to arg_precision/arg_scale. The execution parameters
+                    // are always (27, 9), independently of the original schema parameters.
+                    UInt32 arg_original_precision = UINT32_MAX,
+                    UInt32 arg_original_scale = UINT32_MAX)
             : DecimalScaleInfo<T>(arg_precision, arg_scale, arg_original_precision,
                                   arg_original_scale) {}
 
@@ -308,10 +301,7 @@ public:
     typename FieldType::NativeType get_scale_multiplier() const {
         return get_scale_multiplier(scale);
     }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        scalar_type->set_precision(precision);
-        scalar_type->set_scale(scale);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
     /// @returns multiplier for U to become T with correct scale
     template <PrimitiveType U>

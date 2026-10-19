@@ -18,16 +18,23 @@
 #include "util/debug_util.h"
 
 #include <bvar/bvar.h>
+#include <bvar/multi_dimension.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <list>
 #include <map>
 #include <sstream> // IWYU pragma: keep
+#include <string>
 #include <utility>
 
+#include "common/check.h"
+#include "common/config.h"
 #include "common/version_internal.h"
 #include "fmt/core.h"
 #include "util/uid_util.h"
@@ -109,7 +116,9 @@ std::string hexdump(const char* buf, int len) {
     return ss.str();
 }
 
-bvar::Status<uint64_t> be_version_metrics("doris_be_version", [] {
+namespace {
+
+uint64_t get_be_version_metric_value() {
     std::stringstream ss;
     ss << version::doris_build_version_major() << 0 << version::doris_build_version_minor() << 0
        << version::doris_build_version_patch();
@@ -117,7 +126,33 @@ bvar::Status<uint64_t> be_version_metrics("doris_be_version", [] {
         ss << 0 << version::doris_build_version_hotfix();
     }
     return std::strtoul(ss.str().c_str(), nullptr, 10);
-}());
+}
+
+} // namespace
+
+void init_be_version_metrics() {
+    // MultiDimension metrics are omitted from /brpc_metrics while this brpc flag is 0.
+    DORIS_CHECK(
+            !google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                          config::bvar_max_dump_multi_dimension_metric_num.c_str())
+                     .empty());
+
+    static const bool initialized = [] {
+        static bvar::MultiDimension<bvar::Status<uint64_t>> metrics(
+                "doris_be_version", {"version", "major", "minor", "patch", "hotfix", "short_hash"});
+        auto* metric = metrics.get_stats(
+                std::list<std::string> {version::doris_build_version(),
+                                        std::to_string(version::doris_build_version_major()),
+                                        std::to_string(version::doris_build_version_minor()),
+                                        std::to_string(version::doris_build_version_patch()),
+                                        std::to_string(version::doris_build_version_hotfix()),
+                                        version::doris_build_short_hash()});
+        DORIS_CHECK(metric != nullptr);
+        metric->set_value(get_be_version_metric_value());
+        return true;
+    }();
+    static_cast<void>(initialized);
+}
 
 std::string PrintThriftNetworkAddress(const TNetworkAddress& add) {
     std::stringstream ss;

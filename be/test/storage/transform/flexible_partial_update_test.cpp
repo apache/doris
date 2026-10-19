@@ -1420,14 +1420,11 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsFilledRows) {
         }
     }
 
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
     const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = true;
     config::enable_merge_on_write_correctness_check = false;
     RowsetSharedPtr output;
     const auto flush_status =
             flush_partial_rowset(schema, 3712, 3, tablet, mow, pui, &block, &output);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
     config::enable_merge_on_write_correctness_check = saved_correctness_check;
     ASSERT_TRUE(flush_status.ok()) << flush_status;
     ASSERT_NE(output, nullptr);
@@ -1468,90 +1465,6 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsFilledRows) {
     }
 }
 
-// The chain fills flexible blocks to full width before any writer runs, so the
-// horizontal SegmentWriter accepts them now (the NotSupported rejection is
-// gone). Same scenario and read-back assertions as the vertical test above.
-TEST_F(FlexiblePartialUpdateTest, HorizontalWriterPersistsFilledRows) {
-    auto schema = create_flexible_mow_schema(/*has_seq=*/true);
-    TabletSharedPtr tablet;
-    auto history = write_rowset(schema, 3771, 2, {{1, 11, 5, 0}}, &tablet);
-    auto mow = make_mow_context(100, {history});
-    auto pui = make_flexible_pui(schema);
-
-    const auto value_uid = static_cast<uint64_t>(schema->column(1).unique_id());
-    const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_storage_block();
-    {
-        auto guard = block.mutate_columns_scoped();
-        auto& columns = guard.mutable_columns();
-        const std::vector<std::tuple<int32_t, int32_t, int32_t, bool>> rows {{1, 999, 10, true},
-                                                                             {99, 909, 7, false}};
-        for (const auto& [key, value, sequence, skip_value] : rows) {
-            const int8_t delete_sign = 0;
-            columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
-            columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
-            columns[2]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
-            columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign),
-                                    sizeof(delete_sign));
-            BitmapValue skip;
-            if (skip_value) {
-                skip.add(value_uid);
-            }
-            skip.add(delete_sign_uid);
-            assert_cast<ColumnBitmap*>(columns[4].get())->insert_value(std::move(skip));
-        }
-    }
-
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
-    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = false;
-    config::enable_merge_on_write_correctness_check = false;
-    RowsetSharedPtr output;
-    const auto flush_status =
-            flush_partial_rowset(schema, 3772, 3, tablet, mow, pui, &block, &output);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
-    config::enable_merge_on_write_correctness_check = saved_correctness_check;
-    ASSERT_TRUE(flush_status.ok()) << flush_status;
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->rowset_meta()->num_rows(), 2);
-
-    Block persisted;
-    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
-    ASSERT_EQ(persisted.rows(), 2);
-    ASSERT_EQ(persisted.columns(), schema->num_columns());
-    EXPECT_EQ(read_int(persisted, 0, 0), 1);
-    EXPECT_EQ(read_int(persisted, 1, 0), 11); // skipped value restored from history
-    EXPECT_EQ(read_int(persisted, 2, 0), 10);
-    EXPECT_EQ(read_tinyint(persisted, 3, 0), 0);
-    EXPECT_EQ(read_int(persisted, 0, 1), 99);
-    EXPECT_EQ(read_int(persisted, 1, 1), 909); // provided value kept
-    EXPECT_EQ(read_int(persisted, 2, 1), 7);
-    EXPECT_EQ(read_tinyint(persisted, 3, 1), 0);
-
-    const auto& persisted_skip_bitmaps =
-            assert_cast<const ColumnBitmap&>(*persisted.get_by_position(4).column).get_data();
-    ASSERT_EQ(persisted_skip_bitmaps.size(), 2);
-    EXPECT_TRUE(persisted_skip_bitmaps[0].contains(value_uid));
-    EXPECT_TRUE(persisted_skip_bitmaps[0].contains(delete_sign_uid));
-    EXPECT_FALSE(persisted_skip_bitmaps[1].contains(value_uid));
-    EXPECT_TRUE(persisted_skip_bitmaps[1].contains(delete_sign_uid));
-
-    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(output);
-    ASSERT_NE(beta_rowset, nullptr);
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
-    ASSERT_EQ(segments.size(), 1);
-    RowKeyEncoder encoder(*schema, true);
-    for (const auto& [row_id, key, sequence] :
-         std::vector<std::tuple<uint32_t, int32_t, int32_t>> {{0, 1, 10}, {1, 99, 7}}) {
-        std::string persisted_key;
-        ASSERT_TRUE(segments[0]->read_key_by_rowid(row_id, &persisted_key).ok());
-        EXPECT_EQ(persisted_key, encode_key_with_seq(schema, encoder, key, sequence));
-    }
-}
-
-// Multiple memtable flushes use independent segment writers. Read all segments back together and
-// then use that rowset as history for another partial update.
 TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
     auto schema = create_flexible_mow_schema(/*has_seq=*/true);
     TabletSharedPtr tablet;
@@ -1588,16 +1501,13 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
     Block second_segment = make_block({{2, 22, 7}});
     Block third_segment = make_block({{3, 33, 8}});
 
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
     const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = true;
     config::enable_merge_on_write_correctness_check = false;
     RowsetSharedPtr output;
     int64_t writer_num_rows = 0;
     const auto flush_status = flush_partial_rowset_segments(
             schema, 3742, 3, tablet, mow, pui, {&first_segment, &second_segment, &third_segment},
             &output, nullptr, &writer_num_rows);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
     config::enable_merge_on_write_correctness_check = saved_correctness_check;
     ASSERT_TRUE(flush_status.ok()) << flush_status;
     ASSERT_NE(output, nullptr);

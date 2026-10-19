@@ -450,7 +450,8 @@ public class CloudRestoreJob extends RestoreJob {
                                             : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD,
+                                indexMeta.isRowBinlogIndex());
                         Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
                                 restoreTablet.getReplicaByBackendId(-1));

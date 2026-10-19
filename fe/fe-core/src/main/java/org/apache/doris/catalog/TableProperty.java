@@ -599,6 +599,9 @@ public class TableProperty implements GsonPostProcessable {
 
     public TableProperty buildBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
+        if (properties.containsKey(BinlogConfig.CONFIG_VERSION)) {
+            binlogConfig.setConfigVersion(Long.parseLong(properties.get(BinlogConfig.CONFIG_VERSION)));
+        }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
             binlogConfig.setEnable(Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)));
         }
@@ -613,7 +616,7 @@ public class TableProperty implements GsonPostProcessable {
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.fromString(
                     properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
@@ -633,6 +636,7 @@ public class TableProperty implements GsonPostProcessable {
 
     public void setBinlogConfig(BinlogConfig newBinlogConfig) {
         Map<String, String> binlogProperties = Maps.newHashMap();
+        binlogProperties.put(BinlogConfig.CONFIG_VERSION, String.valueOf(newBinlogConfig.getConfigVersion()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.getEnable()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
                 String.valueOf(newBinlogConfig.getTtlSeconds()));

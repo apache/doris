@@ -58,6 +58,9 @@ void dispatch(F&& f, const Field& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         f(field.template get<TYPE_DATETIMEV2>());
         return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        f(field.template get<TYPE_TIMESTAMP_NS>());
+        return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         f(field.template get<TYPE_TIMESTAMPTZ>());
         return;
@@ -87,6 +90,9 @@ void dispatch(F&& f, const Field& field) {
         return;
     case PrimitiveType::TYPE_IPV6:
         f(field.template get<TYPE_IPV6>());
+        return;
+    case PrimitiveType::TYPE_UUID:
+        f(field.template get<TYPE_UUID>());
         return;
     case PrimitiveType::TYPE_TIMEV2:
         f(field.template get<TYPE_TIMEV2>());
@@ -179,6 +185,9 @@ public:
     void operator()(const Null& x, JsonbWriter* writer) const { writer->writeNull(); }
     void operator()(const DateV2Value<DateTimeV2ValueType>& x, JsonbWriter* writer) const {
         writer->writeInt64(*(UInt64*)&x);
+    }
+    void operator()(const TimeStampNsValue& x, JsonbWriter* writer) const {
+        writer->writeInt64(x.epoch_nanos());
     }
     void operator()(const TimestampTzValue& x, JsonbWriter* writer) const {
         writer->writeInt64(*(UInt64*)&x);

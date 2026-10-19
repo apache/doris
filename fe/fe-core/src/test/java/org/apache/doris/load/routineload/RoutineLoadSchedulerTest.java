@@ -36,8 +36,8 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -104,10 +104,10 @@ public class RoutineLoadSchedulerTest {
             for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
                 KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
                 if (kafkaTaskInfo.getPartitions().size() == 2) {
-                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
-                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
+                    Assertions.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
+                    Assertions.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
                 } else {
-                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
+                    Assertions.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
                 }
             }
         }

@@ -21,8 +21,8 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
@@ -37,12 +37,12 @@ public class ExportJobTest {
 
         Map<String, String> outfileProperties =
                 Deencapsulation.invoke(exportJob, "convertOutfileProperties");
-        Assert.assertFalse(outfileProperties.containsKey(
+        Assertions.assertFalse(outfileProperties.containsKey(
                 ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS));
 
         exportJob.setEnableInt96Timestamps("false");
         outfileProperties = Deencapsulation.invoke(exportJob, "convertOutfileProperties");
-        Assert.assertEquals("false", outfileProperties.get(
+        Assertions.assertEquals("false", outfileProperties.get(
                 ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS));
     }
 }

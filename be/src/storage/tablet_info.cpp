@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -529,16 +530,16 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 auto& expr_type = _partition_function[it->second]->data_type();
                 _partition_block.insert({expr_type->create_column(), expr_type, slot->col_name()});
             } else {
-                _partition_block.insert({slot->get_empty_mutable_column(),
-                                         slot->get_data_type_ptr(), slot->col_name()});
+                _partition_block.insert(
+                        {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
             }
         }
         VLOG_TRACE << _partition_block.dump_structure();
     } else {
         // we insert all. but not all will be used. it will controlled by _partition_slot_locs
         for (auto* slot : _slots) {
-            _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                                     slot->col_name()});
+            _partition_block.insert(
+                    {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
         }
     }
 }
@@ -646,6 +647,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (primitive_type == TYPE_TIMESTAMP_NS) {
+            TimeStampNsValue dt;
+            RETURN_IF_ERROR(parse_timestamp_ns(
+                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()}, &dt));
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;

@@ -74,6 +74,9 @@ public class HiveConnectorMetadataPartitionPruningTest {
         Assertions.assertEquals(
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"),
                 prunedLocations(result));
+        HiveTableHandle prunedHandle = (HiveTableHandle) result.get().getHandle();
+        Assertions.assertNotNull(prunedHandle.getPruningBatchStats());
+        Assertions.assertEquals(2, prunedHandle.getPruningBatchStats().getRequestedItems());
     }
 
     @Test

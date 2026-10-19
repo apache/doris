@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -48,13 +49,20 @@ import java.util.Optional;
 public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
 
     public static ImmutableSet<String> SUPPOPRT_FRONTEND_CONJUNCTS_TABLES =
-            ImmutableSet.of("view_dependency", "sql_block_rule_status");
+            ImmutableSet.of("view_dependency", "sql_block_rule_status", "table_stream_consumption");
 
     @Override
     public Rule build() {
         return logicalFilter(logicalSchemaScan()).when(p -> !p.child().isFilterPushed()).thenApply(ctx -> {
             LogicalFilter<LogicalSchemaScan> filter = ctx.root;
             LogicalSchemaScan scan = filter.child();
+            if (filter.getConjuncts().stream()
+                    .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))) {
+                // A pushed sibling could prune every row and skip required evaluation such as assert_true.
+                LogicalSchemaScan rewrittenScan = scan.withFrontendConjuncts(
+                        Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of());
+                return filter.withChildren(ImmutableList.of(rewrittenScan));
+            }
             List<Optional<String>> fixedFilter = getFixedFilter(filter);
             List<Expression> commonFilter = getCommonFilter(filter);
             LogicalSchemaScan rewrittenScan = scan.withFrontendConjuncts(fixedFilter.get(0), fixedFilter.get(1),

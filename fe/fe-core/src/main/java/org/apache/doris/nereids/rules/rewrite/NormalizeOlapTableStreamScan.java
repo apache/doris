@@ -27,6 +27,7 @@ import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -169,6 +171,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                                                OlapTable baseTable, Map<Long, Pair<Long, Long>> offsetMap,
                                                BaseTableStream.StreamScanType streamScanType, List<Slot> originSlots,
                                                List<Slot> notVirtualSlots, boolean isIncremental) {
+        offsetMap = applyRowBinlogTtl(cascadesContext, baseTable, offsetMap, streamScanType);
         // remap scan from binlog
         Map<Long, Long> visibleVersions = scan.getTable().hasCloudReadStates()
                 ? scan.getTable().getCloudVisibleVersions(selectedPartitionIds)
@@ -228,6 +231,21 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         return new LogicalProject<>(project, plan);
     }
 
+    private Map<Long, Pair<Long, Long>> applyRowBinlogTtl(CascadesContext cascadesContext, OlapTable table,
+            Map<Long, Pair<Long, Long>> offsetMap, BaseTableStream.StreamScanType scanType) {
+        if (!table.hasRowBinlogTtl()) {
+            return offsetMap;
+        }
+        long cutoffTso = TSOTimestamp.calculateCutoff(
+                cascadesContext.getStatementContext().getRowBinlogReferenceTso(),
+                table.getBinlogConfig().getTtlSeconds());
+        return offsetMap.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> {
+            Pair<Long, Long> range = entry.getValue();
+            return Pair.of(BinlogUtils.effectiveStartTso(range.first, cutoffTso,
+                    range.first != null && scanType == BaseTableStream.StreamScanType.MIN_DELTA), range.second);
+        }));
+    }
+
     /**
      * Reset mode: the stream is (re)initialized to a full snapshot of the base table, so we simply
      * do a full olap scan over the base table (with full schema) and project back to the origin
@@ -261,6 +279,21 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         OlapTableStreamWrapper streamWrapper = scan.getTable();
         OlapTable baseTable = streamWrapper.getBaseTable();
         List<Slot> originSlots = scan.getOutput();
+        // What this read is about to answer with is recorded here, where the plan is final and the read states
+        // are in place, and before the read is built: the refresh that reads it back may not record a
+        // partition it replaced from an answer that is not the table as it is now as caught up -- what it
+        // wrote is that answer, and the delta that follows is what brings the table up to date for it. See
+        // MTMVTask#executePartitionBasedRefresh.
+        //
+        // Asked with the partitions the scan selected, before the filter below drops the ones with no
+        // consumption baseline. Those are partitions this read leaves out although they may hold rows by now,
+        // and what the question is about is what the answer is missing -- so the filtering has to be the
+        // wrapper's own, which sees what it dropped. Handed the filtered list, it would be asked about a read
+        // that left nothing out.
+        if (!streamWrapper.answersWithTheCurrentTable(selectedPartitionIds)) {
+            cascadesContext.getStatementContext().getIvmRewriteContext()
+                    .ifPresent(IvmRewriteContext::markReadFromAStreamOffset);
+        }
         selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
         if (baseTable.getKeysType().equals(KeysType.DUP_KEYS)) {
             // dup key table can just rebuild from base table

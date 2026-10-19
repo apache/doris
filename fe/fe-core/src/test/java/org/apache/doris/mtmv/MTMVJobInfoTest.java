@@ -20,8 +20,8 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.Config;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class MTMVJobInfoTest {
 
@@ -31,15 +31,15 @@ public class MTMVJobInfoTest {
         Config.max_persistence_task_count = 0;
         MTMVJobInfo jobInfo = new MTMVJobInfo("dummyJob");
         jobInfo.addHistoryTask(new MTMVTask());
-        Assert.assertEquals(0, jobInfo.getHistoryTasks().size());
+        Assertions.assertEquals(0, jobInfo.getHistoryTasks().size());
         Config.max_persistence_task_count = 2;
         for (int i = 0; i < 3; i++) {
             jobInfo.addHistoryTask(new MTMVTask());
         }
-        Assert.assertEquals(2, jobInfo.getHistoryTasks().size());
+        Assertions.assertEquals(2, jobInfo.getHistoryTasks().size());
         Config.max_persistence_task_count = 1;
         jobInfo.addHistoryTask(new MTMVTask());
-        Assert.assertEquals(1, jobInfo.getHistoryTasks().size());
+        Assertions.assertEquals(1, jobInfo.getHistoryTasks().size());
         Config.max_persistence_task_count = originalCount;
     }
 }

@@ -335,6 +335,48 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
+void LRUCache::update_charge(Cache::Handle* handle, size_t charge) {
+    auto* e = reinterpret_cast<LRUHandle*>(handle);
+    LRUHandle* to_remove_head = nullptr;
+    {
+        std::lock_guard l(_mutex);
+        // Erase/replacement may have removed this entry while its handle was held.
+        if (!e->in_cache || charge <= e->charge) {
+            return;
+        }
+        DCHECK_GT(e->refs, 1);
+        size_t delta = charge - e->charge;
+        e->charge = charge;
+        e->total_size += delta;
+        _usage += delta;
+        if (e->total_size > _capacity) {
+            // This entry cannot fit even after evicting every other entry. Drop
+            // cache ownership now, while outstanding handles keep it alive.
+            bool removed = _table.remove(e);
+            DCHECK(removed);
+            e->in_cache = false;
+            _unref(e);
+            _usage -= e->total_size;
+        }
+        // Growing an existing entry does not need another element slot. The
+        // insertion eviction helpers also check count >= limit, so only call
+        // them when the updated usage exceeds the byte capacity.
+        if (_usage > _capacity) {
+            if (_cache_value_check_timestamp) {
+                _evict_from_lru_with_time(0, &to_remove_head);
+            } else {
+                _evict_from_lru(0, &to_remove_head);
+            }
+        }
+    }
+    // Cache values can release other caches; never destroy them under the shard lock.
+    while (to_remove_head != nullptr) {
+        LRUHandle* next = to_remove_head->next;
+        to_remove_head->free();
+        to_remove_head = next;
+    }
+}
+
 void LRUCache::release(Cache::Handle* handle) {
     if (handle == nullptr) {
         return;
@@ -767,6 +809,11 @@ Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
 void ShardedLRUCache::release(Handle* handle) {
     auto* h = reinterpret_cast<LRUHandle*>(handle);
     _shards[_shard(h->hash)]->release(handle);
+}
+
+void ShardedLRUCache::update_charge(Handle* handle, size_t charge) {
+    auto* h = reinterpret_cast<LRUHandle*>(handle);
+    _shards[_shard(h->hash)]->update_charge(handle, charge);
 }
 
 void ShardedLRUCache::erase(const CacheKey& key) {

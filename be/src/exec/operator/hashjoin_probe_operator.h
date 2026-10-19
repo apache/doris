@@ -73,7 +73,7 @@ private:
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct ProcessHashTableProbe;
 
     // one probe row may match multiple build rows. and we need output whenever we filled a block.
@@ -172,8 +172,6 @@ public:
                _followed_by_shuffled_operator;
     }
 
-    bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
-
     bool can_do_lazy_materialized() const { return _have_other_join_conjunct || _is_mark_join; }
 
     bool is_lazy_materialized_column(int column_id) const {
@@ -186,7 +184,7 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct ProcessHashTableProbe;
 
     const TJoinDistributionType::type _join_distribution;
@@ -211,7 +209,6 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
-    bool _need_finalize_variant_column = false;
     std::set<int> _should_not_lazy_materialized_column_ids;
     std::vector<std::string> _right_table_column_names;
     std::vector<TExpr> _partition_exprs;

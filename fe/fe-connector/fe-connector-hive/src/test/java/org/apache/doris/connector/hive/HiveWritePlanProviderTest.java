@@ -134,6 +134,30 @@ public class HiveWritePlanProviderTest {
     // ───────────────────────────── columns ─────────────────────────────
 
     @Test
+    public void parquetTimezoneDistinguishesExplicitWallClockFromOldCoordinator() {
+        // null leaves the property out of the catalog entirely.
+        for (String zone : Arrays.asList(null, "", "8:00", "UTC", "Asia/Shanghai", "+05:45")) {
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = tableBuilder().inputFormat(PARQUET_INPUT_FORMAT).build();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            Map<String, String> properties = new HashMap<>(HiveTestProperties.minimal().getRaw());
+            if (zone != null) {
+                properties.put("hive.parquet.time-zone", zone);
+            }
+            HiveWritePlanProvider provider = new HiveWritePlanProvider(client, HiveCatalogProperties.of(properties), ctx);
+            THiveTableSink sink = provider.planWrite(sessionFor(client, ctx,
+                    Collections.singletonMap("time_zone", "America/Los_Angeles")), handle())
+                    .getDataSink().getHiveTableSink();
+            // An absent property means wall clock exactly like an explicit "": the field must still be set, or
+            // a backend falls back to the session time zone that an older coordinator implied.
+            Assertions.assertTrue(sink.isSetHiveParquetTimeZone(), String.valueOf(zone));
+            String expected = zone == null ? "" : zone.equals("8:00") ? "+08:00" : zone;
+            Assertions.assertEquals(expected, sink.getHiveParquetTimeZone(), String.valueOf(zone));
+            Assertions.assertTrue(sink.isSupportsDeferredAzureMultipart());
+        }
+    }
+
+    @Test
     public void writeBindingPinsColumnsAndIdentityFromOneFreshGeneration() {
         RecordingHmsClient client = new RecordingHmsClient();
         HmsTableInfo boundTable = tableBuilder()
@@ -369,6 +393,10 @@ public class HiveWritePlanProviderTest {
                         Collections.emptyMap()));
         Assertions.assertEquals(TFileCompressType.SNAPPYBLOCK,
                 compressionFor(PARQUET_INPUT_FORMAT, Collections.singletonMap("parquet.compression", "snappy"),
+                        Collections.emptyMap()));
+        // GZIP is a valid parquet.compression value; BE maps GZ to the parquet GZIP codec.
+        Assertions.assertEquals(TFileCompressType.GZ,
+                compressionFor(PARQUET_INPUT_FORMAT, Collections.singletonMap("parquet.compression", "gzip"),
                         Collections.emptyMap()));
         Assertions.assertEquals(TFileCompressType.GZ,
                 compressionFor(TEXT_INPUT_FORMAT, Collections.singletonMap("text.compression", "gzip"),

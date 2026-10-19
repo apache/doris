@@ -29,6 +29,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -136,5 +137,7 @@ public class ExternalRowLevelMergePlanBuilderTest {
 
         Assertions.assertEquals(uuidType, projections.get(0).child(0).getDataType(),
                 "MERGE branch selection must be analyzable even when an expression starts with a wider type");
+        Assertions.assertInstanceOf(ShortCircuitIf.class, projections.get(0).child(0),
+                "Iceberg MERGE must evaluate only the selected branch regardless of the session setting");
     }
 }

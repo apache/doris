@@ -37,7 +37,8 @@ suite('test_sc_compaction_cross_v1_stale_base_refresh', 'docker') {
     options.beConfigs += ["enable_java_support=false"]
     options.beConfigs += ["enable_new_tablet_do_compaction=true"]
     options.beConfigs += ["alter_tablet_worker_count=1"]
-    options.beConfigs += ["cumulative_compaction_min_deltas=2"]
+    // Keep [5-10] eligible while the latest ten versions remain unmerged on a NOTREADY tablet.
+    options.beConfigs += ["cumulative_compaction_min_deltas=6"]
     options.beNum = 1
     options.feConfigs += ["http_port=8030"]
     options.feConfigs += ["rpc_port=9020"]
@@ -100,7 +101,12 @@ suite('test_sc_compaction_cross_v1_stale_base_refresh', 'docker') {
                 sleep(10000)
                 assertEquals("RUNNING", getJobState())
 
-                for (int i = 0; i < 6; i++) {
+                def allTablets = sql_return_maparray("SHOW TABLETS FROM sc_cross_v1_stale_base_refresh_test")
+                def newTablets = allTablets.findAll { it.TabletId.toString() != baseTabletId }
+                assertEquals(1, newTablets.size())
+                def newTablet = newTablets[0]
+
+                for (int i = 0; i < 16; i++) {
                     StringBuilder sb = new StringBuilder()
                     sb.append("INSERT INTO sc_cross_v1_stale_base_refresh_test VALUES ")
                     for (int j = 0; j < 10; j++) {
@@ -113,7 +119,23 @@ suite('test_sc_compaction_cross_v1_stale_base_refresh', 'docker') {
                     sql sb.toString()
                 }
 
-                sleep(30000)
+                // The override only exercises the intended retry path when the new tablet
+                // already has a compacted rowset crossing the forced V1=6 boundary.
+                awaitUntil(90, 1) {
+                    def (code, out, err) = curl("GET", newTablet.CompactionStatus)
+                    if (code != 0) {
+                        return false
+                    }
+                    def status = parseJson(out.trim())
+                    if (!(status.rowsets instanceof List)) {
+                        return false
+                    }
+                    return status.rowsets.any { rowset ->
+                        def match = (rowset =~ /\[(\d+)-(\d+)\]/)
+                        match && (match[0][1] as int) > 1
+                                && (match[0][1] as int) <= 6 && (match[0][2] as int) > 6
+                    }
+                }
                 GetDebugPoint().enableDebugPointForAllBEs(overrideDP, [version: 6])
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs(scBlock)
@@ -140,7 +162,7 @@ suite('test_sc_compaction_cross_v1_stale_base_refresh', 'docker') {
             logger.info("SC final state after stale base refresh retry: ${finalState}")
             assertEquals("FINISHED", finalState)
 
-            assertEquals(120L,
+            assertEquals(220L,
                     (sql "SELECT count(*) FROM sc_cross_v1_stale_base_refresh_test")[0][0])
 
             def columns = sql "DESC sc_cross_v1_stale_base_refresh_test"

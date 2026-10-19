@@ -41,6 +41,9 @@ enum TypeID {
     DATE,
     TIME,
     TIMESTAMP,
+    TIMESTAMPTZ,
+    TIMESTAMP_NS,
+    TIMESTAMPTZ_NS,
     STRING,
     UUID,
     FIXED,
@@ -313,26 +316,29 @@ public:
     std::string to_string() const override { return "string"; }
 };
 
+// Keep unit and timezone semantics in the type identity so dispatch cannot silently lose them.
 class TimestampType : public PrimitiveType {
 public:
-    ~TimestampType() override = default;
-
-    TimestampType(bool adjust_to_utc) : _adjust_to_utc(adjust_to_utc) {}
-
     TypeID type_id() const override { return TypeID::TIMESTAMP; }
+    std::string to_string() const override { return "timestamp"; }
+};
 
-    bool should_adjust_to_utc() const { return _adjust_to_utc; }
+class TimestampTzType : public PrimitiveType {
+public:
+    TypeID type_id() const override { return TypeID::TIMESTAMPTZ; }
+    std::string to_string() const override { return "timestamptz"; }
+};
 
-    std::string to_string() const override {
-        if (should_adjust_to_utc()) {
-            return "timestamptz";
-        } else {
-            return "timestamp";
-        }
-    }
+class TimestampNsType : public PrimitiveType {
+public:
+    TypeID type_id() const override { return TypeID::TIMESTAMP_NS; }
+    std::string to_string() const override { return "timestamp_ns"; }
+};
 
-private:
-    bool _adjust_to_utc;
+class TimestampTzNsType : public PrimitiveType {
+public:
+    TypeID type_id() const override { return TypeID::TIMESTAMPTZ_NS; }
+    std::string to_string() const override { return "timestamptz_ns"; }
 };
 
 class TimeType : public PrimitiveType {

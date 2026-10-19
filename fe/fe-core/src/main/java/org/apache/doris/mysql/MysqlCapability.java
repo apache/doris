@@ -72,12 +72,20 @@ public class MysqlCapability {
 
     private static final EnumSet<Flag> FLAG_SET = EnumSet.allOf(Flag.class);
 
+    // What the server advertises in the handshake, and its side of the negotiation: a connection
+    // gets the intersection of this set with what the client asks for. The multi-statement flags
+    // are advertised as MySQL does because Connector/J 8 and 9 mask the flags they ask for with the
+    // advertised ones: without them a driver with allowMultiQueries=true never asks for
+    // CLIENT_MULTI_STATEMENTS, and gets only the last statement's response of a multi-statement
+    // request (see MysqlProtocolAdapter.finishStatement).
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
             | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_CONNECT_ATTRS.getFlagBit()
             | Flag.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA.getFlagBit()
             | Flag.CLIENT_LOCAL_FILES.getFlagBit() | Flag.CLIENT_LONG_FLAG.getFlagBit()
-            | Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+            | Flag.CLIENT_DEPRECATE_EOF.getFlagBit()
+            | Flag.CLIENT_MULTI_STATEMENTS.getFlagBit() | Flag.CLIENT_MULTI_RESULTS.getFlagBit()
+            | Flag.CLIENT_PS_MULTI_RESULTS.getFlagBit();
 
     private static final int SSL_FLAGS = DEFAULT_FLAGS | Flag.CLIENT_SSL.getFlagBit();
 

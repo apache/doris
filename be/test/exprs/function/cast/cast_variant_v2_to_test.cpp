@@ -95,6 +95,43 @@ TEST(CastVariantV2ToTest, UnsupportedSourceReturnsAnError) {
     EXPECT_EQ(cast.column.get(), cast.initial_result.get());
 }
 
+TEST(CastVariantV2ToTest, InvalidUtf8StringSourceReturnsAnError) {
+    const std::array<DataTypePtr, 3> source_types {
+            std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(16, TYPE_CHAR),
+            std::make_shared<DataTypeString>(64, TYPE_VARCHAR)};
+    for (const DataTypePtr& source_type : source_types) {
+        auto source = ColumnString::create();
+        source->insert_data("ok", 2);
+        source->insert_data("\xFF", 1);
+        CastResult cast = execute_to_variant(source->get_ptr(), source_type);
+        EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>())
+                << source_type->get_name() << ": " << cast.status;
+
+        // A row that the cast turns into NULL never becomes a Variant string.
+        const std::array<NullMap::value_type, 2> null_map {0, 1};
+        CastResult null_row = execute_to_variant(source->get_ptr(), source_type, null_map.data());
+        EXPECT_TRUE(null_row.status.ok()) << source_type->get_name() << ": " << null_row.status;
+    }
+}
+
+TEST(CastVariantV2ToTest, InvalidDateSourceReturnsAnError) {
+    // The same check covers every scalar Variant cannot hold, not only strings.
+    auto source = ColumnDateV2::create();
+    DateV2Value<DateV2ValueType> valid;
+    valid.unchecked_set_time(2024, 1, 2, 0, 0, 0);
+    DateV2Value<DateV2ValueType> invalid;
+    ASSERT_FALSE(invalid.is_valid_date());
+    source->insert_value(valid);
+    source->insert_value(invalid);
+    const auto source_type = std::make_shared<DataTypeDateV2>();
+    CastResult cast = execute_to_variant(source->get_ptr(), source_type);
+    EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>()) << cast.status;
+
+    const std::array<NullMap::value_type, 2> null_map {0, 1};
+    CastResult null_row = execute_to_variant(source->get_ptr(), source_type, null_map.data());
+    EXPECT_TRUE(null_row.status.ok()) << null_row.status;
+}
+
 TEST(CastVariantV2ToTest, Decimal256ReturnsAnErrorInsteadOfStringifying) {
     auto type = std::make_shared<DataTypeDecimal256>(76, 2);
     auto source = ColumnDecimal256::create(0, 2);
@@ -174,12 +211,16 @@ TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
         source->insert_data(R"({"a":1})", 7);
         CastResult cast = execute_to_variant(source->get_ptr(), source_type);
         ASSERT_TRUE(cast.status.ok()) << source_type->get_name() << ": " << cast.status;
-        auto encoded = IColumn::mutate(cast.column);
-        auto& variant = assert_cast<ColumnVariantV2&>(*encoded);
-        variant.ensure_encoded();
-        ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
+        const auto& variant = assert_cast<const ColumnVariantV2&>(*cast.column);
+        ASSERT_TRUE(variant.is_typed()) << source_type->get_name();
+        EXPECT_EQ(variant.typed_type()->get_primitive_type(), source_type->get_primitive_type())
                 << source_type->get_name();
-        EXPECT_EQ(variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
+        auto encoded = IColumn::mutate(cast.column);
+        auto& encoded_variant = assert_cast<ColumnVariantV2&>(*encoded);
+        encoded_variant.ensure_encoded();
+        ASSERT_EQ(encoded_variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
+                << source_type->get_name();
+        EXPECT_EQ(encoded_variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
                 << source_type->get_name();
     }
 }
@@ -317,7 +358,7 @@ TEST(CastVariantV2ToTest, UnsupportedMapAndConstInputLeaveResultUntouched) {
     value->insert_value(1);
     ColumnPtr constant = ColumnConst::create(std::move(value), 3);
     CastResult const_result = execute_to_variant(constant, std::make_shared<DataTypeInt32>());
-    EXPECT_TRUE(const_result.status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(const_result.status.is<ErrorCode::INTERNAL_ERROR>());
     EXPECT_EQ(const_result.column.get(), const_result.initial_result.get());
 }
 

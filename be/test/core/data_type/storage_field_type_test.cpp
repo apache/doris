@@ -72,6 +72,7 @@ constexpr std::array supported_mappings {
         TypePair {PrimitiveType::TYPE_UINT32, FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT},
         TypePair {PrimitiveType::TYPE_UINT64, FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT},
         TypePair {PrimitiveType::TYPE_TIMESTAMPTZ, FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ},
+        TypePair {PrimitiveType::TYPE_TIMESTAMP_NS, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS},
 };
 
 TEST(StorageFieldTypeTest, SupportedMappingsRoundTrip) {
@@ -90,7 +91,6 @@ TEST(StorageFieldTypeTest, UnsupportedPrimitiveTypesThrow) {
             static_cast<PrimitiveType>(33), // TYPE_LAMBDA_FUNCTION (deprecated)
             PrimitiveType::TYPE_FIXED_LENGTH_OBJECT,
             PrimitiveType::TYPE_VARBINARY,
-            static_cast<PrimitiveType>(43),
             static_cast<PrimitiveType>(255),
     };
 
@@ -107,7 +107,6 @@ TEST(StorageFieldTypeTest, UnsupportedOrInvalidFieldTypesThrow) {
             FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE,
             static_cast<FieldType>(-1),
             static_cast<FieldType>(0),
-            static_cast<FieldType>(41),
             static_cast<FieldType>(255),
     };
 
@@ -159,6 +158,7 @@ TEST(StorageFieldTypeTest, PersistedFieldTypeValuesStayStable) {
             FieldType::OLAP_FIELD_TYPE_IPV4,
             FieldType::OLAP_FIELD_TYPE_IPV6,
             FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ,
+            FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
     };
 
     for (size_t i = 0; i < persisted_types.size(); ++i) {

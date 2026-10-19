@@ -48,8 +48,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/thread_context.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -57,7 +57,7 @@
 #include "storage/rowset/segcompaction.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
@@ -339,7 +339,13 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 RowBinlogRowsetWriter::RowBinlogRowsetWriter(StorageEngine& engine) : BetaRowsetWriter(engine) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
+    // Finish callbacks before removing files they can still read on cancellation.
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
     if (!_already_built && _rowset_meta->is_local()) {
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::~BaseBetaRowsetWriter:before_file_cleanup",
+                                 this);
         // abnormal exit, remove all files generated
         auto& fs = io::global_local_filesystem();
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -352,17 +358,24 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
-    if (_calc_delete_bitmap_token) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
+    // Bitmap callbacks capture this and can call virtual methods using derived state.
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
     /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
+}
+
+void BaseBetaRowsetWriter::cancel_calc_delete_bitmap(const Status& st) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel(st);
+    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -457,6 +470,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:before_build_tmp",
+                                 this);
         RowsetSharedPtr rowset_ptr;
         st = _build_tmp(rowset_ptr);
         if (!st.ok()) {
@@ -497,6 +512,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:finished", this);
         return Status::OK();
     });
 }
@@ -507,7 +523,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
@@ -1223,7 +1240,7 @@ Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
 }
 
 Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end) {
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, int64_t begin, int64_t end) {
     DCHECK(begin >= 0 && end >= 0);
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                    _context.rowset_id, begin, end);
@@ -1248,14 +1265,14 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
                 _context.get_file_writer_options(FileType::INVERTED_INDEX_FILE));
     }
 
-    segment_v2::SegmentWriterOptions writer_options;
+    segment_v2::VerticalSegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
 
-    *writer = std::make_unique<segment_v2::SegmentWriter>(
+    *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
             _context.data_dir, writer_options, index_file_writer.get());
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
@@ -1342,9 +1359,9 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistic
 }
 
 Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, uint64_t index_size,
         KeyBoundsPB& key_bounds) {
-    uint32_t segid = (*writer)->get_segment_id();
+    uint32_t segid = (*writer)->segment_id();
     uint32_t row_num = (*writer)->row_count();
     uint64_t segment_size;
 

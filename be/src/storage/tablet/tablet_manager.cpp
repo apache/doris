@@ -228,6 +228,7 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
+    _engine.register_row_binlog_tablet(tablet);
     _add_tablet_to_partition(tablet);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
@@ -288,9 +289,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // same) already exist, then just return true(an duplicate request). But if
     // tablet_id exist but with different schema_hash, return an error(report task will
     // eventually trigger its deletion).
+    bool tablet_exists = false;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTabletUnlocked"));
-        if (_get_tablet_unlocked(tablet_id) != nullptr) {
+        tablet_exists = _get_tablet_unlocked(tablet_id) != nullptr;
+        if (tablet_exists && !is_colocated_row_binlog) {
             LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
             return Status::OK();
         }
@@ -331,6 +334,24 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
     }
 
+    auto persist_row_binlog_pair = [&]() {
+        CHECK(is_colocated_row_binlog);
+        std::lock_guard base_tablet_wlock(base_tablet->get_header_lock());
+        CHECK(base_tablet->tablet_meta()->binlog_tablet_id() == 0 ||
+              base_tablet->tablet_meta()->binlog_tablet_id() == tablet_id)
+                << "base tablet " << base_tablet->tablet_id()
+                << " is already paired with row-binlog tablet "
+                << base_tablet->tablet_meta()->binlog_tablet_id() << ", new row-binlog tablet "
+                << tablet_id;
+        base_tablet->tablet_meta()->set_binlog_tablet_id(tablet_id);
+        base_tablet->save_meta();
+    };
+    if (tablet_exists) {
+        persist_row_binlog_pair();
+        LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
+        return Status::OK();
+    }
+
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
             request, is_schema_change_or_atomic_restore, is_colocated_row_binlog, base_tablet.get(),
             stores, profile);
@@ -338,6 +359,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
+    }
+    if (is_colocated_row_binlog) {
+        persist_row_binlog_pair();
     }
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
@@ -752,7 +776,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
     std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
 
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
-        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+        if (tablet_ptr->tablet_meta()->disable_auto_compaction()) {
             LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
                                    << " will be ignored by automatic compaction tasks since it's "
                                    << "set to disabled automatic compaction.";

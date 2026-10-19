@@ -51,10 +51,10 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -90,7 +90,7 @@ public class BackupHandlerTest {
 
     private TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
@@ -113,7 +113,7 @@ public class BackupHandlerTest {
         Mockito.doReturn(db).when(catalog).getDbOrDdlException(Mockito.anyString());
     }
 
-    @After
+    @AfterEach
     public void done() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -135,7 +135,7 @@ public class BackupHandlerTest {
         handler.runAfterCatalogReady();
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
-        Assert.assertTrue(backupDir.exists());
+        Assertions.assertTrue(backupDir.exists());
     }
 
     @Test

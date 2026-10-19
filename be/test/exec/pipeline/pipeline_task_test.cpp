@@ -714,6 +714,85 @@ TEST_F(PipelineTaskTest, TEST_WAKE_UP_SUBMIT_PROTECTED_FROM_FINALIZE) {
     EXPECT_TRUE(task->_operators.empty());
 }
 
+TEST_F(PipelineTaskTest, TEST_STOP_IF_FINISHED_EXCLUDES_FINALIZE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    // A closed but not yet finalized task is what FragmentMgr's cancel thread usually scans.
+    EXPECT_TRUE(task->close(Status::OK()).ok());
+
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer debug_point_cleanup {[&]() {
+        DebugPoints::instance()->remove("PipelineTask::stop_if_finished.holding_lifecycle_lock");
+        config::enable_debug_points = origin_enable_debug_points;
+    }};
+
+    std::promise<void> lock_held_promise;
+    auto lock_held = lock_held_promise.get_future();
+    std::promise<void> release_promise;
+    auto release = release_promise.get_future();
+    DebugPoints::instance()->add_with_callback(
+            "PipelineTask::stop_if_finished.holding_lifecycle_lock", std::function<void()>([&]() {
+                lock_held_promise.set_value();
+                release.wait();
+            }));
+
+    // Simulates FragmentMgr::cancel_worker -> clear_finished_tasks -> stop_if_finished.
+    std::thread stop_thread([&]() { task->stop_if_finished(); });
+    EXPECT_EQ(lock_held.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    // Simulates the scheduler worker finalizing the task. It must not reset _sink while
+    // stop_if_finished() is reading it.
+    std::promise<void> finalize_started_promise;
+    auto finalize_started = finalize_started_promise.get_future();
+    auto finalize_future = std::async(std::launch::async, [&]() {
+        finalize_started_promise.set_value();
+        return task->finalize();
+    });
+    EXPECT_EQ(finalize_started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(finalize_future.wait_for(std::chrono::milliseconds(100)),
+              std::future_status::timeout);
+    EXPECT_NE(task->_sink, nullptr);
+
+    release_promise.set_value();
+    stop_thread.join();
+    EXPECT_TRUE(finalize_future.get().ok());
+
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+    EXPECT_EQ(task->_sink, nullptr);
+    EXPECT_FALSE(task->_wake_up_early);
+
+    // A finalized task is skipped without touching the cleared _sink.
+    DebugPoints::instance()->remove("PipelineTask::stop_if_finished.holding_lifecycle_lock");
+    task->stop_if_finished();
+    EXPECT_FALSE(task->_wake_up_early);
+}
+
 TEST_F(PipelineTaskTest, TEST_CLOSED_TASK_REJECTS_HYBRID_SUBMIT_BEFORE_FINALIZE) {
     auto num_instances = 1;
     auto pip_id = 0;
@@ -1428,6 +1507,28 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
     }
     {
+        // The reservations succeed now. The query made progress: the wait that a reservation
+        // failed for process memory may have started is ended, and the task is not paused.
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = false;
+        _query_ctx->resource_ctx()->task_controller()->start_process_memory_wait(1);
+        EXPECT_EQ(_query_ctx->resource_ctx()->task_controller()->process_memory_wait_start_ms(), 1);
+        task->_spilling = false;
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+        EXPECT_EQ(_query_ctx->resource_ctx()->task_controller()->process_memory_wait_start_ms(), 0);
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = true;
+    }
+    {
         // Reserve failed and paused.
         task->_operators.front()->cast<DummyOperator>()._disable_reserve_mem = true;
         task->_spilling = false;
@@ -1990,6 +2091,64 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE_RACE_FIX) {
     }
     DebugPoints::instance()->clear();
     config::enable_debug_points = false;
+}
+
+TEST_F(PipelineTaskTest, TEST_SET_RUNNING_MUTUAL_EXCLUSION) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+
+    // set_running(true) is the scheduler's double-execute gate (and RevokableTask's mutual
+    // exclusion with its underlying task): at most one caller may observe "was not running"
+    // until the matching set_running(false). The former compare_exchange_weak implementation
+    // could fail spuriously on LL/SC architectures and report acquisition without setting
+    // the flag, admitting two concurrent holders.
+    std::atomic<int> holders {0};
+    std::atomic<int64_t> acquired {0};
+    std::atomic<bool> violation {false};
+    constexpr int kThreads = 8;
+    constexpr int kItersPerThread = 200000;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < kItersPerThread; ++i) {
+                if (!task->set_running(true)) {
+                    if (holders.fetch_add(1) != 0) {
+                        violation = true;
+                    }
+                    acquired.fetch_add(1, std::memory_order_relaxed);
+                    holders.fetch_sub(1);
+                    task->set_running(false);
+                }
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+    EXPECT_FALSE(violation.load()) << "two threads acquired the running gate concurrently";
+    EXPECT_GT(acquired.load(), 0);
+    EXPECT_FALSE(task->is_running());
 }
 
 } // namespace doris

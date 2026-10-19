@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -38,7 +39,10 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +56,10 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -84,7 +91,8 @@ public class ConnectorRewriteDriverTest {
                 "rewrite_data_files",
                 Collections.emptyMap(),
                 Collections.emptyList(),
-                where);
+                where,
+                null);
     }
 
     @Test
@@ -189,7 +197,7 @@ public class ConnectorRewriteDriverTest {
 
         ConnectorRewriteDriver driver = new ConnectorRewriteDriver(
                 context, table, catalog, metadata, procedureOps, session, tableHandle,
-                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null);
+                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null, null);
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
                 MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
@@ -212,6 +220,302 @@ public class ConnectorRewriteDriverTest {
             order.verify(txnManager).commit(7L);
             order.verify(refreshManager).refreshTableAfterExternalMutation(table);
             order.verify(procedureOps).buildRewriteResult(Mockito.eq("rewrite_data_files"), Mockito.any());
+        }
+    }
+
+    @Test
+    public void groupFailureRollsBackTheSharedTransactionWithoutCommit() throws Exception {
+        // A failed group must reach the collector as a failure so the driver rolls the shared transaction
+        // back. If a group's cancellation is swallowed and reported as completed, the driver would register
+        // every group's sources and commit a partial rewrite. MUTATION: reporting onTaskCompleted for a
+        // cancelled/failed group is killed here.
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle tableHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTransaction connectorTx = Mockito.mock(ConnectorTransaction.class,
+                Mockito.withSettings().extraInterfaces(RewriteCapableTransaction.class));
+        PluginDrivenTransactionManager txnManager = Mockito.mock(PluginDrivenTransactionManager.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        ConnectorRewriteGroup first = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0);
+        ConnectorRewriteGroup second = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://bucket/table/b.parquet"), 1, 1024L, 0);
+
+        Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(Arrays.asList(first, second));
+        Mockito.when(metadata.beginTransaction(session, tableHandle)).thenReturn(connectorTx);
+        Mockito.when(catalog.getTransactionManager()).thenReturn(txnManager);
+        Mockito.when(txnManager.begin(connectorTx)).thenReturn(7L);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getInsertTimeoutS()).thenReturn(1);
+
+        Env env = Mockito.mock(Env.class);
+        TransientTaskManager transientTaskManager = Mockito.mock(TransientTaskManager.class);
+        Mockito.when(env.getTransientTaskManager()).thenReturn(transientTaskManager);
+        AtomicInteger ids = new AtomicInteger(10);
+        Map<ConnectorRewriteGroupTask, ConnectorRewriteGroupTask.RewriteResultCallback> callbacks =
+                new ConcurrentHashMap<>();
+
+        ConnectorRewriteDriver driver = new ConnectorRewriteDriver(
+                context, table, catalog, metadata, procedureOps, session, tableHandle,
+                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null, null);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            callbacks.put(task, (ConnectorRewriteGroupTask.RewriteResultCallback)
+                                    constructionContext.arguments().get(5));
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+                ConnectorRewriteGroupTask task = invocation.getArgument(0);
+                callbacks.get(task).onTaskFailed(task.getId(), new JobException("group failed"));
+                return task.getId();
+            });
+
+            UserException ex = Assertions.assertThrows(UserException.class, driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("Some rewrite tasks failed"),
+                    "the first group failure must surface, got: " + ex.getMessage());
+
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            Mockito.verify(txnManager).rollback(7L);
+            Mockito.verify(txnManager, Mockito.never()).commit(7L);
+        }
+    }
+
+    @Test
+    public void timeoutDrainsSubmittedGroupsBeforeSharedTransactionRollback() throws Exception {
+        RewriteDrainHarness harness = newDrainHarness();
+        AtomicInteger ids = new AtomicInteger(10);
+        Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenReturn(1L);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            try {
+                                Mockito.when(task.awaitTerminal(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+
+            UserException ex = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("did not complete within timeout"),
+                    "the timeout must surface, got: " + ex.getMessage());
+
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            for (ConnectorRewriteGroupTask task : taskConstruction.constructed()) {
+                Mockito.verify(task, Mockito.atLeastOnce()).cancel();
+            }
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+        }
+    }
+
+    @Test
+    public void submissionFailureDrainsAlreadySubmittedGroupsBeforeRollback() throws Exception {
+        RewriteDrainHarness harness = newDrainHarness();
+        AtomicInteger ids = new AtomicInteger(20);
+        AtomicInteger submissions = new AtomicInteger();
+        Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+            if (submissions.incrementAndGet() == 2) {
+                throw new JobException("submit boom");
+            }
+            return 1L;
+        });
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            try {
+                                Mockito.when(task.awaitTerminal(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+
+            UserException ex = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("Failed to submit rewrite tasks"),
+                    "the submission failure must surface, got: " + ex.getMessage());
+
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            // Only the first group made it into the manager; it still has to be drained before rollback.
+            Mockito.verify(taskConstruction.constructed().get(0), Mockito.atLeastOnce()).cancel();
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+        }
+    }
+
+    @Test
+    public void interruptionDrainsSubmittedGroupsBeforeRollback() throws Exception {
+        RewriteDrainHarness harness = newDrainHarness();
+        AtomicInteger ids = new AtomicInteger(30);
+        Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+            Thread.currentThread().interrupt();
+            return 1L;
+        });
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            try {
+                                Mockito.when(task.awaitTerminal(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+
+            UserException ex = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("interrupted"),
+                    "the interruption must surface, got: " + ex.getMessage());
+
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            for (ConnectorRewriteGroupTask task : taskConstruction.constructed()) {
+                Mockito.verify(task, Mockito.atLeastOnce()).cancel();
+            }
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private static final class RewriteDrainHarness {
+        final ConnectorRewriteDriver driver;
+        final PluginDrivenTransactionManager txnManager;
+        final TransientTaskManager transientTaskManager;
+        final Env env;
+        final RewriteCapableTransaction rewriteTx;
+
+        RewriteDrainHarness(ConnectorRewriteDriver driver, PluginDrivenTransactionManager txnManager,
+                TransientTaskManager transientTaskManager, Env env, RewriteCapableTransaction rewriteTx) {
+            this.driver = driver;
+            this.txnManager = txnManager;
+            this.transientTaskManager = transientTaskManager;
+            this.env = env;
+            this.rewriteTx = rewriteTx;
+        }
+    }
+
+    private RewriteDrainHarness newDrainHarness() {
+        return newDrainHarness(null);
+    }
+
+    private RewriteDrainHarness newDrainHarness(StmtExecutor owner) {
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle tableHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTransaction connectorTx = Mockito.mock(ConnectorTransaction.class,
+                Mockito.withSettings().extraInterfaces(RewriteCapableTransaction.class));
+        PluginDrivenTransactionManager txnManager = Mockito.mock(PluginDrivenTransactionManager.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        ConnectorRewriteGroup first = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0);
+        ConnectorRewriteGroup second = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://bucket/table/b.parquet"), 1, 1024L, 0);
+
+        Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(Arrays.asList(first, second));
+        Mockito.when(metadata.beginTransaction(session, tableHandle)).thenReturn(connectorTx);
+        Mockito.when(catalog.getTransactionManager()).thenReturn(txnManager);
+        Mockito.when(txnManager.begin(connectorTx)).thenReturn(7L);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getInsertTimeoutS()).thenReturn(1);
+
+        Env env = Mockito.mock(Env.class);
+        TransientTaskManager transientTaskManager = Mockito.mock(TransientTaskManager.class);
+        Mockito.when(env.getTransientTaskManager()).thenReturn(transientTaskManager);
+
+        ConnectorRewriteDriver driver = new ConnectorRewriteDriver(
+                context, table, catalog, metadata, procedureOps, session, tableHandle,
+                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null, owner);
+        return new RewriteDrainHarness(driver, txnManager, transientTaskManager, env,
+                (RewriteCapableTransaction) connectorTx);
+    }
+
+    @Test
+    public void outerCancellationBeforeCommitRollsBackWithoutRegisteringOrCommitting() throws Exception {
+        StmtExecutor owner = Mockito.mock(StmtExecutor.class);
+        // Cancellation is observed only once the groups have finished and the commit decision is taken:
+        // installCancelHandoff polls once (call 1), the wait loop polls once (call 2), and the
+        // registration/commit decision polls once more (call 3) and must see the terminal status.
+        Mockito.when(owner.getPendingCancelReason())
+                .thenReturn(null, null, new Status(TStatusCode.CANCELLED, "outer kill before commit"));
+        RewriteDrainHarness harness = newDrainHarness(owner);
+        AtomicInteger ids = new AtomicInteger(40);
+        Map<ConnectorRewriteGroupTask, ConnectorRewriteGroupTask.RewriteResultCallback> callbacks =
+                new ConcurrentHashMap<>();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            callbacks.put(task, (ConnectorRewriteGroupTask.RewriteResultCallback)
+                                    constructionContext.arguments().get(5));
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+            Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+                ConnectorRewriteGroupTask task = invocation.getArgument(0);
+                // The group completes successfully; the cancellation only lands at the commit decision.
+                callbacks.get(task).onTaskCompleted(task.getId());
+                return task.getId();
+            });
+
+            UserException ex = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("Rewrite is cancelled"),
+                    "the outer cancellation must surface, got: " + ex.getMessage());
+
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+            Mockito.verify(harness.rewriteTx, Mockito.never())
+                    .registerRewriteSourceFiles(Mockito.any());
+        }
+    }
+
+    @Test
+    public void outerCancellationWhileWaitingDrainsLiveGroupsBeforeRollback() throws Exception {
+        StmtExecutor owner = Mockito.mock(StmtExecutor.class);
+        AtomicReference<Status> ownerReason = new AtomicReference<>();
+        Mockito.when(owner.getPendingCancelReason()).thenAnswer(invocation -> ownerReason.get());
+        RewriteDrainHarness harness = newDrainHarness(owner);
+        AtomicInteger ids = new AtomicInteger(50);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            try {
+                                Mockito.when(task.awaitTerminal(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+            Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+                // The groups are live; the outer TIMEOUT/KILL lands while the owner waits for them.
+                ownerReason.set(new Status(TStatusCode.CANCELLED, "outer kill while waiting"));
+                return 1L;
+            });
+
+            UserException ex = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(ex.getMessage().contains("Rewrite is cancelled"));
+
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            for (ConnectorRewriteGroupTask task : taskConstruction.constructed()) {
+                Mockito.verify(task, Mockito.atLeastOnce()).cancel();
+            }
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
         }
     }
 

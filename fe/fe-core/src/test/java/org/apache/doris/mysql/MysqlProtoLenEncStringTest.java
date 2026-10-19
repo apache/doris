@@ -17,8 +17,8 @@
 
 package org.apache.doris.mysql;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +35,7 @@ public class MysqlProtoLenEncStringTest {
         buffer.put((byte) 0xFE); // 8-byte length follows
         buffer.put(new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0x7F, 0, 0, 0, 0}); // 0x7FFFFFFF
         buffer.flip();
-        Assert.assertThrows(IllegalArgumentException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> MysqlProto.readLenEncodedString(buffer));
     }
 
@@ -45,7 +45,7 @@ public class MysqlProtoLenEncStringTest {
         buffer.put((byte) 0xFE);
         buffer.put(new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0, 0, 0, 0}); // (int) -> -1
         buffer.flip();
-        Assert.assertThrows(IllegalArgumentException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> MysqlProto.readLenEncodedString(buffer));
     }
 
@@ -56,6 +56,6 @@ public class MysqlProtoLenEncStringTest {
         buffer.put((byte) payload.length); // single-byte length < 251
         buffer.put(payload);
         buffer.flip();
-        Assert.assertArrayEquals(payload, MysqlProto.readLenEncodedString(buffer));
+        Assertions.assertArrayEquals(payload, MysqlProto.readLenEncodedString(buffer));
     }
 }

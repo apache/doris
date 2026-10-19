@@ -21,15 +21,21 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,7 +49,7 @@ import java.util.Optional;
  * Save policy for filtering data.
  **/
 @Data
-public class RowPolicy extends Policy implements RowFilterPolicy {
+public class RowPolicy extends Policy {
 
     public static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
@@ -101,6 +107,16 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
 
     private Expression wherePredicate = null;
 
+    // The predicate as the administrator wrote it, and the only text this policy needs to be recovered from:
+    // one parseExpression rebuilds the predicate, where recovering it from originStmt means re-reading the
+    // whole request that created it. Excluded from equality and toString because a policy stored before this
+    // field existed fills it in lazily - two policies created from the same statement must not compare
+    // differently depending on whether a query has already asked for the predicate text.
+    @SerializedName(value = "wherePredicateSql")
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private volatile String wherePredicateSql = null;
+
     public RowPolicy() {
         super(PolicyTypeEnum.ROW);
     }
@@ -135,6 +151,22 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
             UserIdentity user, String roleName,
             String originStmt, int stmtIdx, final FilterType filterType, final Expression wherePredicate) {
+        this(policyId, policyName, ctlName, dbName, tableName, user, roleName, originStmt, stmtIdx, filterType,
+                wherePredicate, null);
+    }
+
+    /**
+     * As above, with the predicate text the statement was parsed from already known.
+     *
+     * <p>Passing it is how {@code CREATE ROW POLICY} avoids ever recovering it: the parser had it and threw
+     * it away, and recovering it means re-parsing the whole statement text - which is not always the same
+     * statement, since a policy created inside a multi-statement request is one of several in
+     * {@code originStmt}.
+     */
+    public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
+            UserIdentity user, String roleName,
+            String originStmt, int stmtIdx, final FilterType filterType, final Expression wherePredicate,
+            String wherePredicateSql) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.roleName = roleName;
@@ -145,6 +177,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         this.originStmt = originStmt;
         this.stmtIdx = stmtIdx;
         this.wherePredicate = wherePredicate;
+        this.wherePredicateSql = StringUtils.isEmpty(wherePredicateSql) ? null : wherePredicateSql;
     }
 
     /**
@@ -162,15 +195,16 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
             return;
         }
         try {
-            NereidsParser nereidsParser = new NereidsParser();
-            String sql = getOriginStmt();
-            CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
-            Optional<Expression> wherePredicate = command.getWherePredicate();
-            if (!wherePredicate.isPresent()) {
-                LOG.warn("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+            if (!StringUtils.isEmpty(wherePredicateSql)) {
+                // Stored with the predicate text, so the predicate is one parseExpression away and nothing
+                // else in the request that created this policy is touched. That matters on this thread: the
+                // statement path builds a LogicalPlan for every statement in the stored request, and
+                // LogicalPlanBuilder#visitInsertTable dereferences ConnectContext.get() unconditionally - null
+                // here, where a journal is replayed or an image loaded with no connection at all.
+                this.wherePredicate = predicateOf(wherePredicateSql);
                 return;
             }
-            this.wherePredicate = wherePredicate.get();
+            recoverFromCreateStatement();
         } catch (Exception e) {
             String errorMsg = String.format("table policy parse originStmt error, originStmt: %s, stmtIdx: %s.",
                     originStmt, stmtIdx);
@@ -179,12 +213,96 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         }
     }
 
-    @Override
-    public RowPolicy clone() {
-        return new RowPolicy(this.id, this.policyName, this.dbId, this.user, this.roleName, this.originStmt,
-                this.stmtIdx,
-                this.tableId,
-                this.filterType, this.wherePredicate);
+    /** The predicate {@code predicateSql} reads as, under the one mode a security policy's text is read under. */
+    private static Expression predicateOf(String predicateSql) {
+        return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                () -> new NereidsParser().parseExpression(predicateSql));
+    }
+
+    /**
+     * Recovers the predicate by re-reading the statement that created this policy, for a policy stored before
+     * the predicate text was stored beside it.
+     */
+    private void recoverFromCreateStatement() throws AnalysisException {
+        CreatePolicyCommand command = parseCreateStatement();
+        Optional<Expression> recovered = command.getWherePredicate();
+        if (!recovered.isPresent()) {
+            LOG.warn("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
+            return;
+        }
+        this.wherePredicate = recovered.get();
+        if (!StringUtils.isEmpty(command.getWherePredicateSql())) {
+            this.wherePredicateSql = command.getWherePredicateSql();
+            warnIfTheGlobalModeReadsItDifferently(this.wherePredicateSql, this.wherePredicate);
+        }
+    }
+
+    /**
+     * Says so when this policy used to mean something else, because it was stored before policy text had a
+     * fixed {@code sql_mode} to be read under.
+     *
+     * <p>A policy recovered this way was last read under the global {@code sql_mode} - this runs with no
+     * connection on the thread, so that is the mode {@code SqlModeHelper} used to find - and is read under
+     * {@link SqlModeHelper#MODE_FOR_POLICY_TEXT} from now on. For a predicate whose text means the same under
+     * both, which is nearly all of them, nothing changed. For one that does not, the rows this policy admits
+     * change on upgrade, and this load is the only place holding both readings and therefore the only place
+     * that can say so; {@code SHOW ROW POLICY} renders the new one with nothing to compare it against.
+     */
+    private void warnIfTheGlobalModeReadsItDifferently(String predicateSql, Expression underPolicyMode) {
+        long globalMode;
+        try {
+            globalMode = VariableMgr.newSessionVariable().getSqlMode();
+        } catch (Exception e) {
+            // Reached while an image is loading, so the variable manager may not be up yet. Nothing to
+            // compare against is not a reason to fail a load.
+            return;
+        }
+        if (globalMode == SqlModeHelper.MODE_FOR_POLICY_TEXT) {
+            return;
+        }
+        try {
+            Expression underGlobalMode = SqlModeHelper.withSqlMode(globalMode,
+                    () -> new NereidsParser().parseExpression(predicateSql));
+            if (!underGlobalMode.equals(underPolicyMode)) {
+                LOG.warn("row policy {} on {}.{}.{} was stored under a sql_mode that reads its predicate as"
+                                + " [{}], and is read as [{}] from this version on, which is how every query it"
+                                + " restricts is filtered: predicate text [{}]", policyName, ctlName, dbName,
+                        tableName, underGlobalMode.toSql(), underPolicyMode.toSql(), predicateSql);
+            }
+        } catch (Exception e) {
+            // The global mode cannot read this text at all, so it was never the reading in force: a policy
+            // that parses under no mode restricts nothing successfully.
+            LOG.debug("row policy {} cannot be read under the global sql_mode", policyName, e);
+        }
+    }
+
+    /**
+     * The {@code CREATE ROW POLICY} this policy was made by, out of the statement text stored with it.
+     *
+     * <p>{@code originStmt} holds the whole request, which is not necessarily one statement: a request may
+     * carry several separated by semicolons, and {@code stmtIdx} says which one this policy is. Parsing the
+     * text as a single statement therefore recovers the wrong policy, or nothing at all.
+     *
+     * <p>A negative index means the statement was never indexed, which only the first can be, so it reads as
+     * 0. An index past the end is a stored policy that cannot be recovered, and says so.
+     */
+    private CreatePolicyCommand parseCreateStatement() throws AnalysisException {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = getOriginStmt();
+        // Under the mode a security policy's text is read under rather than the caller's: getFilterSql() can
+        // reach here on the thread of the very user this policy restricts, and sql_mode is theirs to set with
+        // no privilege at all. See SqlModeHelper#MODE_FOR_POLICY_TEXT.
+        // Always by index, index 0 included: a request recorded as statement 0 is not therefore one
+        // statement. ConnectProcessor stores the whole request whenever its two splitters disagree on how
+        // many statements it holds, and the first of those still carries index 0.
+        List<Pair<LogicalPlan, StatementContext>> statements = SqlModeHelper.withSqlMode(
+                SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> nereidsParser.parseMultiple(sql));
+        int index = Math.max(stmtIdx, 0);
+        if (index >= statements.size()) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "]: statement " + stmtIdx
+                    + " of " + statements.size() + " in " + sql);
+        }
+        return (CreatePolicyCommand) statements.get(index).first;
     }
 
     private boolean checkMatched(String ctlName, String dbName, String tableName, PolicyTypeEnum type,
@@ -221,15 +339,41 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         return (wherePredicate == null);
     }
 
-    @Override
-    public Expression getFilterExpression() throws AnalysisException {
+    /**
+     * The predicate as SQL text, which is the form the authorization layer hands to the planner.
+     *
+     * <p>It is the text the administrator wrote - not a rendering of the parsed predicate. Rendering would
+     * not survive the round trip: {@code toSql()} on a compound predicate produces the diagnostic form
+     * {@code AND[a,b]}, which does not parse back, so any policy combining two conditions would break.</p>
+     *
+     * <p>Stored with the policy, so ordinarily it is already here. The recovery below is for a policy stored
+     * before it was, whose text has to come back out of the statement that created it.</p>
+     */
+    public String getFilterSql() throws AnalysisException {
         if (wherePredicate == null) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
         }
-        return wherePredicate;
+        if (wherePredicateSql == null) {
+            wherePredicateSql = parseWherePredicateSql();
+        }
+        return wherePredicateSql;
     }
 
-    @Override
+    private String parseWherePredicateSql() throws AnalysisException {
+        try {
+            CreatePolicyCommand command = parseCreateStatement();
+            if (!StringUtils.isEmpty(command.getWherePredicateSql())) {
+                return command.getWherePredicateSql();
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to recover the predicate text of row policy [{}]", getPolicyIdent(), e);
+        }
+        // The statement parsed once already (that is where wherePredicate came from), so reaching here means
+        // the stored statement no longer matches what the parser produces. Refuse the query rather than let
+        // the table be read unfiltered.
+        throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
+    }
+
     public String getPolicyIdent() {
         return getPolicyName();
     }

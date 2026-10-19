@@ -21,9 +21,9 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,7 +32,7 @@ public class TextFileFormatPropertiesTest {
 
     private TextFileFormatProperties textFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         textFileFormatProperties = new TextFileFormatProperties();
     }
@@ -46,9 +46,9 @@ public class TextFileFormatPropertiesTest {
 
         textFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals(",", textFileFormatProperties.getColumnSeparator());
-        Assert.assertEquals("\n", textFileFormatProperties.getLineDelimiter());
-        Assert.assertEquals(1, textFileFormatProperties.getSkipLines());
+        Assertions.assertEquals(",", textFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals("\n", textFileFormatProperties.getLineDelimiter());
+        Assertions.assertEquals(1, textFileFormatProperties.getSkipLines());
     }
 
     @Test
@@ -56,7 +56,7 @@ public class TextFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(TextFileFormatProperties.PROP_COLUMN_SEPARATOR, "");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             textFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -66,7 +66,7 @@ public class TextFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(TextFileFormatProperties.PROP_LINE_DELIMITER, "");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             textFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -76,7 +76,7 @@ public class TextFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(TextFileFormatProperties.PROP_SKIP_LINES, "-1");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             textFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -87,7 +87,7 @@ public class TextFileFormatPropertiesTest {
         properties.put(TextFileFormatProperties.PROP_SKIP_LINES, "1000");
 
         textFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(1000, textFileFormatProperties.getSkipLines());
+        Assertions.assertEquals(1000, textFileFormatProperties.getSkipLines());
     }
 
     @Test
@@ -104,7 +104,7 @@ public class TextFileFormatPropertiesTest {
         properties.put(TextFileFormatProperties.PROP_COMPRESS_TYPE, "gz");
 
         textFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TFileCompressType.GZ, textFileFormatProperties.getCompressionType());
+        Assertions.assertEquals(TFileCompressType.GZ, textFileFormatProperties.getCompressionType());
     }
 
     @Test
@@ -112,7 +112,7 @@ public class TextFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(TextFileFormatProperties.PROP_SKIP_LINES, "abc");
 
-        Assert.assertThrows(NumberFormatException.class, () -> {
+        Assertions.assertThrows(NumberFormatException.class, () -> {
             textFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -123,7 +123,7 @@ public class TextFileFormatPropertiesTest {
         properties.put(TextFileFormatProperties.PROP_COLUMN_SEPARATOR, ";");
 
         textFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(";", textFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals(";", textFileFormatProperties.getColumnSeparator());
     }
 
     @Test
@@ -139,6 +139,6 @@ public class TextFileFormatPropertiesTest {
         properties.put(TextFileFormatProperties.PROP_LINE_DELIMITER, "\r\n");
 
         textFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("\r\n", textFileFormatProperties.getLineDelimiter());
+        Assertions.assertEquals("\r\n", textFileFormatProperties.getLineDelimiter());
     }
 }

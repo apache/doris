@@ -155,6 +155,14 @@ public final class ConnectorFactory {
         }
     }
 
+    /** Validates connector-specific CREATE TABLE rules without initializing the catalog. */
+    public static void validateCreateTable(String catalogType, Map<String, String> properties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            mgr.validateCreateTable(catalogType, properties);
+        }
+    }
+
     /** For testing only. */
     static void clearPluginManager() {
         pluginManager = null;

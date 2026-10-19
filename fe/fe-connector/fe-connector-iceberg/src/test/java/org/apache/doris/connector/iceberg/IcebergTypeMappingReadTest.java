@@ -88,14 +88,14 @@ public class IcebergTypeMappingReadTest {
     @Test
     public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
         // WHY (user decision 2026-07-13, DV-051): iceberg primitive types Doris cannot represent —
-        // TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
+        // Zoned TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
         // so the table still loads and only the exotic column is
         // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
         // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
         // This test PINS the graceful-degradation choice: MUTATION making either default arm throw -> red,
         // surfacing that the accepted deviation was reverted. (The write direction toIcebergPrimitive still
         // throws — see toIcebergPrimitiveRejectsUnrepresentableTypes if present / the connector's CREATE path.)
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
+        Assertions.assertEquals("TIMESTAMP_NS", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());
@@ -117,21 +117,17 @@ public class IcebergTypeMappingReadTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void varbinaryFlagOffMapsToStringOrChar() {
-        // WHY: with the varbinary flag OFF, UUID and BINARY fall back to STRING and a FIXED(n) becomes
-        // CHAR(n) — legacy returns Type.STRING / Type.STRING / createCharType(length). This is the
-        // compatibility default. MUTATION: emitting VARBINARY when the flag is off -> red.
-        Assertions.assertEquals("STRING", mapOff(Types.UUIDType.get()).getTypeName());
-        Assertions.assertEquals("STRING", mapOff(Types.BinaryType.get()).getTypeName());
-        assertScalar(mapOff(Types.FixedType.ofLength(12)), "CHAR", 12, 0);
+    public void varbinaryFlagOffStillPreservesBytes() {
+        // Legacy false flags cannot reinterpret arbitrary binary bytes as UTF-8.
+        Assertions.assertEquals("UUID", mapOff(Types.UUIDType.get()).getTypeName());
+        Assertions.assertEquals("VARBINARY", mapOff(Types.BinaryType.get()).getTypeName());
+        assertScalar(mapOff(Types.FixedType.ofLength(12)), "VARBINARY", 12, 0);
     }
 
     @Test
     public void varbinaryFlagOnMapsToVarbinaryWithLegacyLengths() {
-        // WHY: with the varbinary flag ON, UUID -> VARBINARY(16) and FIXED(n) -> VARBINARY(n); the
-        // lengths are load-bearing — legacy createVarbinaryType(16 / fixed.length()). MUTATION: wrong
-        // length, or staying STRING/CHAR under the flag -> red.
-        assertScalar(mapOn(Types.UUIDType.get()), "VARBINARY", 16, 0);
+        // UUID is a logical type, while unannotated fixed bytes retain their declared bound.
+        Assertions.assertEquals("UUID", mapOn(Types.UUIDType.get()).getTypeName());
         assertScalar(mapOn(Types.FixedType.ofLength(12)), "VARBINARY", 12, 0);
 
         // WHY: an Iceberg BINARY is UNBOUNDED, and legacy maps it to the max-length varbinary —
@@ -164,12 +160,10 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
-    public void zonedTimestampWithFlagOffStaysDatetimev2() {
-        // WHY: the tz flag gates the TIMESTAMPTZ mapping; with it OFF even a zoned timestamp must stay
-        // DATETIMEV2(6) (legacy createDatetimeV2Type(6)). This guards a fix that accidentally promotes
-        // zoned timestamps unconditionally. MUTATION: emitting TIMESTAMPTZ when the flag is off -> red.
+    public void zonedTimestampWithFlagOffStillPreservesInstants() {
+        // Timestamp kind follows the source schema, independently of legacy options.
         assertScalar(IcebergTypeMapping.fromIcebergType(Types.TimestampType.withZone(), false, false),
-                "DATETIMEV2", MS6, 0);
+                "TIMESTAMPTZ", MS6, 0);
     }
 
     // ---------------------------------------------------------------------

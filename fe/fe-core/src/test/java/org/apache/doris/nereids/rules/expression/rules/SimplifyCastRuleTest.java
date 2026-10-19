@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -67,6 +69,9 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         Expression tinyIntLiteral = new TinyIntLiteral((byte) 12);
         // cast tinyint as tinyint
         assertRewrite(new Cast(tinyIntLiteral, TinyIntType.INSTANCE), tinyIntLiteral);
+
+        Expression timestampNs = new SlotReference("timestamp_ns", TimeStampNsType.INSTANCE, true);
+        assertRewrite(new Cast(timestampNs, TimeStampNsType.INSTANCE), timestampNs);
         // cast tinyint as decimalv2(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.forType(TinyIntType.INSTANCE)),
                 new DecimalLiteral(DecimalV2Type.forType(TinyIntType.INSTANCE), new BigDecimal(12)));

@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -157,7 +157,7 @@ public class AnalyzeTableCommandTest {
                 "ANALYZE TABLE test_db.test_tbl WITH SAMPLE ROWS 100 WITH HOT VALUE");
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> command.validate(ctx));
-        Assertions.assertEquals("Sample analyze always collects hot value", exception.getDetailMessage());
+        Assertions.assertEquals("Sample analyze does not support WITH HOT VALUE", exception.getDetailMessage());
     }
 
     private Map<String, String> defaultAnalyzeProperties() {

@@ -66,6 +66,7 @@ suite("test_outfile_parquet") {
     def tableName2 = "outfile_parquet_test2"
     def uuid = UUID.randomUUID().toString()
     def outFilePath = """/tmp/test_outfile_parquet_${uuid}"""
+    def negativeTimestampOutFilePath = """/tmp/test_outfile_parquet_negative_timestamp_${uuid}"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -158,6 +159,64 @@ suite("test_outfile_parquet") {
         logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         qt_select_default """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
+
+        sql """ DROP TABLE IF EXISTS outfile_parquet_negative_timestamp """
+        sql """
+            CREATE TABLE outfile_parquet_negative_timestamp (
+                `id` INT NOT NULL,
+                `ts` DATETIMEV2(6) NOT NULL
+            )
+            DUPLICATE KEY (`id`, `ts`)
+            PARTITION BY RANGE (`ts`) (
+                PARTITION p_pre_epoch VALUES LESS THAN ("1970-01-01 00:00:00")
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES("replication_num" = "1")
+        """
+
+        File negativeTimestampPath = new File(negativeTimestampOutFilePath)
+        assert negativeTimestampPath.mkdirs()
+        sql """
+            SELECT id, ts
+            FROM (
+                SELECT 1 AS id, CAST('1900-01-01 00:00:00.123456' AS DATETIMEV2(6)) AS ts
+                UNION ALL
+                SELECT 2 AS id, CAST('1969-12-31 23:59:58.500000' AS DATETIMEV2(6)) AS ts
+                UNION ALL
+                SELECT 3 AS id, CAST('1969-12-31 23:59:59.500000' AS DATETIMEV2(6)) AS ts
+                UNION ALL
+                SELECT 4 AS id, CAST('1969-12-31 23:59:59.999000' AS DATETIMEV2(6)) AS ts
+                UNION ALL
+                SELECT 5 AS id, CAST('1969-12-31 23:59:59.999999' AS DATETIMEV2(6)) AS ts
+            ) t
+            ORDER BY id
+            INTO OUTFILE "file://${negativeTimestampOutFilePath}/"
+            FORMAT AS PARQUET
+            PROPERTIES("enable_int96_timestamps" = "false")
+        """
+
+        File[] negativeTimestampFiles = negativeTimestampPath.listFiles()
+        assert negativeTimestampFiles.length == 1
+        commandBuilder = new StringBuilder()
+        commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
+        commandBuilder.append(""" -H format:parquet -T """ + negativeTimestampFiles[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/outfile_parquet_negative_timestamp/_stream_load")
+        command = commandBuilder.toString()
+        process = command.execute()
+        code = process.waitFor()
+        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+        out = process.getText()
+        logger.info("Run negative timestamp stream load: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def loadResponse = parseJson(out.trim())
+        assertEquals("Success", loadResponse.Status)
+        assertEquals(5, loadResponse.NumberTotalRows)
+        assertEquals(5, loadResponse.NumberLoadedRows)
+        assertEquals(0, loadResponse.NumberFilteredRows)
+        order_qt_negative_timestamp """
+            SELECT id, ts
+            FROM outfile_parquet_negative_timestamp
+            ORDER BY id
+        """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS ${tableName2}")
@@ -167,6 +226,13 @@ suite("test_outfile_parquet") {
                 f.delete();
             }
             path.delete();
+        }
+        File negativeTimestampPath = new File(negativeTimestampOutFilePath)
+        if (negativeTimestampPath.exists()) {
+            for (File f: negativeTimestampPath.listFiles()) {
+                f.delete();
+            }
+            negativeTimestampPath.delete();
         }
     }
 }

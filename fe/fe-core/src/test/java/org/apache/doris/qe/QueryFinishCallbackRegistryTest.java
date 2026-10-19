@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,7 +36,7 @@ public class QueryFinishCallbackRegistryTest {
 
         registry.runAndClear("q1");
 
-        Assert.assertEquals(1, runs.get());
+        Assertions.assertEquals(1, runs.get());
     }
 
     // The generic query-cleanup path drains this registry for every query,
@@ -60,7 +60,7 @@ public class QueryFinishCallbackRegistryTest {
 
         registry.runAndClear("q1");
 
-        Assert.assertEquals(Lists.newArrayList(1, 2, 3), order);
+        Assertions.assertEquals(Lists.newArrayList(1, 2, 3), order);
     }
 
     // The early lock-release path can drain a query before its final drain at
@@ -74,7 +74,7 @@ public class QueryFinishCallbackRegistryTest {
         registry.runAndClear("q1");
         registry.runAndClear("q1");
 
-        Assert.assertEquals(1, runs.get());
+        Assertions.assertEquals(1, runs.get());
     }
 
     // One connector's failing cleanup must not block another's, nor break the
@@ -90,7 +90,7 @@ public class QueryFinishCallbackRegistryTest {
 
         registry.runAndClear("q1");
 
-        Assert.assertEquals(1, runs.get());
+        Assertions.assertEquals(1, runs.get());
     }
 
     // Cleanup is scoped to the finishing query: draining one query must not run
@@ -105,10 +105,10 @@ public class QueryFinishCallbackRegistryTest {
 
         registry.runAndClear("q1");
 
-        Assert.assertEquals(1, q1Runs.get());
-        Assert.assertEquals(0, q2Runs.get());
+        Assertions.assertEquals(1, q1Runs.get());
+        Assertions.assertEquals(0, q2Runs.get());
 
         registry.runAndClear("q2");
-        Assert.assertEquals(1, q2Runs.get());
+        Assertions.assertEquals(1, q2Runs.get());
     }
 }

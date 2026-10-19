@@ -149,8 +149,10 @@ public class LogicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
                 throw new AnalysisException(
                         "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
             }
-            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
+            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+                    left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+                    right, compatibleType);
             if (newLeft instanceof Cast) {
                 newLeft = new Alias(newLeft, left.getName());
             }

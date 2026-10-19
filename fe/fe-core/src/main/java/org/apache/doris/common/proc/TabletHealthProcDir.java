@@ -29,6 +29,8 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.clone.RowBinlogRepairReason;
+import org.apache.doris.clone.RowBinlogTabletLocality;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
@@ -63,6 +65,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
             .add("ForceRedundantNum").add("ColocateMismatchNum").add("ColocateRedundantNum")
             .add("NeedFurtherRepairNum").add("UnrecoverableNum").add("ReplicaCompactionTooSlowNum")
             .add("InconsistentNum").add("OversizeNum").add("CloningNum")
+            .add("RowBinlogMismatchNum").add("RowBinlogRedundantNum")
             .build();
 
     private Env env;
@@ -122,6 +125,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
         int forceRedundantNum;
         int colocateMismatchNum;
         int colocateRedundantNum;
+        int rowBinlogMismatchNum;
+        int rowBinlogRedundantNum;
         int needFurtherRepairNum;
         int unrecoverableNum;
         int replicaCompactionTooSlowNum;
@@ -137,6 +142,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
         Set<Long> forceRedundantTabletIds;
         Set<Long> colocateMismatchTabletIds;
         Set<Long> colocateRedundantTabletIds;
+        Set<Long> rowBinlogMismatchTabletIds;
+        Set<Long> rowBinlogRedundantTabletIds;
         Set<Long> needFurtherRepairTabletIds;
         Set<Long> unrecoverableTabletIds;
         Set<Long> replicaCompactionTooSlowTabletIds;
@@ -161,6 +168,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.forceRedundantTabletIds = new HashSet<>();
             this.colocateMismatchTabletIds = new HashSet<>();
             this.colocateRedundantTabletIds = new HashSet<>();
+            this.rowBinlogMismatchTabletIds = new HashSet<>();
+            this.rowBinlogRedundantTabletIds = new HashSet<>();
             this.needFurtherRepairTabletIds = new HashSet<>();
             this.unrecoverableTabletIds = new HashSet<>();
             this.replicaCompactionTooSlowTabletIds = new HashSet<>();
@@ -190,7 +199,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                     for (int j = 0; j < partitions.size(); j++) {
                         Partition partition = partitions.get(j);
                         long visibleVersion = visibleVersions.get(j);
-                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
+                        ReplicaAllocation partitionReplicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
                                 MaterializedIndex.IndexExtState.VISIBLE, true)) {
@@ -199,12 +208,18 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 Tablet tablet = tablets.get(i);
                                 ++tabletNum;
                                 Tablet.TabletStatus res = null;
+                                RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealthResult = null;
                                 if (Config.isCloudMode()) {
                                     // In cloud mode, tablet replica health is managed by cloud components.
                                     // getHealth/getColocateHealth follows local deployment logic and may
                                     // misclassify tablets as UNRECOVERABLE.
                                     res = Tablet.TabletStatus.HEALTHY;
+                                } else if (materializedIndex.isRowBinlog()) {
+                                    rowBinlogHealthResult = RowBinlogTabletLocality.getRowBinlogHealth(
+                                            partition, tablet, partitionReplicaAlloc, visibleVersion);
+                                    res = rowBinlogHealthResult.getTabletHealth().status;
                                 } else if (groupId != null) {
+                                    ReplicaAllocation replicaAlloc = partitionReplicaAlloc;
                                     ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
                                     if (groupSchema != null) {
                                         replicaAlloc = groupSchema.getReplicaAlloc();
@@ -212,7 +227,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
                                     res = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
                                 } else {
-                                    res = tablet.getHealth(infoService, visibleVersion, replicaAlloc,
+                                    res = tablet.getHealth(infoService, visibleVersion, partitionReplicaAlloc,
                                             aliveBeIds).status;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
@@ -244,12 +259,29 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                         replicaMissingForTagTabletIds.add(tablet.getId());
                                         break;
                                     case COLOCATE_MISMATCH:
-                                        colocateMismatchNum++;
-                                        colocateMismatchTabletIds.add(tablet.getId());
+                                        if (rowBinlogHealthResult == null) {
+                                            colocateMismatchNum++;
+                                            colocateMismatchTabletIds.add(tablet.getId());
+                                        } else {
+                                            RowBinlogRepairReason repairReason =
+                                                    rowBinlogHealthResult.getRepairReason();
+                                            Preconditions.checkState(
+                                                    repairReason == RowBinlogRepairReason.BACKEND_MISMATCH
+                                                            || repairReason == RowBinlogRepairReason.PATH_MISMATCH);
+                                            rowBinlogMismatchNum++;
+                                            rowBinlogMismatchTabletIds.add(tablet.getId());
+                                        }
                                         break;
                                     case COLOCATE_REDUNDANT:
-                                        colocateRedundantNum++;
-                                        colocateRedundantTabletIds.add(tablet.getId());
+                                        if (rowBinlogHealthResult == null) {
+                                            colocateRedundantNum++;
+                                            colocateRedundantTabletIds.add(tablet.getId());
+                                        } else {
+                                            Preconditions.checkState(rowBinlogHealthResult.getRepairReason()
+                                                    == RowBinlogRepairReason.REDUNDANT);
+                                            rowBinlogRedundantNum++;
+                                            rowBinlogRedundantTabletIds.add(tablet.getId());
+                                        }
                                         break;
                                     case NEED_FURTHER_REPAIR:
                                         needFurtherRepairNum++;
@@ -300,6 +332,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
                 this.replicaMissingForTagNum += other.replicaMissingForTagNum;
                 this.colocateMismatchNum += other.colocateMismatchNum;
                 this.colocateRedundantNum += other.colocateRedundantNum;
+                this.rowBinlogMismatchNum += other.rowBinlogMismatchNum;
+                this.rowBinlogRedundantNum += other.rowBinlogRedundantNum;
                 this.needFurtherRepairNum += other.needFurtherRepairNum;
                 this.unrecoverableNum += other.unrecoverableNum;
                 this.replicaCompactionTooSlowNum += other.replicaCompactionTooSlowNum;
@@ -340,6 +374,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             row.add(inconsistentNum);
             row.add(oversizeNum);
             row.add(cloningNum);
+            row.add(rowBinlogMismatchNum);
+            row.add(rowBinlogRedundantNum);
             return row.stream().map(String::valueOf).collect(Collectors.toList());
         }
     }

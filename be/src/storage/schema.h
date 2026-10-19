@@ -42,6 +42,7 @@ namespace doris {
 
 class ReadSchema;
 class Block;
+class SlotDescriptor;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 
 // Select columns by their ordinal in `columns`, preserving the requested order and duplicates.
@@ -70,6 +71,10 @@ public:
     static IColumn::MutablePtr get_predicate_column_ptr(const DataTypePtr& data_type,
                                                         const ReaderType reader_type);
 
+    // Builds the column `slot` reads from the slot's name, unique id, type and default value.
+    // For a column the tablet schema does not have yet, e.g. one a light schema change just added.
+    static TabletColumn tablet_column_from_slot(const SlotDescriptor& slot);
+
     const std::vector<TabletColumnPtr>& columns() const { return _read_columns; }
 
     DataTypePtr data_type(size_t ordinal) const {
@@ -85,15 +90,22 @@ public:
 
     std::string read_columns_to_string() const;
 
-    Status init_sequence_map(const TabletSchema& tablet_schema);
+    // Always sets the two facts below; the flags add the sequence mapping and the row-binlog
+    // before-image mapping.
+    Status init_from_tablet_schema(const TabletSchema& tablet_schema,
+                                   bool merge_by_sequence_mapping, bool map_row_binlog_columns);
+
+    // Whether the tablet schema defines a sequence mapping -- not whether this read merges by
+    // one. A MoW query does not merge, yet a value predicate still must not be pushed down.
+    bool tablet_has_sequence_map() const { return _tablet_has_sequence_map; }
+
+    // Whether the tablet schema materializes variant subcolumns as extracted columns. A
+    // compaction read then takes them as flat leaves.
+    bool tablet_has_extracted_variant_columns() const {
+        return _tablet_has_extracted_variant_columns;
+    }
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
-
-    // Initialize all row-binlog column relationships from the physical tablet schema and map
-    // them to this ReadSchema's dense ordinals. Physical pairing avoids ambiguous column-name
-    // lookup, while schemas without a complete physical layout retain the name-based BEFORE
-    // mapping initialized by the constructor.
-    void init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
 
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
     // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
@@ -153,6 +165,8 @@ public:
 private:
     void _init_read_types();
     void _init_before_column_ordinals();
+    Status _init_sequence_map(const TabletSchema& tablet_schema);
+    void _init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -240,6 +254,8 @@ private:
     std::vector<ColumnId> _before_column_ordinals;
     RowBinlogValueColumnPairs _row_binlog_value_column_pairs;
     bool _row_binlog_value_pairs_complete = false;
+    bool _tablet_has_sequence_map = false;
+    bool _tablet_has_extracted_variant_columns = false;
 };
 
 } // namespace doris
