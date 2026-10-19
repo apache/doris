@@ -323,7 +323,7 @@ public class SPMRound65ManagerTest {
         }
 
         @Override
-        public BaselinePersistence.SeqReservation pendingSeqReservation(
+        public BaselinePersistence.SeqReservation readLatestReservation(
                 String bindSqlDigest, long planSqlHash) {
             long[] entry = records.get(key(bindSqlDigest, planSqlHash));
             return entry == null ? null : new BaselinePersistence.SeqReservation(

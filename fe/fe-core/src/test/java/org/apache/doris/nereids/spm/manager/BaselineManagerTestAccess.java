@@ -141,6 +141,7 @@ public final class BaselineManagerTestAccess {
             ((Map<?, ?>) get(manager, "pendingMutationFences")).clear();
             ((Map<?, ?>) staticValue("pendingDroppedMarkers")).clear();
             ((Map<?, ?>) staticValue("pendingDropTombstoneConfirmations")).clear();
+            ((Map<?, ?>) staticValue("pendingDropKeyCleanups")).clear();
             ((Map<?, ?>) staticValue("unresolvedMutationWindows")).clear();
             set(manager, "knownHashes", new ConcurrentHashMap<Long, Long>());
             clearRowCache(manager);
@@ -264,6 +265,49 @@ public final class BaselineManagerTestAccess {
 
     public static boolean holdsUnresolvedMutationWindow() {
         return !((Map<?, ?>) staticValue("unresolvedMutationWindows")).isEmpty();
+    }
+
+    /**
+     * Opens one shared mutation window through the PRODUCTION path (round-73 #6: the tick's
+     * cluster-wide uniqueness is verified here).
+     */
+    public static long beginRowMutation(BaselineManager manager) {
+        return ((Number) invoke(manager, "beginRowMutation", new Class<?>[0])).longValue();
+    }
+
+    /** Closes one shared mutation window through the production path. */
+    public static void endRowMutation(BaselineManager manager, long tick) {
+        invoke(manager, "endRowMutation", new Class<?>[] {long.class}, tick);
+    }
+
+    /**
+     * Runs the snapshot's drop-tombstone filter (round-73 #4: the identity-state reads it
+     * issues) and returns the surviving row count.
+     */
+    public static int filterSnapshot(BaselineManager manager, Map<Long, BaselinePlan> snapshot) {
+        Map<?, ?> filtered = (Map<?, ?>) invoke(manager, "filterResurrectedRows",
+                new Class<?>[] {Map.class}, snapshot);
+        return filtered.size();
+    }
+
+    /** The identity of a DROP whose KEY CLEANUP is still retained (see round-73 #2). */
+    public static boolean retainsDropKeyCleanup(long id) {
+        return ((Map<?, ?>) staticValue("pendingDropKeyCleanups")).containsKey(id);
+    }
+
+    /**
+     * Runs the create's ownership proof (round-74: the store-assembled reservation view).
+     *
+     * @param manager       the manager
+     * @param id            the id the CREATE reserved
+     * @param bindSqlDigest the identity's canonical bind digest
+     * @param planSqlHash   the identity's plan SQL hash
+     */
+    public static void confirmReservationReadable(BaselineManager manager, long id,
+            String bindSqlDigest, long planSqlHash) {
+        invoke(manager, "confirmReservationReadable",
+                new Class<?>[] {long.class, String.class, long.class},
+                id, bindSqlDigest, planSqlHash);
     }
 
     /**

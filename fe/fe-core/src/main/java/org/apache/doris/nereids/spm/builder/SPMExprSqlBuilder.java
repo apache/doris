@@ -107,6 +107,21 @@ import java.util.stream.Collectors;
 public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     /**
+     * Depth of the AGGREGATE argument list currently being rendered (see
+     * visitBoundFunction / visitAggregateExpression / visitWindow).
+     *
+     * Only INSIDE an aggregate's argument does an analyzer-inserted integral -> LARGEINT
+     * widening carry the LOWERING's accumulator semantics
+     * (see preservesLoweredAccumulator). Anywhere else - an operand of ordinary arithmetic -
+     * the same shape is an ordinary coercion, and freezing it pins the CAPTURED operand type:
+     * `k + 9223372036854775808` (BIGINT k, LARGEINT literal) freezes
+     * `CAST(k AS LARGEINT) + _spm_const_var(1)`, so the `+ 0.25` variant re-analyzes against a
+     * LARGEINT operand, derives DECIMAL(38,0) and truncates the substituted value to 1 instead
+     * of the original expression's DECIMAL(23,2) 1.25.
+     */
+    private int aggregateArgumentDepth;
+
+    /**
      * Prints a single expression.
      *
      * @param expr     the expression to print
@@ -115,6 +130,25 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      */
     public String print(Expression expr, SQLRelation relation) {
         return expr.accept(this, relation);
+    }
+
+    /**
+     * Renders one function's argument list, with the ACCUMULATOR frame active for an
+     * aggregate (see aggregateArgumentDepth).
+     */
+    private String renderArguments(boolean aggregate, List<Expression> arguments,
+            SQLRelation context) {
+        if (!aggregate) {
+            return arguments.stream().map(argument -> argument.accept(this, context))
+                    .collect(Collectors.joining(", "));
+        }
+        aggregateArgumentDepth++;
+        try {
+            return arguments.stream().map(argument -> argument.accept(this, context))
+                    .collect(Collectors.joining(", "));
+        } finally {
+            aggregateArgumentDepth--;
+        }
     }
 
     @Override
@@ -342,9 +376,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             }
             return rendered;
         }
-        String args = boundFunction.children().stream()
-                .map(a -> a.accept(this, context))
-                .collect(Collectors.joining(", "));
+        String args = renderArguments(boundFunction instanceof AggregateFunction,
+                boundFunction.children(), context);
         return functionName(boundFunction) + "(" + args + ")";
     }
 
@@ -422,9 +455,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         }
         // Explicitly handle DISTINCT aggregates: count(distinct col)
         String distinct = fn.isDistinct() ? "distinct " : "";
-        String args = fn.children().stream()
-                .map(a -> a.accept(this, context))
-                .collect(Collectors.joining(", "));
+        String args = renderArguments(true, fn.children(), context);
         return functionName(fn) + "(" + distinct + args + ")";
     }
 
@@ -448,13 +479,11 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             } else {
                 String distinct = aggFn.isDistinct() ? "DISTINCT " : "";
                 fnSql = functionName(aggFn) + "(" + distinct
-                        + fn.children().stream().map(c -> print(c, context))
-                                .collect(Collectors.joining(", ")) + ")";
+                        + renderArguments(true, fn.children(), context) + ")";
             }
         } else if (fn instanceof BoundFunction) {
             fnSql = functionName((BoundFunction) fn) + "("
-                    + fn.children().stream().map(c -> print(c, context))
-                            .collect(Collectors.joining(", ")) + ")";
+                    + renderArguments(false, fn.children(), context) + ")";
         } else {
             fnSql = print(fn, context);
         }
@@ -599,6 +628,12 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * the original AVG averages to 5.5e18 - overflowed the frozen replay's sum, even for the
      * identical SQL (the CREATE probe only RE-PLANS the text, it never executes it).
      *
+     * The accumulator guarantee only exists INSIDE an aggregate's argument list (see
+     * aggregateArgumentDepth): an operand of ordinary arithmetic (`k + 9223372036854775808`)
+     * carries the same shape, but there it is plain type coercion - keeping it pins the
+     * CAPTURED operand type and makes a literal of another type replay under the wrong
+     * coercion (the `+ 0.25` variant truncated to an integer).
+     *
      * Only an integral WIDENING over a REAL value qualifies: a cast over a substituted
      * placeholder / literal is exactly the type pinning the stripping exists to avoid, and a
      * narrowing or same-width cast carries no accumulator guarantee.
@@ -606,7 +641,10 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * @param cast the analyzer-inserted cast
      * @return true when the cast must survive into the frozen SQL
      */
-    private static boolean preservesLoweredAccumulator(Cast cast) {
+    private boolean preservesLoweredAccumulator(Cast cast) {
+        if (aggregateArgumentDepth <= 0) {
+            return false;
+        }
         Expression child = cast.child();
         try {
             DataType childType = child.getDataType();

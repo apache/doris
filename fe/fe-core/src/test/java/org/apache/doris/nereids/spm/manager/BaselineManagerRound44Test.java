@@ -120,7 +120,7 @@ public class BaselineManagerRound44Test {
         }
 
         @Override
-        public BaselinePersistence.SeqReservation pendingSeqReservation(String bindSqlDigest,
+        public BaselinePersistence.SeqReservation readLatestReservation(String bindSqlDigest,
                 long planSqlHash) {
             long[] entry = records.get(key(bindSqlDigest, planSqlHash));
             return entry == null ? null : new BaselinePersistence.SeqReservation(
@@ -203,7 +203,7 @@ public class BaselineManagerRound44Test {
                     () -> manager.createBaseline(baseline("d-p5", "p-p5")));
             long reserved = store.reservedHighWater;
             Assertions.assertTrue(reserved > 0, "the attempt reserved an id");
-            BaselinePersistence.SeqReservation record = store.pendingSeqReservation(
+            BaselinePersistence.SeqReservation record = store.readLatestReservation(
                     "d-p5", SPMUtils.hashOf("p-p5"));
             Assertions.assertNotNull(record,
                     "the plain reservation IS the durable identity record");

@@ -51,10 +51,16 @@ public class SPMRound69BuilderTest {
     public void testAccumulatorWideningOverAColumnIsPreserved() {
         SlotReference k = new SlotReference("k", BigIntType.INSTANCE);
         Cast widening = new Cast(k, LargeIntType.INSTANCE);
+        // the lowering's shape: the widening is the AGGREGATE's argument (round-73 #1 made
+        // the preservation depend on that frame - as an operand of ordinary arithmetic the
+        // same cast is a plain coercion that must be stripped)
+        org.apache.doris.nereids.trees.expressions.functions.agg.Sum sum =
+                new org.apache.doris.nereids.trees.expressions.functions.agg.Sum(true, false, false,
+                        widening);
 
         Assertions.assertFalse(widening.isExplicitType(),
                 "precondition: the AVG lowering inserts an ANALYZER cast");
-        Assertions.assertEquals("CAST(k AS LARGEINT)", print(widening),
+        Assertions.assertEquals("sum(CAST(k AS LARGEINT))", print(sum),
                 "stripping the widening made the frozen SUM accumulate in BIGINT and"
                         + " overflow on two 5e18-scale distinct values");
     }

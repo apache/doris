@@ -116,7 +116,7 @@ public final class BaselineTestDoubles {
         }
 
         /** The latest identity record of one baseline in the simulated sequence table. */
-        default BaselinePersistence.SeqReservation pendingSeqReservation(String bindSqlDigest,
+        default BaselinePersistence.SeqReservation readLatestReservation(String bindSqlDigest,
                 long planSqlHash) {
             return null;
         }
@@ -450,9 +450,9 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public SeqReservation pendingSeqReservation(String bindSqlDigest, long planSqlHash) {
+        public SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash) {
             return idAllocatorStore == null ? null
-                    : idAllocatorStore.pendingSeqReservation(bindSqlDigest, planSqlHash);
+                    : idAllocatorStore.readLatestReservation(bindSqlDigest, planSqlHash);
         }
 
         @Override

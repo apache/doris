@@ -233,11 +233,22 @@ public class BaselineManager {
 
     /**
      * How many low bits of a mutation tick carry the window's FE identity (see
-     * mutationTickSalt): enough range that two FEs writing in the same millisecond do not
+     * mutationTickSalt): enough range that two FEs writing in the same millisecond almost never
      * collide, small enough that the millisecond stays in the high bits (the clock's
-     * cluster-wide ordering).
+     * cluster-wide ordering: the remaining 44 bits cover roughly 550 years of millis).
+     *
+     * The salt only makes a collision UNLIKELY; beginRowMutation therefore VERIFIES that the
+     * marker it appended is the only one carrying its tick (see MUTATION_TICK_OPEN_ATTEMPTS).
      */
-    private static final int MUTATION_TICK_FE_BITS = 16;
+    private static final int MUTATION_TICK_FE_BITS = 20;
+
+    /**
+     * How many fresh ticks one window open may try when the marker it appended shares its tick
+     * with another FE's window (see beginRowMutation): a random salt is not a guarantee, and two
+     * windows sharing one identity would let either writer's exact-row close delete the OTHER's
+     * still-open marker - turning an in-flight row statement into a quiet clock.
+     */
+    private static final int MUTATION_TICK_OPEN_ATTEMPTS = 3;
 
     /** The value mask of MUTATION_TICK_FE_BITS (see nextMutationTick). */
     private static final long MUTATION_TICK_FE_MASK = (1L << MUTATION_TICK_FE_BITS) - 1;
@@ -520,6 +531,26 @@ public class BaselineManager {
             + " AND `plan_sql_hash` = ${planSqlHash}"
             + " ORDER BY `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
             + " `unconfirmed` DESC LIMIT 1";
+
+    /**
+     * The BATCHED form of SELECT_COMPACT_SEQ_SQL (see
+     * #{@link BaselinePersistence#readLatestReservations}): the newest compact row of every
+     * requested slot in ONE read. The rows are ordered so the caller can keep the FIRST row of
+     * each slot - the same newest-first order the single read takes.
+     */
+    private static final String SELECT_COMPACT_SEQ_BATCH_SQL = "SELECT `id`, `last_id`, "
+            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` IN (${compactIds})"
+            + " ORDER BY `id` ASC, `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
+            + " `unconfirmed` DESC";
+
+    /**
+     * How many identity slots one batched compact read asks for (see
+     * withIdentityDrops): a snapshot of 2,000 live baselines then costs 20 bounded queries
+     * instead of 2,000 distributed ones, while the IN list stays short enough for the planner
+     * of the duplicate-key delete/read fallbacks.
+     */
+    private static final int IDENTITY_STATE_BATCH_SIZE = 100;
 
     /**
      * Retires the UNCONFIRMED marker(s) of ONE resolved ambiguous write:
@@ -908,6 +939,20 @@ public class BaselineManager {
      */
     private static final Map<Long, PendingDropObligation> pendingDropTombstoneConfirmations =
             new ConcurrentHashMap<>();
+
+    /**
+     * The drop ids whose KEY CLEANUP (the same-key twin retirement of retireSupersededKeyTwins)
+     * is still unfinished, id -> the identity row the DROP removed.
+     *
+     * A DROP deletes its own row FIRST and retires the same-key twins afterwards. When a twin's
+     * delete throws, the retry finds the id's row ABSENT - so it never reaches
+     * retireSupersededKeyTwins with an identity again - and the STILL DURABLE twin keeps
+     * matching the dropped key (with same-key handoff rows 40/41/42 it is 42: its higher
+     * allocation is the newest non-dropped compact reservation, so the identity filter does not
+     * hide it). The retained identity lets an absent-row retry RESUME the cleanup (see
+     * resumePendingDropKeyCleanup) before it settles the tombstone obligation.
+     */
+    private static final Map<Long, BaselinePlan> pendingDropKeyCleanups = new ConcurrentHashMap<>();
 
     /**
      * A mutation window this FE holds OPEN after its row statement was DISPATCHED but its
@@ -2566,6 +2611,11 @@ public class BaselineManager {
             // dropped): DROP is keyed by the user-facing id, so no row of this id may
             // survive - identity-deleting only the stale object would report success
             // while the real row stays and keeps matching later reads.
+            // Retain the identity for the KEY CLEANUP below (see
+            // resumePendingDropKeyCleanup): the twin retirement runs AFTER the identity
+            // delete, so a twin whose delete throws leaves the dropped id ABSENT and this
+            // retention is then the only source of the twins that still have to go.
+            retainDropKeyCleanup(removed);
             List<BaselinePlan> retiredTwins = new ArrayList<>();
             try {
                 retiredTwins = wipeDurableRowsById(id, removed, retiredTwins);
@@ -2632,6 +2682,7 @@ public class BaselineManager {
             droppedRows.add(removed);
             droppedRows.addAll(retiredTwins);
             confirmDropTombstonesDurable(droppedRows, id);
+            pendingDropKeyCleanups.remove(id);
             return true;
         }
     }
@@ -2714,6 +2765,14 @@ public class BaselineManager {
             // the absent row as "nothing to drop" DROPPED the obligation that attempt
             // retained, so settle (re-append + confirm) the owed markers first - a still
             // unreadable marker keeps the DROP retryable (the reviewer's C2 finding).
+            //
+            // The failed attempt may ALSO have left its KEY CLEANUP unfinished: the DROP
+            // deletes its own row and retires the same-key twins AFTERWARDS, so a twin whose
+            // delete threw is still durable while this retry sees no row of the id at all - it
+            // would then report the DROP successful with that twin still matchable (the
+            // reviewer's 40/41/42 schedule). Resume it BEFORE the confirmation: the resumed
+            // retirements record their own markers into the same obligation.
+            resumePendingDropKeyCleanup(id);
             if (pendingDropTombstoneConfirmations.containsKey(id)) {
                 confirmAbsentDropTombstones(id);
             }
@@ -2764,6 +2823,12 @@ public class BaselineManager {
         // retire the KEY's superseded same-key twins as well: this cache-miss DROP path
         // must not leave the loser of a handoff twin pair durable (see
         // retireSupersededKeyTwins)
+        // Retain the identity BEFORE that cleanup is dispatched: a twin delete that throws
+        // leaves this id ABSENT durably, so the retry has no other source for the identity
+        // whose twins still have to be retired (see resumePendingDropKeyCleanup).
+        for (BaselinePlan row : durable) {
+            retainDropKeyCleanup(row);
+        }
         List<BaselinePlan> retiredKeys = new ArrayList<>();
         try {
             for (BaselinePlan row : durable) {
@@ -2789,9 +2854,59 @@ public class BaselineManager {
         recordPendingMutationFence(id, null, 0);
         // prove the tombstones readable before reporting the DROP (see dropBaseline)
         confirmDropTombstonesDurable(droppedRows, id);
+        pendingDropKeyCleanups.remove(id);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
         return true;
+    }
+
+    /**
+     * Retains the identity of a DROP whose KEY CLEANUP is about to be dispatched (see
+     * pendingDropKeyCleanups). The snapshot is scalar-only: the transient trees are not needed
+     * to re-discover the twins, and a cached row's trees may be stale.
+     *
+     * @param identity the row this DROP removed
+     */
+    private void retainDropKeyCleanup(BaselinePlan identity) {
+        if (identity == null || identity.getId() <= 0 || !persistence.isDurable()) {
+            return;
+        }
+        pendingDropKeyCleanups.put(identity.getId(), identity.copyPersistedScalars());
+    }
+
+    /**
+     * Resumes the KEY CLEANUP a failed DROP attempt left unfinished (see
+     * pendingDropKeyCleanups), called by the ABSENT-row retry: that retry has no identity row
+     * any more, so it re-discovers the same-key twins from the retained one and retires them.
+     *
+     * The retirement is idempotent from the durable side (already retired twins are absent and
+     * drop out of the discovery read), and both markers and cache eviction follow the normal
+     * path: every resumed twin is tombstoned into this DROP's obligation (oweDropTombstone) and
+     * leaves the warm cache (evictRetiredRows). A failure keeps the retention, so the next
+     * retry resumes again.
+     *
+     * @param id the dropped id
+     */
+    private void resumePendingDropKeyCleanup(long id) {
+        BaselinePlan identity = pendingDropKeyCleanups.get(id);
+        if (identity == null) {
+            return;
+        }
+        List<BaselinePlan> retired = new ArrayList<>();
+        try {
+            retireSupersededKeyTwins(identity, retired);
+        } catch (RuntimeException e) {
+            // the twins retired by THIS attempt are gone durably: they must leave the warm
+            // cache and keep their markers, and the retention makes the next retry resume
+            evictRetiredRows(retired);
+            throw e;
+        }
+        evictRetiredRows(retired);
+        pendingDropKeyCleanups.remove(id);
+        if (!retired.isEmpty()) {
+            LOG.info("SPM resumed the key cleanup of dropped baseline {} and retired {} same-key"
+                    + " twin(s) the failed attempt left behind", id, retired.size());
+        }
     }
 
     /**
@@ -3391,6 +3506,33 @@ public class BaselineManager {
             }
             confirmInsertVisible(intent);
             long keepFromSecond = Math.max(0L, intentTime / 1000L);
+            // The intent's read-back confirmation can consume most of the window's
+            // successor-facing age bound (BASELINE_VISIBILITY_ATTEMPTS probes). A window past
+            // that bound is IGNORED by every other FE's fence read, so the DELETE below would
+            // run with nothing left to reject a paginated reader's stale page - the prune had
+            // no renewed lease and no dispatch-age check of its own (the round-73 finding).
+            try {
+                assertMutationWindowDispatchable(mutation);
+            } catch (MutationWindowUnavailableException agedWindow) {
+                // The intent is CONFIRMED READABLE, so the ordering it proves is durable (its
+                // stored second is the newest one) and its window may close now. The prune gets
+                // a FRESH window: a renewed lease, not a reused one.
+                endRowMutation(mutation);
+                mutation = 0;
+                try {
+                    mutation = beginRowMutation();
+                    LOG.info("SPM renewed the mutation window of the no-op status statement of"
+                            + " baseline {} before its version prune (new window {})",
+                            plan.getId(), mutation);
+                } catch (RuntimeException renewFailure) {
+                    // The prune is best effort by design (the next statement reclaims the
+                    // versions); the status itself is already durable and must not fail for it.
+                    LOG.warn("SPM leaves the superseded-version prune of baseline {} to the"
+                            + " next statement: its renewed mutation window could not be opened"
+                            + " ({})", plan.getId(), renewFailure.getMessage());
+                    return intentTime;
+                }
+            }
             try {
                 persistence.pruneSupersededVersions(intent, keepFromSecond);
                 // SQL OK is not PUBLICATION: the DELETE may have committed while readers still
@@ -5697,12 +5839,16 @@ public class BaselineManager {
     }
 
     /**
-     * Whether the open-window row beginRowMutation just appended is READABLE (see
-     * SELECT_PENDING_TICK_SQL): the confirmation that the window it opens is SHARED before
-     * its statement is dispatched.
+     * How many READABLE markers carry the open-window tick beginRowMutation just appended (see
+     * SELECT_PENDING_TICK_SQL): the confirmation that the window it opens is SHARED before its
+     * statement is dispatched - and, because a window identity must be unique cluster-wide, the
+     * count of the windows that identity currently names (see tryOpenRowMutationWindow).
+     *
+     * @param tick the window tick to probe
+     * @return the number of visible rows carrying this tick in `pending`
      */
-    private boolean pendingWindowVisible(long tick) throws Exception {
-        return persistence.countVisiblePending(tick) > 0;
+    private long pendingWindowVisible(long tick) throws Exception {
+        return persistence.countVisiblePending(tick);
     }
 
     /** The live implementation half of {@link BaselinePersistence#countVisiblePending}. */
@@ -5790,6 +5936,35 @@ public class BaselineManager {
             throw new RuntimeException("SPM mutation clock read failed (retry the"
                     + " operation): " + e.getMessage(), e);
         }
+        for (int attempt = 0; attempt < MUTATION_TICK_OPEN_ATTEMPTS; attempt++) {
+            long opened = tryOpenRowMutationWindow(watermark);
+            if (opened != 0) {
+                return opened;
+            }
+        }
+        throw new MutationWindowUnavailableException("SPM cannot open a mutation window whose"
+                + " identity is unique cluster-wide (every attempted tick is already held by"
+                + " another FE's window); nothing was changed - retry the operation");
+    }
+
+    /**
+     * One attempt of {@link #beginRowMutation}: appends the window marker for a fresh tick,
+     * waits for it to become READABLE and verifies that it is UNIQUE.
+     *
+     * The uniqueness check is what makes the window identity trustworthy: the tick carries this
+     * FE's random salt (see mutationTickSalt), and two processes drawing the SAME salt in the
+     * SAME millisecond would open two windows with one identity - either writer's exact-row
+     * close (PRUNE_HWM_OPEN_SQL) would then delete the OTHER's still-open marker, so a
+     * successor reading the clock after that close sees QUIET while the other row statement is
+     * still in flight. A collision is detected by the marker read itself (the probe counts the
+     * rows carrying this tick), the collided tick is ABANDONED - closing it would delete the
+     * other FE's marker - and the caller retries with a NEWER tick. The abandoned row carries a
+     * pending marker of its own and therefore ages out like any other window.
+     *
+     * @param watermark the slot watermark the marker records
+     * @return the open window tick, or 0 when this attempt's tick collided
+     */
+    private long tryOpenRowMutationWindow(long watermark) {
         long tick = nextMutationTick();
         // The instant the window's marker is about to be written: the pre-write budget below
         // (marker INSERT, its prunes, the visibility probes) already consumes part of the
@@ -5798,8 +5973,9 @@ public class BaselineManager {
         // MUTATION_WINDOW_MAX_AGE_SECONDS).
         long windowOpenedAt = mutationWindowNow();
         writeHwmRecord(watermark, tick, tick, true);
+        long sharedWindows;
         try {
-            awaitMutationWindowVisible(tick);
+            sharedWindows = awaitMutationWindowVisible(tick);
         } catch (MutationWindowUnavailableException e) {
             // The statement will NOT be dispatched, so the window must not stay open: close
             // it best effort exactly like a completed mutation would (the completion append
@@ -5807,6 +5983,13 @@ public class BaselineManager {
             // reason to leave every snapshot read retrying for the age bound.
             endRowMutation(tick);
             throw e;
+        }
+        if (sharedWindows > 1) {
+            LOG.warn("SPM abandoned mutation window {}: {} rows carry that tick, so another"
+                    + " FE opened a window with the same identity (equal salt in the same"
+                    + " millisecond); retrying with a fresh tick - the abandoned row ages out",
+                    tick, sharedWindows);
+            return 0;
         }
         long elapsedMillis = mutationWindowNow() - windowOpenedAt;
         if (elapsedMillis + BASELINE_WRITE_TIMEOUT_SECONDS * 1000L
@@ -5843,12 +6026,16 @@ public class BaselineManager {
      * (PRUNE_HWM_SQL), so the confirmation cannot be raced away by a concurrent append.
      *
      * @param tick the window tick just written
+     * @return the number of visible markers carrying this tick (1 = this process's window
+     *         alone, more = the identity is shared with another FE, see
+     *         tryOpenRowMutationWindow)
      */
-    private void awaitMutationWindowVisible(long tick) {
+    private long awaitMutationWindowVisible(long tick) {
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             try {
-                if (pendingWindowVisible(tick)) {
-                    return;
+                long visible = pendingWindowVisible(tick);
+                if (visible > 0) {
+                    return visible;
                 }
             } catch (Exception e) {
                 LOG.debug("SPM mutation window visibility probe failed: {}", e.getMessage());
@@ -6211,14 +6398,15 @@ public class BaselineManager {
             return;
         }
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            // the EXACT reads a successor / retry performs: the allocation watermark
-            // (compact HWM reconciled with the sequence tail) and the identity lookup
-            // (compact slot reconciled with the history legacy read)
-            boolean watermarkReadable = persistence.sequenceWatermark() >= id;
-            BaselinePersistence.SeqReservation reservation =
-                    persistence.pendingSeqReservation(bindSqlDigest, planSqlHash);
-            if (watermarkReadable && reservation != null && reservation.id == id
-                    && !reservation.dropped) {
+            // ONE view of the EXACT reads a successor / retry performs: the allocation
+            // watermark (compact HWM reconciled with the sequence tail) and the identity
+            // lookup (compact slot reconciled with the history legacy read). The store
+            // assembles the pair so this proof can never drift into a "more reliable" read
+            // of its own - it must assert the visibility a successor will have, not a
+            // stronger one (see BaselinePersistence#readReservationView).
+            BaselinePersistence.ReservationView view =
+                    persistence.readReservationView(bindSqlDigest, planSqlHash);
+            if (view.showsReservation(id)) {
                 return;
             }
             sleepBeforeVisibilityRetry();
@@ -6672,15 +6860,48 @@ public class BaselineManager {
             return tombstones;
         }
         Set<String> extended = new java.util.HashSet<>(tombstones);
-        for (List<BaselinePlan> identityRows : byIdentity.values()) {
-            BaselinePlan first = identityRows.get(0);
-            BaselinePersistence.SeqReservation state = persistence.pendingSeqReservation(
-                    first.getBindSqlDigest(), identityPlanSqlHash(first));
-            if (state == null || !state.dropped) {
-                continue;
+        // The identity states are read in BOUNDED BATCHES: the per-identity form issued one
+        // distributed SELECT for EVERY live baseline on every periodic refresh on every FE
+        // (2,000 identities = 2,000 sequential queries, all of them under the refresh's writer
+        // lock). A slot the batch does NOT answer still takes the single-identity read, which
+        // replays the append-only HISTORY - a compact tombstone can PREDATE a newer
+        // reservation of the same identity (see readPersistedSeqReservation).
+        List<Map.Entry<String, List<BaselinePlan>>> groups =
+                new ArrayList<>(byIdentity.entrySet());
+        for (int start = 0; start < groups.size(); start += IDENTITY_STATE_BATCH_SIZE) {
+            List<Map.Entry<String, List<BaselinePlan>>> batch = groups.subList(start,
+                    Math.min(groups.size(), start + IDENTITY_STATE_BATCH_SIZE));
+            Set<Long> compactIds = new java.util.LinkedHashSet<>();
+            for (Map.Entry<String, List<BaselinePlan>> group : batch) {
+                BaselinePlan first = group.getValue().get(0);
+                compactIds.add(compactSeqId(first.getBindSqlDigest(), identityPlanSqlHash(first)));
             }
-            for (BaselinePlan row : identityRows) {
-                extended.add(droppedIdentityKey(row));
+            Map<Long, BaselinePersistence.SeqReservation> batched;
+            try {
+                batched = persistence.readLatestReservations(compactIds,
+                        INTERNAL_QUERY_TIMEOUT_SECONDS);
+            } catch (RuntimeException e) {
+                throw new RuntimeException("SPM durable identity-state read failed (retry the"
+                        + " operation): " + e.getMessage(), e);
+            }
+            for (Map.Entry<String, List<BaselinePlan>> group : batch) {
+                BaselinePlan first = group.getValue().get(0);
+                long planSqlHash = identityPlanSqlHash(first);
+                BaselinePersistence.SeqReservation state = batched == null ? null
+                        : batched.get(compactSeqId(first.getBindSqlDigest(), planSqlHash));
+                if (state == null || state.dropped) {
+                    // the compact slot cannot answer (a hash slot shared with another identity,
+                    // a tombstone that may be older than the newest reservation, or a store
+                    // without the batched read): reconcile with the history
+                    state = persistence.readLatestReservation(first.getBindSqlDigest(),
+                            planSqlHash);
+                }
+                if (state == null || !state.dropped) {
+                    continue;
+                }
+                for (BaselinePlan row : group.getValue()) {
+                    extended.add(droppedIdentityKey(row));
+                }
             }
         }
         return extended;
@@ -7004,7 +7225,7 @@ public class BaselineManager {
         }
         long planSqlHash = identityPlanSqlHash(plan);
         BaselinePersistence.SeqReservation reservation =
-                persistence.pendingSeqReservation(plan.getBindSqlDigest(), planSqlHash);
+                persistence.readLatestReservation(plan.getBindSqlDigest(), planSqlHash);
         if (reservation == null) {
             // no identity record of this key: no ambiguous write exists (the reservation
             // row every create appends BEFORE its INSERT is the one record that always
@@ -7412,14 +7633,87 @@ public class BaselineManager {
     /** One identity row's state, from either read (compact and history share the
      * column tuple last_id / reserve_time / unconfirmed / dropped). */
     private static BaselinePersistence.SeqReservation parseSeqReservation(ResultRow row) {
-        String idText = row.getWithDefault(0, "");
+        return parseSeqReservation(row, 0);
+    }
+
+    /**
+     * The offset form of {@link #parseSeqReservation(ResultRow)} (see
+     * readLatestReservationsFromTable, whose read prefixes the compact slot id).
+     *
+     * @param row    the result row
+     * @param offset the index of the last_id column
+     * @return the parsed state, or null when the row carries no id
+     */
+    private static BaselinePersistence.SeqReservation parseSeqReservation(ResultRow row,
+            int offset) {
+        String idText = row.getWithDefault(offset, "");
         if (idText == null || idText.isEmpty()) {
             return null;
         }
-        String timeText = row.getValues().size() > 1 ? row.getWithDefault(1, "") : "";
+        String timeText = row.getValues().size() > offset + 1
+                ? row.getWithDefault(offset + 1, "") : "";
         long reserveTime = parseStoredMillis(timeText);
         return new BaselinePersistence.SeqReservation(Long.parseLong(idText.trim()), reserveTime,
-                isFlagSet(row, 2), isFlagSet(row, 3));
+                isFlagSet(row, offset + 2), isFlagSet(row, offset + 3));
+    }
+
+    /**
+     * The live implementation half of {@link BaselinePersistence#readLatestReservations}: ONE
+     * bounded read over the requested compact slots, keeping the newest row of each slot in the
+     * same newest-first order the single-identity read takes. A slot without a readable row is
+     * simply absent from the result, which makes the caller replay the history for it.
+     *
+     * @param compactIds     the compact slot ids
+     * @param timeoutSeconds the statement timeout
+     * @return compact slot id to its newest compact record
+     */
+    private static Map<Long, BaselinePersistence.SeqReservation> readLatestReservationsFromTable(
+            Collection<Long> compactIds, int timeoutSeconds) {
+        if (!persistenceEnabled() || compactIds == null || compactIds.isEmpty()) {
+            return Map.of();
+        }
+        StringBuilder ids = new StringBuilder();
+        for (Long compactId : compactIds) {
+            if (compactId == null) {
+                continue;
+            }
+            if (ids.length() > 0) {
+                ids.append(", ");
+            }
+            ids.append(compactId.longValue());
+        }
+        if (ids.length() == 0) {
+            return Map.of();
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("compactIds", ids.toString());
+        List<ResultRow> rows;
+        try {
+            rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_COMPACT_SEQ_BATCH_SQL, params, timeoutSeconds));
+        } catch (Exception e) {
+            throw new RuntimeException("SPM batched baseline identity read failed: "
+                    + e.getMessage(), e);
+        }
+        if (rows == null || rows.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, BaselinePersistence.SeqReservation> states = new HashMap<>();
+        for (ResultRow row : rows) {
+            String idText = row.getWithDefault(0, "");
+            if (idText == null || idText.isEmpty()) {
+                continue;
+            }
+            long slot = Long.parseLong(idText.trim());
+            if (states.containsKey(slot)) {
+                continue; // the ORDER BY put the newest row of this slot first
+            }
+            BaselinePersistence.SeqReservation state = parseSeqReservation(row, 1);
+            if (state != null) {
+                states.put(slot, state);
+            }
+        }
+        return states;
     }
 
     /**
@@ -9488,8 +9782,25 @@ public class BaselineManager {
         }
 
         @Override
-        public SeqReservation pendingSeqReservation(String bindSqlDigest, long planSqlHash) {
+        public SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash) {
             return readPersistedSeqReservation(bindSqlDigest, planSqlHash);
+        }
+
+        @Override
+        public Map<Long, SeqReservation> readLatestReservations(Collection<Long> compactIds,
+                int timeoutSeconds) {
+            return readLatestReservationsFromTable(compactIds, timeoutSeconds);
+        }
+
+        @Override
+        public BaselinePersistence.ReservationView readReservationView(String bindSqlDigest,
+                long planSqlHash) {
+            // The two reads this store's OWN successor path performs, in that order.
+            // readPersistedSeqReservation already reconciles the compact slot with the
+            // append-only history; the view must not re-derive that answer here, or the
+            // proof would assert a visibility the successor does not have.
+            return new BaselinePersistence.ReservationView(sequenceWatermark(),
+                    readPersistedSeqReservation(bindSqlDigest, planSqlHash));
         }
 
         @Override

@@ -66,7 +66,7 @@ public class SPMRound72ManagerTest {
         long failDeletesForId = -1L;
         /** null = durable (the store models the durable side). */
         Boolean durableOverride;
-        /** The identity's newest sequence state (see pendingSeqReservation). */
+        /** The identity's newest sequence state (see readLatestReservation). */
         SeqReservation reservation;
         /** Whether the store models the reservation reads at all. */
         boolean modelReservationReads;
@@ -99,7 +99,7 @@ public class SPMRound72ManagerTest {
         }
 
         @Override
-        public SeqReservation pendingSeqReservation(String bindSqlDigest, long planSqlHash) {
+        public SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash) {
             return reservation;
         }
 

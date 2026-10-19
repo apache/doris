@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -133,11 +135,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private long currentRootOrdinal = -1;
 
     /**
-     * Depth of CASE expressions currently visited as a BOOLEAN operand (see
-     * markerPayload): an all-NULL CASE has NullType and the analyzer replaces the whole
+     * Depth of an all-NULL CONDITIONAL (CASE / IF / COALESCE) currently visited in a Boolean
+     * context (see markerPayload): such a node has NullType and the analyzer replaces the whole
      * operand with a typed constant, so its branch NULLs are parameterized BOOLEAN.
      */
-    private int booleanCaseDepth;
+    private int booleanConditionalDepth;
 
     /**
      * Whether a bare integer GROUP BY ordinal references a SELECT item that carries a
@@ -359,6 +361,113 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     // ==================== literal -> scalar placeholder ====================
 
+    /**
+     * Whether the expression is a CONDITIONAL whose every RESULT is a NULL literal, i.e. a
+     * node whose type is NullType.
+     *
+     * The type is derived structurally because this builder walks the UNBOUND plan, where
+     * {@code getDataType()} throws: a CASE with only NULL results, an IF with NULL in both
+     * value positions, and a COALESCE of nothing but NULLs all have NullType, and any of them
+     * collected as a Boolean operand (directly, or through a projected slot) is REPLACED by the
+     * analyzer with a typed constant NULL - which deletes the placeholders inside it.
+     *
+     * @param expr the expression to classify
+     * @return whether every result of the conditional is a NULL literal
+     */
+    private static boolean allResultsAreNullConditional(Expression expr) {
+        List<Expression> children = expr.children();
+        if (expr instanceof CaseWhen) {
+            CaseWhen caseWhen = (CaseWhen) expr;
+            for (WhenClause clause : caseWhen.getWhenClauses()) {
+                if (!clause.getResult().isNullLiteral()) {
+                    return false;
+                }
+            }
+            return !caseWhen.getDefaultValue().isPresent()
+                    || caseWhen.getDefaultValue().get().isNullLiteral();
+        }
+        if (isIfConditional(expr)) {
+            return children.size() == 3 && children.get(1).isNullLiteral()
+                    && children.get(2).isNullLiteral();
+        }
+        if (isCoalesceConditional(expr)) {
+            if (children.isEmpty()) {
+                return false;
+            }
+            for (Expression child : children) {
+                if (!child.isNullLiteral()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether the expression is an {@code IF} / {@code COALESCE} CALL. Matched by NAME through
+     * the {@link Function} interface because the parameterized plan is the UNBOUND one, where
+     * `IF(...)` is still an {@link UnboundFunction} (only the analyzed {@link If} node exists
+     * after binding).
+     *
+     * @param expr the expression to classify
+     * @return whether it is an IF call
+     */
+    private static boolean isIfConditional(Expression expr) {
+        return expr instanceof Function && "if".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression is a {@code COALESCE} call (see isIfConditional).
+     *
+     * @param expr the expression to classify
+     * @return whether it is a COALESCE call
+     */
+    private static boolean isCoalesceConditional(Expression expr) {
+        return expr instanceof Function
+                && "coalesce".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the literal at the CURRENT position is a RESULT of its conditional parent (see
+     * allResultsAreNullConditional) - a CASE's THEN / ELSE, an IF's two value arguments, or any
+     * COALESCE argument.
+     *
+     * Only RESULTS may be typed BOOLEAN: the WHEN / condition operands compare against real
+     * columns, and a BOOLEAN-typed NULL there (`k = CAST(NULL AS BOOLEAN)`) is a type error in
+     * the replayed plan.
+     *
+     * @param parent the literal's parent expression
+     * @return whether the literal sits in a result position
+     */
+    private boolean isConditionalResultPosition(Expression parent) {
+        return isConditionalResultPosition(parent, currentChildIndex());
+    }
+
+    /**
+     * The position-aware form of {@link #isConditionalResultPosition(Expression)}.
+     *
+     * @param parent     the conditional
+     * @param childIndex the position of the child inside it
+     * @return whether that position holds a result
+     */
+    private static boolean isConditionalResultPosition(Expression parent, int childIndex) {
+        if (parent instanceof WhenClause) {
+            // a WHEN clause's children are [operand, result]: only the RESULT may be typed
+            return childIndex == 1;
+        }
+        if (parent instanceof CaseWhen) {
+            // the WHEN clauses are separate WhenClause nodes, so only the ELSE is a direct child
+            CaseWhen caseWhen = (CaseWhen) parent;
+            return caseWhen.getDefaultValue().isPresent()
+                    && childIndex == caseWhen.children().size() - 1;
+        }
+        if (isIfConditional(parent)) {
+            return childIndex == 1 || childIndex == 2;
+        }
+        return isCoalesceConditional(parent);
+    }
+
     @Override
     public Expression visitLiteral(Literal literal, Expression parent) {
         // The ESCAPE operand of LIKE must stay a STRING LITERAL: parameterizing it turned
@@ -395,7 +504,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id,
-                markerPayload(literal, parent, currentProjectItem() >= 0, booleanCaseDepth > 0));
+                markerPayload(literal, parent, currentProjectItem() >= 0,
+                        booleanConditionalDepth > 0 && isConditionalResultPosition(parent)));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
@@ -422,10 +532,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return the payload the placeholder keeps
      */
     private static Literal markerPayload(Literal literal, Expression parent,
-            boolean projectionItem, boolean booleanCaseContext) {
+            boolean projectionItem, boolean booleanConditionalResult) {
         boolean booleanOperand = parent instanceof And || parent instanceof Or
                 || parent instanceof Not;
-        if (literal.isNullLiteral() && (booleanOperand || booleanCaseContext)) {
+        if (literal.isNullLiteral() && (booleanOperand || booleanConditionalResult)) {
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         // A projected NULL (`SELECT NULL AS n` / a bare `SELECT NULL`) exposes a NullType
@@ -566,35 +676,40 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         boolean changed = false;
         List<Expression> newChildren = new ArrayList<>(children.size());
-        // A CASE that IS a Boolean operand (OR / AND / NOT) contributes BOOLEAN-typed
-        // markers: an all-NULL CASE has NullType, and the analyzer then replaces the WHOLE
-        // operand with a typed constant NULL - deleting every placeholder inside it
-        // (`k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END` lost both ids and a TRUE
-        // variant had nothing to substitute).
+        // A CONDITIONAL (CASE / IF / COALESCE) that IS a Boolean operand (OR / AND / NOT)
+        // contributes BOOLEAN-typed markers: an all-NULL conditional has NullType, and the
+        // analyzer then replaces the WHOLE operand with a typed constant NULL - deleting every
+        // placeholder inside it (`k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END` lost both
+        // ids and a TRUE variant had nothing to substitute).
         //
-        // A PROJECTED CASE (the expression of a SELECT item, `... AS n`) reaches its
+        // A PROJECTED conditional (the expression of a SELECT item, `... AS n`) reaches its
         // Boolean consumer through a DERIVED / CTE OUTPUT SLOT, i.e. across the
         // producer/consumer query-block boundary: `SELECT k > 0 OR n FROM
-        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s`. The CASE
+        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s`. The conditional
         // has no direct Boolean parent here, so the guard above left its markers NullType,
-        // the derived slot n stayed NullType, and the CONSUMER's
-        // ExpressionAnalyzer.visitOr replaced that entire slot with a typed constant NULL
-        // while the frozen plan was optimized - the frozen projection became
-        // `k > _spm_const_var(A) OR NULL` and the matching ELSE TRUE variant returned NULL
-        // instead of TRUE. Typing the CASE's NULL markers BOOLEAN makes the projected
-        // column BOOLEAN, so the slot (and the markers inside it) survive any later
-        // binding; a NULL value stays NULL through any coercion. Same rule the projected
-        // NULL literal already follows (see markerPayload).
-        boolean projectedCase = expr instanceof CaseWhen && currentProjectItem() >= 0
+        // the derived slot n stayed NullType, and the CONSUMER's ExpressionAnalyzer.visitOr
+        // replaced that entire slot with a typed constant NULL while the frozen plan was
+        // optimized - the frozen projection became `k > _spm_const_var(A) OR NULL` and the
+        // matching ELSE TRUE variant returned NULL instead of TRUE. Typing the conditional's
+        // NULL markers BOOLEAN makes the projected column BOOLEAN, so the slot (and the
+        // markers inside it) survive any later binding; a NULL value stays NULL through any
+        // coercion. Same rule the projected NULL literal already follows (see markerPayload).
+        //
+        // The CASE-only repair left the SAME defect for every other all-NULL conditional: a
+        // projected `IF(k = 0, NULL, NULL)` consumed by OR is replaced the same way, so the
+        // family is recognised structurally (see allResultsAreNullConditional) instead of by
+        // node class.
+        boolean projectedConditional = allResultsAreNullConditional(expr)
+                && currentProjectItem() >= 0
                 && (parent == null
                         || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
                         || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
-        boolean booleanCaseOperand = expr instanceof CaseWhen
+        boolean booleanConditionalOperand = allResultsAreNullConditional(expr)
                 && (parent instanceof And || parent instanceof Or || parent instanceof Not
-                        || projectedCase);
+                        || projectedConditional);
 
-        if (booleanCaseOperand) {
-            booleanCaseDepth++;
+        if (booleanConditionalOperand) {
+            booleanConditionalDepth++;
         }
         try {
             for (int i = 0; i < children.size(); i++) {
@@ -614,8 +729,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
         } finally {
-            if (booleanCaseOperand) {
-                booleanCaseDepth--;
+            if (booleanConditionalOperand) {
+                booleanConditionalDepth--;
             }
         }
         if (!changed) {

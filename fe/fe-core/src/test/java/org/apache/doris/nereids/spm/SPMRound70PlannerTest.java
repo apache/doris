@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -122,16 +123,20 @@ public class SPMRound70PlannerTest {
     /**
      * `avg(DISTINCT k + 1)` lowers to `sum(DISTINCT CAST(k + ph AS LARGEINT)) / count(...)`.
      * The placeholder inside the arithmetic made the printer skip the widening, so the frozen
-     * SQL summed in BIGINT and could overflow on 5e18-scale values.
+     * SQL summed in BIGINT and could overflow on 5e18-scale values. The widening lives INSIDE the
+     * aggregate's argument list, which is exactly where the accumulator semantics apply
+     * (round-73 #1 restricted the preservation to that frame).
      */
     @Test
     public void testAccumulatorWideningOverPlaceholderArithmeticIsPreserved() {
         SlotReference k = new SlotReference("k", BigIntType.INSTANCE);
         Add arithmetic = new Add(k, SpmConstVar.of(3L, new BigIntLiteral(1L)));
         Cast widening = new Cast(arithmetic, LargeIntType.INSTANCE);
+        Sum sum = new Sum(true, false, false, widening);
 
-        String printed = new SPMExprSqlBuilder().print(widening, new SQLRelation());
-        Assertions.assertTrue(printed.startsWith("CAST(") && printed.endsWith(" AS LARGEINT)"),
+        String printed = new SPMExprSqlBuilder().print(sum, new SQLRelation());
+        Assertions.assertTrue(printed.startsWith("sum(CAST(")
+                        && printed.endsWith(" AS LARGEINT))"),
                 "the LARGEINT accumulator must survive the freeze: " + printed);
     }
 
@@ -141,8 +146,9 @@ public class SPMRound70PlannerTest {
         Add arithmetic = new Add(SpmConstVar.of(4L, new BigIntLiteral(1L)),
                 SpmConstVar.of(5L, new BigIntLiteral(2L)));
         Cast widening = new Cast(arithmetic, LargeIntType.INSTANCE);
+        Sum sum = new Sum(true, false, false, widening);
 
-        String printed = new SPMExprSqlBuilder().print(widening, new SQLRelation());
+        String printed = new SPMExprSqlBuilder().print(sum, new SQLRelation());
         Assertions.assertFalse(printed.contains("CAST"),
                 "no captured-type pinning may leak into the frozen text: " + printed);
     }
