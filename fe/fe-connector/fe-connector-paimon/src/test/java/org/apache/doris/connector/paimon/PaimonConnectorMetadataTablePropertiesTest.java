@@ -25,6 +25,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -112,6 +113,54 @@ public class PaimonConnectorMetadataTablePropertiesTest {
             Assertions.assertFalse(actual.containsKey("fields.missing.sequence-group"));
             Assertions.assertEquals(schemaId, schemaId(catalog));
         }
+    }
+
+    @Test
+    public void setTablePropertiesRejectsPathBeforeRemoteAlter() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), context);
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("snapshot.num-retained.max", "10");
+        properties.put("PATH", "s3://warehouse/relocated_table");
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.setTableProperties(null, handle(), properties));
+
+        Assertions.assertTrue(e.getMessage().contains("Change path is not supported yet"), e.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), ops.log.toString());
+        Assertions.assertEquals(0, context.authCount);
+    }
+
+    @Test
+    public void setTablePropertiesPathLeavesTableUnchanged(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = localCatalog(warehouse)) {
+            catalog.createTable(TABLE_ID, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("snapshot.num-retained.min", "1")
+                    .option("snapshot.num-retained.max", "8")
+                    .build(), false);
+            long schemaId = schemaId(catalog);
+            Map<String, String> properties = new LinkedHashMap<>();
+            properties.put("snapshot.num-retained.max", "10");
+            properties.put("path", warehouse.resolve("relocated_table").toUri().toString());
+
+            // Paimon itself would store path in a new schema version without moving the table; the
+            // catalog then overrides it on load, so check the stored schema rather than the loaded table.
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataOver(catalog).setTableProperties(null, handle(), properties));
+
+            Map<String, String> stored = storedSchemaOptions(catalog);
+            Assertions.assertEquals("8", stored.get("snapshot.num-retained.max"));
+            Assertions.assertFalse(stored.containsKey("path"), stored.toString());
+            Assertions.assertEquals(schemaId, schemaId(catalog));
+        }
+    }
+
+    private static Map<String, String> storedSchemaOptions(Catalog catalog) throws Exception {
+        FileStoreTable table = (FileStoreTable) catalog.getTable(TABLE_ID);
+        return new SchemaManager(LocalFileIO.create(), table.location()).latest().get().options();
     }
 
     private static Map<String, String> options(String min, String max) {
