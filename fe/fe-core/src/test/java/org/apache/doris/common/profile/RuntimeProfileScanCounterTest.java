@@ -63,6 +63,21 @@ public class RuntimeProfileScanCounterTest {
     }
 
     @Test
+    public void testTheScanCounterOfANestedProfileIsReadAsWell() {
+        // the scan operator registers its counter on the "CustomCounters" child profile, so the operator
+        // node itself reports none
+        RuntimeProfile query = new RuntimeProfile("QUERY");
+        RuntimeProfile scan = new RuntimeProfile("OLAP_SCAN_OPERATOR (id=0)", 0);
+        RuntimeProfile custom = new RuntimeProfile("CustomCounters");
+        custom.addCounter("ScanRows", counter(777), RuntimeProfile.ROOT_COUNTER);
+        scan.addChild(custom, false);
+        query.addChild(scan, false);
+
+        Assertions.assertEquals(777, inputRowsOf(RuntimeProfile.toTPlanNodeRuntimeStatsItem(query, null)),
+                "the rows a scan read were not recorded from its nested profile");
+    }
+
+    @Test
     public void testTheInputRowsOfASinkWinOverAScanCounter() {
         RuntimeProfile query = new RuntimeProfile("QUERY");
         RuntimeProfile sink = new RuntimeProfile("HASH_JOIN_SINK_OPERATOR (id=1)", 1);

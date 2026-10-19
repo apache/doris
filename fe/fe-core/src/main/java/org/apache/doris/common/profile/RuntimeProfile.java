@@ -822,6 +822,36 @@ public class RuntimeProfile {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
+    /** The rows a scan read, as its nested counter profiles report them (see the caller). */
+    private void fillInputRowsFromChildProfiles(TPlanNodeRuntimeStatsItem item) {
+        if (item.getInputRows() != 0) {
+            return;
+        }
+        childLock.readLock().lock();
+        try {
+            for (Pair<RuntimeProfile, Boolean> pair : childList) {
+                RuntimeProfile child = pair.first;
+                if (!"CustomCounters".equals(child.getName()) && !"Scanner".equals(child.getName())) {
+                    continue;
+                }
+                for (Map.Entry<String, Counter> entry : child.counterMap.entrySet()) {
+                    if (!(entry.getValue() instanceof AggCounter)) {
+                        continue;
+                    }
+                    String counterName = entry.getKey();
+                    if ("RowsRead".equals(counterName) || "ScanRows".equals(counterName)) {
+                        item.setInputRows(((AggCounter) entry.getValue()).sum.getValue());
+                        if (item.getInputRows() != 0) {
+                            return;
+                        }
+                    }
+                }
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+    }
+
     private TPlanNodeRuntimeStatsItem toTPlanNodeRuntimeStatsItem() {
         TPlanNodeRuntimeStatsItem item = new TPlanNodeRuntimeStatsItem();
         item.setNodeId(this.nodeId());
@@ -874,6 +904,12 @@ public class RuntimeProfile {
                 }
             }
         }
+
+        // a scan operator registers the rows it read on its "CustomCounters" child profile
+        // (`ADD_COUNTER(custom_profile(), "ScanRows", ...)`), while the operator node itself reports
+        // none: without them the published learned entry records zero rows for its input table, and the
+        // freshness comparison has nothing to compare
+        fillInputRowsFromChildProfiles(item);
 
         // Handle runtime profile structure
         /*
