@@ -313,7 +313,12 @@ public class HboUtils {
         if (planInfoProvider != null) {
             String queryId = DebugUtil.printId(connectContext.queryId());
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
-            Map<RelationId, Long> currentTableIds = currentTableIdsByRelation(queryId, planInfoProvider);
+            // the alignment is recorded while the scan filters are collected (that is, before the
+            // optimizer runs); the plan map is only a fallback for a query which recorded none
+            Map<RelationId, Long> currentTableIds = planInfoProvider.getRelationTableIds(queryId);
+            if (currentTableIds.isEmpty()) {
+                currentTableIds = currentTableIdsByRelation(queryId, planInfoProvider);
+            }
             if (!currentTableIds.isEmpty()
                     && !sameTablesByRelation(currentTableIds, currentInputTableStatistics)) {
                 // a relation id is a position in the plan, so a query which writes the same key with the
@@ -356,7 +361,9 @@ public class HboUtils {
      * only (see {@code SlotReference#equals}), so a query which writes the tables of a key in the other
      * order binds the same positions to opposite tables: its predicates would be read as the entry's, and
      * the learned row count of a run with a different filter would be applied to it. The comparison uses
-     * the id of the table, which no alias, position or name of a query changes.
+     * the id of the table, which no alias, position or name of a query changes. A scan the collector did
+     * not see (it records the relations while the filters of the query are collected) cannot be
+     * compared and does not reject the entry on its own.
      */
     static boolean sameTablesByRelation(Map<RelationId, Long> currentTableIds,
             List<PlanStatistics> recordedInputTableStatistics) {
@@ -369,7 +376,7 @@ public class HboUtils {
                 continue;
             }
             Long currentTableId = currentTableIds.get(recordedScan.getRelationId());
-            if (currentTableId == null || currentTableId != recordedScan.getTable().getId()) {
+            if (currentTableId != null && currentTableId != recordedScan.getTable().getId()) {
                 return false;
             }
         }

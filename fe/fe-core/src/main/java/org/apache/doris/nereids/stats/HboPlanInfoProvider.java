@@ -55,6 +55,9 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache;
     private volatile Cache<String, Map<PhysicalPlan, Integer>> planToIdCache;
     private volatile Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache;
+    // per query: the relation id of every scan -> the id of the table it reads; collected while the
+    // filters on a scan are collected, i.e. before the optimizer runs (the read side needs it there)
+    private volatile Cache<String, Map<RelationId, Long>> relationTableIdCache;
     private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
     private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
     private volatile Cache<String, Map<String, String>> pinnedExpansionAppliedCache;
@@ -77,6 +80,10 @@ public class HboPlanInfoProvider {
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
         scanToFilterCache = buildHboScanToFilterCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
+        relationTableIdCache = buildHboRelationTableIdCache(
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
@@ -115,6 +122,20 @@ public class HboPlanInfoProvider {
     }
 
     private static Cache<String, Map<RelationId, Set<Expression>>> buildHboScanToFilterCache(
+            int cacheNum, long expireAfterAccessSeconds) {
+        Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
+                .softValues();
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
+        }
+        if (expireAfterAccessSeconds > 0) {
+            cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
+        }
+
+        return cacheBuilder.build();
+    }
+
+    private static Cache<String, Map<RelationId, Long>> buildHboRelationTableIdCache(
             int cacheNum, long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
                 .softValues();
@@ -170,6 +191,16 @@ public class HboPlanInfoProvider {
 
     public void putPlanToIdMap(String queryId, Map<PhysicalPlan, Integer> idToPlanMap) {
         planToIdCache.put(queryId, idToPlanMap);
+    }
+
+    /** The table every relation id of the current query is bound to (collected while rewriting). */
+    public Map<RelationId, Long> getRelationTableIds(String queryId) {
+        return relationTableIdCache.asMap().getOrDefault(queryId, new ConcurrentHashMap<>());
+    }
+
+    /** Store the (mutable) relation id to table id map of a query. */
+    public void putRelationTableIds(String queryId, Map<RelationId, Long> relationTableIds) {
+        relationTableIdCache.put(queryId, relationTableIds);
     }
 
     public Map<RelationId, Set<Expression>> getScanToFilterMap(String queryId) {

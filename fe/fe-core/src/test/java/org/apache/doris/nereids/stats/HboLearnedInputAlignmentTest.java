@@ -53,9 +53,12 @@ public class HboLearnedInputAlignmentTest {
         // the same key reused by a query which binds the two positions to the opposite tables
         Assertions.assertFalse(HboUtils.sameTablesByRelation(current,
                 ImmutableList.of(recordedScan(0, 20), recordedScan(1, 10))));
-        // a table which is not bound to that position at all
+        // a position the collector did not record cannot be compared and does not reject the entry
+        Assertions.assertTrue(HboUtils.sameTablesByRelation(current,
+                ImmutableList.of(recordedScan(2, 20), recordedScan(0, 10))));
+        // a recorded position bound to the same table stays aligned although another is unknown
         Assertions.assertFalse(HboUtils.sameTablesByRelation(current,
-                ImmutableList.of(recordedScan(2, 20))));
+                ImmutableList.of(recordedScan(1, 10), recordedScan(2, 20))));
     }
 
     /** One recorded input table of a learned entry: the relation id and the id of the table it bound. */
