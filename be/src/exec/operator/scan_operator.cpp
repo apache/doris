@@ -744,7 +744,7 @@ Status ScanLocalStateBase::_normalize_in_predicate(
         // begin to push InPredicate value into ColumnValueRange
         auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(tmp->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         // xx in (col, xx, xx) should not be push down
         if (!state->use_set) {

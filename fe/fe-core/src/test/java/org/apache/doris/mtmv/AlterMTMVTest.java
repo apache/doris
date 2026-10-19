@@ -54,7 +54,6 @@ import java.util.Set;
 
 
 public class AlterMTMVTest extends TestWithFeService {
-
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
@@ -301,6 +300,27 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     @Test
+    public void testAlterIvmForceMowRejected() throws Exception {
+        createDatabaseAndUse("alter_ivm_force_mow");
+        createTable("CREATE TABLE alter_ivm_force_mow.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_ivm_force_mow_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        // Which model the MV is built on is fixed at creation, the way ivm_use_full_keys is: an ALTER must
+        // report it rather than move the MV to a model its refresh would contradict.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alt_ivm_force_mow_mv"
+                        + " SET ('ivm_force_mow' = 'true')"));
+        Assertions.assertTrue(exception.getMessage().contains("cannot be altered"),
+                exception.getMessage());
+    }
+
+    @Test
     public void testAlterFromAutoToCompleteAllowed() throws Exception {
         createDatabaseAndUse("alter_test_auto_complete");
         createTable("CREATE TABLE alter_test_auto_complete.alt_base (k1 int, v1 int)\n"
@@ -388,7 +408,7 @@ public class AlterMTMVTest extends TestWithFeService {
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
+                + " PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1')\n"
                 + " AS SELECT k1, v1 FROM ivm_base");
 
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()

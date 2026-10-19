@@ -68,7 +68,7 @@ ClucenePostingsCursor::Partition open_postings(lucene::index::IndexReader* reade
                                                lucene::index::Term* term, bool positions,
                                                bool scoring, const io::IOContext* io_ctx) {
     ClucenePostingsCursor::Partition result;
-    result.has_norms = !scoring || reader->hasNorms(term->field());
+    result.has_norms = reader->hasNorms(term->field());
     if (positions) {
         auto iter = make_term_positions_ptr(reader, scoring, io_ctx);
         result.positions = iter.get();

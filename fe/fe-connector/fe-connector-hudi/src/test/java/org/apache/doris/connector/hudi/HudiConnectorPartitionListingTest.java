@@ -24,6 +24,7 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -37,6 +38,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.util.PartitionPathEncodeUtils;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -76,6 +78,100 @@ public class HudiConnectorPartitionListingTest {
     private static final List<String> YEAR_MONTH = Arrays.asList("year", "month");
 
     // ── item 1: instant string → long (pure) ──────────────────────────────────────────────────────────
+
+    @Test
+    public void sparkSqlTimestampPartitionsDecodeWithoutChangingStringPartitions() {
+        String timestamp = "2024-01-01 10:00:00";
+        // SqlKeyGenerator escapes TIMESTAMP values even when URL encoding is disabled for STRING values.
+        String physical = "event_time=" + PartitionPathEncodeUtils.escapePathName(timestamp) + "/label=%3A";
+        RecordingHmsClient hms = new RecordingHmsClient(null);
+        hms.tableInfo = timestampTable("s3://b/t");
+        HudiConnectorMetadata md = metadata(false, hms,
+                stub(HudiConnectorMetadata.unpinnedListing(99, Collections.singletonList(physical), false)));
+        HudiTableHandle handle = (HudiTableHandle) md.getTableHandle(null, "db", "t").get();
+        ConnectorPartitionInfo partition = md.listPartitions(null, handle, Optional.empty()).get(0);
+        Assertions.assertEquals(timestamp, partition.getPartitionValues().get("event_time"));
+        Assertions.assertEquals("%3A", partition.getPartitionValues().get("label"));
+        Assertions.assertEquals(Arrays.asList(timestamp, "%3A"), partition.getOrderedPartitionValues());
+        Assertions.assertEquals(partition.getPartitionValues(),
+                HudiConnectorMetadata.parsePartitionName(partition.getPartitionName(), handle.getPartitionKeyNames()));
+    }
+
+    @Test
+    public void sparkSqlTimestampHmsListingAndPruningRespectPersistedUrlFlags(@TempDir Path warehouse)
+            throws Exception {
+        String first = "2024-01-01 10:00:00";
+        String second = "2024-01-02 11:00:00";
+        for (Boolean encoded : Arrays.asList(null, false, true)) {
+            String basePath = warehouse.resolve(String.valueOf(encoded)).toUri().toString();
+            HoodieTableMetaClient.TableBuilder builder = HoodieTableMetaClient.newTableBuilder()
+                    .setTableType(HoodieTableType.COPY_ON_WRITE).setTableName("t")
+                    .setPartitionFields("event_time,label");
+            if (encoded != null) {
+                builder.setUrlEncodePartitioning(encoded);
+            }
+            builder.initTable(new HadoopStorageConfiguration(new Configuration()), basePath);
+            String label = Boolean.TRUE.equals(encoded) ? "%253A" : "%3A";
+            List<String> paths = Arrays.asList(
+                    "event_time=" + PartitionPathEncodeUtils.escapePathName(first) + "/label=" + label,
+                    "event_time=" + PartitionPathEncodeUtils.escapePathName(second) + "/label=" + label);
+            List<String> names = paths.stream().map(path -> path.replace("%", "%25")).collect(Collectors.toList());
+            RecordingHmsClient hms = new RecordingHmsClient(names);
+            hms.tableInfo = timestampTable(basePath);
+            hms.locations = Map.of(names.get(0), basePath + "/" + paths.get(0),
+                    names.get(1), basePath + "/" + paths.get(1));
+            HudiConnectorMetadata md = new HudiConnectorMetadata(hms,
+                    HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                    HudiMetaClientExecutor.inline());
+            HudiTableHandle handle = (HudiTableHandle) md.getTableHandle(null, "db", "t").get();
+            List<ConnectorPartitionInfo> partitions = md.listPartitions(null, handle, Optional.empty());
+            Assertions.assertEquals(Arrays.asList(first, second), partitions.stream()
+                    .map(partition -> partition.getPartitionValues().get("event_time")).collect(Collectors.toList()));
+            Assertions.assertEquals(Arrays.asList("%3A", "%3A"), partitions.stream()
+                    .map(partition -> partition.getPartitionValues().get("label")).collect(Collectors.toList()));
+            ConnectorComparison predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("event_time", ConnectorType.of("DATETIMEV2", 6, -1)),
+                    new ConnectorLiteral(ConnectorType.of("DATETIMEV2", 6, -1),
+                            LocalDateTime.of(2024, 1, 1, 10, 0)));
+            HudiTableHandle filtered = (HudiTableHandle) md.applyFilter(null, handle,
+                    new ConnectorFilterConstraint(predicate)).get().getHandle();
+            Assertions.assertEquals(Collections.singletonList(paths.get(0)), filtered.getPrunedPartitionPaths());
+            Assertions.assertEquals(Collections.singleton("event_time"), filtered.getTimestampPartitionKeys());
+        }
+    }
+
+    @Test
+    public void sparkSqlTimestampMetadataPruningAndHistoricalListingKeepPhysicalPaths() {
+        List<String> paths = Arrays.asList("event_time=2024-01-01 10%3A00%3A00/label=%3A",
+                "event_time=2024-01-02 11%3A00%3A00/label=%3A");
+        RecordingHmsClient hms = new RecordingHmsClient(null);
+        hms.tableInfo = timestampTable("s3://b/t");
+        HudiConnectorMetadata current = metadata(false, hms,
+                stub(HudiConnectorMetadata.unpinnedListing(99, paths, false)));
+        HudiTableHandle handle = (HudiTableHandle) current.getTableHandle(null, "db", "t").get();
+        ConnectorComparison predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("event_time", ConnectorType.of("DATETIMEV2", 6, -1)),
+                new ConnectorLiteral(ConnectorType.of("DATETIMEV2", 6, -1), LocalDateTime.of(2024, 1, 1, 10, 0)));
+        HudiTableHandle filtered = (HudiTableHandle) current.applyFilter(null, handle,
+                new ConnectorFilterConstraint(predicate)).get().getHandle();
+        Assertions.assertEquals(Collections.singletonList(paths.get(0)), filtered.getPrunedPartitionPaths());
+        HudiConnectorMetadata historical = metadata(false, hms,
+                stub(HudiConnectorMetadata.pinnedListing(99, paths, 7,
+                        Collections.singletonList(paths.get(0)), false)));
+        List<ConnectorPartitionInfo> partitions = historical.listPartitions(null,
+                handle.toBuilder().queryInstant("20240101120000000").build(), Optional.empty());
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals(Arrays.asList("2024-01-01 10:00:00", "%3A"),
+                partitions.get(0).getOrderedPartitionValues());
+    }
+
+    private static HmsTableInfo timestampTable(String basePath) {
+        return HmsTableInfo.builder().dbName("db").tableName("t").location(basePath)
+                .partitionKeys(Arrays.asList(
+                        new ConnectorColumn("event_time", ConnectorType.of("DATETIMEV2", 6, -1), null, true, null),
+                        new ConnectorColumn("label", ConnectorType.of("STRING"), null, true, null)))
+                .build();
+    }
 
     @Test
     public void metadataListingAndTimeTravelKeepLiteralPercentPartitionsDistinct() {
@@ -695,6 +791,7 @@ public class HudiConnectorPartitionListingTest {
     /** Records partition lookups and supplies locations; unrelated HMS operations fail loudly. */
     private static final class RecordingHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private HmsTableInfo tableInfo;
         private Map<String, String> locations = Collections.emptyMap();
         private List<String> deletedNames = Collections.emptyList();
         private int getPartitionsCalls;
@@ -730,12 +827,15 @@ public class HudiConnectorPartitionListingTest {
 
         @Override
         public boolean tableExists(String dbName, String tableName) {
-            throw new UnsupportedOperationException();
+            return tableInfo != null;
         }
 
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
-            throw new UnsupportedOperationException();
+            if (tableInfo == null) {
+                throw new UnsupportedOperationException("No table metadata configured");
+            }
+            return tableInfo;
         }
 
         @Override

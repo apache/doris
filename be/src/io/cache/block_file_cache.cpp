@@ -705,12 +705,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         if (_async_open_done) {
             return {};
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) [[unlikely]] {
@@ -816,12 +811,7 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         if (_async_open_done) {
             return Status::OK();
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) {
@@ -897,12 +887,7 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
 
     auto file_iterator = _files.find(hash);
     if (file_iterator == _files.end() && !_async_open_done) {
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
         file_iterator = _files.find(hash);
     }
 

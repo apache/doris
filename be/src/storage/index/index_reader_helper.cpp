@@ -27,8 +27,9 @@ bool can_score_match(const TabletIndex* index_meta) {
     // parser=none can inherit support_phrase=true from FE defaults. MATCH statistics skip
     // these keyword indexes, so their filters must not request a scoring context either.
     return inverted_index::InvertedIndexAnalyzer::should_analyzer(properties) &&
-           get_parser_phrase_support_string_from_properties(properties) ==
-                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+           (get_parser_phrase_support_string_from_properties(properties) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+            IndexReaderHelper::is_normalizer_only(properties));
 }
 
 } // namespace

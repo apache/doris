@@ -40,6 +40,7 @@ constexpr inline int SUPPORT_HIVE_OPEN_CSV_VERSION = 15;
 constexpr inline int SUPPORT_PAIMON_WRITE_VERSION = 16;
 constexpr inline int SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION = 17;
 constexpr inline int SUPPORT_ICEBERG_TRANSFORM_ROUTING_VERSION = 18;
+constexpr inline int SUPPORT_VARBINARY_SHUFFLE_HASH_VERSION = 19;
 
 class BeExecVersionManager {
 public:

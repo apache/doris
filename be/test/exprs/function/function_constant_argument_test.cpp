@@ -72,8 +72,9 @@ protected:
         FunctionUtils fn_utils(return_type, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(constant_cols);
-        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        RETURN_IF_ERROR(
+                function->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
         Status status;
         for (auto& block : blocks) {
             size_t rows = block.rows();
@@ -83,8 +84,10 @@ protected:
                 break;
             }
         }
-        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(
+                function->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(
+                function->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         return status;
     }
 

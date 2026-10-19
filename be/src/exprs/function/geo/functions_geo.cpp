@@ -64,7 +64,7 @@ struct StPoint {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto cur_res = point.from_coord(x_col.value_at(row), y_col.value_at(row));
-            if (cur_res != GEO_PARSE_OK) {
+            if (cur_res != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -483,7 +483,7 @@ struct StCircle {
             auto radius_value = radius.value_at(row);
 
             auto value = circle.init(lng_value, lat_value, radius_value);
-            if (value != GEO_PARSE_OK) {
+            if (value != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -566,37 +566,37 @@ struct StWithinFunc {
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 struct StGeomFromText {
     static constexpr auto NAME = "st_geomfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 struct StLineFromText {
     static constexpr auto NAME = "st_linefromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_LINE_STRING;
 };
 
 struct StLineStringFromText {
     static constexpr auto NAME = "st_linestringfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_LINE_STRING;
 };
 
 struct StPolygon {
     static constexpr auto NAME = "st_polygon";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 struct StPolyFromText {
     static constexpr auto NAME = "st_polyfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 struct StPolygonFromText {
     static constexpr auto NAME = "st_polygonfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 template <typename Impl>
@@ -618,8 +618,9 @@ struct StGeoFromText {
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             auto shape = GeoShape::from_wkt(value.data, value.size, status);
-            if (shape == nullptr || status != GEO_PARSE_OK ||
-                (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
+            if (shape == nullptr || status != GeoParseStatus::GEO_PARSE_OK ||
+                (Impl::shape_type != GeoShapeType::GEO_SHAPE_ANY &&
+                 shape->type() != Impl::shape_type)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -636,12 +637,12 @@ struct StGeoFromText {
 
 struct StGeometryFromWKB {
     static constexpr auto NAME = "st_geometryfromwkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 struct StGeomFromWKB {
     static constexpr auto NAME = "st_geomfromwkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 template <typename Impl>
@@ -663,7 +664,7 @@ struct StGeoFromWkb {
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             std::unique_ptr<GeoShape> shape = GeoShape::from_wkb(value.data, value.size, status);
-            if (shape == nullptr || status != GEO_PARSE_OK) {
+            if (shape == nullptr || status != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1044,7 +1045,7 @@ public:
                 continue;
             }
 
-            if (shape->type() == GEO_SHAPE_MULTI_POLYGON) {
+            if (shape->type() == GeoShapeType::GEO_SHAPE_MULTI_POLYGON) {
                 auto* multi_polygon = static_cast<GeoMultiPolygon*>(shape.get());
                 const auto& polygons = multi_polygon->polygons();
 

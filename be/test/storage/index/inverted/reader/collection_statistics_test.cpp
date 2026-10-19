@@ -414,7 +414,7 @@ protected:
         return tablet_schema;
     }
 
-    TabletSchemaSPtr create_snii_schema(int64_t index_id = 1) {
+    TabletSchemaSPtr create_snii_schema(int64_t index_id = 1, bool single_term_normalizer = false) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
         schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
@@ -431,8 +431,12 @@ protected:
         index._index_id = index_id;
         index._index_type = IndexType::INVERTED;
         index._col_unique_ids.push_back(1);
-        index._properties["parser"] = "standard";
-        index._properties["support_phrase"] = "true";
+        if (single_term_normalizer) {
+            index._properties["normalizer"] = "lowercase";
+        } else {
+            index._properties["parser"] = "standard";
+            index._properties["support_phrase"] = "true";
+        }
         tablet_schema->append_index(std::move(index));
         return tablet_schema;
     }
@@ -470,7 +474,7 @@ protected:
     }
 
     // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
-    Status write_snii_scoring_segment(const std::string& segment_path) {
+    Status write_snii_scoring_segment(const std::string& segment_path, bool docs_only = false) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -486,8 +490,11 @@ protected:
         snii::writer::TermPostings alpha;
         alpha.term = "alpha";
         alpha.docids = {0, 1};
-        alpha.freqs = {1, 1};
-        alpha.positions_flat = {0, 0};
+        alpha.retain_positions = !docs_only;
+        if (!docs_only) {
+            alpha.freqs = {1, 1};
+            alpha.positions_flat = {0, 0};
+        }
 
         snii::writer::TermPostings beta;
         beta.term = "beta";
@@ -497,10 +504,15 @@ protected:
 
         snii::writer::SniiIndexInput input;
         input.index_id = 1;
-        input.config = snii::format::IndexConfig::kDocsPositions;
+        input.config = docs_only ? snii::format::IndexConfig::kDocsOnly
+                                 : snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
-        input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
-        input.terms = {std::move(alpha), std::move(beta)};
+        if (!docs_only) {
+            input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
+            input.terms = {std::move(alpha), std::move(beta)};
+        } else {
+            input.terms = {std::move(alpha)};
+        }
 
         RETURN_IF_ERROR(writer.add_logical_index(input));
         RETURN_IF_ERROR(writer.finish());
@@ -656,6 +668,7 @@ protected:
         bool has_positions = true;
         bool has_norms = true;
         bool is_analyzed = true;
+        bool single_term_normalizer = false;
     };
 
     Status stage_snii_fields_for_test(
@@ -664,7 +677,8 @@ protected:
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
                     field.field_name, field.index_doc_count, field.sum_total_term_freq,
-                    field.has_positions, field.has_norms, segment_accumulator, field.is_analyzed));
+                    field.has_positions, field.has_norms, segment_accumulator, field.is_analyzed,
+                    field.single_term_normalizer));
         }
         return Status::OK();
     }
@@ -1026,6 +1040,27 @@ TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+TEST_F(CollectionStatisticsTest, SniiDocsOnlyNormalizerStillCollectsScoringStatistics) {
+    auto tablet_schema = create_snii_schema(1, /*single_term_normalizer=*/true);
+    const std::string segment_path = test_dir_ + "/snii_normalizer_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path, /*docs_only=*/true);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                  create_match_expr_contexts("alpha"), nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 2, 2);
+    expect_collected_term(L"1", L"alpha", 2);
+}
+
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     snii::snii_test::ScopedEnv force_nonresident_dict("SNII_DICT_RESIDENT_MAX", "0");
     auto tablet_schema = create_snii_schema();
@@ -1212,6 +1247,17 @@ TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions)
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+}
+
+TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsSingleTermNormalizerWithoutPositions) {
+    auto result =
+            resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
+                                         /*has_norms=*/false,
+                                         /*is_analyzed=*/true, /*single_term_normalizer=*/true);
+
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result->doc_count, 3U);
+    EXPECT_EQ(result->token_count, 2U);
 }
 
 TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionStateIsolated) {

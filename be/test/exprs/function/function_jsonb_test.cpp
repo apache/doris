@@ -89,14 +89,14 @@ Status execute_json_keys_with_path(ColumnPtr path_column, size_t rows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0, 1}, block.columns() - 1, rows);
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     return st;
 }
 
@@ -197,8 +197,8 @@ TEST(FunctionJsonbTEST, JsonbParseConstNullableInputWithNonConstDefaultMultiRows
 
     FunctionUtils fn_utils(return_type, {input_type, default_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto result = block.columns() - 1;
@@ -217,8 +217,8 @@ TEST(FunctionJsonbTEST, JsonbParseConstNullableInputWithNonConstDefaultMultiRows
         EXPECT_EQ(0, result_col->compare_at(i, i, *expected_col, 1));
     }
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -957,9 +957,9 @@ TEST(FunctionJsonbTEST, JsonLength) {
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     //     fn_ctx->set_constant_cols(constant_cols);
-    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    auto st = func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    st = func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     block.insert({nullptr, return_type, "result"});
@@ -990,8 +990,8 @@ TEST(FunctionJsonbTEST, JsonLengthConstNullablePathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, rows).ok());
@@ -1021,8 +1021,8 @@ TEST(FunctionJsonbTEST, JsonLengthConstJsonVaryingPathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, rows).ok());
@@ -1090,9 +1090,9 @@ TEST(FunctionJsonbTEST, JsonContains) {
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     //     fn_ctx->set_constant_cols(constant_cols);
-    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    auto st = func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    st = func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     block.insert({nullptr, return_type, "result"});
@@ -1127,8 +1127,8 @@ TEST(FunctionJsonbTEST, JsonContainsConstNullablePathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1, 2}, 3, rows).ok());

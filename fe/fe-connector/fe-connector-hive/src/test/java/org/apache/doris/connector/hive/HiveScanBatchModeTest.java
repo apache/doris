@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -218,6 +219,74 @@ public class HiveScanBatchModeTest {
         }
         Assertions.assertEquals(1, lister.totalCalls);
         Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void sharedCompressionNamesMapToNativeCodecs() {
+        for (FileCompression codec : FileCompression.values()) {
+            Assertions.assertDoesNotThrow(() -> TFileCompressType.valueOf(codec.name()));
+        }
+    }
+
+    @Test
+    public void compressedTextFilesStayWholeInEveryPlanningPath() throws Exception {
+        long splitSize = 8L * 1024 * 1024;
+        long fileSize = 2 * splitSize + 3;
+        List<String> extensions = Arrays.asList(".gz", ".bz2", ".lz4", ".lzo", ".lzo_deflate",
+                ".deflate", ".snappy", ".zst", ".zstd", ".GZ");
+        String partition = "year=2024/month=01";
+        String[] inputs = {TEXT_INPUT_FORMAT, TEXT_INPUT_FORMAT, PARQUET_INPUT_FORMAT,
+                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat"};
+        String[] serdes = {LAZY_SIMPLE_SERDE, OPEN_CSV_SERDE, PARQUET_SERDE,
+                "org.apache.hadoop.hive.ql.io.orc.OrcSerde"};
+        for (int format = 0; format < inputs.length; format++) {
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> {
+                List<HiveFileStatus> files = new ArrayList<>();
+                for (String extension : extensions) {
+                    files.add(new HiveFileStatus(location + "/data" + extension, fileSize, 1));
+                }
+                files.add(new HiveFileStatus(location + "/plain", fileSize, 1));
+                files.add(new HiveFileStatus(location + "/empty.gz", 0, 1));
+                return files;
+            });
+            HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                    .inputFormat(inputs[format]).serializationLib(serdes[format])
+                    .prunedPartitions(Collections.singletonList(part(partition))).build();
+            ConnectorScanRequest request = scanOf(handle);
+            FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "" + splitSize));
+            List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+            List<ConnectorScanRange> batch = provider.planScanForPartitionBatch(session, request,
+                    Collections.singletonList(partition));
+            List<ConnectorScanRange> streaming = new ArrayList<>();
+            try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                while (source.hasNext()) {
+                    streaming.add(source.next());
+                }
+            }
+            for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, batch, streaming)) {
+                boolean text = format < 2;
+                Assertions.assertEquals(text ? extensions.size() + 3 : (extensions.size() + 1) * 3,
+                        ranges.size(), "only plain text and columnar files support byte-range splitting");
+                for (String extension : extensions) {
+                    List<ConnectorScanRange> fileRanges = new ArrayList<>();
+                    for (ConnectorScanRange range : ranges) {
+                        if (range.getPath().get().equals(partition + "/data" + extension)) {
+                            fileRanges.add(range);
+                        }
+                    }
+                    Assertions.assertEquals(text ? 1 : 3, fileRanges.size());
+                    Assertions.assertEquals(0, fileRanges.get(0).getStart());
+                    Assertions.assertEquals(text ? fileSize : splitSize, fileRanges.get(0).getLength());
+                }
+                int plainStart = ranges.size() - 3;
+                for (int i = 0; i < 3; i++) {
+                    ConnectorScanRange range = ranges.get(plainStart + i);
+                    Assertions.assertEquals(partition + "/plain", range.getPath().get());
+                    Assertions.assertEquals(i * splitSize, range.getStart());
+                    Assertions.assertEquals(i == 2 ? 3 : splitSize, range.getLength());
+                }
+            }
+        }
     }
 
     @Test

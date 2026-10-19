@@ -52,11 +52,11 @@ inline bool is_asof_join(TJoinOp::type join_op) {
     return join_op == TJoinOp::ASOF_LEFT_INNER_JOIN || join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 inline constexpr bool is_asof_join_op_v =
         JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN || JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 inline constexpr bool is_asof_outer_join_op_v = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 
 // ASOF JOIN index with inline values for cache-friendly branchless binary search.

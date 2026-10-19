@@ -250,6 +250,7 @@ static void check_native_posting_block(const index_query::PostingsBlock& block, 
     EXPECT_EQ(block.docs.front(), doc);
     EXPECT_EQ(block.freq_at(0), 1);
     // These segments omit norms; crossing a partition must retain unit length.
+    EXPECT_TRUE(block.norms.empty());
     EXPECT_EQ(block.norm_at(0), 1);
 }
 

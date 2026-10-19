@@ -542,17 +542,18 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
 }
 
 std::string ScannerContext::debug_string() {
+    // Queued scan tasks can outlive the scan operator, including during this context's
+    // destructor. Do not dereference the operator-owned _shared_scan_limit for diagnostics.
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
+            " limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
             "_num_finished_scanners: {}, _max_scan_concurrency: {}, expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
             _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
-            _shared_scan_limit->load(std::memory_order_relaxed), _in_flight_tasks_num,
-            _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
+            _in_flight_tasks_num, _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
             _enable_adaptive_scanners ? _adaptive_processor->expected_scanners : -1,
             _max_bytes_in_queue, _ins_idx, _enable_adaptive_scanners,
             _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",

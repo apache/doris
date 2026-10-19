@@ -150,6 +150,41 @@ TEST_F(CacheBlockMetaStoreTest, RangeQuery) {
     EXPECT_FALSE(iterator->valid());
 }
 
+TEST_F(CacheBlockMetaStoreTest, RangeQueryByFile) {
+    const UInt128Wrapper hash((static_cast<uint128_t>(123) << 64) | 456);
+    const UInt128Wrapper next_hash((static_cast<uint128_t>(123) << 64) | 457);
+    const UInt128Wrapper next_high_hash((static_cast<uint128_t>(124) << 64) | 456);
+    const std::vector<BlockMetaKey> keys = {{47, hash, 4096},
+                                            {47, hash, 8192},
+                                            {47, next_hash, 4096},
+                                            {47, next_high_hash, 4096},
+                                            {48, hash, 4096}};
+    const BlockMeta meta(FileCacheType::NORMAL, 4096, 0);
+    for (const auto& key : keys) {
+        meta_store_->put(key, meta);
+    }
+    // Closing drains the asynchronous queue without a timing-dependent wait.
+    meta_store_.reset();
+    meta_store_ = std::make_unique<CacheBlockMetaStore>(test_db_path_.string());
+
+    auto iterator = meta_store_->range_get(47, hash);
+    ASSERT_NE(iterator, nullptr);
+    for (size_t offset : {4096, 8192}) {
+        ASSERT_TRUE(iterator->valid());
+        EXPECT_EQ(iterator->key(), BlockMetaKey(47, hash, offset));
+        EXPECT_EQ(iterator->value(), meta);
+        iterator->next();
+    }
+    EXPECT_FALSE(iterator->valid());
+
+    auto missing = meta_store_->range_get(49, hash);
+    ASSERT_NE(missing, nullptr);
+    EXPECT_FALSE(missing->valid());
+    missing = meta_store_->range_get(47, UInt128Wrapper(static_cast<uint128_t>(0)));
+    ASSERT_NE(missing, nullptr);
+    EXPECT_FALSE(missing->valid());
+}
+
 TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);

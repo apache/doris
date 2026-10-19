@@ -126,13 +126,13 @@ class IvmJoinDeltaHandler {
         } else if (deltaOnLeft) {
             Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = IvmDeltaRewriter.preSnapshot(join.right(), rewriteState);
             return rewriteInnerJoinContribution(join, delta.plan,
-                    mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
+                    helper.mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
                     rightPreSnapshot.first, rightPreSnapshot.second, delta);
         } else {
             Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = IvmDeltaRewriter.postSnapshot(join.left(), rewriteState);
             return rewriteInnerJoinContribution(join, leftPostSnapshot.first,
-                    mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
-                    mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
+                    helper.mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
+                    helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
         }
     }
 
@@ -156,7 +156,7 @@ class IvmJoinDeltaHandler {
             IvmDeltaRewriteResult delta) {
         Map<Slot, Slot> slotMapping = new HashMap<>(leftMapping);
         slotMapping.putAll(rightMapping);
-        mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
+        helper.mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
         LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
@@ -182,46 +182,12 @@ class IvmJoinDeltaHandler {
                 helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), joinResult.maxDeltaIndex);
     }
 
-    private void mapJoinConjunctInputs(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Plan leftPlan, Plan rightPlan, Map<Slot, Slot> slotMapping) {
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            mapJoinConjunctInput(conjunct, leftPlan, rightPlan, slotMapping);
-        }
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            mapJoinConjunctInput(conjunct, leftPlan, rightPlan, slotMapping);
-        }
-    }
-
-    private void mapJoinConjunctInput(Expression conjunct, Plan leftPlan, Plan rightPlan,
-            Map<Slot, Slot> slotMapping) {
-        for (Slot input : conjunct.getInputSlots()) {
-            if (slotMapping.containsKey(input)) {
-                continue;
-            }
-            Slot leftSlot = helper.findSlotByNameOrNull(leftPlan.getOutput(), input.getName());
-            Slot rightSlot = helper.findSlotByNameOrNull(rightPlan.getOutput(), input.getName());
-            if (leftSlot != null && rightSlot == null) {
-                slotMapping.put(input, leftSlot);
-            } else if (rightSlot != null && leftSlot == null) {
-                slotMapping.put(input, rightSlot);
-            }
-        }
-    }
-
-    private Map<Slot, Slot> mapBusinessOutputs(List<Slot> sourceOutputs, List<Slot> rewrittenOutputs) {
-        Map<Slot, Slot> mapping = new HashMap<>();
-        for (int i = 0; i < sourceOutputs.size(); i++) {
-            mapping.put(sourceOutputs.get(i), rewrittenOutputs.get(i));
-        }
-        return mapping;
-    }
-
     private SideInput sideInput(Plan source, Plan rewritten) {
-        return new SideInput(rewritten, mapBusinessOutputs(source.getOutput(), rewritten.getOutput()));
+        return new SideInput(rewritten, helper.mapBusinessOutputs(source.getOutput(), rewritten.getOutput()));
     }
 
     private SideInput sideInput(Plan source, Pair<Plan, Map<Slot, Slot>> snapshot) {
-        return new SideInput(snapshot.first, mapBusinessOutputs(source.getOutput(), snapshot.first.getOutput()));
+        return new SideInput(snapshot.first, helper.mapBusinessOutputs(source.getOutput(), snapshot.first.getOutput()));
     }
 
     /**

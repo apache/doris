@@ -88,7 +88,7 @@ private:
                                       uint64_t sum_total_term_freq, bool has_positions,
                                       bool has_norms,
                                       SniiScoringSegmentAccumulator* segment_accumulator,
-                                      bool is_analyzed = true);
+                                      bool is_analyzed = true, bool single_term_normalizer = false);
     void commit_snii_scoring_segment(SniiScoringSegmentAccumulator&& segment_accumulator);
     void clear();
 
@@ -122,12 +122,13 @@ struct SniiScoringSegmentStats {
     uint64_t token_count = 0;
 };
 
-// Analyzed SNII indexes need positions and norms. Keyword indexes can score with
-// implicit unit frequency and norm when those sections are absent.
+// Analyzed SNII indexes need positions and norms. Keywords and lowercase-only
+// normalizers can use unit frequency and norm when those sections are absent.
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms,
-                                                             bool is_analyzed = true);
+                                                             bool is_analyzed = true,
+                                                             bool single_term_normalizer = false);
 
 void add_term_doc_frequency(
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>*

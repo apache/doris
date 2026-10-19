@@ -62,12 +62,28 @@ suite("test_hive_compress_type_large_data", "p2,external") {
             }
         }
 
-        def countMix2 = sql """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
+        def countMix2 = sql """select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*)
+                from test_compress_partitioned where dt='gzip' or dt='mix'"""
         assertEquals(600005, countMix2[0][0])
-        def countAll2 = sql """select count(*) from test_compress_partitioned"""
+        def countAll2 = sql """select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*)
+                from test_compress_partitioned"""
         assertEquals(1510010, countAll2[0][0])
-        def countWatchId2 = sql """select count(*) from test_compress_partitioned where watchid=4611870011201662970"""
+        def countWatchId2 = sql """select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*)
+                from test_compress_partitioned where watchid=4611870011201662970"""
         assertEquals(15, countWatchId2[0][0])
+
+        // Force the streaming producer too: mixed directories must keep compressed files whole
+        // while plain files still split, regardless of which planner enumerates the ranges.
+        def streamingHint = "/*+ SET_VAR(enable_external_table_batch_mode=true, " +
+                "num_files_in_batch_mode=1, num_partitions_in_batch_mode=1) */"
+        def countMixStreaming = sql """select ${streamingHint} count(*) from test_compress_partitioned
+                where dt='gzip' or dt='mix'"""
+        assertEquals(countMix1, countMixStreaming)
+        def countAllStreaming = sql """select ${streamingHint} count(*) from test_compress_partitioned"""
+        assertEquals(countAll1, countAllStreaming)
+        def countWatchIdStreaming = sql """select ${streamingHint} count(*) from test_compress_partitioned
+                where watchid=4611870011201662970"""
+        assertEquals(countWatchId1, countWatchIdStreaming)
 
         sql """set file_split_size=0"""
     }

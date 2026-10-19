@@ -90,8 +90,41 @@ index_query::TruthSet ListedTerms::conjunction(const std::vector<uint32_t>* cand
     if (has_absent_term()) {
         return result;
     }
+    // A term held by every row the source lists cannot narrow the conjunction, so the chain
+    // lists only the other terms.
+    const uint32_t doc_count = _source->doc_count();
+    std::vector<index_query::PostingsCursor*> narrowing;
+    for (const auto& cursor : _cursors) {
+        if (cursor->doc_freq() != doc_count) {
+            narrowing.push_back(cursor.get());
+        }
+    }
+    if (narrowing.empty()) {
+        if (candidates == nullptr) {
+            result.true_rows.addRange(0, doc_count);
+        } else {
+            const auto end = std::ranges::lower_bound(*candidates, doc_count);
+            result.true_rows.addMany(static_cast<size_t>(end - candidates->begin()),
+                                     candidates->data());
+        }
+        return result;
+    }
+    // A lone term lists its blocks straight into the result instead of through a list of its rows.
+    if (narrowing.size() == 1 && candidates == nullptr) {
+        THROW_IF_ERROR(narrowing.front()->prefetch(nullptr, /*positions=*/false));
+        index_query::RoaringDocIdSink sink(result.true_rows);
+        THROW_IF_ERROR(index_query::list_blocks(*narrowing.front(), sink));
+        return result;
+    }
+    // A source reading on demand intersects the terms a batch of rows at a time, straight into
+    // the result, instead of listing every row of the cheapest term first.
+    if (candidates == nullptr && !_source->batches_reads()) {
+        index_query::RoaringDocIdSink sink(result.true_rows);
+        THROW_IF_ERROR(index_query::stream_cursors(narrowing, sink));
+        return result;
+    }
     std::vector<uint32_t> docs;
-    THROW_IF_ERROR(index_query::chain_cursors(_cursors, candidates, &docs));
+    THROW_IF_ERROR(index_query::chain_cursors(narrowing, candidates, &docs));
     result.true_rows.addMany(docs.size(), docs.data());
     return result;
 }

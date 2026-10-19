@@ -387,6 +387,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeStampNsType.class);
     }
 
+    public static boolean hasVarBinaryType(DataType dataType) {
+        return hasSpecifiedType(dataType, VarBinaryType.class);
+    }
+
     private static boolean hasTimeStampNsCompatibleDateTimeType(DataType dataType) {
         return hasSpecifiedType(dataType, type -> type instanceof DateTimeType
                 || type instanceof DateTimeV2Type || type instanceof TimeStampTzType);
@@ -2933,25 +2937,10 @@ public class TypeCoercionUtils {
         // Common binary types support value selection, but BE comparison kernels do not.
         // Check before equal-type shortcuts or casts can hide an unsupported binary argument.
         for (Expression argument : arguments) {
-            if (containsVarbinary(argument.getDataType())) {
+            if (hasVarBinaryType(argument.getDataType())) {
                 throw new AnalysisException(operation + " does not support VARBINARY arguments");
             }
         }
-    }
-
-    private static boolean containsVarbinary(DataType type) {
-        if (type instanceof ArrayType) {
-            return containsVarbinary(((ArrayType) type).getItemType());
-        }
-        if (type instanceof StructType) {
-            return ((StructType) type).getFields().stream()
-                    .anyMatch(field -> containsVarbinary(field.getDataType()));
-        }
-        if (type instanceof MapType) {
-            return containsVarbinary(((MapType) type).getKeyType())
-                    || containsVarbinary(((MapType) type).getValueType());
-        }
-        return type.isVarBinaryType();
     }
 
     private static Optional<DataType> findCommonBinaryType(DataType left, DataType right) {
