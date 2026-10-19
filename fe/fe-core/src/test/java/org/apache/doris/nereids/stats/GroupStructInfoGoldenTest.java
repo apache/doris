@@ -446,6 +446,22 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAComputedProjectBelowAJoinIsNotSkippedByTheChain() {
+        // the join chain flattens the projects it passes; a computed one is a leaf, so the definition of
+        // its alias reaches the condition of the join above it and the two moduli differ
+        GroupStructInfo byTwo = built("join_over_a_computed_project");
+        GroupStructInfo byThree = built("join_over_another_computed_project");
+        // the modulus is a literal of the definition: the exact key differs, the constant agnostic form
+        // folds it like every other literal of a predicate
+        Assertions.assertNotEquals(byTwo.getFingerprint(WITH_LITERAL), byThree.getFingerprint(WITH_LITERAL),
+                "two moduli share an exact key");
+        Assertions.assertTrue(byTwo.getCanonical(WITH_LITERAL).contains("Mod("),
+                "the project definition is not in the key: " + byTwo.getCanonical(WITH_LITERAL));
+        Assertions.assertFalse(byTwo.getCanonical(WITH_LITERAL).contains("col(x)"),
+                "the join still names the alias: " + byTwo.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testTheDistinctFlagOfAnAggregateFunctionIsIdentity() {
         // COUNT(DISTINCT v) and COUNT(v) have equal children, while a v of [1, 1] satisfies `s = 1` for
         // the second only: the flag has to be part of the expression identity
@@ -1053,6 +1069,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("cross_join_two_scans",
                 "cross join of two scans: a chain without conditions renders as inner",
                 GroupStructInfoGoldenTest::crossJoinTwoScans));
+        cases.add(new PlanCase("join_over_a_computed_project",
+                "an inner join whose condition reads an alias a computed project below it produces (a % 2)",
+                GroupStructInfoGoldenTest::joinOverAComputedProject));
+        cases.add(new PlanCase("join_over_another_computed_project",
+                "the same join over the same project with another modulo (a % 3): a different key",
+                GroupStructInfoGoldenTest::joinOverAnotherComputedProject));
         cases.add(new PlanCase("join_left_outer",
                 "left outer join of two scans (the join type and the memo order are kept)",
                 GroupStructInfoGoldenTest::joinLeftOuter));
@@ -1584,6 +1606,29 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t2 = scan(1, "t2");
         return describe(new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, ImmutableList.of(
                 new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))), t1, t2, null));
+    }
+
+    private static GroupStructInfo joinOverAComputedProject() {
+        return joinOverAComputedProject(2);
+    }
+
+    /**
+     * A join whose condition reads the alias of a computed project below it. A join chain flattens the
+     * projects it passes, so such a project used to be skipped and its definition was lost: the two
+     * moduli rendered one {@code col(x)} although the join keeps a different number of rows.
+     */
+    private static GroupStructInfo joinOverAComputedProject(int modulo) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        Alias x = new Alias(new Mod(t.getOutput().get(0), new IntegerLiteral(modulo)), "x");
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(x), t);
+        return describe(new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(x.toSlot(), u.getOutput().get(0))), project, u, null));
+    }
+
+    private static GroupStructInfo joinOverAnotherComputedProject() {
+        return joinOverAComputedProject(3);
     }
 
     private static GroupStructInfo joinWithAliasesXY() {

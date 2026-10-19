@@ -896,7 +896,10 @@ public class GroupStructInfo {
         // a top-n is a sort but must not be flattened (it keeps a bounded number of rows, so it is a
         // boundary of the chain), and a window is neither a project nor a sort, so it reaches the leaf
         // branch below without a negation which a cleanup could drop
-        if ((plan instanceof Project || plan instanceof Sort) && !(plan instanceof TopN) && ge.arity() == 1) {
+        // a project is transparent only while it forwards its columns: one which computes a value is a
+        // leaf, so that its definitions reach the conditions of the join above it (a flattened project
+        // would be skipped and its definitions would be lost)
+        if ((plan instanceof Sort && !(plan instanceof TopN) || isTransparentProject(plan)) && ge.arity() == 1) {
             ChainInfo child = chainInfoOf(ge.child(0));
             if (!child.valid) {
                 return child;
@@ -1462,6 +1465,19 @@ public class GroupStructInfo {
             text.append(identityText(mapping.get(i)));
         }
         return text.append(']').toString();
+    }
+
+    /** Whether a project only forwards the columns of its child (no output of it is an alias). */
+    private static boolean isTransparentProject(Plan plan) {
+        if (!(plan instanceof Project)) {
+            return false;
+        }
+        for (NamedExpression expression : ((Project) plan).getProjects()) {
+            if (expression instanceof Alias) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** A node which only composes the child at {@code index} (an enforcer, a project, a CTE edge). */
