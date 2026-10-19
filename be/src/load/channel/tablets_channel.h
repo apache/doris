@@ -138,13 +138,13 @@ protected:
 
     // Called by the final sender under _lock. Publish arrival before flushing,
     // releasing the channel lock while invoking RPC callbacks.
-    Status _close_and_notify(std::unique_lock<std::mutex>& lock,
+    Status _close_and_notify(LoadChannel* parent, std::unique_lock<std::mutex>& lock,
                              const PTabletWriterAddBlockRequest& req,
                              PTabletWriterAddBlockResult* response);
     Status _get_close_result(std::unique_lock<std::mutex>& lock, int sender_id,
                              PTabletWriterAddBlockResult* response);
     // Called exactly once by the final sender, with _lock held.
-    virtual Status _close_writers(const PTabletWriterAddBlockRequest& req,
+    virtual Status _close_writers(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                                   PTabletWriterAddBlockResult* response) = 0;
 
     Status _init_adaptive_random_bucket_state(const PTabletWriterOpenRequest& request);
@@ -278,7 +278,7 @@ public:
     Status cancel() override;
 
 private:
-    Status _close_writers(const PTabletWriterAddBlockRequest& req,
+    Status _close_writers(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                           PTabletWriterAddBlockResult* response) override;
 
     void _init_profile(RuntimeProfile* profile) override;

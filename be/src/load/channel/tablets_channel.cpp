@@ -319,7 +319,8 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
 }
 
-Status BaseTabletsChannel::_close_and_notify(std::unique_lock<std::mutex>& lock,
+Status BaseTabletsChannel::_close_and_notify(LoadChannel* parent,
+                                             std::unique_lock<std::mutex>& lock,
                                              const PTabletWriterAddBlockRequest& req,
                                              PTabletWriterAddBlockResult* response) {
     int sender_id = req.sender_id();
@@ -337,7 +338,7 @@ Status BaseTabletsChannel::_close_and_notify(std::unique_lock<std::mutex>& lock,
 
     _close_status = _check_cancelled();
     if (_close_status.ok()) {
-        _close_status = _close_writers(req, response);
+        _close_status = _close_writers(parent, req, response);
     }
     _final_close_result = std::make_unique<PTabletWriterAddBlockResult>(*response);
     _final_close_in_progress = false;
@@ -389,10 +390,10 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         return Status::OK();
     }
 
-    return _close_and_notify(l, req, res);
+    return _close_and_notify(parent, l, req, res);
 }
 
-Status TabletsChannel::_close_writers(const PTabletWriterAddBlockRequest& req,
+Status TabletsChannel::_close_writers(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                                       PTabletWriterAddBlockResult* res) {
     auto* tablet_errors = res->mutable_tablet_errors();
     TEST_SYNC_POINT_RETURN_WITH_VALUE("TabletsChannel::close.before_flush", Status::OK(), res);

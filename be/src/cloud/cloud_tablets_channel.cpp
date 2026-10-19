@@ -157,10 +157,11 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         return Status::OK();
     }
 
-    return _close_and_notify(l, req, res);
+    return _close_and_notify(parent, l, req, res);
 }
 
-Status CloudTabletsChannel::_close_writers(const PTabletWriterAddBlockRequest& req,
+Status CloudTabletsChannel::_close_writers(LoadChannel* parent,
+                                           const PTabletWriterAddBlockRequest& req,
                                            PTabletWriterAddBlockResult* res) {
     auto* tablet_errors = res->mutable_tablet_errors();
     auto* tablet_vec = res->mutable_tablet_vec();

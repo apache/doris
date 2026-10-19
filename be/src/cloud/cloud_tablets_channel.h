@@ -41,7 +41,7 @@ public:
                  PTabletWriterAddBlockResult* res, bool* finished) override;
 
 private:
-    Status _close_writers(const PTabletWriterAddBlockRequest& req,
+    Status _close_writers(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                           PTabletWriterAddBlockResult* response) override;
     Status _prepare_adaptive_random_bucket_writer(BaseDeltaWriter* writer) override;
     Status _init_writers_by_partition_ids(const std::unordered_set<int64_t>& partition_ids);
