@@ -20,12 +20,13 @@
 #include <gen_cpp/Opcodes_types.h>
 
 #include "core/column/column.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "storage/segment/common.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-using ScoreMap = phmap::flat_hash_map<segment_v2::rowid_t, float>;
+using ScoreMap = doris::flat_hash_map<segment_v2::rowid_t, float>;
 using ScoreMapIterator = ScoreMap::const_iterator;
 
 enum class OrderType {
@@ -49,6 +50,21 @@ public:
     ~CollectionSimilarity() = default;
 
     void collect(segment_v2::rowid_t row_id, float score);
+
+    void merge_scores(const ScoreMap& scores, const roaring::Roaring& matched_rows);
+
+    // Hands the collected scores over to the caller and leaves this instance empty.
+    // A reader that computes per-document scores inside its own query() cannot return them
+    // through the query API, so it publishes them into a throwaway CollectionSimilarity that the
+    // caller then relocates into a scorer. Moving instead of copying keeps that hand-off free of
+    // a full rehash of a map that can hold one entry per matched row.
+    ScoreMap release_scores() {
+        ScoreMap released = std::move(_bm25_scores);
+        // A moved-from flat_hash_map is valid but unspecified, not guaranteed empty, so make the
+        // "leaves this instance empty" half of the contract true rather than merely likely.
+        _bm25_scores.clear();
+        return released;
+    }
 
     void get_bm25_scores(roaring::Roaring* row_bitmap, IColumn::MutablePtr& scores,
                          std::unique_ptr<std::vector<uint64_t>>& row_ids,
