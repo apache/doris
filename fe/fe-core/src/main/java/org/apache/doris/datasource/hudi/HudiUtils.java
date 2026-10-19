@@ -100,6 +100,10 @@ public class HudiUtils {
                 return "string";
             case FIXED:
             case BYTES:
+                // Keep normalized UUID bytes intact until the JNI scanner decodes their logical type.
+                if (logicalType != null && "uuid".equals(logicalType.getName())) {
+                    return "binary";
+                }
                 if (logicalType instanceof LogicalTypes.Decimal) {
                     LogicalTypes.Decimal decimalType = (LogicalTypes.Decimal) logicalType;
                     return String.format("decimal(%d,%d)", decimalType.getPrecision(), decimalType.getScale());
@@ -233,6 +237,10 @@ public class HudiUtils {
     }
 
     private static Type handleFixedOrBytesType(LogicalType logicalType) {
+        // Hudi's InternalSchema round trip rewrites Avro STRING UUIDs as annotated FIXED(16).
+        if (logicalType != null && "uuid".equals(logicalType.getName())) {
+            return Type.UUID;
+        }
         if (logicalType instanceof LogicalTypes.Decimal) {
             int precision = ((LogicalTypes.Decimal) logicalType).getPrecision();
             int scale = ((LogicalTypes.Decimal) logicalType).getScale();

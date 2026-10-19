@@ -31,9 +31,12 @@ import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,6 +44,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class HadoopHudiColumnValue implements ColumnValue {
     private ColumnType dorisType;
@@ -103,6 +107,26 @@ public class HadoopHudiColumnValue implements ColumnValue {
     @Override
     public byte[] getBytes() {
         return (byte[]) inspectObject();
+    }
+
+    @Override
+    public UUID getUuid() {
+        // Hudi normalizes UUID schemas to FIXED(16), but older log records can still carry Text.
+        if (fieldData instanceof Text) {
+            return UUID.fromString(fieldData.toString());
+        }
+        Object value = inspectObject();
+        if (value instanceof byte[]) {
+            byte[] bytes = (byte[]) value;
+            if (bytes.length == 16) {
+                // Avro fixed UUIDs use network byte order, independently of the JNI vector layout.
+                ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                return new UUID(buffer.getLong(), buffer.getLong());
+            }
+            // A binary Hive inspector also exposes original Parquet STRING values as UTF-8 bytes.
+            return UUID.fromString(new String(bytes, StandardCharsets.UTF_8));
+        }
+        return UUID.fromString(value.toString());
     }
 
 
