@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 61, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 63, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -541,6 +541,32 @@ NO_LITERAL.fingerprint = ecad43724ae8051e30ba3ee9e3deed49a20bcfc2462eebff52bed8f
 scans = 2
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.t2 shapeIdentity=null.null.t2#ti:1 render=null.null.t2#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN join_with_aliases_swapped]
+desc = the same predicates over the same tables with the aliases swapped: a different key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:y,v1,r0};S{null.null.u#ti:1#ra:x,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:y};S{null.null.u#ti:1#ra:x})
+WITH_LITERAL.fingerprint = ff8965d90344b88b8b08635440bf210771e9fca2de9ce83bc947e52c19801e20
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:y,v1,r0};S{null.null.u#ti:1#ra:x,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:y};S{null.null.u#ti:1#ra:x})
+NO_LITERAL.fingerprint = ff8965d90344b88b8b08635440bf210771e9fca2de9ce83bc947e52c19801e20
+scans = 2
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0#ra:y render=null.null.t#ti:0#ra:y,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1#ra:x render=null.null.u#ti:1#ra:x,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN join_with_aliases_x_y]
+desc = inner join whose predicates name the aliases of its two scans (t AS x, u AS y)
+valid = true
+skipReason =
+WITH_LITERAL.canonical = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:x,v1,r0};S{null.null.u#ti:1#ra:y,v1,r0})
+WITH_LITERAL.shape = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:x};S{null.null.u#ti:1#ra:y})
+WITH_LITERAL.fingerprint = 686b8606b0de124ebaa9471af5618a76874396a53d6f9af4112e6b096567d92a
+NO_LITERAL.canonical = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:x,v1,r0};S{null.null.u#ti:1#ra:y,v1,r0})
+NO_LITERAL.shape = J{inner,c:[EqualTo(col(db.x.id),col(db.y.id));LessThan(col(db.x.name),col(db.y.name))]}(S{null.null.t#ti:0#ra:x};S{null.null.u#ti:1#ra:y})
+NO_LITERAL.fingerprint = 686b8606b0de124ebaa9471af5618a76874396a53d6f9af4112e6b096567d92a
+scans = 2
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0#ra:x render=null.null.t#ti:0#ra:x,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1#ra:y render=null.null.u#ti:1#ra:y,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN limit]
 desc = limit 5 offset 0 over a scan
 valid = true

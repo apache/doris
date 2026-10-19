@@ -66,6 +66,7 @@ public class HboScanDescriptor {
     private static final String TABLET_IDENTITY_MARK = "#tb";
     private static final String INDEX_IDENTITY_MARK = "#ix";
     private static final String TABLE_IDENTITY_MARK = "#ti";
+    private static final String RELATION_IDENTITY_MARK = "#ra";
 
     /**
      * The qualified name of the table, which is not its identity: {@code DROP TABLE db.t} and the
@@ -77,6 +78,14 @@ public class HboScanDescriptor {
      */
     private final long tableId;
     private final String table;
+    /**
+     * The alias the query gave this relation ({@code FROM t AS x}), empty when it has none. Two scans of
+     * one table read the same data, but they are two relation instances: a join predicate which names
+     * their aliases ({@code x.b < y.b}) is bound to the instances, and the leaves are sorted by their
+     * text - without the alias the two plans which swap the aliases render the same key although the
+     * ordered comparison selects a different number of rows.
+     */
+    private final String relationIdentity;
     private final long visibleVersion;
     private final long scanRows;
     private final RowsKind rowsKind;
@@ -106,11 +115,12 @@ public class HboScanDescriptor {
      */
     private final String indexIdentity;
 
-    HboScanDescriptor(String table, long tableId, long visibleVersion, long scanRows, RowsKind rowsKind,
-            long selectedPartitions, long totalPartitions, String partitionIdentity,
-            String tabletIdentity, String indexIdentity) {
+    HboScanDescriptor(String table, long tableId, String relationIdentity, long visibleVersion,
+            long scanRows, RowsKind rowsKind, long selectedPartitions, long totalPartitions,
+            String partitionIdentity, String tabletIdentity, String indexIdentity) {
         this.table = table;
         this.tableId = tableId;
+        this.relationIdentity = relationIdentity;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
         this.rowsKind = rowsKind;
@@ -158,6 +168,19 @@ public class HboScanDescriptor {
     static String indexIdentityOf(OlapScan scan) {
         long selectedIndexId = scan.getSelectedIndexId();
         return selectedIndexId == scan.getTable().getBaseIndexId() ? "" : String.valueOf(selectedIndexId);
+    }
+
+    /**
+     * The alias the query gave the relation this scan reads, empty when it has none. The alias is what a
+     * join predicate names when it is bound to one relation instance ({@code t AS x}), and the leaves of a
+     * join chain are sorted by their own identity: two plans which swap the aliases of two tables render
+     * the same predicates, so the binding has to be part of the leaf identity.
+     */
+    static String relationIdentityOf(OlapScan scan) {
+        if (!(scan instanceof LogicalOlapScan)) {
+            return "";
+        }
+        return escapeNamePart(((LogicalOlapScan) scan).getTableAlias());
     }
 
     /** The stable ids of the explicitly selected tablets, ascending, empty when none were selected. */
@@ -254,8 +277,8 @@ public class HboScanDescriptor {
                 ? ((LogicalOlapScan) scan).getManuallySpecifiedTabletIds()
                 : Collections.emptyList();
         Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
-        return new HboScanDescriptor(qualifiedNameOf(table), table.getId(), table.getVisibleVersion(),
-                rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
+        return new HboScanDescriptor(qualifiedNameOf(table), table.getId(), relationIdentityOf(scan),
+                table.getVisibleVersion(), rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size(),
                 partitionIdentityOf(selectedPartitionIds, table.getPartitionNames().size()),
                 tabletIdentityOf(specifiedTabletIds), indexIdentityOf(scan));
@@ -267,7 +290,7 @@ public class HboScanDescriptor {
      * reports that it cannot compare this scan instead of judging it stale.
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
-        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, UNKNOWN, UNKNOWN,
+        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, "", UNKNOWN, UNKNOWN,
                 RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "", "");
     }
 
@@ -376,6 +399,7 @@ public class HboScanDescriptor {
         int firstMark = identity.indexOf('#');
         String table = firstMark < 0 ? identity : identity.substring(0, firstMark);
         long tableId = UNKNOWN;
+        String relationIdentity = "";
         String partitionIdentity = "";
         String tabletIdentity = "";
         String indexIdentity = "";
@@ -389,11 +413,13 @@ public class HboScanDescriptor {
                     indexIdentity = marked.substring(INDEX_IDENTITY_MARK.length());
                 } else if (marked.startsWith(TABLE_IDENTITY_MARK.substring(1) + ":")) {
                     tableId = parseLong(marked.substring(TABLE_IDENTITY_MARK.length()));
+                } else if (marked.startsWith(RELATION_IDENTITY_MARK.substring(1) + ":")) {
+                    relationIdentity = marked.substring(RELATION_IDENTITY_MARK.length());
                 }
             }
         }
-        return new HboScanDescriptor(table, tableId, version, rows, kind, selected, total,
-                partitionIdentity, tabletIdentity, indexIdentity);
+        return new HboScanDescriptor(table, tableId, relationIdentity, version, rows, kind, selected,
+                total, partitionIdentity, tabletIdentity, indexIdentity);
     }
 
     /**
@@ -415,12 +441,20 @@ public class HboScanDescriptor {
         if (tableId != UNKNOWN) {
             sb.append(TABLE_IDENTITY_MARK).append(':').append(tableId);
         }
+        if (!relationIdentity.isEmpty()) {
+            sb.append(RELATION_IDENTITY_MARK).append(':').append(relationIdentity);
+        }
         return sb.toString();
     }
 
     /** The id of the table this scan reads, or {@link #UNKNOWN} when the relation has not one. */
     public long getTableId() {
         return tableId;
+    }
+
+    /** The alias of this relation, empty when the query did not name one. */
+    public String getRelationIdentity() {
+        return relationIdentity;
     }
 
     /** The tablets the scan selects explicitly, as stable ids, empty when it reads whole partitions. */

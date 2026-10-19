@@ -37,7 +37,7 @@ public class HboScanDescriptorIdentityTest {
 
     private static HboScanDescriptor descriptor(String table, List<Long> selectedIds, long totalPartitions,
             List<Long> selectedTabletIds) {
-        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, 3, 1000,
+        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, "", 3, 1000,
                 HboScanDescriptor.RowsKind.MEASURED, selectedIds.size(), totalPartitions,
                 HboScanDescriptor.partitionIdentityOf(selectedIds, totalPartitions),
                 HboScanDescriptor.tabletIdentityOf(selectedTabletIds), "");
@@ -45,12 +45,12 @@ public class HboScanDescriptorIdentityTest {
 
     /** The same scan of the same table name, read from the table with the given id. */
     private static HboScanDescriptor descriptorOfTable(long tableId) {
-        return new HboScanDescriptor("db.t", tableId, 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
+        return new HboScanDescriptor("db.t", tableId, "", 3, 1000, HboScanDescriptor.RowsKind.MEASURED,
                 0, 0, "", "", "");
     }
 
     private static HboScanDescriptor rollupDescriptor(String table, long indexId) {
-        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, 3, 1000,
+        return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, "", 3, 1000,
                 HboScanDescriptor.RowsKind.MEASURED, 2, 2, "", "", String.valueOf(indexId));
     }
 

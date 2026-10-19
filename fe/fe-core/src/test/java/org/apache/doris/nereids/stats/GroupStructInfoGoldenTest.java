@@ -434,6 +434,23 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAnAliasIsBoundToItsRelation() {
+        // the predicates name the aliases x and y while the leaves are sorted by their tables: only the
+        // binding of an alias to its relation separates the two plans, and the ordered comparison keeps a
+        // different number of rows
+        GroupStructInfo xy = built("join_with_aliases_x_y");
+        GroupStructInfo swapped = built("join_with_aliases_swapped");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(xy.getFingerprint(mode), swapped.getFingerprint(mode),
+                    "two alias bindings share a key in mode " + mode);
+        }
+        Assertions.assertTrue(xy.getCanonical(WITH_LITERAL).contains("#ra:x"),
+                "the alias is not in the key: " + xy.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(xy.getCanonical(WITH_LITERAL).contains("#ra:y"),
+                "the alias is not in the key: " + xy.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testEveryCanonicalFoldsToItsConstantAgnosticForm() {
         // the constant agnostic fingerprint of a pasted struct info is computed by folding its text (see
         // GroupStructInfo#toNoLiteral), so the fold has to reproduce exactly the text the renderer writes
@@ -974,6 +991,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("join_left_outer",
                 "left outer join of two scans (the join type and the memo order are kept)",
                 GroupStructInfoGoldenTest::joinLeftOuter));
+        cases.add(new PlanCase("join_with_aliases_x_y",
+                "inner join whose predicates name the aliases of its two scans (t AS x, u AS y)",
+                GroupStructInfoGoldenTest::joinWithAliasesXY));
+        cases.add(new PlanCase("join_with_aliases_swapped",
+                "the same predicates over the same tables with the aliases swapped: a different key",
+                GroupStructInfoGoldenTest::joinWithAliasesSwapped));
         cases.add(new PlanCase("limit", "limit 5 offset 0 over a scan",
                 GroupStructInfoGoldenTest::limit));
         cases.add(new PlanCase("topn", "top-n of 3 rows ordered by one key, asc nulls first",
@@ -1450,6 +1473,43 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t2 = scan(1, "t2");
         return describe(new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, ImmutableList.of(
                 new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))), t1, t2, null));
+    }
+
+    private static GroupStructInfo joinWithAliasesXY() {
+        return joinWithAliases(false);
+    }
+
+    private static GroupStructInfo joinWithAliasesSwapped() {
+        return joinWithAliases(true);
+    }
+
+    /**
+     * {@code Join(x.a = y.a AND x.b < y.b, t AS x, u AS y)} and the same ON clause over
+     * {@code u AS x, t AS y}: the predicates name the aliases and the leaves are sorted by their tables,
+     * so only the binding of an alias to its relation tells the two plans apart - the ordered comparison
+     * keeps one row in the first plan and none in the second.
+     */
+    private static GroupStructInfo joinWithAliases(boolean swap) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        LogicalOlapScan xScan = (swap ? u : t).withTableAlias("x");
+        LogicalOlapScan yScan = (swap ? t : u).withTableAlias("y");
+        List<NamedExpression> xOutput = aliasOutput(xScan, "x");
+        List<NamedExpression> yOutput = aliasOutput(yScan, "y");
+        return describe(new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(xOutput.get(0), yOutput.get(0)),
+                        new LessThan(xOutput.get(1), yOutput.get(1))),
+                new LogicalProject<>(xOutput, xScan), new LogicalProject<>(yOutput, yScan), null));
+    }
+
+    /** The forwarding projection the alias rule inserts: the scan's slots qualified by the alias. */
+    private static List<NamedExpression> aliasOutput(LogicalOlapScan scan, String alias) {
+        List<NamedExpression> output = new ArrayList<>();
+        for (Slot slot : scan.getOutput()) {
+            output.add(new SlotReference(slot.getExprId(), slot.getName(), slot.getDataType(), slot.nullable(),
+                    ImmutableList.of("db", alias)));
+        }
+        return output;
     }
 
     private static GroupStructInfo limit() {
