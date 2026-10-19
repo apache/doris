@@ -23,6 +23,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -2483,6 +2485,23 @@ public class GroupStructInfo {
      */
     private static String expressionName(Expression expression) {
         String className = expression.getClass().getSimpleName();
+        if (expression instanceof Lambda) {
+            // the names of the arguments bind the parameters of the body to the expressions which follow
+            // the lambda: `(x,y) -> x > y` and `(y,x) -> x > y` render the same body, while the first
+            // compares the first array with the second and the second compares the second with the first
+            StringBuilder names = new StringBuilder();
+            for (String argumentName : ((Lambda) expression).getLambdaArgumentNames()) {
+                if (names.length() > 0) {
+                    names.append(',');
+                }
+                names.append(encodeSlotComponent(argumentName));
+            }
+            return className + '<' + names + '>';
+        }
+        if (expression instanceof ArrayItemReference) {
+            // the name is how the body of the lambda refers to the array this reference binds
+            return className + '<' + encodeSlotComponent(((ArrayItemReference) expression).getName()) + '>';
+        }
         if (expression instanceof Match) {
             // `MATCH 'foo-bar' USING ANALYZER a1` and the same predicate with a2 have equal children
             // but select a different analyzer index, so they tokenize the string differently

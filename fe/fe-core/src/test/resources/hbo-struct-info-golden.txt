@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 65, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 67, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -232,6 +232,30 @@ WITH_LITERAL.fingerprint = 5c4c1707a0dff99ddd18e955dfda11e0fd5471d19585776334297
 NO_LITERAL.canonical = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
 NO_LITERAL.shape = F{EqualTo(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
 NO_LITERAL.fingerprint = 8fd5242219ebe01d9f2aaa8d1a29618381034200d15e387d17be9de23b7d7955
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_lambda_arguments_swapped]
+desc = the same body with the parameters swapped (y, x): the opposite comparison
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{GreaterThan(ArrayCount(ArrayMap(Lambda<y,x>(GreaterThan(col(x),col(y)),ArrayItemReference<y>(Cast(col(db.t1.id))),ArrayItemReference<x>(Cast(col(db.t1.name)))))),lit(0:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{GreaterThan(ArrayCount(ArrayMap(Lambda<y,x>(GreaterThan(col(x),col(y)),ArrayItemReference<y>(Cast(col(db.t1.id))),ArrayItemReference<x>(Cast(col(db.t1.name)))))),lit(0:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 34b1cf351aff4c6d2f2a92ebc71b9333f64f42cb7aa3deefbba552e8437607b8
+NO_LITERAL.canonical = F{GreaterThan(ArrayCount(ArrayMap(Lambda<y,x>(GreaterThan(col(x),col(y)),ArrayItemReference<y>(Cast(col(db.t1.id))),ArrayItemReference<x>(Cast(col(db.t1.name)))))),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{GreaterThan(ArrayCount(ArrayMap(Lambda<y,x>(GreaterThan(col(x),col(y)),ArrayItemReference<y>(Cast(col(db.t1.id))),ArrayItemReference<x>(Cast(col(db.t1.name)))))),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 72b5832f5948c52b0a76f03ce530f9243bba096446ab845d85f9823a93868981
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_lambda_arguments_x_y]
+desc = a filter whose lambda binds x to the first array and y to the second (x > y)
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{GreaterThan(ArrayCount(ArrayMap(Lambda<x,y>(GreaterThan(col(x),col(y)),ArrayItemReference<x>(Cast(col(db.t1.id))),ArrayItemReference<y>(Cast(col(db.t1.name)))))),lit(0:INT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{GreaterThan(ArrayCount(ArrayMap(Lambda<x,y>(GreaterThan(col(x),col(y)),ArrayItemReference<x>(Cast(col(db.t1.id))),ArrayItemReference<y>(Cast(col(db.t1.name)))))),lit(0:INT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 108e95317ccc62939599986934948cd3f6db6082ef5c304c18b9a12dd65cffb0
+NO_LITERAL.canonical = F{GreaterThan(ArrayCount(ArrayMap(Lambda<x,y>(GreaterThan(col(x),col(y)),ArrayItemReference<x>(Cast(col(db.t1.id))),ArrayItemReference<y>(Cast(col(db.t1.name)))))),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{GreaterThan(ArrayCount(ArrayMap(Lambda<x,y>(GreaterThan(col(x),col(y)),ArrayItemReference<x>(Cast(col(db.t1.id))),ArrayItemReference<y>(Cast(col(db.t1.name)))))),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 398259a3fa9b42b7ac52ca3349cfefbc0a103140849ffc5d221253a634c37401
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_literal]

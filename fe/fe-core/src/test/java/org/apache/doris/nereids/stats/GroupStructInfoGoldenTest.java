@@ -29,6 +29,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -52,6 +53,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
@@ -83,6 +86,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -431,6 +435,23 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testALambdaKeepsItsArgumentBindings() {
+        // the body of the two lambdas renders the same text, while the argument names decide which array
+        // each parameter reads: the predicate is true for (a=[1], b=[2]) with one binding and false with
+        // the other
+        GroupStructInfo xy = built("filter_lambda_arguments_x_y");
+        GroupStructInfo swapped = built("filter_lambda_arguments_swapped");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(xy.getFingerprint(mode), swapped.getFingerprint(mode),
+                    "two lambda bindings share a key in mode " + mode);
+        }
+        Assertions.assertTrue(xy.getCanonical(WITH_LITERAL).contains("Lambda<x,y>"),
+                "the argument names are not in the key: " + xy.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(swapped.getCanonical(WITH_LITERAL).contains("Lambda<y,x>"),
+                "the argument names are not in the key: " + swapped.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -985,6 +1006,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_datetime_with_another_microsecond",
                 "the same filter with two microseconds: a different key although the second is the same",
                 GroupStructInfoGoldenTest::filterDatetimeWithAnotherMicrosecond));
+        cases.add(new PlanCase("filter_lambda_arguments_x_y",
+                "a filter whose lambda binds x to the first array and y to the second (x > y)",
+                GroupStructInfoGoldenTest::filterLambdaArgumentsXY));
+        cases.add(new PlanCase("filter_lambda_arguments_swapped",
+                "the same body with the parameters swapped (y, x): the opposite comparison",
+                GroupStructInfoGoldenTest::filterLambdaArgumentsSwapped));
         cases.add(new PlanCase("filter_slot_equal_slot",
                 "filter comparing two slots of one scan (both literal modes coincide)",
                 GroupStructInfoGoldenTest::filterSlotEqualSlot));
@@ -1225,6 +1252,33 @@ public class GroupStructInfoGoldenTest {
                 2020, 1, 1, 0, 0, 0, microSecond);
         return describe(new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(t1.getOutput().get(0), literal)), t1));
+    }
+
+    private static GroupStructInfo filterLambdaArgumentsXY() {
+        return filterLambdaArguments(false);
+    }
+
+    private static GroupStructInfo filterLambdaArgumentsSwapped() {
+        return filterLambdaArguments(true);
+    }
+
+    /**
+     * A filter whose predicate binds a lambda's parameters to two arrays: {@code (x,y) -> x > y} and
+     * {@code (y,x) -> x > y} render the same body, while the first compares the first array with the second
+     * and the second compares the second with the first - the argument names are the binding.
+     */
+    private static GroupStructInfo filterLambdaArguments(boolean swap) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        Expression firstArray = new Cast(t1.getOutput().get(0), ArrayType.of(IntegerType.INSTANCE));
+        Expression secondArray = new Cast(t1.getOutput().get(1), ArrayType.of(IntegerType.INSTANCE));
+        ArrayItemReference first = new ArrayItemReference(swap ? "y" : "x", firstArray);
+        ArrayItemReference second = new ArrayItemReference(swap ? "x" : "y", secondArray);
+        ArrayItemReference xBinding = swap ? second : first;
+        ArrayItemReference yBinding = swap ? first : second;
+        Lambda lambda = new Lambda(swap ? ImmutableList.of("y", "x") : ImmutableList.of("x", "y"),
+                new GreaterThan(xBinding.toSlot(), yBinding.toSlot()), ImmutableList.of(first, second));
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new GreaterThan(new ArrayCount(lambda), new IntegerLiteral(0))), t1));
     }
 
     private static GroupStructInfo joinResidualConditionsPerModeOrder() {
