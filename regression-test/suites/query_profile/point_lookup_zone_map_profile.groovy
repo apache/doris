@@ -52,7 +52,8 @@ suite('point_lookup_zone_map_profile', 'nonConcurrent') {
     def segmentCount = { String tableName ->
         int segments = 0
         for (def tablet : sql_return_maparray("show tablets from ${tableName}")) {
-            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus, null, 10,
+                    context.config.feHttpUser, context.config.feHttpPassword)
             assertEquals(0, code)
             for (String rowset : (List<String>) parseJson(out.trim()).rowsets) {
                 def matcher = rowset =~ /^\[\d+-\d+\]\s+(\d+)\s/
