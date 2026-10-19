@@ -47,6 +47,11 @@ suite("test_nullable_aggregation_v2_migration") {
                    avg_weighted(cast(2 as double),w), bitmap_to_string(bitmap_intersect(if(v is null,null,b)))
             from nullable_v2_input group by g
         """)
+        "order_qt_dense_bitmap_${phase}"("""
+            select g,bitmap_to_string(bitmap_intersect(
+                if(id%17000=16999,null,b)))
+            from nullable_v2_input group by g
+        """)
         "order_qt_sparse_bitmap_${phase}"("""
             select g,bitmap_to_string(bitmap_intersect(
                 if(id<7,bitmap_from_string('1,2'),null)))
@@ -54,6 +59,11 @@ suite("test_nullable_aggregation_v2_migration") {
         """)
     }
     sql "set agg_phase=2"
+    order_qt_ordered_distinct """
+        select group_concat(distinct s order by s desc separator ',')
+        from (select number id,if(number=3,null,if(number%2=0,'b','a')) s
+              from numbers("number"="4")) t
+    """
     order_qt_empty """
         select sum(v),avg(v),min(v),max(v),count(v),count(*)
         from nullable_v2_input where id<0
