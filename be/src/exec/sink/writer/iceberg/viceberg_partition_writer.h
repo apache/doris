@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <functional>
+#include <optional>
 
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_fwd.h"
@@ -104,6 +105,8 @@ private:
     // FE's metrics policy for NaN counting; empty (including an older FE that sends nothing) means the
     // parquet writer skips the extra pass entirely. See IcebergWriterHelper#nanCountFieldIds.
     std::vector<int32_t> _nan_count_field_ids;
+    // Typed Azure access from TIcebergTableSink; write_path then keeps its native Azure form.
+    std::optional<TAzureClientConfig> _azure_client_config;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

@@ -19,40 +19,14 @@
 
 #include <strings.h>
 
-#include <array>
 #include <string>
 #include <string_view>
 #include <variant>
 
+#include "io/obj_storage/obj_storage_uri.h"
+
 namespace doris::io {
 namespace {
-
-// Host suffixes of the public Azure clouds. A host "<account>.<suffix>" names its account.
-constexpr std::array<std::string_view, 8> AZURE_STORAGE_HOST_SUFFIXES = {
-        ".blob.core.windows.net",     ".dfs.core.windows.net",        ".blob.core.chinacloudapi.cn",
-        ".dfs.core.chinacloudapi.cn", ".blob.core.usgovcloudapi.net", ".dfs.core.usgovcloudapi.net",
-        ".blob.core.cloudapi.de",     ".dfs.core.cloudapi.de",
-};
-
-std::string_view azure_endpoint_host(std::string_view endpoint) {
-    size_t scheme = endpoint.find("://");
-    if (scheme != std::string_view::npos) {
-        endpoint.remove_prefix(scheme + 3);
-    }
-    return endpoint.substr(0, endpoint.find_first_of(":/"));
-}
-
-// Account named by a standard Azure host, or empty for a custom endpoint.
-std::string_view azure_endpoint_account(std::string_view endpoint) {
-    std::string_view host = azure_endpoint_host(endpoint);
-    for (std::string_view suffix : AZURE_STORAGE_HOST_SUFFIXES) {
-        if (host.size() > suffix.size() && strncasecmp(host.data() + host.size() - suffix.size(),
-                                                       suffix.data(), suffix.size()) == 0) {
-            return host.substr(0, host.size() - suffix.size());
-        }
-    }
-    return {};
-}
 
 Status require_azure_field(bool present, const char* field) {
     if (!present) {
@@ -90,7 +64,7 @@ Status AzureConfigValidator::validate(const AzureClientConfig& config) {
             std::visit([&](const auto& auth) { return validate_azure_auth_fields(config, auth); },
                        config.auth));
 
-    std::string_view host_account = azure_endpoint_account(config.endpoint);
+    std::string_view host_account = ObjStorageUri::azure_account_of_endpoint(config.endpoint);
     if (!config.account.empty() && !host_account.empty() &&
         (host_account.size() != config.account.size() ||
          strncasecmp(host_account.data(), config.account.data(), host_account.size()) != 0)) {

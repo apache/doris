@@ -24,6 +24,7 @@
 
 #include <mutex>
 #include <utility>
+#include <variant>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -47,6 +48,7 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
@@ -71,6 +73,35 @@ static io::FileReaderOptions with_storage_in_cache_key(const io::FileReaderOptio
         return fmt::format("{}:{}:{}", storage, path, mtime);
     };
     return keyed;
+}
+
+struct TypedAzureLocation {
+    io::ObjClientConfig config;
+    io::ObjStorageUri location;
+};
+
+// FE sent typed Azure access. The location is parsed by the Azure rules, so the table's own
+// address (abfss://c1@acct.dfs.core.windows.net/db/t/f) is used as is and never rewritten to
+// s3://c1/db/t/f; its container and account are merged with and checked against the config.
+// The S3-style keys in the property map are not consulted: they cannot express SAS or client
+// secret, and for SharedKey they only exist so that BEs without the typed field keep working.
+static Result<TypedAzureLocation> resolve_typed_azure(const TAzureClientConfig& azure_config,
+                                                      const std::string& path) {
+    auto location = io::ObjStorageUri::parse_azure(path);
+    if (!location.has_value()) {
+        return ResultError(std::move(location).error());
+    }
+    auto config =
+            io::ObjStorageConfigResolver::from_azure_client_config(azure_config, location.value());
+    if (!config.has_value()) {
+        return ResultError(std::move(config).error());
+    }
+    // A key-only location ("db/t/f") names no container; the configured one applies.
+    location->bucket = std::get<io::AzureClientConfig>(config->backend).container;
+    return TypedAzureLocation {
+            .config = std::move(config).value(),
+            .location = std::move(location).value(),
+    };
 }
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
@@ -127,6 +158,16 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
+        if (fs_properties.azure_client_config != nullptr) {
+            auto azure =
+                    resolve_typed_azure(*fs_properties.azure_client_config, file_description.path);
+            if (!azure.has_value()) {
+                return ResultError(std::move(azure).error());
+            }
+            return io::S3FileSystem::create(std::move(azure->config),
+                                            std::move(azure->location.bucket),
+                                            io::FileSystem::TMP_FS_ID);
+        }
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
@@ -175,7 +216,7 @@ std::string FileFactory::_get_fs_name(const io::FileDescription& file_descriptio
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
         TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties, const std::string& path,
-        const io::FileWriterOptions& options) {
+        const io::FileWriterOptions& options, const TAzureClientConfig* azure_client_config) {
     io::FileWriterPtr file_writer;
     switch (type) {
     case TFileType::FILE_LOCAL: {
@@ -191,6 +232,17 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
+        if (azure_client_config != nullptr) {
+            auto azure = resolve_typed_azure(*azure_client_config, path);
+            if (!azure.has_value()) {
+                return ResultError(std::move(azure).error());
+            }
+            auto client = std::make_shared<io::ObjClientHolder>(std::move(azure->config));
+            RETURN_IF_ERROR_RESULT(client->init());
+            return std::make_unique<io::S3FileWriter>(std::move(client),
+                                                      std::move(azure->location.bucket),
+                                                      std::move(azure->location.key), &options);
+        }
         S3URI s3_uri(path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
@@ -239,30 +291,33 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         return file_reader;
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
         std::shared_ptr<io::ObjClientHolder> client_holder;
+        std::string bucket;
+        std::string key;
         if (system_properties.azure_client_config.has_value()) {
-            // FE sent typed Azure access. The S3-style keys in `properties` are not consulted:
-            // they cannot express SAS or client secret, and for SharedKey they only exist so
-            // that BEs without this field keep working.
-            auto config = io::ObjStorageConfigResolver::from_azure_client_config(
-                    *system_properties.azure_client_config, s3_uri.get_bucket());
-            if (!config.has_value()) {
-                return ResultError(std::move(config).error());
+            auto azure = resolve_typed_azure(*system_properties.azure_client_config,
+                                             file_description.path);
+            if (!azure.has_value()) {
+                return ResultError(std::move(azure).error());
             }
-            client_holder = std::make_shared<io::ObjClientHolder>(std::move(config).value());
+            client_holder = std::make_shared<io::ObjClientHolder>(std::move(azure->config));
+            bucket = std::move(azure->location.bucket);
+            key = std::move(azure->location.key);
         } else {
+            S3URI s3_uri(file_description.path);
+            RETURN_IF_ERROR_RESULT(s3_uri.parse());
             S3Conf s3_conf;
             RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
                     system_properties.properties, s3_uri, &s3_conf));
             client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+            bucket = s3_uri.get_bucket();
+            key = s3_uri.get_key();
         }
         RETURN_IF_ERROR_RESULT(client_holder->init());
         auto options = with_storage_in_cache_key(reader_options,
                                                  client_holder->state()->config.endpoint());
-        return io::S3FileReader::create(std::move(client_holder), s3_uri.get_bucket(),
-                                        s3_uri.get_key(), file_description.file_size, profile)
+        return io::S3FileReader::create(std::move(client_holder), bucket, key,
+                                        file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);
                 });

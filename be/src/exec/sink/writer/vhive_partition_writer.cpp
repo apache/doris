@@ -60,6 +60,9 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
     if (t_sink.hive_table_sink.__isset.hive_parquet_time_zone) {
         _hive_parquet_time_zone = t_sink.hive_table_sink.hive_parquet_time_zone;
     }
+    if (t_sink.hive_table_sink.__isset.azure_client_config) {
+        _azure_client_config = t_sink.hive_table_sink.azure_client_config;
+    }
 }
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
@@ -69,6 +72,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
     fs_properties.properties = &_hadoop_conf;
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
+    }
+    if (_azure_client_config.has_value()) {
+        fs_properties.azure_client_config = &*_azure_client_config;
     }
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),

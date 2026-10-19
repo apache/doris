@@ -17,10 +17,14 @@
 
 #include "io/obj_storage/obj_storage_config_resolver.h"
 
+#include <absl/strings/match.h>
+
+#include <string_view>
 #include <variant>
 
 #include "io/obj_storage/azure_config_codec.h"
 #include "io/obj_storage/azure_config_validator.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -73,10 +77,23 @@ ObjClientConfig ObjStorageConfigResolver::from_client_conf(const S3ClientConf& c
 }
 
 Result<ObjClientConfig> ObjStorageConfigResolver::from_azure_client_config(
-        const TAzureClientConfig& config, std::string_view location_container) {
-    auto azure = AzureConfigCodec::decode(config, location_container);
+        const TAzureClientConfig& config, const ObjStorageUri& location) {
+    auto azure = AzureConfigCodec::decode(config, location.bucket);
     if (!azure.has_value()) {
         return ResultError(std::move(azure).error());
+    }
+    // The account requests go to: the configured one, or for SAS/client secret without
+    // account_name the one the endpoint names. Either side may name none (an s3-style location
+    // has no host, a custom endpoint names no account), and then there is nothing to compare.
+    std::string_view target_account =
+            azure->account.empty() ? ObjStorageUri::azure_account_of_endpoint(azure->endpoint)
+                                   : std::string_view(azure->account);
+    if (!location.account.empty() && !target_account.empty() &&
+        !absl::EqualsIgnoreCase(location.account, target_account)) {
+        return ResultError(Status::InvalidArgument<false>(
+                "Azure account '{}' of location {} does not match the account '{}' of the "
+                "client config",
+                location.account, location.original, target_account));
     }
     RETURN_IF_ERROR_RESULT(AzureConfigValidator::validate(azure.value()));
     return ObjClientConfig {

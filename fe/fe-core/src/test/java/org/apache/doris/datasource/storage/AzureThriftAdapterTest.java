@@ -20,6 +20,13 @@ package org.apache.doris.datasource.storage;
 import org.apache.doris.filesystem.properties.AzureBackendPropertyKeys;
 import org.apache.doris.thrift.TAzureClientConfig;
 import org.apache.doris.thrift.TAzureClientSecret;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.THiveLocationParams;
+import org.apache.doris.thrift.THiveTableSink;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergTableSink;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -98,6 +105,86 @@ class AzureThriftAdapterTest {
         Optional<TAzureClientConfig> config = AzureThriftAdapter.fromBackendProperties(s3Props);
 
         Assertions.assertFalse(config.isPresent());
+    }
+
+    private static Map<String, String> sasProps() {
+        Map<String, String> props = baseProps(AzureBackendPropertyKeys.AUTH_SAS);
+        props.put(AzureBackendPropertyKeys.SAS_TOKEN, "sv=2024&sig=abc");
+        return props;
+    }
+
+    @Test
+    void icebergSinksGetTypedConfigAndTheirOwnLocation() {
+        String raw = "abfss://c1@acct.dfs.core.windows.net/db/t/data";
+        String normalized = "s3://c1/db/t/data";
+
+        TIcebergTableSink tableSink = new TIcebergTableSink();
+        tableSink.setHadoopConfig(sasProps());
+        tableSink.setOutputPath(normalized);
+        tableSink.setOriginalOutputPath(raw);
+        TDataSink table = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
+        table.setIcebergTableSink(tableSink);
+        AzureThriftAdapter.bindToWriteSink(table);
+        Assertions.assertTrue(tableSink.getAzureClientConfig().getCredential().isSetSas());
+        Assertions.assertEquals(raw, tableSink.getOutputPath());
+
+        TIcebergDeleteSink deleteSink = new TIcebergDeleteSink();
+        deleteSink.setHadoopConfig(sasProps());
+        deleteSink.setOutputPath(normalized);
+        deleteSink.setTableLocation(raw);
+        TDataSink delete = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
+        delete.setIcebergDeleteSink(deleteSink);
+        AzureThriftAdapter.bindToWriteSink(delete);
+        Assertions.assertTrue(deleteSink.isSetAzureClientConfig());
+        Assertions.assertEquals(raw, deleteSink.getOutputPath());
+
+        TIcebergMergeSink mergeSink = new TIcebergMergeSink();
+        mergeSink.setHadoopConfig(sasProps());
+        mergeSink.setOutputPath(normalized);
+        mergeSink.setOriginalOutputPath(raw);
+        mergeSink.setTableLocation(raw);
+        TDataSink merge = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
+        merge.setIcebergMergeSink(mergeSink);
+        AzureThriftAdapter.bindToWriteSink(merge);
+        Assertions.assertTrue(mergeSink.isSetAzureClientConfig());
+        Assertions.assertEquals(raw, mergeSink.getOutputPath());
+    }
+
+    @Test
+    void hiveSinkKeepsItsWritePath() {
+        THiveTableSink hiveSink = new THiveTableSink();
+        hiveSink.setHadoopConfig(sasProps());
+        THiveLocationParams location = new THiveLocationParams();
+        location.setWritePath("s3://c1/db/t");
+        location.setOriginalWritePath("abfss://c1@acct.dfs.core.windows.net/db/t");
+        hiveSink.setLocation(location);
+        TDataSink hive = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
+        hive.setHiveTableSink(hiveSink);
+
+        AzureThriftAdapter.bindToWriteSink(hive);
+
+        Assertions.assertTrue(hiveSink.isSetAzureClientConfig());
+        Assertions.assertEquals("s3://c1/db/t", hiveSink.getLocation().getWritePath());
+    }
+
+    @Test
+    void nonAzureOrEmptySinksAreLeftAlone() {
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("AWS_ENDPOINT", "s3.us-east-1.amazonaws.com");
+        TIcebergTableSink tableSink = new TIcebergTableSink();
+        tableSink.setHadoopConfig(s3Props);
+        tableSink.setOutputPath("s3://b/db/t/data");
+        tableSink.setOriginalOutputPath("s3a://b/db/t/data");
+        TDataSink table = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
+        table.setIcebergTableSink(tableSink);
+
+        AzureThriftAdapter.bindToWriteSink(table);
+        Assertions.assertFalse(tableSink.isSetAzureClientConfig());
+        Assertions.assertEquals("s3://b/db/t/data", tableSink.getOutputPath());
+
+        // Placeholder sinks (no type, or a type without its member) are not write targets.
+        AzureThriftAdapter.bindToWriteSink(new TDataSink());
+        AzureThriftAdapter.bindToWriteSink(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK));
     }
 
     @Test

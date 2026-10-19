@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -121,6 +122,9 @@ private:
      */
     std::string _generate_delete_file_path(const std::string& referenced_data_file = "");
 
+    // The path the commit records for a delete file written at write_path; see the definition.
+    std::string _commit_path_of(const std::string& write_path) const;
+
     /**
      * Get $row_id column index from block
      */
@@ -169,6 +173,8 @@ private:
 
     TFileType::type _file_type = TFileType::FILE_HDFS;
     std::vector<TNetworkAddress> _broker_addresses;
+    // Typed Azure access; output_path then keeps its native Azure form.
+    std::optional<TAzureClientConfig> _azure_client_config;
 
     // Partition information
     int32_t _partition_spec_id = 0;

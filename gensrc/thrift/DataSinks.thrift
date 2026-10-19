@@ -391,6 +391,9 @@ struct THiveTableSink {
     13: optional bool supports_deferred_azure_multipart
     // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
     14: optional string hive_parquet_time_zone
+    // Typed Azure access for writes. The write path stays as FE built it: the coordinator
+    // completes Azure multipart uploads by that path.
+    15: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 enum TUpdateMode {
@@ -504,6 +507,8 @@ struct TIcebergTableSink {
     // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
     // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
     20: optional list<i32> nan_count_field_ids;
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    21: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -532,6 +537,8 @@ struct TIcebergDeleteSink {
     14: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     15: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    16: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 // Merge sink for Iceberg UPDATE: mix of position delete + data insert
@@ -572,6 +579,8 @@ struct TIcebergMergeSink {
     24: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     25: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    // Typed Azure access for writes; output paths then keep their native Azure form.
+    26: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 enum TDictLayoutType {

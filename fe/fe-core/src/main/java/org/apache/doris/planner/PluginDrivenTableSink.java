@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -203,6 +204,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 requireMergeCardinalityCheck, beExecVersion);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
+        AzureThriftAdapter.bindToWriteSink(tDataSink);
     }
 
     private static boolean containsVariant(List<ConnectorColumn> columns) {

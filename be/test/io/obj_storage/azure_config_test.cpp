@@ -28,6 +28,7 @@
 #include "io/obj_storage/azure_credential_validator.h"
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 
 namespace doris::io {
 namespace {
@@ -222,9 +223,59 @@ TEST(AzureCredentialValidatorTest, RejectsExpiredSas) {
             AzureCredentialValidator::validate(AzureSharedKeyConfig {"key"}, SAS_EXPIRY_MS).ok());
 }
 
+ObjStorageUri parse_location(const std::string& location) {
+    auto uri = ObjStorageUri::parse_azure(location);
+    EXPECT_TRUE(uri.has_value()) << location;
+    return uri.value_or(ObjStorageUri {});
+}
+
+TEST(ObjStorageUriTest, ParsesEveryAzureLocationForm) {
+    auto abfss = parse_location("abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet");
+    EXPECT_EQ(abfss.original, "abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet");
+    EXPECT_EQ(abfss.account, "acct");
+    EXPECT_EQ(abfss.bucket, "c1");
+    EXPECT_EQ(abfss.key, "db/t/f.parquet");
+
+    auto wasbs = parse_location("wasbs://c1@acct.blob.core.chinacloudapi.cn/db/f?x=1#frag");
+    EXPECT_EQ(wasbs.account, "acct");
+    EXPECT_EQ(wasbs.bucket, "c1");
+    EXPECT_EQ(wasbs.key, "db/f");
+
+    auto https = parse_location("https://acct.blob.core.windows.net/c1/db/f");
+    EXPECT_EQ(https.account, "acct");
+    EXPECT_EQ(https.bucket, "c1");
+    EXPECT_EQ(https.key, "db/f");
+
+    // The s3-style form older FEs normalize to names no account.
+    auto s3_style = parse_location("s3://c1/db/f");
+    EXPECT_EQ(s3_style.account, "");
+    EXPECT_EQ(s3_style.bucket, "c1");
+    EXPECT_EQ(s3_style.key, "db/f");
+
+    // A host that is not an Azure storage endpoint (here an emulator) names no account.
+    auto emulator = parse_location("abfs://c1@127.0.0.1:10000/db/f");
+    EXPECT_EQ(emulator.account, "");
+    EXPECT_EQ(emulator.bucket, "c1");
+
+    auto key_only = parse_location("db/f");
+    EXPECT_EQ(key_only.bucket, "");
+    EXPECT_EQ(key_only.key, "db/f");
+
+    auto container_root = parse_location("abfss://c1@acct.dfs.core.windows.net");
+    EXPECT_EQ(container_root.bucket, "c1");
+    EXPECT_EQ(container_root.key, "");
+}
+
+TEST(ObjStorageUriTest, RejectsMalformedAzureLocations) {
+    EXPECT_FALSE(ObjStorageUri::parse_azure("").has_value());
+    EXPECT_FALSE(ObjStorageUri::parse_azure("abfss://acct.dfs.core.windows.net/db/f").has_value());
+    EXPECT_FALSE(ObjStorageUri::parse_azure("https://acct.blob.core.windows.net/").has_value());
+    EXPECT_FALSE(ObjStorageUri::parse_azure("hdfs://nn/db/f").has_value());
+}
+
 TEST(ObjStorageConfigResolverTest, ResolvesTypedAzureConfig) {
     auto config = ObjStorageConfigResolver::from_azure_client_config(
-            make_config(sas_credential("sig=abc")), "c1");
+            make_config(sas_credential("sig=abc")), parse_location("s3://c1/k"));
     ASSERT_TRUE(config.has_value()) << config.error();
     EXPECT_EQ(config->usage, ClientUsage::EXTERNAL_ACCESS);
     EXPECT_EQ(config->provider(), ObjStorageProvider::AZURE);
@@ -234,8 +285,46 @@ TEST(ObjStorageConfigResolverTest, ResolvesTypedAzureConfig) {
     // A structurally invalid config fails here, before any client is built.
     auto missing_tenant = make_config(client_secret_credential());
     missing_tenant.credential.client_secret.__set_tenant_id("");
-    EXPECT_FALSE(
-            ObjStorageConfigResolver::from_azure_client_config(missing_tenant, "c1").has_value());
+    EXPECT_FALSE(ObjStorageConfigResolver::from_azure_client_config(missing_tenant,
+                                                                    parse_location("s3://c1/k"))
+                         .has_value());
+}
+
+TEST(ObjStorageConfigResolverTest, ChecksAccountOfNativeLocation) {
+    auto config = make_config(shared_key_credential("key"));
+    EXPECT_TRUE(ObjStorageConfigResolver::from_azure_client_config(
+                        config, parse_location("abfss://c1@acct.dfs.core.windows.net/k"))
+                        .has_value());
+    // acct's key must not be sent for another account's path.
+    EXPECT_FALSE(ObjStorageConfigResolver::from_azure_client_config(
+                         config, parse_location("abfss://c1@other.dfs.core.windows.net/k"))
+                         .has_value());
+
+    // Without account_name (client secret) the endpoint names the account requests go to.
+    auto secret = make_config(client_secret_credential());
+    secret.__isset.account_name = false;
+    secret.account_name.clear();
+    EXPECT_TRUE(ObjStorageConfigResolver::from_azure_client_config(
+                        secret, parse_location("abfss://c1@ACCT.dfs.core.windows.net/k"))
+                        .has_value());
+    EXPECT_FALSE(ObjStorageConfigResolver::from_azure_client_config(
+                         secret, parse_location("abfss://c1@other.dfs.core.windows.net/k"))
+                         .has_value());
+
+    // A custom endpoint names no account, so any location account is accepted.
+    secret.__set_endpoint("http://127.0.0.1:10000");
+    EXPECT_TRUE(ObjStorageConfigResolver::from_azure_client_config(
+                        secret, parse_location("abfss://c1@other.dfs.core.windows.net/k"))
+                        .has_value());
+}
+
+TEST(ObjStorageUriTest, AccountOfEndpoint) {
+    EXPECT_EQ("acct",
+              ObjStorageUri::azure_account_of_endpoint("https://acct.blob.core.windows.net"));
+    EXPECT_EQ("acct",
+              ObjStorageUri::azure_account_of_endpoint("acct.DFS.core.chinacloudapi.cn:443"));
+    EXPECT_EQ("", ObjStorageUri::azure_account_of_endpoint("http://127.0.0.1:10000/acct"));
+    EXPECT_EQ("", ObjStorageUri::azure_account_of_endpoint("blob.core.windows.net"));
 }
 
 TEST(ObjClientConfigTest, AzureCredentialsAreMaskedAndPartOfIdentity) {

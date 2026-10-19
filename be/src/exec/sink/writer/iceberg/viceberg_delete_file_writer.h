@@ -62,7 +62,8 @@ public:
     Status open(RuntimeState* state, RuntimeProfile* profile, const VExprContextSPtrs& output_exprs,
                 const std::vector<std::string>& column_names,
                 const std::map<std::string, std::string>& hadoop_config, TFileType::type file_type,
-                const std::vector<TNetworkAddress>& broker_addresses = {});
+                const std::vector<TNetworkAddress>& broker_addresses = {},
+                const TAzureClientConfig* azure_client_config = nullptr);
 
     /**
      * Write a block of delete data.

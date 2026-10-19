@@ -141,6 +141,13 @@ class S3FileSystem final : public RemoteFileSystem {
 public:
     static Result<std::shared_ptr<S3FileSystem>> create(S3Conf s3_conf, std::string id);
 
+    // Typed access, e.g. FE-sent TAzureClientConfig. There is no root prefix: every path is a
+    // full location or a key. With an Azure backend, full paths are parsed by the Azure
+    // location rules, so abfss://container@acct.dfs.core.windows.net/key works as well as the
+    // s3-style s3://container/key.
+    static Result<std::shared_ptr<S3FileSystem>> create(ObjClientConfig config, std::string bucket,
+                                                        std::string id);
+
     ~S3FileSystem() override;
 
     const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
@@ -186,14 +193,20 @@ protected:
 
 private:
     S3FileSystem(S3Conf s3_conf, std::string id);
+    S3FileSystem(ObjClientConfig config, std::string bucket, std::string id);
 
     Status init();
+
+    Result<std::string> _get_key(const Path& full_path) const;
 
     // For error msg
     std::string full_s3_path(std::string_view key) const;
 
     std::string _bucket;
     std::string _prefix;
+    // Set only for typed Azure access; the legacy S3Conf path keeps the s3-style locations
+    // FE normalized Azure paths to, so it stays on S3URI.
+    bool _native_azure_location = false;
     std::shared_ptr<ObjClientHolder> _client;
 };
 

@@ -78,6 +78,7 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
                                    const std::map<std::string, std::string>& hadoop_conf,
                                    TFileType::type file_type,
                                    const std::vector<TNetworkAddress>& broker_addresses,
+                                   const std::optional<TAzureClientConfig>& azure_client_config,
                                    roaring::Roaring64Map* rows_to_delete) {
     if (rows_to_delete == nullptr) {
         return Status::InvalidArgument("rows_to_delete is null");
@@ -88,6 +89,9 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
 
     TFileScanRangeParams params =
             build_iceberg_delete_scan_range_params(hadoop_conf, file_type, broker_addresses);
+    if (azure_client_config.has_value()) {
+        params.__set_azure_client_config(*azure_client_config);
+    }
     IcebergDeleteFileIOContext delete_file_io_ctx(state);
     IcebergDeleteFileReaderOptions options;
     options.state = state;
@@ -164,6 +168,10 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
 
     if (delete_sink.__isset.file_type) {
         _file_type = delete_sink.file_type;
+    }
+
+    if (delete_sink.__isset.azure_client_config) {
+        _azure_client_config = delete_sink.azure_client_config;
     }
 
     if (delete_sink.__isset.broker_addresses) {
@@ -504,7 +512,8 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         // Open writer
         Status open_status =
                 writer->open(_state, _state->runtime_profile(), _position_delete_output_expr_ctxs,
-                             column_names, _hadoop_conf, _file_type, _broker_addresses);
+                             column_names, _hadoop_conf, _file_type, _broker_addresses,
+                             _azure_client_config.has_value() ? &*_azure_client_config : nullptr);
         if (writer->file_system() != nullptr) {
             _created_files.emplace_back(writer->file_system(), delete_file_path);
         }
@@ -536,6 +545,8 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         TIcebergCommitData commit_data;
         RETURN_IF_ERROR(writer->close(commit_data));
 
+        // The writer reports the path it wrote; the table records its own location form.
+        commit_data.__set_file_path(_commit_path_of(delete_file_path));
         // Set referenced data file path
         commit_data.__set_referenced_data_file_path(data_file_path);
 
@@ -654,9 +665,10 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         auto previous_delete_it = _rewritable_delete_files.find(data_file_path);
         if (previous_delete_it != _rewritable_delete_files.end()) {
             roaring::Roaring64Map previous_rows;
-            RETURN_IF_ERROR(load_rewritable_delete_rows(
-                    _state, _state->runtime_profile(), data_file_path, previous_delete_it->second,
-                    _hadoop_conf, _file_type, _broker_addresses, &previous_rows));
+            RETURN_IF_ERROR(load_rewritable_delete_rows(_state, _state->runtime_profile(),
+                                                        data_file_path, previous_delete_it->second,
+                                                        _hadoop_conf, _file_type, _broker_addresses,
+                                                        _azure_client_config, &previous_rows));
             merged_rows |= previous_rows;
         }
 
@@ -693,7 +705,7 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
 
     for (const auto& blob : blobs) {
         TIcebergCommitData commit_data;
-        commit_data.__set_file_path(puffin_path);
+        commit_data.__set_file_path(_commit_path_of(puffin_path));
         commit_data.__set_row_count(blob.merged_count);
         commit_data.__set_affected_rows(blob.delete_count);
         commit_data.__set_file_size(puffin_file_size);
@@ -722,6 +734,9 @@ Status VIcebergDeleteSink::_write_puffin_file(const std::string& puffin_path,
     fs_properties.properties = &_hadoop_conf;
     if (!_broker_addresses.empty()) {
         fs_properties.broker_addresses = &_broker_addresses;
+    }
+    if (_azure_client_config.has_value()) {
+        fs_properties.azure_client_config = &*_azure_client_config;
     }
     io::FileDescription file_description = {.path = puffin_path, .fs_name {}};
     auto fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
@@ -824,6 +839,32 @@ std::string VIcebergDeleteSink::_generate_delete_file_path(
 
     // Delete files are data files in Iceberg, write under data location
     return fmt::format("{}{}", base_path, file_name);
+}
+
+// Delete files are written under output_path, the location form BE addresses the storage
+// with, but Iceberg metadata must record the table's own form, which FE sends as
+// table_location (the raw data location; every FE version sets it to the same directory as
+// output_path). Example: an OSS table has table_location oss://b/db/t/data, which FE
+// normalizes to output_path s3://b/db/t/data; delete_pos_1.parquet is written to
+// s3://b/db/t/data/delete_pos_1.parquet and committed as oss://b/db/t/data/delete_pos_1.parquet.
+// Committing the s3:// form made later readers resolve the file with the wrong scheme.
+std::string VIcebergDeleteSink::_commit_path_of(const std::string& write_path) const {
+    // Without both locations there is nothing to rebase: an empty output_path means the file
+    // was already written under table_location, and an FE that sends no table_location gives
+    // no other form to record.
+    if (_output_path.empty() || _table_location.empty()) {
+        return write_path;
+    }
+    std::string write_base = _output_path;
+    if (write_base.back() != '/') {
+        write_base += '/';
+    }
+    std::string commit_base = _table_location;
+    if (commit_base.back() != '/') {
+        commit_base += '/';
+    }
+    DORIS_CHECK(write_path.starts_with(write_base));
+    return commit_base + write_path.substr(write_base.size());
 }
 
 std::string VIcebergDeleteSink::_generate_puffin_file_path() {

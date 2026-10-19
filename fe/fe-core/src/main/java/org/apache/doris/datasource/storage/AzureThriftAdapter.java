@@ -23,6 +23,11 @@ import org.apache.doris.thrift.TAzureClientSecret;
 import org.apache.doris.thrift.TAzureCredential;
 import org.apache.doris.thrift.TAzureSas;
 import org.apache.doris.thrift.TAzureSharedKey;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.THiveTableSink;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergTableSink;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -42,6 +47,54 @@ import java.util.Optional;
 public final class AzureThriftAdapter {
 
     private AzureThriftAdapter() {
+    }
+
+    /**
+     * Binds typed Azure access onto a connector-built write sink, from the backend properties the
+     * connector already put in its hadoop config. Doing it here keeps the connectors Thrift-shape
+     * agnostic for Azure and gives every write sink the same rule.
+     *
+     * <p>Iceberg sinks also get their output path back in the table's own form: with typed access
+     * BE parses native Azure locations itself, so it writes
+     * {@code abfss://c1@acct.dfs.core.windows.net/db/t/data/...} as is instead of the s3-style
+     * {@code s3://c1/db/t/data/...} it could only address before. The Hive sink keeps its write
+     * path: the coordinator completes Azure multipart uploads and renames staged files by that
+     * path, and Hive records {@code original_write_path} anyway.
+     */
+    public static void bindToWriteSink(TDataSink sink) {
+        // Keyed on the member that is set rather than the sink type: a connector fills exactly
+        // one of them, and only these carry object-storage writes.
+        if (sink.isSetIcebergTableSink()) {
+            TIcebergTableSink tableSink = sink.getIcebergTableSink();
+            writeSinkConfig(tableSink.getHadoopConfig()).ifPresent(config -> {
+                tableSink.setAzureClientConfig(config);
+                tableSink.setOutputPath(tableSink.getOriginalOutputPath());
+            });
+        }
+        if (sink.isSetIcebergDeleteSink()) {
+            TIcebergDeleteSink deleteSink = sink.getIcebergDeleteSink();
+            writeSinkConfig(deleteSink.getHadoopConfig()).ifPresent(config -> {
+                deleteSink.setAzureClientConfig(config);
+                // table_location is the raw data location, the directory output_path names.
+                deleteSink.setOutputPath(deleteSink.getTableLocation());
+            });
+        }
+        if (sink.isSetIcebergMergeSink()) {
+            TIcebergMergeSink mergeSink = sink.getIcebergMergeSink();
+            writeSinkConfig(mergeSink.getHadoopConfig()).ifPresent(config -> {
+                mergeSink.setAzureClientConfig(config);
+                mergeSink.setOutputPath(mergeSink.getOriginalOutputPath());
+            });
+        }
+        if (sink.isSetHiveTableSink()) {
+            THiveTableSink hiveSink = sink.getHiveTableSink();
+            writeSinkConfig(hiveSink.getHadoopConfig()).ifPresent(hiveSink::setAzureClientConfig);
+        }
+    }
+
+    // hadoop_config is optional in Thrift; a sink without it has no object-storage access to type.
+    private static Optional<TAzureClientConfig> writeSinkConfig(Map<String, String> hadoopConfig) {
+        return hadoopConfig == null ? Optional.empty() : fromBackendProperties(hadoopConfig);
     }
 
     public static Optional<TAzureClientConfig> fromBackendProperties(Map<String, String> props) {

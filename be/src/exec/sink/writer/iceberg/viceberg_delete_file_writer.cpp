@@ -59,7 +59,8 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
                                       const std::vector<std::string>& column_names,
                                       const std::map<std::string, std::string>& hadoop_config,
                                       TFileType::type file_type,
-                                      const std::vector<TNetworkAddress>& broker_addresses) {
+                                      const std::vector<TNetworkAddress>& broker_addresses,
+                                      const TAzureClientConfig* azure_client_config) {
     if (_delete_type != TFileContent::POSITION_DELETES) {
         return Status::NotSupported("Iceberg delete file writer only supports position deletes");
     }
@@ -73,6 +74,7 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     if (!broker_addresses.empty()) {
         fs_properties.broker_addresses = &broker_addresses;
     }
+    fs_properties.azure_client_config = azure_client_config;
 
     io::FileDescription file_description = {.path = _output_path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
