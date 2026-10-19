@@ -67,7 +67,7 @@ public:
         DORIS_CHECK(cloned_expr != nullptr);
         auto node = clone_texpr_node();
         TCaseExpr case_node;
-        case_node.__set_has_case_expr(false);
+        case_node.__set_has_case_expr(_has_case_expr);
         case_node.__set_has_else_expr(_has_else_expr);
         node.__set_case_expr(case_node);
         *cloned_expr = VCaseExpr::create_shared(node);
@@ -75,6 +75,10 @@ public:
     }
 
 private:
+    template <PrimitiveType PType>
+    Status _execute_simple_case(VExprContext* context, const Block* block, const Selector* selector,
+                                size_t count, ColumnPtr& result_column) const;
+
     template <typename IndexType, typename ColumnType>
     ColumnPtr _execute_update_result_impl(const IndexType* then_idx,
                                           std::vector<ColumnPtr>& then_columns,
@@ -215,7 +219,9 @@ private:
                                  const IndexType* __restrict then_idx,
                                  std::vector<ColumnPtr>& then_columns, size_t rows_count) const {
         for (auto& then_ptr : then_columns) {
-            then_ptr = then_ptr->convert_to_full_column_if_const();
+            if (then_ptr) {
+                then_ptr = then_ptr->convert_to_full_column_if_const();
+            }
         }
 
         result_column_ptr->resize(rows_count);
@@ -331,6 +337,7 @@ private:
         return _execute_update_result<IndexType>(then_idx_ptr, then_columns, rows_count);
     }
 
+    bool _has_case_expr;
     bool _has_else_expr;
 
     inline static const std::string FUNCTION_NAME = "case";

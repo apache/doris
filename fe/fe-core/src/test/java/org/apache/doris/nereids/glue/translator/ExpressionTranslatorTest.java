@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -33,16 +34,28 @@ import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.collect.ImmutableList;
@@ -51,9 +64,207 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class ExpressionTranslatorTest {
+
+    @Test
+    void testStringCaseTranslationPreservesCommonInput() {
+        withSimpleCaseEnabled(this::checkStringCaseTranslation);
+    }
+
+    private void checkStringCaseTranslation() {
+        for (DataType type : ImmutableList.of(StringType.INSTANCE, VarcharType.createVarcharType(20))) {
+            SlotReference input = new SlotReference("input", type, true);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(type.toCatalogDataType(), true));
+            Literal key = new VarcharLiteral("key");
+            CaseWhen expression = new CaseWhen(ImmutableList.of(
+                    new WhenClause(new EqualTo(input, key), new IntegerLiteral(11)),
+                    new WhenClause(new EqualTo(input, key), new IntegerLiteral(22))),
+                    new IntegerLiteral(33));
+            CaseExpr translated = (CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context);
+            Assertions.assertTrue(ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0)
+                    .getCaseExpr().isHasCaseExpr());
+            Assertions.assertInstanceOf(SlotRef.class, translated.getChild(0));
+            Assertions.assertEquals(input.getDataType().toCatalogDataType(), translated.getChild(0).getType());
+            Assertions.assertEquals(11, ((IntLiteral) translated.getChild(2)).getLongValue());
+            Assertions.assertEquals(22, ((IntLiteral) translated.getChild(4)).getLongValue());
+
+            CaseWhen nullKey = new CaseWhen(ImmutableList.of(new WhenClause(
+                    new EqualTo(input, new NullLiteral(type)), new IntegerLiteral(1))));
+            Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(nullKey, context))
+                    .isHasCaseExpr());
+        }
+    }
+
+    @Test
+    void testDecimalCaseTranslationPreservesCastAndScale() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connection = new ConnectContext();
+        connection.getSessionVariable().enableDecimal256 = true;
+        connection.getSessionVariable().enableExperimentalSimpleCase = true;
+        connection.setThreadLocalInfo();
+        try {
+            SlotReference input = new SlotReference("input", StringType.INSTANCE, true);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(Type.STRING, true));
+            for (int precision : new int[] {9, 18, 38, 76}) {
+                DecimalV3Type type = DecimalV3Type.createDecimalV3TypeNotCheck256(precision, 6);
+                Cast cast = new Cast(input, type);
+                DecimalV3Literal key = new DecimalV3Literal(type, new BigDecimal("1.000000"));
+                CaseWhen expression = new CaseWhen(ImmutableList.of(
+                        new WhenClause(new EqualTo(cast, key), new IntegerLiteral(11)),
+                        new WhenClause(new EqualTo(new Cast(input, type), key), new IntegerLiteral(22))),
+                        new IntegerLiteral(33));
+                CaseExpr translated = (CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context);
+                Assertions.assertTrue(translated.isHasCaseExpr());
+                Assertions.assertInstanceOf(org.apache.doris.analysis.CastExpr.class, translated.getChild(0));
+                Assertions.assertEquals(type.toCatalogDataType(), translated.getChild(0).getType());
+                Assertions.assertEquals(translated.getChild(0).getType(), translated.getChild(1).getType());
+
+                DecimalV3Type otherScale = DecimalV3Type.createDecimalV3TypeNotCheck256(precision, 5);
+                CaseWhen mismatch = new CaseWhen(ImmutableList.of(new WhenClause(new EqualTo(cast,
+                        new DecimalV3Literal(otherScale, BigDecimal.ONE)), new IntegerLiteral(11))));
+                Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(mismatch, context))
+                        .isHasCaseExpr());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testIntegerCaseTranslationUsesCommonInput() {
+        withSimpleCaseEnabled(this::checkIntegerCaseTranslation);
+    }
+
+    private void withSimpleCaseEnabled(Runnable test) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connection = new ConnectContext();
+        connection.getSessionVariable().enableExperimentalSimpleCase = true;
+        connection.getSessionVariable().shortCircuitEvaluation = false;
+        connection.setThreadLocalInfo();
+        try {
+            test.run();
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testSimpleCaseFallsBackForShortCircuitEvaluation() {
+        withSimpleCaseEnabled(() -> {
+            ConnectContext.get().getSessionVariable().shortCircuitEvaluation = true;
+            SlotReference input = new SlotReference("input", BigIntType.INSTANCE, true);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(Type.BIGINT, true));
+            CaseWhen expression = new CaseWhen(ImmutableList.of(
+                    new WhenClause(new EqualTo(input, new BigIntLiteral(1)), new IntegerLiteral(10)),
+                    new WhenClause(new EqualTo(input, new BigIntLiteral(2)), new IntegerLiteral(20))),
+                    new IntegerLiteral(30));
+            CaseExpr translated = (CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context);
+            TExprNode node = ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0);
+            Assertions.assertFalse(node.getCaseExpr().isHasCaseExpr());
+            Assertions.assertTrue(node.isShortCircuitEvaluation());
+            Assertions.assertEquals(5, translated.getChildren().size());
+            Assertions.assertInstanceOf(org.apache.doris.analysis.BinaryPredicate.class, translated.getChild(0));
+        });
+    }
+
+    @Test
+    void testSimpleCaseBranchLimitAndFallbacks() {
+        withSimpleCaseEnabled(() -> {
+            SlotReference input = new SlotReference("input", IntegerType.INSTANCE, true);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(Type.INT, true));
+            List<WhenClause> clauses = new ArrayList<>();
+            for (int i = 0; i < 256; ++i) {
+                clauses.add(new WhenClause(new EqualTo(input, new IntegerLiteral(i)), new IntegerLiteral(i)));
+            }
+            CaseExpr translated = (CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+                    new CaseWhen(clauses), context);
+            Assertions.assertTrue(translated.isHasCaseExpr());
+            Assertions.assertFalse(translated.isHasElseExpr());
+            Assertions.assertEquals(513, translated.getChildren().size());
+            clauses.add(new WhenClause(new EqualTo(input, new IntegerLiteral(256)), new IntegerLiteral(256)));
+            Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+                    new CaseWhen(clauses), context)).isHasCaseExpr());
+
+            // A slot key and a non-equality condition must keep searched CASE's layout.
+            for (WhenClause clause : ImmutableList.of(
+                    new WhenClause(new EqualTo(input, input), new IntegerLiteral(1)),
+                    new WhenClause(BooleanLiteral.TRUE, new IntegerLiteral(1)),
+                    new WhenClause(new EqualTo(input, new NullLiteral(IntegerType.INSTANCE)), new IntegerLiteral(1)),
+                    new WhenClause(new EqualTo(input, new BigIntLiteral(1)), new IntegerLiteral(1)))) {
+                Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+                        new CaseWhen(ImmutableList.of(clause)), context)).isHasCaseExpr());
+            }
+        });
+    }
+
+    @Test
+    void testSimpleCaseDisabledAndMissingContext() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connection = new ConnectContext();
+        try {
+            SlotReference input = new SlotReference("input", BigIntType.INSTANCE, true);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(Type.BIGINT, true));
+            CaseWhen expression = new CaseWhen(ImmutableList.of(new WhenClause(
+                    new EqualTo(input, new BigIntLiteral(1)), new IntegerLiteral(10))));
+            connection.setThreadLocalInfo();
+            Assertions.assertFalse(connection.getSessionVariable().enableExperimentalSimpleCase);
+            Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context))
+                    .isHasCaseExpr());
+            connection.getSessionVariable().enableExperimentalSimpleCase = true;
+            Assertions.assertTrue(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context))
+                    .isHasCaseExpr());
+            ConnectContext.remove();
+            Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context))
+                    .isHasCaseExpr());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void checkIntegerCaseTranslation() {
+        SlotReference input = new SlotReference("input", BigIntType.INSTANCE, true);
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(input.getExprId(), new SlotRef(Type.BIGINT, true));
+        CaseWhen expression = new CaseWhen(ImmutableList.of(
+                new WhenClause(new EqualTo(input, new BigIntLiteral(1)), new VarcharLiteral("first")),
+                new WhenClause(new EqualTo(input, new BigIntLiteral(1)), new VarcharLiteral("duplicate"))),
+                new VarcharLiteral("default"));
+        CaseExpr translated = (CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(expression, context);
+        TExprNode node = ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0);
+        Assertions.assertTrue(node.getCaseExpr().isHasCaseExpr());
+        Assertions.assertTrue(node.getCaseExpr().isHasElseExpr());
+        Assertions.assertEquals(6, translated.getChildren().size());
+        Assertions.assertEquals("first", ((org.apache.doris.analysis.StringLiteral)
+                translated.getChild(2)).getStringValue());
+        Assertions.assertTrue(((CaseExpr) translated.clone()).isHasCaseExpr());
+
+        SlotReference other = new SlotReference("other", BigIntType.INSTANCE, true);
+        context.addExprIdSlotRefPair(other.getExprId(), new SlotRef(Type.BIGINT, true));
+        CaseWhen differentInputs = new CaseWhen(ImmutableList.of(
+                new WhenClause(new EqualTo(input, new BigIntLiteral(1)), new IntegerLiteral(10)),
+                new WhenClause(new EqualTo(other, new BigIntLiteral(2)), new IntegerLiteral(20))));
+        Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(differentInputs, context))
+                .isHasCaseExpr());
+    }
 
     @Test
     public void testUnaryArithmetic() throws Exception {
