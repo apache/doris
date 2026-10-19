@@ -1004,11 +1004,9 @@ public class StructInfo {
      *         return null if add filter fail.
      */
     public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan,
-            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap,
-            Map<BaseTableInfo, Set<String>> mvPartitionsToRemove, CascadesContext parentCascadesContext) {
+            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap,
-                mvPartitionsToRemove);
+        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap);
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), predicateAddContext);
         if (!predicateAddContext.isHandleSuccess()) {
             return null;

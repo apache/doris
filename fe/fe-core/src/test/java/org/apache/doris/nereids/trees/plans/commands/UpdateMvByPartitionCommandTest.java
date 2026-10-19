@@ -521,8 +521,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         try {
             UpdateMvByPartitionCommand.PredicateAddContext context =
                     new UpdateMvByPartitionCommand.PredicateAddContext(null,
-                            ImmutableMap.of(new BaseColInfo("d", new BaseTableInfo(base)), Sets.newHashSet("p_eu")),
-                            ImmutableMap.of());
+                            ImmutableMap.of(new BaseColInfo("d", new BaseTableInfo(base)), Sets.newHashSet("p_eu")));
             Plan filtered = plan.accept(new UpdateMvByPartitionCommand.PredicateAdder(), context);
             Assertions.assertTrue(context.isHandleSuccess());
 
