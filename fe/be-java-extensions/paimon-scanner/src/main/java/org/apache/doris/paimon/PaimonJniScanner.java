@@ -293,6 +293,16 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private static RowType policyRowType(Table source, Split split) {
+        if (source instanceof FileStoreTable) {
+            source = unwrapSystemPlanningSource((FileStoreTable) source);
+        } else {
+            // A row-backed system wrapper synthesizes its system fields outside the policy
+            // callback. Resolve the pinned data source, without reopening the catalog.
+            Optional<FileStoreTable> systemSource = hiddenSystemSource(source);
+            if (systemSource.isPresent()) {
+                return policyRowType(systemSource.get(), split);
+            }
+        }
         if (source instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) source;
             boolean readFallback = split instanceof FallbackSplit && ((FallbackSplit) split).isFallback();

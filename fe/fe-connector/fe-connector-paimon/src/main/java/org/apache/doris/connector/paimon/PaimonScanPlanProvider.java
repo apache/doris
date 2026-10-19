@@ -1012,10 +1012,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean legacyOrcTimestamp = false;
             if (nativeEligible && containsTimestampType(rowType) && (!rustEligible || aggregatePushdown)) {
                 FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
+                Set<Integer> splitReadFieldIds = branchReadFieldIds(rowType, splitTable.rowType(), readFieldIds);
                 legacyOrcTimestamp = withSchemaHistoryAuthentication(() ->
-                        requiresCrossFamilyTimestampReader(splitTable, optRawFiles, readFieldIds,
+                        requiresCrossFamilyTimestampReader(splitTable, optRawFiles, splitReadFieldIds,
                                 crossFamilyTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()))
-                        || requiresOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
+                        || requiresOrcTimestampReader(splitTable, optRawFiles, splitReadFieldIds,
                                 legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>())));
             }
             // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
@@ -1269,8 +1270,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 readFieldIds.contains(field.id())
                         && containsTimestampType(field.type()));
         backendOptions.put(DORIS_TIMESTAMP_PRECISION_REPAIR, String.valueOf(
-                (readsTimestamp || new org.apache.paimon.options.Options(table.options()).get(
-                        CoreOptions.QUERY_AUTH_ENABLED))
+                (readsTimestamp || hasTimestampPolicy(table, paimonHandle))
                         && requiresTimestampPrecisionRepair(session, table, paimonHandle)));
         backendManifestCap.ifPresent(cap -> backendOptions.put(
                 DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
@@ -1383,6 +1383,23 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         collectFilterColumnNames(filter, names);
         return rowType.getFields().stream().anyMatch(field ->
                 names.contains(field.name().toLowerCase(Locale.ROOT)) && containsTimestampType(field.type()));
+    }
+
+    private boolean hasTimestampPolicy(Table table, PaimonTableHandle handle) {
+        // SQL projections may omit timestamp fields required by a secondary branch's catalog policy.
+        return containsTimestampType(table.rowType()) && withSchemaHistoryAuthentication(
+                () -> queryAuthEnabled(resolveTimestampHistoryTable(table, handle)));
+    }
+
+    private static boolean queryAuthEnabled(Table table) {
+        if (table instanceof FileStoreTable) {
+            FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table);
+            if (base instanceof FallbackReadFileStoreTable) {
+                FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+                return queryAuthEnabled(pair.wrapped()) || queryAuthEnabled(pair.other());
+            }
+        }
+        return table != null && new Options(table.options()).get(CoreOptions.QUERY_AUTH_ENABLED);
     }
 
     boolean requiresTimestampPrecisionRepair(ConnectorSession session, Table table, PaimonTableHandle handle) {
@@ -2241,6 +2258,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             names.add(((ConnectorColumnRef) expression).getColumnName().toLowerCase(Locale.ROOT));
         }
         expression.getChildren().forEach(child -> collectFilterColumnNames(child, names));
+    }
+
+    private static Set<Integer> branchReadFieldIds(RowType scanType, RowType branchType, Set<Integer> readFieldIds) {
+        // Fallback schemas agree positionally, but field IDs and names may evolve independently.
+        Set<Integer> branchIds = new HashSet<>();
+        for (int i = 0; i < scanType.getFieldCount(); i++) {
+            if (readFieldIds.contains(scanType.getFields().get(i).id())) {
+                branchIds.add(branchType.getFields().get(i).id());
+            }
+        }
+        return branchIds;
     }
 
     static FileStoreTable legacyOrcSplitTable(FileStoreTable table, DataSplit split) {
