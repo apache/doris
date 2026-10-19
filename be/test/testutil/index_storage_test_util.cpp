@@ -406,9 +406,7 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
     auto variant_column = ColumnVariantV2::create();
-    JsonStringToVariantEncoder encoder(
-            {.throw_on_invalid_json = true,
-             .check_duplicate_json_path = batch.check_duplicate_json_path});
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
         encoder.add_json({json.data(), json.size()});
     }

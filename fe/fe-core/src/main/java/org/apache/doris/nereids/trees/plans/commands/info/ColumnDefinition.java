@@ -435,6 +435,10 @@ public class ColumnDefinition {
         if (isOlap && containsSpatialType(type)) {
             throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
         }
+        if (!nestedColumn && type.isVariantType() && name.indexOf('.') != -1) {
+            throw new AnalysisException(
+                    "Cannot use `VARIANT` type column named with a `.` character: " + name);
+        }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()

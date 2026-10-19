@@ -2041,10 +2041,7 @@ public:
                     DCHECK_GT(legs_count, 0);
                     for (size_t j = 0; j + 1 < legs_count; ++j) {
                         auto* current_leg = json_path[path_index].get_leg_from_leg_vector(j);
-                        std::unique_ptr<leg_info> leg = std::make_unique<leg_info>(
-                                current_leg->leg_ptr, current_leg->leg_len,
-                                current_leg->array_index, current_leg->type);
-                        new_path.add_leg_to_leg_vector(std::move(leg));
+                        new_path.add_leg_to_leg_vector(std::make_unique<leg_info>(*current_leg));
                     }
 
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(), new_path,
@@ -2057,6 +2054,12 @@ public:
                         legs_count > 0
                                 ? json_path[path_index].get_leg_from_leg_vector(legs_count - 1)
                                 : nullptr;
+                // A member leg names an object key and never an array element, so inserting it
+                // into an array leaves the document unchanged (as MySQL does). Otherwise its
+                // default array_index (0) would overwrite the first element.
+                if (!replace && parents.back()->isArray() && last_leg->type == MEMBER_CODE) {
+                    continue;
+                }
                 RETURN_IF_ERROR(write_json_value(json_documents[row_idx]->getValue(), parents, 0,
                                                  json_value[value_index], replace, last_leg,
                                                  writer));
@@ -2109,10 +2112,7 @@ public:
 
         JsonbPath current;
         auto* current_leg = path.get_leg_from_leg_vector(index);
-        std::unique_ptr<leg_info> leg =
-                std::make_unique<leg_info>(current_leg->leg_ptr, current_leg->leg_len,
-                                           current_leg->array_index, current_leg->type);
-        current.add_leg_to_leg_vector(std::move(leg));
+        current.add_leg_to_leg_vector(std::make_unique<leg_info>(*current_leg));
 
         auto find_result = root->findValue(current);
         if (!find_result.value) {
