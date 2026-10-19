@@ -39,6 +39,28 @@ public:
     }
     void set_query_context(QueryContext* ctx) override { _function->set_query_context(ctx); }
     bool is_blockable() const override { return _function->is_blockable(); }
+    bool supported_incremental_mode() const override {
+        return _function->supported_incremental_mode();
+    }
+    bool result_column_could_resize() const override {
+        return _function->result_column_could_resize();
+    }
+    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
+                                           int64_t frame_start, int64_t frame_end,
+                                           AggregateDataPtr place, const IColumn** columns,
+                                           Arena& arena, bool previous_is_nul, bool end_is_nul,
+                                           bool has_null, UInt8* use_null_result,
+                                           UInt8* could_use_previous_result) const override {
+        _function->execute_function_with_incremental(
+                partition_start, partition_end, frame_start, frame_end, place, columns, arena,
+                previous_is_nul, end_is_nul, has_null, use_null_result, could_use_previous_result);
+    }
+    void insert_result_into_range(ConstAggregateDataPtr place, IColumn& column, size_t start,
+                                  size_t end) const override {
+        _function->insert_result_into_range(place, column, start, end);
+    }
+    // Do not forward the native reader's scratch capability: this adapter reads String
+    // columns through generic readers even when the nested function reads native fixed states.
     void create(AggregateDataPtr place) const override { _function->create(place); }
     void destroy(AggregateDataPtr place) const noexcept override { _function->destroy(place); }
     void reset(AggregateDataPtr place) const override { _function->reset(place); }

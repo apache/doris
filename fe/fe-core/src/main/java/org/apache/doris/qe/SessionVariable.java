@@ -5764,8 +5764,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
-        // Old BEs still use this protocol field to select their unary intermediate codec.
-        tResult.setEnableAggregateFunctionNullV2(true);
+        // String is the common codec for old V1-only BEs and old BEs with the V2 switch.
+        // Version 20 ignores this compatibility field and always uses native V2 columns.
+        tResult.setEnableAggregateFunctionNullV2(false);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);

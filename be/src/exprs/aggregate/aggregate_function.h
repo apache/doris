@@ -77,6 +77,25 @@ using DataTypes = std::vector<DataTypePtr>;
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
 
+// Own raw state storage with the aggregate's alignment; construction/destruction remain
+// the caller's responsibility. Byte allocation alone does not guarantee alignas(64) states.
+class AlignedAggregateData {
+public:
+    AlignedAggregateData(size_t size, size_t alignment) : _storage(size + alignment - 1) {
+        void* pointer = _storage.data();
+        size_t space = _storage.size();
+        _data = static_cast<AggregateDataPtr>(std::align(alignment, size, pointer, space));
+        DCHECK(_data != nullptr);
+    }
+    AlignedAggregateData(const AlignedAggregateData&) = delete;
+    AlignedAggregateData& operator=(const AlignedAggregateData&) = delete;
+    AggregateDataPtr data() const { return _data; }
+
+private:
+    std::vector<char> _storage;
+    AggregateDataPtr _data;
+};
+
 #define SAFE_CREATE(create, destroy) \
     do {                             \
         try {                        \
@@ -538,13 +557,8 @@ public:
         }
         VectorBufferWriter buf(assert_cast<ColumnString&>(*dst));
         const auto* derived = assert_cast<const Derived*>(this);
-        const auto state_size = derived->size_of_data();
-        const auto alignment = derived->align_of_data();
-        std::vector<char> storage(state_size + alignment - 1);
-        void* data = storage.data();
-        size_t space = storage.size();
-        auto* place = static_cast<AggregateDataPtr>(std::align(alignment, state_size, data, space));
-        DCHECK(place != nullptr);
+        AlignedAggregateData storage(derived->size_of_data(), derived->align_of_data());
+        auto* place = storage.data();
         Arena row_arena;
         for (size_t i = 0; i != num_rows; ++i) {
             // String rows own their serialized bytes. Reclaim temporary array/key payloads
@@ -675,8 +689,8 @@ public:
                                                  Arena& arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        std::vector<char> deserialized_data(size_of_data());
-        auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
+        AlignedAggregateData deserialized_data(size_of_data(), align_of_data());
+        auto* deserialized_place = deserialized_data.data();
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = begin; i <= end; ++i) {
@@ -784,16 +798,15 @@ public:
     using AggregateData = std::remove_pointer_t<AggregateDataPtr>;
 
     explicit AggregateFunctionGuard(const IAggregateFunction* function)
-            : _function(function),
-              _data(std::make_unique<AggregateData[]>(function->size_of_data())) {
-        _function->create(_data.get());
+            : _function(function), _data(function->size_of_data(), function->align_of_data()) {
+        _function->create(_data.data());
     }
-    ~AggregateFunctionGuard() { _function->destroy(_data.get()); }
-    AggregateDataPtr data() { return _data.get(); }
+    ~AggregateFunctionGuard() { _function->destroy(_data.data()); }
+    AggregateDataPtr data() { return _data.data(); }
 
 private:
     const IAggregateFunction* _function;
-    std::unique_ptr<AggregateData[]> _data;
+    AlignedAggregateData _data;
 };
 
 //Hint information of AggregateFunction signature

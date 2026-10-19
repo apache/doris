@@ -238,6 +238,29 @@ TEST(NullableAggregationV2Test, StreamingStatesAreAlignedAndTemporaryPayloadsAre
     }
 }
 
+TEST(NullableAggregationV2Test, GenericRangeReadersAndStateGuardsHonorAlignment) {
+    auto function = std::make_shared<StreamingArenaProbe>();
+    auto values = ColumnString::create();
+    values->insert_value(std::string(8192, 'a'));
+    values->insert_value("last");
+    const IColumn* columns[] = {values.get()};
+    Arena arena;
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, 2, arena);
+    {
+        AggregateFunctionGuard state(function.get());
+        const auto before_creates = function->creates;
+        const auto before_destroys = function->destroys;
+        function->deserialize_and_merge_from_column_range(state.data(), *serialized, 0, 1, arena);
+        EXPECT_EQ(function->creates - before_creates, 2);
+        EXPECT_EQ(function->destroys - before_destroys, 2);
+        auto result = function->get_return_type()->create_column();
+        function->insert_result_into(state.data(), *result);
+        EXPECT_EQ(result->get_data_at(0), StringRef("last", 4));
+    }
+    EXPECT_EQ(function->creates, function->destroys);
+}
+
 TEST(NullableAggregationV2Test, AllNullStreamingDoesNotConstructTemporaryStates) {
     auto* probe = new StreamingArenaProbe;
     auto function = std::make_shared<AggregateFunctionNullUnaryInlineV2<StreamingArenaProbe, true>>(
@@ -306,6 +329,47 @@ TEST(NullableAggregationV2Test, VariadicNullableArgumentsAtEveryPosition) {
             }
             check_streaming(function, {x, w});
             check_streaming(make_agg_state_compatible_function(function), {x, w});
+        }
+    }
+}
+
+TEST(NullableAggregationV2Test, LegacyWireCodecKeepsIncrementalWindowExecution) {
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto input = nullable_ints({0, 0, 3, 5}, {1, 1, 0, 0});
+    const IColumn* columns[] = {input.get()};
+    for (const auto* name : {"sum", "avg"}) {
+        AggregateFunctionAttr attr;
+        attr.is_window_function = true;
+        auto function = AggregateFunctionSimpleFactory::instance().get(name, {type}, nullptr, true,
+                                                                       19, attr);
+        auto codec = make_nullable_wire_compatible_function(function, 19, false);
+        EXPECT_TRUE(codec->supported_incremental_mode());
+        EXPECT_EQ(codec->result_column_could_resize(), function->result_column_could_resize());
+        EXPECT_TRUE(codec->needs_deserialize_and_merge_scratch());
+        AggregateFunctionGuard state(codec.get());
+        Arena arena;
+        auto result = codec->get_return_type()->create_column();
+        UInt8 use_null_result = 0;
+        UInt8 could_use_previous = 0;
+        for (int64_t row = 0; row < 4; ++row) {
+            codec->execute_function_with_incremental(
+                    0, 4, std::max<int64_t>(0, row - 1), row + 1, state.data(), columns, arena,
+                    row >= 2 && input->is_null_at(row - 2), input->is_null_at(row), true,
+                    &use_null_result, &could_use_previous);
+            codec->insert_result_into(state.data(), *result);
+            could_use_previous = 1;
+        }
+        EXPECT_TRUE(result->is_null_at(0));
+        EXPECT_TRUE(result->is_null_at(1));
+        const auto& nested = assert_cast<const ColumnNullable&>(*result).get_nested_column();
+        if (std::string_view(name) == "sum") {
+            const auto& values = assert_cast<const ColumnInt64&>(nested).get_data();
+            EXPECT_EQ(values[2], 3);
+            EXPECT_EQ(values[3], 8);
+        } else {
+            const auto& values = assert_cast<const ColumnFloat64&>(nested).get_data();
+            EXPECT_DOUBLE_EQ(values[2], 3);
+            EXPECT_DOUBLE_EQ(values[3], 4);
         }
     }
 }
