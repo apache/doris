@@ -383,6 +383,25 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testASetOperationBranchKeepsItsColumnMapping() {
+        // the branches are the same two scans and the selecting projects are transparent, so only the
+        // mapping of the second branch says which column feeds the union - while the two queries produce
+        // a different number of distinct rows
+        GroupStructInfo selectingA = built("union_two_scans_selected_a");
+        GroupStructInfo selectingB = built("union_two_scans_selected_b");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(selectingA.getFingerprint(mode), selectingB.getFingerprint(mode),
+                    "two branch mappings share a key in mode " + mode);
+        }
+        Assertions.assertTrue(selectingA.getCanonical(WITH_LITERAL).contains("[col(db.u.id)]"),
+                "the mapping of the second branch is not in the key: "
+                        + selectingA.getCanonical(WITH_LITERAL));
+        Assertions.assertTrue(selectingB.getCanonical(WITH_LITERAL).contains("[col(db.u.name)]"),
+                "the mapping of the second branch is not in the key: "
+                        + selectingB.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testTheJoinChainIsAssociatedTheSameWayBothWays() {
         // (t1 join t2) join t3 and t1 join (t2 cross join t3) carry the same two conditions over the
         // same three scans: a chain is associative, so the two plans must render one descriptor - the
@@ -941,6 +960,12 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::intersectTwoScans));
         cases.add(new PlanCase("except_two_scans", "except of two scans (the first branch is the minuend)",
                 GroupStructInfoGoldenTest::exceptTwoScans));
+        cases.add(new PlanCase("union_two_scans_selected_a",
+                "union of two scans which selects a from both: the second branch feeds the column a",
+                GroupStructInfoGoldenTest::unionTwoScansSelectedA));
+        cases.add(new PlanCase("union_two_scans_selected_b",
+                "the same union selecting u.b in the second branch: a different mapping, a different key",
+                GroupStructInfoGoldenTest::unionTwoScansSelectedB));
         cases.add(new PlanCase("window_under_a_filter",
                 "filter over a window partitioned by one column (no order by)",
                 GroupStructInfoGoldenTest::windowUnderAFilter));
@@ -1490,6 +1515,31 @@ public class GroupStructInfoGoldenTest {
     private static GroupStructInfo exceptTwoScans() {
         return describe(new LogicalExcept(SetOperation.Qualifier.ALL,
                 ImmutableList.of(scan(0, "t1"), scan(1, "t2"))));
+    }
+
+    private static GroupStructInfo unionTwoScansSelectedA() {
+        return unionTwoScansSelecting(false);
+    }
+
+    private static GroupStructInfo unionTwoScansSelectedB() {
+        return unionTwoScansSelecting(true);
+    }
+
+    /**
+     * `SELECT a FROM t UNION SELECT a FROM u` and the same query selecting `u.b`: the two branches are
+     * the same scans and the projects which select the columns are transparent, so only the mapping of
+     * the second branch differs, while the number of distinct rows does.
+     */
+    private static GroupStructInfo unionTwoScansSelecting(boolean selectB) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        SlotReference output = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference fromT = (SlotReference) t.getOutput().get(0);
+        SlotReference fromU = (SlotReference) u.getOutput().get(selectB ? 1 : 0);
+        return describe(new LogicalUnion(SetOperation.Qualifier.ALL,
+                ImmutableList.<NamedExpression>of(output),
+                ImmutableList.<List<SlotReference>>of(ImmutableList.of(fromT), ImmutableList.of(fromU)),
+                ImmutableList.of(), false, ImmutableList.of(t, u)));
     }
 
     private static GroupStructInfo windowUnderAFilter() {

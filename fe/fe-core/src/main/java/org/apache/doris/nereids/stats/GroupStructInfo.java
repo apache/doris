@@ -1105,15 +1105,22 @@ public class GroupStructInfo {
      * One child of a node: its description, and whether the sub tree is referenced by another child as
      * well - such a child writes its canonical form again (a query which reuses a sub tree and a query
      * which writes it twice share one entry) while its tables are read once, so its scan tokens are
-     * inherited by the first reference only.
+     * inherited by the first reference only. A set operation branch also writes the mapping of its
+     * columns, which is per parent and can therefore not live in the shared child node.
      */
     private static final class Child {
         private final Node node;
         private final boolean repeated;
+        private final String prefix;
 
         private Child(Node node, boolean repeated) {
+            this(node, repeated, "");
+        }
+
+        private Child(Node node, boolean repeated, String prefix) {
             this.node = node;
             this.repeated = repeated;
+            this.prefix = prefix;
         }
     }
 
@@ -1360,7 +1367,12 @@ public class GroupStructInfo {
         return node;
     }
 
-    /** A set operation: its header carries the kind, the qualifier and the compared columns. */
+    /**
+     * A set operation: its header carries the kind, the qualifier and the compared columns, and every
+     * branch writes the mapping of the columns it feeds the outputs with (see {@link #branchMapping}).
+     * The branches are sorted - the memo may reorder them - together with their mapping, because the
+     * mapping belongs to one branch and two branches of the same shape can still feed different columns.
+     */
     private static Node setOperationNode(Plan plan, SetOperation setOperation, GroupExpression ge, Ctx ctx) {
         Node node = new Node(Kind.SET_OPERATION);
         node.setOperationPlan = plan;
@@ -1369,23 +1381,62 @@ public class GroupStructInfo {
         if (branches == null) {
             return null;
         }
+        List<List<SlotReference>> mappings = setOperation.getRegularChildrenOutputs();
         if (plan instanceof Except) {
             // the first branch is the minuend: it keeps its position, the subtrahends are sorted below
-            node.children.add(new Child(branches.get(0).root(), false));
-            List<GroupStructInfo> subtrahends = new ArrayList<>(branches.subList(1, branches.size()));
-            subtrahends.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
-            for (GroupStructInfo subtrahend : subtrahends) {
-                node.children.add(new Child(subtrahend.root(), false));
+            node.children.add(branchChild(branches.get(0), mappings, 0));
+            List<Integer> subtrahends = new ArrayList<>();
+            for (int i = 1; i < branches.size(); i++) {
+                subtrahends.add(i);
+            }
+            subtrahends.sort(Comparator.comparing(
+                    index -> branchSortKey(branches.get(index), mappings, index)));
+            for (int index : subtrahends) {
+                node.children.add(branchChild(branches.get(index), mappings, index));
             }
             return node;
         }
         // the branches are sorted because the memo may reorder them
-        List<GroupStructInfo> sorted = new ArrayList<>(branches);
-        sorted.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
-        for (GroupStructInfo branch : sorted) {
-            node.children.add(new Child(branch.root(), false));
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < branches.size(); i++) {
+            order.add(i);
+        }
+        order.sort(Comparator.comparing(index -> branchSortKey(branches.get(index), mappings, index)));
+        for (int index : order) {
+            node.children.add(branchChild(branches.get(index), mappings, index));
         }
         return node;
+    }
+
+    private static Child branchChild(GroupStructInfo branch, List<List<SlotReference>> mappings, int index) {
+        return new Child(branch.root(), false, branchMapping(mappings, index));
+    }
+
+    /** The mapping of one branch followed by its shape: the key the branches of a node are sorted by. */
+    private static String branchSortKey(GroupStructInfo branch, List<List<SlotReference>> mappings, int index) {
+        return branchMapping(mappings, index) + branch.getShape(LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * The columns one branch of a set operation feeds its outputs with. The branches are children of the
+     * node, but the projects which select those columns are transparent and the output slots of the
+     * operation are new ones, so this mapping is the only place where an output column is tied to a
+     * column of the branch: {@code SELECT a FROM t UNION SELECT a FROM u} and the same query selecting
+     * {@code u.b} read the same two tables and produce a different number of distinct rows.
+     */
+    private static String branchMapping(List<List<SlotReference>> mappings, int index) {
+        if (index >= mappings.size() || mappings.get(index).isEmpty()) {
+            return "";
+        }
+        List<SlotReference> mapping = mappings.get(index);
+        StringBuilder text = new StringBuilder("[");
+        for (int i = 0; i < mapping.size(); i++) {
+            if (i > 0) {
+                text.append(',');
+            }
+            text.append(identityText(mapping.get(i)));
+        }
+        return text.append(']').toString();
     }
 
     /** A node which only composes the child at {@code index} (an enforcer, a project, a CTE edge). */
@@ -1784,8 +1835,20 @@ public class GroupStructInfo {
         }
         out.append(kind).append('{').append(qualifier).append(",cols:[").append(columns).append(']')
                 .append(constants).append("}(");
-        appendChildren(out, node, mode, shape);
+        appendBranches(out, node, mode, shape);
         out.append(')');
+    }
+
+    /** The branches of a set operation: each writes the mapping of its columns before its own text. */
+    private static void appendBranches(StringBuilder out, Node node, LiteralMode mode, boolean shape) {
+        for (int i = 0; i < node.children.size(); i++) {
+            if (i > 0) {
+                out.append(SEP);
+            }
+            Child child = node.children.get(i);
+            out.append(child.prefix);
+            out.append(render(child.node, mode, shape));
+        }
     }
 
     /** The scan tokens of a sub tree, in the order their tokens appear in the canonical string. */
