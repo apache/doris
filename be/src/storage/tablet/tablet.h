@@ -82,7 +82,11 @@ struct RowLocation;
 enum KeysType : int;
 enum SortType : int;
 
-enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
+enum class TabletStorageType {
+    STORAGE_TYPE_LOCAL,
+    STORAGE_TYPE_REMOTE,
+    STORAGE_TYPE_REMOTE_AND_LOCAL
+};
 
 extern bvar::Adder<uint64_t> unused_remote_rowset_num;
 

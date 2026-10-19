@@ -30,12 +30,14 @@ namespace doris::segment_v2 {
 
 class CharacterUtil {
 public:
-    static constexpr int32_t CHAR_USELESS = 0;            // Useless character
-    static constexpr int32_t CHAR_ARABIC = 0x00000001;    // Arabic number
-    static constexpr int32_t CHAR_ENGLISH = 0x00000002;   // English letter
-    static constexpr int32_t CHAR_CHINESE = 0x00000004;   // Chinese character
-    static constexpr int32_t CHAR_OTHER_CJK = 0x00000008; // Other CJK character
-    static constexpr int32_t CHAR_SURROGATE = 0x00000016; // Surrogate pair character
+    enum class CharType : int32_t {
+        USELESS = 0,
+        ARABIC = 0x00000001,
+        ENGLISH = 0x00000002,
+        CHINESE = 0x00000004,
+        OTHER_CJK = 0x00000008,
+        SURROGATE = 0x00000016,
+    };
 
     using RuneStrLite = cppjieba::RuneStrLite;
     using RuneStr = cppjieba::RuneStr;
@@ -43,8 +45,8 @@ public:
 
     class TypedRune : public RuneStr {
     public:
-        int32_t char_type;
-        TypedRune() : RuneStr(), char_type(0) {}
+        CharType char_type;
+        TypedRune() : RuneStr(), char_type(CharType::USELESS) {}
         TypedRune(int32_t in_rune, size_t in_offset, size_t in_len, size_t in_unicode_offset,
                   size_t in_unicode_length)
                 : RuneStr(in_rune, static_cast<uint32_t>(in_offset), static_cast<uint32_t>(in_len),
@@ -72,7 +74,7 @@ public:
 
     using TypedRuneArray = std::vector<TypedRune>;
 
-    static int32_t identifyCharType(int32_t rune);
+    static CharType identifyCharType(int32_t rune);
 
     static void decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                     bool use_lowercase);

@@ -938,9 +938,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
 
     // check if tablet's state is not_ready, if it is ready, it means the tablet already finished
     // check whether the tablet's max continuous version == request.version
-    if (_new_tablet->tablet_state() != TABLET_NOTREADY) {
+    if (_new_tablet->tablet_state() != TabletState::TABLET_NOTREADY) {
         res = _validate_alter_result(request);
-        LOG(INFO) << "tablet's state=" << _new_tablet->tablet_state()
+        LOG(INFO) << "tablet's state=" << static_cast<int>(_new_tablet->tablet_state())
                   << " the convert job already finished, check its version"
                   << " res=" << res;
         return res;
@@ -948,7 +948,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     _new_tablet->set_alter_failed(false);
     Defer defer([this] {
         // if tablet state is not TABLET_RUNNING when return, indicates that alter has failed.
-        if (_new_tablet->tablet_state() != TABLET_RUNNING) {
+        if (_new_tablet->tablet_state() != TabletState::TABLET_RUNNING) {
             _new_tablet->set_alter_failed(true);
         }
     });

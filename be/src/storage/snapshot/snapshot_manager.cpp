@@ -517,7 +517,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         /// make the full snapshot of the tablet.
         {
             std::shared_lock rdlock(ref_tablet->get_header_lock());
-            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            if (ref_tablet->tablet_state() == TabletState::TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
             bool is_single_rowset_clone =

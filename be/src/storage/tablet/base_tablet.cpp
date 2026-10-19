@@ -206,7 +206,8 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
-    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
+    if (_tablet_meta->tablet_state() == TabletState::TABLET_SHUTDOWN &&
+        state != TabletState::TABLET_SHUTDOWN) {
         return Status::Error<META_INVALID_ARGUMENT>(
                 "could not change tablet state from shutdown to {}", state);
     }
@@ -1549,7 +1550,7 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
                     std::static_pointer_cast<CloudTablet>(tablet)->get_sync_meta_lock());
         }
         std::shared_lock meta_rlock(tablet->_meta_lock);
-        if (tablet->tablet_state() == TABLET_NOTREADY) {
+        if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
             // tablet is under alter process. The delete bitmap will be calculated after conversion.
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                          "tablet_id: "
@@ -1756,7 +1757,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     {
         std::shared_lock meta_rlock(self->_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (self->tablet_state() == TABLET_NOTREADY) {
+        if (self->tablet_state() == TabletState::TABLET_NOTREADY) {
             LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                       << self->tablet_id();
             return Status::OK();
@@ -2528,7 +2529,7 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
             std::shared_lock rlock(get_header_lock());
             // Schema change may still be rebuilding the delete bitmap of a NOTREADY tablet.
             // Prefilling now can cache incomplete bitmaps that remain stale after it becomes RUNNING.
-            if (tablet_state() != TABLET_RUNNING) {
+            if (tablet_state() != TabletState::TABLET_RUNNING) {
                 return;
             }
             cur_max_version = max_version_unlocked();

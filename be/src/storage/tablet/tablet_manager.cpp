@@ -173,7 +173,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/, profile);
     } else {
-        RETURN_IF_ERROR(tablet->set_tablet_state(TABLET_SHUTDOWN));
+        RETURN_IF_ERROR(tablet->set_tablet_state(TabletState::TABLET_SHUTDOWN));
         tablet->save_meta();
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "SaveMeta", "AddTablet"),
                        static_cast<int64_t>(watch.reset()));
@@ -594,7 +594,7 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
         // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
         //
         // Until now, only the restore task uses keep files.
-        RETURN_IF_ERROR(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
+        RETURN_IF_ERROR(to_drop_tablet->set_tablet_state(TabletState::TABLET_SHUTDOWN));
         if (!keep_files) {
             LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                       << "tablet_id=" << tablet_id
@@ -934,7 +934,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 
     if (restore) {
         // we're restoring tablet from trash, tablet state should be changed from shutdown back to running
-        tablet_meta->set_tablet_state(TABLET_RUNNING);
+        tablet_meta->set_tablet_state(TabletState::TABLET_RUNNING);
     }
 
     if (tablet_meta->partition_id() == 0) {
@@ -960,7 +960,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         }
     }
 
-    if (tablet->tablet_meta()->tablet_state() == TABLET_SHUTDOWN) {
+    if (tablet->tablet_meta()->tablet_state() == TabletState::TABLET_SHUTDOWN) {
         {
             std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
@@ -972,7 +972,8 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     }
     // NOTE: We do not check tablet's initial version here, because if BE restarts when
     // one tablet is doing schema-change, we may meet empty tablet.
-    if (tablet->max_version().first == -1 && tablet->tablet_state() == TABLET_RUNNING) {
+    if (tablet->max_version().first == -1 &&
+        tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         // tablet state is invalid, drop tablet
         return Status::Error<TABLE_INDEX_VALIDATE_ERROR>(
                 "fail to load tablet. it is in running state but without delta. tablet={}, path={}",
@@ -1291,7 +1292,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     Status check_st = TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(),
                                                   tablet->schema_hash(), tablet_meta);
     if (check_st.ok()) {
-        if (tablet_meta->tablet_state() != TABLET_SHUTDOWN ||
+        if (tablet_meta->tablet_state() != TabletState::TABLET_SHUTDOWN ||
             tablet_meta->tablet_uid() != tablet->tablet_uid()) {
             LOG(WARNING) << "tablet's state changed to normal, skip remove dirs"
                          << " tablet id = " << tablet_meta->tablet_id()
@@ -1527,7 +1528,7 @@ void TabletManager::update_partitions_visible_version(
 
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
     auto filter = [data_dir](Tablet* tablet) -> bool {
-        return tablet->tablet_state() == TABLET_RUNNING &&
+        return tablet->tablet_state() == TabletState::TABLET_RUNNING &&
                tablet->data_dir()->path_hash() == data_dir->path_hash() && tablet->is_used() &&
                tablet->init_succeeded();
     };
@@ -1787,7 +1788,7 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
                 LOG(WARNING) << "Bad tablet has be removed. tablet_id=" << tablet_id;
             } else {
                 const auto& tablet = it->second;
-                static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
+                static_cast<void>(tablet->set_tablet_state(TabletState::TABLET_SHUTDOWN));
                 tablet->save_meta();
                 {
                     std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(

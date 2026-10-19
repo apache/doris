@@ -203,7 +203,7 @@ protected:
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
-    enum CompactionState : uint8_t { INITED = 0, SUCCESS = 1 };
+    enum class CompactionState : uint8_t { INITED = 0, SUCCESS = 1 };
     CompactionState _state {CompactionState::INITED};
 
     bool _is_vertical;

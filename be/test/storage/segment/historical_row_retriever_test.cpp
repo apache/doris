@@ -137,8 +137,8 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 2);
-    EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
-    EXPECT_EQ(retriever.get_operators()[1], CHANGELOG_OP_APPEND);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
+    EXPECT_EQ(retriever.get_operators()[1], ChangelogOp::APPEND);
     // a read-only probe: the load's delete bitmap must stay untouched
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U);
 
@@ -175,7 +175,7 @@ TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted
         ASSERT_TRUE(st.ok()) << st;
 
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_DELETE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::DELETE);
 
         Block before_block = schema->create_storage_block({1});
         st = retriever.build_before_block(&before_block, {1}, 0, 1);
@@ -214,7 +214,7 @@ TEST_F(HistoricalRowRetrieverTest, RowLosingOnSequenceStillReadsTheStoredRow) {
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 1);
-    EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U); // MarkDeleted::NONE: nothing is marked
 
     Block before_block = schema->create_storage_block({1});
@@ -248,7 +248,7 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
                 retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
         ASSERT_TRUE(retriever.retrieve_historical_row(nullptr, 0, 1).ok());
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
 
         Block after_block = schema->create_storage_block();
         after_block.replace_by_position(0, first.get_by_position(0).column);
@@ -272,7 +272,7 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
             next_retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
     ASSERT_TRUE(next_retriever.retrieve_historical_row(nullptr, 0, 1).ok());
     ASSERT_EQ(next_retriever.get_operators().size(), 1);
-    EXPECT_EQ(next_retriever.get_operators()[0], CHANGELOG_OP_APPEND);
+    EXPECT_EQ(next_retriever.get_operators()[0], ChangelogOp::APPEND);
 
     Block before_block = schema->create_storage_block({1});
     ASSERT_TRUE(next_retriever.build_before_block(&before_block, {1}, 0, 1).ok());
@@ -316,18 +316,18 @@ TEST_F(HistoricalRowRetrieverTest, ReviseOperatorWithOldDeleteSign) {
     ASSERT_TRUE(retriever._fill_old_delete_signs(old_value_block, read_index, 4).ok());
     ASSERT_EQ((std::vector<signed char> {1, 0, 0, 1}), retriever._old_delete_signs);
 
-    retriever._operators = {CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE,
-                            CHANGELOG_OP_DELETE};
+    retriever._operators = {ChangelogOp::UPDATE, ChangelogOp::UPDATE, ChangelogOp::UPDATE,
+                            ChangelogOp::DELETE};
     // a planned read is what tells revise() that old rows were looked up at all
     RowsetId rowset_id;
     rowset_id.init(1);
     retriever._row_fetcher->plan_fixed_read(RowLocation(rowset_id, 0, 0), 0);
     ASSERT_TRUE(retriever.revise_operators_by_old_delete_sign(4).ok());
 
-    EXPECT_EQ(CHANGELOG_OP_APPEND, retriever._operators[0]);
-    EXPECT_EQ(CHANGELOG_OP_UPDATE, retriever._operators[1]);
-    EXPECT_EQ(CHANGELOG_OP_UPDATE, retriever._operators[2]);
-    EXPECT_EQ(CHANGELOG_OP_DELETE, retriever._operators[3]);
+    EXPECT_EQ(ChangelogOp::APPEND, retriever._operators[0]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[1]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[2]);
+    EXPECT_EQ(ChangelogOp::DELETE, retriever._operators[3]);
 }
 
 } // namespace doris

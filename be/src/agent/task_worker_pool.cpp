@@ -1628,7 +1628,7 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         tablet_ptr->set_last_full_compaction_schedule_time(UnixMillis());
         Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::FULL_COMPACTION,
                                                       /*force=*/false, /*eager=*/true,
-                                                      /*trigger_method=*/1);
+                                                      /*trigger_method=*/TriggerMethod::MANUAL);
         if (!status.ok()) {
             LOG(WARNING) << "failed to submit full compaction task. tablet_id="
                          << tablet_ptr->tablet_id() << ", error=" << status;
@@ -1640,7 +1640,7 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     auto* data_dir = tablet_ptr->data_dir();
     if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
         LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
-                     << ", compaction_type=" << compaction_type;
+                     << ", compaction_type=" << static_cast<int>(compaction_type);
         return;
     }
 
@@ -2353,7 +2353,8 @@ void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTa
         return;
     }
     auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
-    if (!new_tablet.has_value() || new_tablet.value()->tablet_state() == TABLET_RUNNING) {
+    if (!new_tablet.has_value() ||
+        new_tablet.value()->tablet_state() == TabletState::TABLET_RUNNING) {
         return;
     }
     auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
