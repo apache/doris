@@ -118,6 +118,58 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'changelog-producer' = 'full-compaction'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_one_bucket;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_one_bucket (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_dynamic;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_dynamic (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '-1',
+            'dynamic-bucket.target-row-num' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_merge;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_merge (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_rowkind;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_rowkind (
+            c CHAR(3), rk STRING, v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'rowkind.field' = 'rk',
+            'file.format' = 'orc'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_key;
         CREATE TABLE paimon.${dbName}.t_char_rowkind_key (
             c CHAR(3), rk STRING, v INT
@@ -227,6 +279,13 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         create table internal.${dbName}.char_nan_source (
             pos varchar(8), neg varchar(8)
         ) duplicate key(pos) distributed by hash(pos) buckets 1
+        properties ('replication_num' = '1')
+    """
+    sql """drop table if exists internal.${dbName}.char_orc_merge_source"""
+    sql """
+        create table internal.${dbName}.char_orc_merge_source (
+            c char(3), v int
+        ) duplicate key(c) distributed by hash(c) buckets 1
         properties ('replication_num' = '1')
     """
 
@@ -358,13 +417,80 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         sql """UPDATE t_char_pk SET v = 40 WHERE v = 4"""
         order_qt_dml_matches_unpadded_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
 
-        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so only the
-        // partition values of an ORC table are padded: padding a key would only change its bucket, and the DELETE
-        // and UPDATE below, which read the keys back without the spaces, would hash other buckets and miss them.
+        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so Doris reads back
+        // 'k' for the 'k  ' that it, Spark and Flink write. Paimon puts a row in the bucket of its key as the writer
+        // holds it, and merges only the data files whose key ranges, kept as the writer held the keys, overlap.
+        // So the rows of an ORC table are padded whatever they do, and the DELETE and UPDATE below, which read the
+        // keys back without the spaces, write them padded and reach them.
         sql """INSERT INTO t_char_orc_bucketed VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6)"""
         sql """DELETE FROM t_char_orc_bucketed WHERE v IN (1, 3, 4, 5)"""
         sql """UPDATE t_char_orc_bucketed SET v = v * 10 WHERE v IN (2, 6)"""
         order_qt_orc_dml_reaches_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_bucketed"""
+
+        // The same reaches the padded keys Spark writes into ORC tables: written back unpadded, the key of a DELETE
+        // or UPDATE would hash another of 4 buckets, ask the dynamic bucket index for a key it does not hold, or, as
+        // the smallest key 'ab' of a one-bucket table, sort below the range ['ab ', 'x  '] of the file holding it.
+        // A key Doris writes again replaces the one Spark wrote.
+        spark_paimon_multi """
+            INSERT INTO paimon.${dbName}.t_char_orc_spark
+                VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_one_bucket VALUES ('k', 1), ('ab', 2), ('x', 3);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_dynamic
+                VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_merge VALUES ('k', 1), ('ab', 2);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_rowkind VALUES ('k', '+I', 1), ('ab', '+I', 2);
+        """
+        sql """refresh table t_char_orc_spark"""
+        sql """refresh table t_char_orc_spark_one_bucket"""
+        sql """refresh table t_char_orc_spark_dynamic"""
+        sql """refresh table t_char_orc_spark_merge"""
+        sql """refresh table t_char_orc_spark_rowkind"""
+        sql """DELETE FROM t_char_orc_spark WHERE v IN (1, 3, 4, 5)"""
+        sql """UPDATE t_char_orc_spark SET v = v * 10 WHERE v IN (2, 6)"""
+        order_qt_orc_spark_dml """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark"""
+        sql """INSERT INTO t_char_orc_spark VALUES ('ab', 7), ('k', 8)"""
+        order_qt_orc_spark_upsert """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark"""
+        sql """UPDATE t_char_orc_spark_one_bucket SET v = 20 WHERE c = 'ab'"""
+        order_qt_orc_spark_one_bucket_update """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_one_bucket
+        """
+        sql """DELETE FROM t_char_orc_spark_one_bucket WHERE c = 'ab'"""
+        order_qt_orc_spark_one_bucket_delete """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_one_bucket
+        """
+        sql """DELETE FROM t_char_orc_spark_dynamic WHERE v IN (1, 3, 4, 5)"""
+        sql """UPDATE t_char_orc_spark_dynamic SET v = v * 10 WHERE v IN (2, 6)"""
+        order_qt_orc_spark_dynamic_bucket """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_dynamic
+        """
+
+        // A '-D' row of a rowkind.field table carries the key Doris read back, and is padded on an ORC table too.
+        sql """INSERT INTO t_char_orc_spark_rowkind SELECT c, '-D', v FROM t_char_orc_spark_rowkind WHERE v = 1"""
+        order_qt_orc_spark_rowkind_delete """SELECT concat('[', c, ']'), rk, v FROM t_char_orc_spark_rowkind"""
+
+        // MERGE matches 'k' to the 'k  ' Spark wrote, as Doris reads it back as 'k', and inserts 'q' padded. A
+        // source key that ends with a space, 'ab ', matches none of the keys read back without their spaces, yet
+        // padding would make it the stored 'ab ' that MERGE did not match, so that MERGE fails and writes nothing.
+        sql """INSERT INTO internal.${dbName}.char_orc_merge_source VALUES ('k', 10), ('q', 30)"""
+        sql """
+            MERGE INTO t_char_orc_spark_merge t
+            USING internal.${dbName}.char_orc_merge_source s ON t.c = s.c
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+        """
+        order_qt_orc_spark_merge """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_merge"""
+        sql """INSERT INTO internal.${dbName}.char_orc_merge_source VALUES ('ab ', 40)"""
+        test {
+            sql """
+                MERGE INTO t_char_orc_spark_merge t
+                USING internal.${dbName}.char_orc_merge_source s ON t.c = s.c
+                WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+            """
+            exception "rtrim(<key>)"
+        }
+        order_qt_orc_spark_merge_trailing_space_fails """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_merge
+        """
 
         // BE cannot route a CHAR bucket key that the writer pads by Paimon's bucket, since it would hash the
         // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
@@ -385,8 +511,7 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             SELECT snapshot_id, commit_kind, changelog_record_count FROM t_char_bucketed\$snapshots
         """
 
-        // The writer leaves the CHAR bucket key of an ORC table unpadded, as ORC pads it itself, so BE routes the
-        // rows to the four bucket writers by the bytes the writer writes: each bucket still has one writer, and both
+        // The writer pads the CHAR bucket key of an ORC table too, so that table also gets one writer, and both
         // snapshots of the full-compaction table are committed.
         sql """set parallel_pipeline_task_num = 4"""
         qt_orc_bucketed_route_plan """

@@ -67,19 +67,21 @@ final class PaimonWriteSchema {
      * fe-connector-paimon.
      */
     static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
+    private static final BinaryString SPACE = BinaryString.fromString(" ");
 
     private final InternalRow.FieldGetter[] fieldGetters;
     /**
-     * Per input column, pads the CHAR values it holds; null when it holds none, when padding is off, for the
-     * table's rowkind.field, or for a column other than a partition column of a table that writes ORC files.
+     * Per input column, pads the CHAR values it holds; null when it holds none, when padding is off, or for the
+     * table's rowkind.field.
      */
     private final CharPadder[] charPadders;
     /**
-     * Per input column, the length of a padded CHAR primary-key column of a changelog write, or 0. Padding a
-     * shorter key that MERGE inserts would change the key after MERGE matched it and checked it for duplicates;
-     * see {@link #padRow}.
+     * Per input column, the length of a padded CHAR primary-key column of a changelog write, or 0. Padding a key
+     * that MERGE inserts can change it after MERGE matched it and checked it for duplicates; see {@link #padRow}.
      */
     private final int[] insertedKeyCharLengths;
+    /** Whether the table writes ORC files ({@link #writesOrcFiles}); see {@link #padsRow} and {@link #padRow}. */
+    private final boolean orcFiles;
     /** Decodes the kind of a row from the table's rowkind.field as Paimon does when it writes the row, or null. */
     private final RowKindGenerator rowKindGenerator;
     /**
@@ -99,8 +101,8 @@ final class PaimonWriteSchema {
 
     private PaimonWriteSchema(int[] tableFieldIndexes, int[] omittedDefaultFieldIndexes,
             Object[] omittedDefaultValues, int tableFieldCount, RowType inputType, CharPadder[] charPadders,
-            int[] insertedKeyCharLengths, RowKindGenerator rowKindGenerator, DefaultValueRow defaultValueRow,
-            boolean overwrite) {
+            int[] insertedKeyCharLengths, boolean orcFiles, RowKindGenerator rowKindGenerator,
+            DefaultValueRow defaultValueRow, boolean overwrite) {
         this.fieldGetters = new InternalRow.FieldGetter[inputType.getFieldCount()];
         for (int i = 0; i < fieldGetters.length; i++) {
             // Getters describe the transport row, not the target table. Transport fields are
@@ -110,6 +112,7 @@ final class PaimonWriteSchema {
         }
         this.charPadders = charPadders;
         this.insertedKeyCharLengths = insertedKeyCharLengths;
+        this.orcFiles = orcFiles;
         this.rowKindGenerator = rowKindGenerator;
         this.defaultValueRow = defaultValueRow;
         this.overwrite = overwrite;
@@ -150,28 +153,23 @@ final class PaimonWriteSchema {
 
     static PaimonWriteSchema create(RowType tableType, String[] columnNames, boolean changelogWrite,
             boolean charPadding, String rowKindField, List<String> primaryKeys) {
-        return create(tableType, columnNames, changelogWrite, charPadding, rowKindField, primaryKeys,
-                Collections.emptyList(), false, false);
+        return create(tableType, columnNames, changelogWrite, charPadding, rowKindField, primaryKeys, false, false);
     }
 
     /**
-     * @param charPadding   whether to pad the CHAR values of inserted rows as Paimon's cast to CHAR does; see
-     *                      {@link #charPadder} and {@link #padsRow}
+     * @param charPadding   whether to pad CHAR values as Paimon's cast to CHAR does; see {@link #charPadder}, and
+     *                      {@link #padsRow} for the rows that are padded
      * @param rowKindField  the table's {@code rowkind.field}, or null. Its value is not padded: Paimon decodes the row
      *                      kind from it ({@code RowKind.fromShortString}), and a padded '+I ' is no row kind.
-     * @param primaryKeys   the table's primary keys. In a changelog write, a CHAR key that padding would change
-     *                      fails the row; see {@link #padRow}.
-     * @param partitionKeys the table's partition keys
-     * @param orcFiles      whether the table writes ORC files ({@link #writesOrcFiles}). ORC pads every CHAR value
-     *                      it writes and strips the trailing spaces from one it reads, so padding changes nothing
-     *                      ORC stores, only the bucket of a CHAR key, which an UPDATE or DELETE that reads the key
-     *                      back unpadded would then miss. Only the partition columns of such a table are padded: a
-     *                      partition value is read back as it is stored.
+     * @param primaryKeys   the table's primary keys. In a changelog write, a CHAR key that MERGE inserts fails the
+     *                      row when padding could make it a key that MERGE did not see; see {@link #padRow}.
+     * @param orcFiles      whether the table writes ORC files ({@link #writesOrcFiles}), every row of which is
+     *                      padded; see {@link #padsRow}
      * @param overwrite     whether the write overwrites the partitions it writes; see {@link #padsRow}
      */
     static PaimonWriteSchema create(RowType tableType, String[] columnNames, boolean changelogWrite,
-            boolean charPadding, String rowKindField, List<String> primaryKeys, List<String> partitionKeys,
-            boolean orcFiles, boolean overwrite) {
+            boolean charPadding, String rowKindField, List<String> primaryKeys, boolean orcFiles,
+            boolean overwrite) {
         if (columnNames == null || columnNames.length == 0) {
             throw new IllegalArgumentException(
                     "PaimonJniWriter requires explicit column names");
@@ -210,8 +208,7 @@ final class PaimonWriteSchema {
             // Paimon writer return its normal constraint diagnostic instead of reading a default
             // primitive value from a non-null getter.
             inputFields.add(field.newType(field.type().nullable()));
-            if (charPadding && !field.name().equals(rowKindField)
-                    && (!orcFiles || partitionKeys.contains(field.name()))) {
+            if (charPadding && !field.name().equals(rowKindField)) {
                 charPadders[i] = charPadder(field.type(), field.name());
                 if (changelogWrite && field.type().getTypeRoot() == DataTypeRoot.CHAR
                         && primaryKeys.contains(field.name())) {
@@ -242,6 +239,7 @@ final class PaimonWriteSchema {
                 new RowType(inputFields),
                 charPadders,
                 insertedKeyCharLengths,
+                orcFiles,
                 rowKindField == null ? null : new RowKindGenerator(rowKindField, tableType),
                 DefaultValueRow.create(tableType),
                 overwrite);
@@ -294,19 +292,28 @@ final class PaimonWriteSchema {
     }
 
     /**
-     * Whether to pad {@code row}: whether it inserts, outside an overwrite. Its row kind, if any, is the first input
-     * column. An UPDATE or DELETE row carries the key Doris read back from the table, which has to stay byte-equal
-     * to the stored key for Paimon to match it, padded or not. A table with a rowkind.field takes the kind of a row
-     * from that field's value when Paimon writes it ({@code TableWriteImpl#writeAndReturn}), after filling a NULL
-     * with the field's default and ignoring case: '+I', '+i', or NULL under DEFAULT '+I' inserts, while a '-D', '-U'
-     * or '+U' row carries a key to match, as an UPDATE or DELETE row does. A value Paimon cannot decode, such as NULL
-     * without a default, fails the write in Paimon with the same error, after Paimon's own NOT NULL check, so such a
-     * row is left as it is. An overwrite replaces the partitions it writes, so none of its rows matches a stored
-     * key, and all of them are padded, like the static partition value FE pads into the overwrite filter: a '+U'
-     * row of INSERT OVERWRITE ... PARTITION (p = 'x') has to land in 'x  ', and a '+I' and a '-D' of one key in the
-     * statement still cancel out.
+     * Whether to pad {@code row}. Every row of a table that writes ORC files is padded. ORC pads every CHAR value it
+     * writes and strips the trailing spaces from one it reads, so Doris reads back 'k' for the 'k  ' that Spark and
+     * Flink write. Paimon puts a row in the bucket of its key as the writer holds it, and merges only the data files
+     * whose key ranges, also kept as the writer held the keys, overlap: an UPDATE or DELETE row that wrote that key
+     * back as 'k' would land in another bucket, or below the range of the file holding 'k  ', and miss the row.
+     *
+     * <p>On any other table, a row is padded when it inserts, outside an overwrite. Its row kind, if any, is the
+     * first input column. An UPDATE or DELETE row carries the key Doris read back from the table as it is stored,
+     * which has to stay byte-equal to the stored key for Paimon to match it, padded or not. A table with a
+     * rowkind.field takes the kind of a row from that field's value when Paimon writes it
+     * ({@code TableWriteImpl#writeAndReturn}), after filling a NULL with the field's default and ignoring case:
+     * '+I', '+i', or NULL under DEFAULT '+I' inserts, while a '-D', '-U' or '+U' row carries a key to match, as an
+     * UPDATE or DELETE row does. A value Paimon cannot decode, such as NULL without a default, fails the write in
+     * Paimon with the same error, after Paimon's own NOT NULL check, so such a row is left as it is. An overwrite
+     * replaces the partitions it writes, so none of its rows matches a stored key, and all of them are padded, like
+     * the static partition value FE pads into the overwrite filter: a '+U' row of INSERT OVERWRITE ... PARTITION
+     * (p = 'x') has to land in 'x  ', and a '+I' and a '-D' of one key in the statement still cancel out.
      */
     private boolean padsRow(GenericRow row) {
+        if (orcFiles) {
+            return true;
+        }
         if (row.getRowKind() != RowKind.INSERT) {
             return false;
         }
@@ -327,21 +334,46 @@ final class PaimonWriteSchema {
             if (value == null) {
                 continue;
             }
-            // In a changelog write only MERGE inserts rows, and MERGE has matched them to the table and checked them
-            // for duplicate keys by the key as it is: Doris compares CHAR values unpadded. Padding a shorter key
-            // here would make 'k' and 'k ' one key, or let a NOT MATCHED row replace the stored 'k  ' it did not
-            // match. A key as long as the column is not changed by padding.
-            if (insertedKeyCharLengths[i] > 0 && ((BinaryString) value).numChars() < insertedKeyCharLengths[i]) {
-                throw new IllegalArgumentException(String.format(
-                        "MERGE cannot insert '%s' into the CHAR(%d) primary key column '%s' of a Paimon table: "
-                                + "the value is shorter than the column, and padding it to the column "
-                                + "length would change the key that MERGE matched. Pad the key in the "
-                                + "MERGE, with rpad(<key>, %d, ' ') in both the ON condition and the "
-                                + "inserted values, or set enable_paimon_write_char_padding = false",
-                        value, insertedKeyCharLengths[i], inputType.getFields().get(i).name(),
-                        insertedKeyCharLengths[i]));
+            if (insertedKeyCharLengths[i] > 0 && row.getRowKind() == RowKind.INSERT) {
+                checkInsertedKey((BinaryString) value, i);
             }
             row.setField(tableFieldIndexes[i], charPadders[i].pad(value));
+        }
+    }
+
+    /**
+     * In a changelog write only MERGE inserts rows, and MERGE has matched them to the table and checked them for
+     * duplicate keys by the key as it is: Doris compares CHAR values unpadded. A table that writes no ORC files gives
+     * Doris its keys back padded, so padding a shorter key here would make 'k' and 'k ' one key, or let a NOT MATCHED
+     * row replace the stored 'k  ' it did not match; a key as long as the column is not changed by padding. ORC gives
+     * the keys back without their trailing spaces, so there MERGE matched 'k' to the stored 'k  ', and only a key
+     * that ends with a space, such as 'k ', matches no stored key yet pads to one.
+     */
+    private void checkInsertedKey(BinaryString key, int column) {
+        int length = insertedKeyCharLengths[column];
+        String name = inputType.getFields().get(column).name();
+        if (orcFiles) {
+            if (key.endsWith(SPACE)) {
+                // The remedy comes first: the client gets a long error message of the writer cut short.
+                throw new IllegalArgumentException(String.format(
+                        "MERGE cannot insert '%s' into the CHAR(%d) primary key column '%s' of a Paimon table "
+                                + "that writes ORC files. Remove the trailing spaces of the key in the MERGE, with "
+                                + "rtrim(<key>) in both the ON condition and the inserted values, or set "
+                                + "enable_paimon_write_char_padding = false: ORC drops the trailing spaces of the "
+                                + "keys it stores, so MERGE matched this value against keys without them, and "
+                                + "padding it can turn it into a stored key that MERGE did not match",
+                        key, length, name));
+            }
+            return;
+        }
+        if (key.numChars() < length) {
+            throw new IllegalArgumentException(String.format(
+                    "MERGE cannot insert '%s' into the CHAR(%d) primary key column '%s' of a Paimon table: "
+                            + "the value is shorter than the column, and padding it to the column "
+                            + "length would change the key that MERGE matched. Pad the key in the "
+                            + "MERGE, with rpad(<key>, %d, ' ') in both the ON condition and the "
+                            + "inserted values, or set enable_paimon_write_char_padding = false",
+                    key, length, name, length));
         }
     }
 

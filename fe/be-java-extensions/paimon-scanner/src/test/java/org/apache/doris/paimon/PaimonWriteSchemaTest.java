@@ -438,8 +438,8 @@ public class PaimonWriteSchemaTest {
         // An overwrite replaces the partitions it writes, so none of its rows matches a stored key. FE pads the
         // static partition value of INSERT OVERWRITE ... PARTITION (p = 'x') into the overwrite filter, so a '+U'
         // or '-D' row has to land in 'x  ' too, or Paimon rejects its file as outside the overwritten partition;
-        // and a '+I' and a '-D' of one key in the statement still cancel out. An ORC table pads only its partition
-        // values, in an overwrite too. MUTATION: padding by the decoded row kind in an overwrite -> red.
+        // and a '+I' and a '-D' of one key in the statement still cancel out. An ORC table pads every row anyway.
+        // MUTATION: padding by the decoded row kind in an overwrite -> red.
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "id", new IntType(false)),
                 new DataField(1, "p", new CharType(false, 3)),
@@ -447,7 +447,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(3, "code", new CharType(3))));
         String[] columns = {"id", "p", "kind", "code"};
         PaimonWriteSchema overwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), Collections.singletonList("p"), false, true);
+                Arrays.asList("id", "p"), false, true);
         for (String kind : Arrays.asList("+I", "+U", "-D", "-U")) {
             InternalRow row = tableRow(overwrite, 1, string("x"), string(kind), string("k"));
             Assertions.assertEquals("x  ", row.getString(1).toString(), kind);
@@ -456,13 +456,13 @@ public class PaimonWriteSchemaTest {
         }
 
         PaimonWriteSchema orcOverwrite = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), Collections.singletonList("p"), true, true);
+                Arrays.asList("id", "p"), true, true);
         InternalRow orcRow = tableRow(orcOverwrite, 1, string("x"), string("+U"), string("k"));
         Assertions.assertEquals("x  ", orcRow.getString(1).toString());
-        Assertions.assertEquals("k", orcRow.getString(3).toString());
+        Assertions.assertEquals("k  ", orcRow.getString(3).toString());
 
         PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, columns, false, true, "kind",
-                Arrays.asList("id", "p"), Collections.singletonList("p"), false, false);
+                Arrays.asList("id", "p"), false, false);
         Assertions.assertEquals("x",
                 tableRow(insert, 1, string("x"), string("+U"), string("k")).getString(1).toString());
     }
@@ -697,34 +697,96 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
-    public void testOrcTablePadsOnlyItsPartitionValues() {
-        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so padding changes
-        // nothing that ORC stores, only the bucket of a CHAR key: an UPDATE or DELETE that reads 'k' back would
-        // hash another bucket than the padded 'k  ' went to, and miss the row. A partition value is read back as
-        // it is stored, so it is padded, and a MERGE that inserts a short one fails as for any padded key, while a
-        // short key that is not padded does not. MUTATION: padding every column of an ORC table -> red.
+    public void testOrcTablePadsTheCharValuesOfEveryRow() {
+        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so Doris reads back
+        // 'k' for the 'k  ' that Spark and Flink write. Paimon puts a row in the bucket of its key as the writer
+        // holds it, and merges only the data files whose key ranges, also kept as the writer held the keys,
+        // overlap: an UPDATE or DELETE that wrote that key as 'k' would land in another bucket, or below the range
+        // of the file holding 'k  ', and miss the row. So every row of an ORC table is padded, including UPDATE and
+        // DELETE rows, and so are the keys of its maps, which fail the row when padding makes them equal.
+        // MUTATION: padding only the partition columns, or only the inserted rows, of an ORC table -> red.
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "p", new CharType(false, 3)),
                 new DataField(1, "code", new CharType(false, 3)),
                 new DataField(2, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.INT()))));
         PaimonWriteSchema insert = PaimonWriteSchema.create(tableType, new String[] {"p", "code", "labels"},
-                false, true, null, Arrays.asList("p", "code"), Collections.singletonList("p"), true, false);
+                false, true, null, Arrays.asList("p", "code"), true, false);
 
         InternalRow row = tableRow(insert, string("x"), string("k"),
-                map(new Object[] {string("k"), string("k ")}, new Object[] {1, 2}));
+                map(new Object[] {string("k")}, new Object[] {1}));
         Assertions.assertEquals("x  ", row.getString(0).toString());
-        Assertions.assertEquals("k", row.getString(1).toString());
-        Assertions.assertEquals(2, row.getMap(2).size());
-        Assertions.assertEquals("k", row.getMap(2).keyArray().getString(0).toString());
-
-        PaimonWriteSchema merge = PaimonWriteSchema.create(tableType,
-                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code"}, true, true, null,
-                Arrays.asList("p", "code"), Collections.singletonList("p"), true, false);
-        Assertions.assertEquals("k", tableRow(merge, PaimonWriteSchema.INSERT_OPERATION, string("abc"),
-                string("k")).getString(1).toString());
+        Assertions.assertEquals("k  ", row.getString(1).toString());
+        Assertions.assertEquals("k ", row.getMap(2).keyArray().getString(0).toString());
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> tableRow(merge, PaimonWriteSchema.INSERT_OPERATION, string("x"), string("k")));
-        Assertions.assertTrue(e.getMessage().contains("CHAR(3) primary key column 'p'"), e.getMessage());
+                () -> tableRow(insert, string("x"), string("k"),
+                        map(new Object[] {string("k"), string("k ")}, new Object[] {1, 2})));
+        Assertions.assertTrue(e.getMessage().contains("into the same key"), e.getMessage());
+
+        PaimonWriteSchema changelog = PaimonWriteSchema.create(tableType,
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "p", "code"}, true, true, null,
+                Arrays.asList("p", "code"), true, false);
+        for (byte operation : new byte[] {PaimonWriteSchema.UPDATE_OPERATION, PaimonWriteSchema.DELETE_OPERATION}) {
+            InternalRow changed = tableRow(changelog, operation, string("x"), string("k"));
+            Assertions.assertEquals("x  ", changed.getString(0).toString());
+            Assertions.assertEquals("k  ", changed.getString(1).toString());
+        }
+    }
+
+    @Test
+    public void testOrcTablePadsTheRowsOfEveryRowKindFieldValue() {
+        // A '-D', '-U' or '+U' row of a rowkind.field table carries a key to match, which Doris reads back from an
+        // ORC table without its trailing spaces, so on such a table those rows are padded as the '+I' rows are,
+        // and a value Paimon cannot decode is padded and left for Paimon to reject. The rowkind.field value itself
+        // stays as it is. MUTATION: padding by the decoded row kind on an ORC table, or padding the rowkind.field
+        // -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "code", new CharType(false, 3)),
+                new DataField(1, "kind", new CharType(3)),
+                new DataField(2, "label", new CharType(3))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"code", "kind", "label"},
+                false, true, "kind", Collections.singletonList("code"), true, false);
+
+        for (String kind : Arrays.asList("+I", "-D", "-U", "+U", "+X")) {
+            InternalRow row = tableRow(schema, string("k"), string(kind), string("a"));
+            Assertions.assertEquals("k  ", row.getString(0).toString(), kind);
+            Assertions.assertEquals(kind, row.getString(1).toString(), kind);
+            Assertions.assertEquals("a  ", row.getString(2).toString(), kind);
+        }
+    }
+
+    @Test
+    public void testMergeIntoAnOrcTableFailsOnlyForInsertedKeysEndingWithASpace() {
+        // Doris reads the keys of an ORC table back without their trailing spaces, and MERGE matches its source
+        // rows to them and checks the keys it inserts for duplicates by the key as Doris holds it. A short key
+        // such as 'k' is then a key no stored row has, as the stored 'k  ' would have matched it, and it is padded
+        // as Spark and Flink pad it. A key that ends with a space, such as 'k ', matches no stored key, yet padding
+        // makes it the stored 'k  ' that MERGE did not match, and 'k' and 'k ' one key, so such a row fails. UPDATE
+        // and DELETE rows carry a key read from the table and are padded, and one read from a level that
+        // file.format.per.level writes in another format keeps the padding Spark wrote. MUTATION: no check, the
+        // check of a table that writes no ORC files, or checking UPDATE / DELETE rows -> red.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
+                Collections.singletonList("code"), true, false);
+
+        Assertions.assertEquals("k  ", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("k"),
+                string("x")).getString(0).toString());
+        Assertions.assertEquals("中中 ", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("中中"),
+                null).getString(0).toString());
+        Assertions.assertEquals("abc", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("abc"),
+                null).getString(0).toString());
+        for (String key : Arrays.asList("k ", "ab ", "k  ", " ")) {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string(key), string("x")));
+            Assertions.assertTrue(e.getMessage().contains("CHAR(3) primary key column 'code'"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("rtrim(<key>)"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("enable_paimon_write_char_padding"), e.getMessage());
+        }
+        for (byte operation : new byte[] {PaimonWriteSchema.UPDATE_OPERATION, PaimonWriteSchema.DELETE_OPERATION}) {
+            Assertions.assertEquals("k  ", tableRow(schema, operation, string("k"), string("x"))
+                    .getString(0).toString());
+            Assertions.assertEquals("k  ", tableRow(schema, operation, string("k  "), string("x"))
+                    .getString(0).toString());
+        }
     }
 
     @Test
