@@ -451,6 +451,128 @@ TEST(NullableAggregationV2Test, NonNullableBitmapResultStillMarksEmptyPartials) 
     check_streaming(make_agg_state_compatible_function(function), {input});
 }
 
+void check_unary_batch_update(const AggregateFunctionPtr& function, const ColumnPtr& input,
+                              int mode) {
+    Arena arena;
+    const IColumn* columns[] = {input.get()};
+    const size_t offset = std::max<size_t>(64, function->align_of_data());
+    AlignedAggregateData storage(offset + function->size_of_data(), function->align_of_data());
+    std::memset(storage.data(), 0x5a, offset);
+    auto* place = storage.data() + offset;
+    function->create(place);
+    DEFER({ function->destroy(place); });
+    AggregateFunctionGuard expected(function.get());
+    AggregateFunctionGuard merged(function.get());
+    std::vector<AggregateDataPtr> places(input->size(), storage.data());
+    for (size_t row = 0; row < input->size(); ++row) {
+        if (mode == 1 && row == 0) {
+            places[row] = nullptr;
+        } else {
+            function->add(expected.data(), columns, row, arena);
+        }
+    }
+    switch (mode) {
+    case 0:
+        function->add_batch(input->size(), places.data(), offset, columns, arena, false);
+        break;
+    case 1:
+        function->add_batch_selected(input->size(), places.data(), offset, columns, arena);
+        break;
+    case 2:
+        function->add_batch_single_place(input->size(), place, columns, arena);
+        break;
+    case 3:
+        function->add_batch_range(0, input->size() - 1, place, columns, arena, input->has_null());
+        break;
+    }
+    function->merge(merged.data(), place, arena);
+    auto wanted = function->get_return_type()->create_column();
+    auto actual = wanted->clone_empty();
+    function->insert_result_into(expected.data(), *wanted);
+    function->insert_result_into(merged.data(), *actual);
+    EXPECT_EQ(actual->compare_at(0, 0, *wanted, 1), 0) << "mode=" << mode;
+    EXPECT_EQ(std::string_view(storage.data(), offset), std::string(offset, 0x5a));
+}
+
+TEST(NullableAggregationV2Test, NonNullableUnaryBatchUpdatesHonorPrefixAndValidity) {
+    for (int version : {19, USE_UNIFIED_NULLABLE_AGGREGATION_VERSION}) {
+        for (int density : {0, 50, 100}) {
+            auto nulls = ColumnUInt8::create(4, 0);
+            for (size_t row = 0; row < 4; ++row) {
+                nulls->get_data()[row] = density == 100 || (density == 50 && row % 2 == 1);
+            }
+            auto numbers = ColumnInt64::create();
+            numbers->get_data().assign({7, 999, 13, 999});
+            auto bitmaps = ColumnBitmap::create();
+            BitmapValue value;
+            value.add(1);
+            value.add(2);
+            for (size_t row = 0; row < 4; ++row) {
+                bitmaps->insert_value(value);
+            }
+            ColumnPtr null_map = std::move(nulls);
+            Columns inputs {ColumnNullable::create(std::move(numbers), null_map),
+                            ColumnNullable::create(std::move(bitmaps), null_map)};
+            DataTypes types {make_nullable(std::make_shared<DataTypeInt64>()),
+                             make_nullable(std::make_shared<DataTypeBitMap>())};
+            const char* names[] = {"sum", "bitmap_intersect"};
+            for (size_t index = 0; index < inputs.size(); ++index) {
+                auto function = AggregateFunctionSimpleFactory::instance().get(
+                        names[index], {types[index]}, nullptr, false, version);
+                for (int mode : {0, 1, 2, 3}) {
+                    check_unary_batch_update(function, inputs[index], mode);
+                }
+            }
+        }
+    }
+}
+
+TEST(NullableAggregationV2Test, StableNullableTransferRetainsNegotiatedColumnFormat) {
+    DataTypes unary {make_nullable(std::make_shared<DataTypeInt64>())};
+    DataTypes variadic {make_nullable(std::make_shared<DataTypeString>()),
+                        std::make_shared<DataTypeString>()};
+    for (int version : {19, USE_UNIFIED_NULLABLE_AGGREGATION_VERSION}) {
+        for (const auto& entry : {std::pair {"multi_distinct_min", unary},
+                                  std::pair {"multi_distinct_group_concat", variadic}}) {
+            auto function = AggregateFunctionSimpleFactory::instance().get(
+                    entry.first, entry.second, nullptr, false, version);
+            ASSERT_NE(function, nullptr);
+            AggregateFunctionPtr stable(function->transmit_to_stable());
+            ASSERT_NE(stable, nullptr);
+            EXPECT_EQ(stable->get_serialized_type()->get_name(),
+                      function->get_serialized_type()->get_name());
+        }
+    }
+}
+
+TEST(NullableAggregationV2Test, LegacyCodecForwardsStableDistinctOrder) {
+    auto string = std::make_shared<DataTypeString>();
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "multi_distinct_group_concat", {make_nullable(string), string}, nullptr, true, 19);
+    ASSERT_NE(function, nullptr);
+    auto codec = make_agg_state_compatible_function(function);
+    codec->set_version(19);
+    AggregateFunctionPtr stable(codec->transmit_to_stable());
+    ASSERT_NE(stable, nullptr);
+    EXPECT_TRUE(stable->needs_deserialize_and_merge_scratch());
+    auto values = ColumnString::create();
+    auto separator = ColumnString::create();
+    for (const auto* value : {"b", "a", "b"}) {
+        values->insert_value(value);
+        separator->insert_value(",");
+    }
+    ColumnPtr input = ColumnNullable::create(std::move(values), ColumnUInt8::create(3, 0));
+    const IColumn* columns[] = {input.get(), separator.get()};
+    AggregateFunctionGuard state(stable.get());
+    Arena arena;
+    stable->add_batch_single_place(3, state.data(), columns, arena);
+    auto result = stable->get_return_type()->create_column();
+    stable->insert_result_into(state.data(), *result);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(0).to_string(), "b,a");
+}
+
 TEST(NullableAggregationV2Test, LegacyUnmarkedBitmapReadersRetainValidityForLaterMerge) {
     auto type = make_nullable(std::make_shared<DataTypeBitMap>());
     auto function = AggregateFunctionSimpleFactory::instance().get("bitmap_intersect", {type},

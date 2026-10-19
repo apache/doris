@@ -32,6 +32,12 @@ public:
               _function(std::move(function)) {}
 
     String get_name() const override { return _function->get_name(); }
+    IAggregateFunction* transmit_to_stable() override {
+        if (auto* stable = _function->transmit_to_stable()) {
+            return new AggregateFunctionLegacyNullableState(AggregateFunctionPtr(stable));
+        }
+        return nullptr;
+    }
     DataTypePtr get_return_type() const override { return _function->get_return_type(); }
     void set_version(int version_) override {
         IAggregateFunctionHelper::set_version(version_);

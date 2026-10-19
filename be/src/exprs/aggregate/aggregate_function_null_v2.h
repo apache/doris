@@ -584,7 +584,7 @@ public:
         }
         return new AggregateFunctionNullUnaryInlineV2<
                 typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
-                f, IAggregateFunction::argument_types, this->is_window_function);
+                f, IAggregateFunction::argument_types, this->is_window_function, this->version);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
@@ -609,7 +609,11 @@ public:
                     this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
                 }
             } else {
-                this->nested_function->add_batch(batch_size, places, place_offset, &nested_column,
+                for (size_t i = 0; i < batch_size; ++i) {
+                    this->set_flag(places[i] + place_offset);
+                }
+                this->nested_function->add_batch(batch_size, places,
+                                                 place_offset + this->prefix_size, &nested_column,
                                                  arena, agg_many);
             }
         }
@@ -807,7 +811,7 @@ public:
         }
         return new AggregateFunctionNullVariadicInlineV2<
                 typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
-                f, IAggregateFunction::argument_types, this->is_window_function);
+                f, IAggregateFunction::argument_types, this->is_window_function, this->version);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
