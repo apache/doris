@@ -313,6 +313,14 @@ public class HboUtils {
         if (planInfoProvider != null) {
             String queryId = DebugUtil.printId(connectContext.queryId());
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
+            Map<RelationId, Long> currentTableIds = currentTableIdsByRelation(queryId, planInfoProvider);
+            if (!currentTableIds.isEmpty()
+                    && !sameTablesByRelation(currentTableIds, currentInputTableStatistics)) {
+                // a relation id is a position in the plan, so a query which writes the same key with the
+                // tables bound in the other order reuses these positions for other tables: the filters of
+                // that query must not be taken for the entry's scans (see sameTablesByRelation)
+                return Optional.empty();
+            }
             // here allows scanToFilterMap is empty when no filter on the scan and upper plan node
             // can also reuse the recent run's plan stats. info.
             for (PlanStatistics inputTableStatistics : currentInputTableStatistics) {
@@ -326,6 +334,46 @@ public class HboUtils {
             }
         }
         return Optional.of(outputTableStatisticsBuilder.build());
+    }
+
+    /** The table each relation id of the current plan is bound to. */
+    private static Map<RelationId, Long> currentTableIdsByRelation(String queryId,
+            HboPlanInfoProvider planInfoProvider) {
+        Map<RelationId, Long> tableIds = new HashMap<>();
+        for (PhysicalPlan plan : planInfoProvider.getIdToPlanMap(queryId).values()) {
+            if (plan instanceof PhysicalOlapScan) {
+                PhysicalOlapScan scan = (PhysicalOlapScan) plan;
+                tableIds.put(scan.getRelationId(), scan.getTable().getId());
+            }
+        }
+        return tableIds;
+    }
+
+    /**
+     * Whether every scan of a recorded entry is bound to the same table in the current plan.
+     *
+     * <p>A relation id is a position in the plan, and a slot reference is compared by its expression id
+     * only (see {@code SlotReference#equals}), so a query which writes the tables of a key in the other
+     * order binds the same positions to opposite tables: its predicates would be read as the entry's, and
+     * the learned row count of a run with a different filter would be applied to it. The comparison uses
+     * the id of the table, which no alias, position or name of a query changes.
+     */
+    static boolean sameTablesByRelation(Map<RelationId, Long> currentTableIds,
+            List<PlanStatistics> recordedInputTableStatistics) {
+        for (PlanStatistics recorded : recordedInputTableStatistics) {
+            if (!(recorded instanceof ScanPlanStatistics)) {
+                continue;
+            }
+            PhysicalOlapScan recordedScan = ((ScanPlanStatistics) recorded).getScan();
+            if (recordedScan == null || recordedScan.getTable() == null) {
+                continue;
+            }
+            Long currentTableId = currentTableIds.get(recordedScan.getRelationId());
+            if (currentTableId == null || currentTableId != recordedScan.getTable().getId()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
