@@ -344,12 +344,13 @@ public class HboPlanStatisticsManager {
      */
     private void deletePersistedPinnedPlanStatistics(String fingerprint, PinnedHboStatistics judged) {
         if (persistenceEnabled()) {
+            long generation = judged == null ? System.currentTimeMillis() : judged.getCreateTime();
             // the DB removal runs under the lock so a lazy load can never SELECT the row in
-            // the window between the memory invalidation and its DB removal (M-1 R1)
-            if (!HboStatisticsStore.delete(fingerprint) && !hboPinnedLoaded) {
+            // the window between the memory invalidation and its DB removal (M-1 R1); it is bounded by
+            // the generation of the row this removal judged, so a row another FE sets afterwards stays
+            if (!HboStatisticsStore.delete(fingerprint, generation) && !hboPinnedLoaded) {
                 // the row is still stored and a pending/retrying load would resurrect it
                 // into memory: remember the deletion intent (M-1 R2)
-                long generation = judged == null ? System.currentTimeMillis() : judged.getCreateTime();
                 pendingLoadTombstones.merge(fingerprint, generation, Math::max);
             }
         }
@@ -547,7 +548,10 @@ public class HboPlanStatisticsManager {
                 // snapshot may be removed (see class javadoc)
                 int failed = 0;
                 for (String fingerprint : suppressedByTombstone) {
-                    if (!HboStatisticsStore.delete(fingerprint)) {
+                    // the row seen in the snapshot is removed only while it is still the generation the
+                    // failed removal judged: a SET another FE performed after the snapshot survives
+                    Long generation = pendingLoadTombstones.get(fingerprint);
+                    if (generation == null || !HboStatisticsStore.delete(fingerprint, generation)) {
                         failed++;
                     }
                 }

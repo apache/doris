@@ -167,16 +167,20 @@ public class HboStatisticsStore {
     }
 
     /**
-     * Remove a pinned entry.
+     * Remove the pinned entry a removal judged: the row is deleted only while its create time is not
+     * newer than {@code generation}, so a row another FE wrote after the judge was read survives.
      *
      * @return true when the row was removed (or the table had no such row), false when the
      *         best-effort removal failed (e.g. internal schema not ready yet)
      */
-    public static boolean delete(String fingerprint) {
+    public static boolean delete(String fingerprint, long generation) {
         try {
             ensureTable();
+            // only the row the removal judged is deleted: a row another FE wrote afterwards is a newer
+            // SET and must survive, because this FE cannot order its removal against that write
             String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '"
-                    + StatisticsUtil.escapeSQL(fingerprint) + "'";
+                    + StatisticsUtil.escapeSQL(fingerprint) + "' AND `" + CREATE_TIME_COLUMN
+                    + "` <= '" + createTimeLiteral(generation) + "'";
             StatisticsUtil.execUpdate(sql);
             return true;
         } catch (Exception t) {
