@@ -88,6 +88,10 @@ public class CreateMap extends ScalarFunction
         for (int i = 0; i < arity(); i++) {
             DataType childType = getArgument(i).getDataType();
             boolean isKey = i % 2 == 0;
+            if (isKey && childType.isComplexType()) {
+                throw new AnalysisException(
+                        "MAP key type must be a primitive type but get " + childType.toSql());
+            }
             if (childType.isJsonType()) {
                 throw new AnalysisException("map does not support jsonb type");
             }

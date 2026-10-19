@@ -48,6 +48,7 @@ enum TypeID {
     UUID,
     FIXED,
     BINARY,
+    VARIANT,
     DECIMAL,
     STRUCT,
     LIST,
@@ -316,6 +317,15 @@ public:
 private:
     std::string _crs;
     std::string _algorithm;
+};
+
+class VariantType : public PrimitiveType {
+public:
+    ~VariantType() override = default;
+
+    TypeID type_id() const override { return TypeID::VARIANT; }
+
+    std::string to_string() const override { return "variant"; }
 };
 
 class FixedType : public PrimitiveType {

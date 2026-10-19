@@ -119,4 +119,16 @@ suite("test_paimon_alter_properties", "p0,external,paimon") {
         SELECT `key`, value FROM `paimon_alter_properties\$options`
         WHERE `key` IN ('snapshot.num-retained.max', 'fields.missing.sequence-group')
     """
+
+    // Paimon keeps the table location in its path option, but changing it does not relocate the table.
+    // Doris rejects it before the remote alter, so no schema version is written and path is not stored.
+    test {
+        sql """ALTER TABLE `paimon_alter_properties` SET ('PATH' = 's3://warehouse/relocated_table')"""
+        exception "Change path is not supported yet"
+    }
+    order_qt_path_schema """SELECT MAX(schema_id) FROM `paimon_alter_properties\$schemas`"""
+    order_qt_path_options """
+        SELECT `key`, value FROM `paimon_alter_properties\$options`
+        WHERE lower(`key`) IN ('path', 'snapshot.num-retained.max')
+    """
 }

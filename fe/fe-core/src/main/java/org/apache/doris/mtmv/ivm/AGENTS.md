@@ -57,6 +57,24 @@ Run all IVM regression suites under `regression-test/suites/mtmv_p0/ivm/`:
 
 This runs every suite in the `ivm` subdirectory. New IVM suites are added over time — the `-d mtmv_p0/ivm` flag automatically picks them up.
 
+### Disable Transparent Rewrite
+
+A newly added IVM suite must turn both transparent-rewrite paths off before it runs any statement:
+
+```groovy
+sql "SET enable_materialized_view_rewrite = false"
+sql "SET enable_dml_materialized_view_rewrite = false"
+```
+
+Both default to true. The first is what makes an MV-verifying suite meaningful: such a suite checks the MV by
+re-running the MV's own definition SQL over the base tables, and with the rewrite on that query is answered
+from the MV itself, so both sides of the comparison move together and the suite can no longer fail. The second
+stops a base-table `INSERT`/`UPDATE`/`DELETE` from being redirected into the MV, which would leave the
+incremental path the suite exists to exercise unused.
+
+The one exception is a suite whose subject *is* the rewrite: it keeps whatever setting it needs to assert that
+an MV is hit, and says so where it does.
+
 ### FE Unit Tests
 
 Run all IVM-related FE unit tests. The relevant test files are located in:
@@ -118,6 +136,20 @@ side. Only the legacy fallback for a DUP_KEYS table without row binlog -- the no
 `uuid_numeric()` row-id, which `validateBinlogEnabled` rejects unless the table is an excluded
 trigger table -- is still rejected on the retained side. FULL OUTER JOIN requires deterministic
 row-ids on both sides.
+
+## Shared Acceptance Gates
+
+Both normalize paths and the append-only detail delta rewriter accept the same query shapes, and the
+gates that reject the rest live in one place, `IvmNormalizeCommonChecker` (a DISTINCT project, a
+UNION DISTINCT or constant-arm UNION ALL, a reserved output column name, an unsupported node type).
+Add a new acceptance gate there rather than to a single class, or the paths drift apart on what they
+accept -- which is how the join gate below went unshared.
+
+The join gate carries a per-model accepted set (the detail model maintains only inner and cross joins,
+the unique-key model also the outer joins) but is otherwise shared, and it tests the mark-join mark as
+well as the join type. The mark is orthogonal to the type -- an apply rewrite puts one on a LEFT_SEMI,
+a LEFT_ANTI, or a CROSS join -- so a type-only test accepts a mark join whose type happens to be an
+accepted one, and a mark join can stop matching a row the MV already holds.
 
 ## Recursive Delta Rewrite
 

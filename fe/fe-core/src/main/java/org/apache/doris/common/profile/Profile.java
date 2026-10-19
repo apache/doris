@@ -117,6 +117,12 @@ public class Profile {
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
+    private volatile String storageProfileCompletionState;
+    private volatile boolean executionProfilesReleased;
+    // Serializes the storage and display updates of the completion state. Not the Profile monitor:
+    // ProfileManager renders under its read lock, while updateSummary() holds the monitor and then
+    // takes the manager's write lock.
+    private final Object completionStateLock = new Object();
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -565,6 +571,9 @@ public class Profile {
     }
 
     public void releaseMemory() {
+        // The manager also releases reports after a failed spill. An empty list then means
+        // lost reports, not successful collection; retain that distinction across retries.
+        executionProfilesReleased = true;
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
@@ -627,13 +636,23 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    // Query completion precedes asynchronous BE reports; persisted profiles must retain
+    // their terminal state even after the in-memory reports have been released.
     public String getProfileCompletionState() {
+        String storageState = storageProfileCompletionState;
+        if (storageState != null) {
+            return storageState;
+        }
         if (profileHasBeenStored()) {
             String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
             if (!Strings.isNullOrEmpty(storedState)) {
                 return storedState;
             }
             return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
         }
 
         if (!isQueryFinished) {
@@ -650,6 +669,9 @@ public class Profile {
     }
 
     private String getProfileCompletionStateForStorage() {
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
         if (!isQueryFinished) {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
@@ -664,11 +686,18 @@ public class Profile {
     }
 
     private void updateProfileCompletionStateForStorage() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+        synchronized (completionStateLock) {
+            // Freeze the terminal state before serialization. Concurrent rendering must not
+            // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
+            storageProfileCompletionState = getProfileCompletionStateForStorage();
+            summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+        }
     }
 
     private void updateProfileCompletionStateForDisplay() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        synchronized (completionStateLock) {
+            summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        }
     }
 
     // Profile IO threads races with Coordinator threads.
@@ -741,6 +770,7 @@ public class Profile {
             this.profileStoragePath = profileFilePath;
 
         } catch (Exception e) {
+            storageProfileCompletionState = null;
             LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
