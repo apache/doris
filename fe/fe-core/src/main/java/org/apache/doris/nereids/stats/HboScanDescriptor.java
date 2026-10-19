@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 
@@ -177,10 +178,16 @@ public class HboScanDescriptor {
      * the same predicates, so the binding has to be part of the leaf identity.
      */
     static String relationIdentityOf(OlapScan scan) {
-        if (!(scan instanceof LogicalOlapScan)) {
-            return "";
+        // both forms of a scan carry the alias: a group which a rule filled with physical expressions
+        // only is described through its physical scan, and its key must name the same relation as the
+        // logical description of the same scan
+        if (scan instanceof LogicalOlapScan) {
+            return escapeNamePart(((LogicalOlapScan) scan).getTableAlias());
         }
-        return escapeNamePart(((LogicalOlapScan) scan).getTableAlias());
+        if (scan instanceof PhysicalOlapScan) {
+            return escapeNamePart(((PhysicalOlapScan) scan).getTableAlias());
+        }
+        return "";
     }
 
     /** The stable ids of the explicitly selected tablets, ascending, empty when none were selected. */

@@ -55,6 +55,18 @@ public class HboScanDescriptorIdentityTest {
     }
 
     @Test
+    public void testTheAliasOfARelationSurvivesTheTextForm() {
+        HboScanDescriptor aliased = new HboScanDescriptor("db.t", 1000, "t%2Ex", 3, 1000,
+                HboScanDescriptor.RowsKind.MEASURED, 0, 0, "", "", "");
+        Assertions.assertEquals("db.t#ti:1000#ra:t%2Ex", aliased.getShapeIdentity());
+        Assertions.assertEquals("db.t#ti:1000#ra:t%2Ex,v3,r1000", aliased.render());
+        // the alias is part of the shape (the fingerprint input) and survives the round trip a pasted
+        // struct info performs
+        Assertions.assertEquals("t%2Ex",
+                HboScanDescriptor.parse(aliased.render()).getRelationIdentity());
+    }
+
+    @Test
     public void testATableRecreatedUnderTheSameNameDoesNotShareTheIdentity() {
         // DROP TABLE db.t and CREATE of another db.t with the same row count: the name, the partitions
         // and the version are the same, so only the id of the table tells the two apart - a pinned entry
