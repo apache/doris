@@ -3529,9 +3529,11 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanModeTest) {
         req.set_start_time(150);
         meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(resp.txn_infos_size(), 2);
+        // Txn 3 has the same backend ID despite its changed address.
+        ASSERT_EQ(resp.txn_infos_size(), 3);
         EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
         EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+        EXPECT_EQ(resp.txn_infos(2).txn_id(), 3);
     }
 
     // Skip malformed running keys on the first, middle and last data pages.
@@ -3565,9 +3567,10 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanModeTest) {
         req.set_start_time(150);
         meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(resp.txn_infos_size(), 2);
+        ASSERT_EQ(resp.txn_infos_size(), 3);
         EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
         EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+        EXPECT_EQ(resp.txn_infos(2).txn_id(), 3);
         EXPECT_EQ(pages, 9 + 3 + 1);
     }
 
