@@ -1117,4 +1117,68 @@ TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
     }
 }
 
+TEST(FunctionJsonbTEST, JsonbModifyMemberPathOnArray) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    // A member leg never addresses an array element, so a missing member under an array is
+    // not inserted; array legs and quoted literal keys still work.
+    DataSet data_set = {
+            {{STRING("[1]"), STRING("$.a"), STRING("2")}, STRING("[1]")},
+            {{STRING("[]"), STRING("$.a"), STRING("2")}, STRING("[]")},
+            {{STRING("[1]"), STRING(R"($."a.b")"), STRING("2")}, STRING("[1]")},
+            {{STRING("[[1]]"), STRING("$[0].a"), STRING("2")}, STRING("[[1]]")},
+            {{STRING(R"({"a":[1]})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":[1]})")},
+            {{STRING("[1]"), STRING("$[1]"), STRING("2")}, STRING("[1,2]")},
+            {{STRING("{}"), STRING(R"($."a.b")"), STRING("2")}, STRING(R"({"a.b":2})")},
+            {{STRING("{}"), STRING(R"($."")"), STRING("2")}, STRING(R"({"":2})")},
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_insert", input_types, data_set));
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, data_set));
+
+    // Quoted "*" and "" name existing literal keys, including as parents of a nested leg.
+    DataSet set_existing = {
+            {{STRING(R"({"*":1,"b":1})"), STRING(R"($."*")"), STRING("2")},
+             STRING(R"({"*":2,"b":1})")},
+            {{STRING(R"({"":1,"b":1})"), STRING(R"($."")"), STRING("2")},
+             STRING(R"({"":2,"b":1})")},
+            {{STRING(R"({"*":{"":1},"b":1})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"*":{"":2},"b":1})")},
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, set_existing));
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, set_existing));
+
+    // jsonb_insert keeps existing literal keys unchanged and only fills a missing nested key.
+    DataSet insert_existing = {
+            {{STRING(R"({"*":1,"b":1})"), STRING(R"($."*")"), STRING("2")},
+             STRING(R"({"*":1,"b":1})")},
+            {{STRING(R"({"":1,"b":1})"), STRING(R"($."")"), STRING("2")},
+             STRING(R"({"":1,"b":1})")},
+            {{STRING(R"({"*":{"":1},"b":1})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"*":{"":1},"b":1})")},
+            {{STRING(R"({"b":1,"*":{}})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"b":1,"*":{"":2}})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_insert", input_types, insert_existing));
+
+    // jsonb_replace leaves a missing literal key alone.
+    DataSet replace_missing = {
+            {{STRING(R"({"b":1})"), STRING(R"($."*")"), STRING("2")}, STRING(R"({"b":1})")},
+            {{STRING(R"({"b":1})"), STRING(R"($."")"), STRING("2")}, STRING(R"({"b":1})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, replace_missing));
+
+    // An unquoted '*' is still a wildcard and is rejected by every modify function.
+    DataSet wildcard = {
+            {{STRING(R"({"*":1,"b":1})"), STRING("$.*"), STRING("2")}, Null()},
+    };
+    for (const auto* func_name : {"jsonb_insert", "jsonb_set", "jsonb_replace"}) {
+        static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, wildcard, -1,
+                                                              -1, true));
+    }
+}
+
 } // namespace doris
