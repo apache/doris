@@ -273,9 +273,12 @@ public class HboStructFreshness {
             }
             long currentVersion = visibleVersionOf(table);
             // the rows of the whole table, computed the same way the recorded rows of a whole table
-            // scan were computed, so the two numbers describe the same thing
+            // scan were computed, so the two numbers describe the same thing - and read from the index
+            // the entry read: a whole table query which the optimizer bound to an aggregate rollup
+            // recorded that rollup's rows, and comparing them with the base index would report an
+            // unchanged entry as stale (DELETE STALE would remove an entry a query can still apply)
             HboScanDescriptor.Rows liveRowsOfTable = HboScanDescriptor.rowsOf(table,
-                    new ArrayList<>(table.getPartitionIds()), table.getBaseIndexId());
+                    new ArrayList<>(table.getPartitionIds()), indexIdOf(recorded, table));
             long currentRows = liveRowsOfTable.getRows();
             HboScanDescriptor.RowsKind currentRowsKind = liveRowsOfTable.getKind();
             liveTexts.add(recorded.getTable() + ":v" + currentVersion
@@ -339,9 +342,27 @@ public class HboStructFreshness {
     }
 
     /**
+     * The index a recorded scan of a whole table read: the one its token names, or the base index of the
+     * table when the token names none. A scan which reads a rollup records that index in its token, so
+     * the rows of the entry are compared with the rows of the index it was measured on. An index id
+     * which cannot be read (a struct info a user pasted with a hand written marker) leaves the catalog
+     * verdict unknown instead of failing the statement.
+     */
+    static long indexIdOf(HboScanDescriptor recorded, OlapTable table) {
+        if (recorded.getIndexIdentity().isEmpty()) {
+            return table.getBaseIndexId();
+        }
+        try {
+            return Long.parseLong(recorded.getIndexIdentity());
+        } catch (NumberFormatException e) {
+            return HboScanDescriptor.UNKNOWN;
+        }
+    }
+
+    /**
      * Judge a learned (profile collected) entry: the rows its input tables had when it was measured
-     * against the rows of the scans of the current query. The caller must only use this for an entry
-     * of a node whose recorded rows are the rows of the data it reads (a scan node: see
+     * against the rows of the scans of the current query. The publish path records one scan statistics
+     * per scan which feeds the published node, so this holds for an entry of any kind of node (see
      * {@code HboStatsCalculator.applyLearnedStats}). The input tables are aggregated by table name, because
      * a learned entry describes the scans of the node it was published for in plan order while the
      * struct info orders them canonically.

@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -344,5 +347,41 @@ public class HboStructFreshnessTest {
                 ImmutableList.of(HboScanDescriptor.parse("internal.db.t,v3,r1000")));
         Assertions.assertFalse(freshness.isStale(),
                 "an entry which records no measurement must not be reported stale: " + freshness.getSummary());
+    }
+
+    @Test
+    void testTheCatalogVerdictComparesTheIndexTheEntryRead() {
+        // a whole table query which the optimizer bound to an aggregate rollup records the rows of that
+        // rollup in its token; the catalog verdict has to read the rows of the same index, otherwise an
+        // unchanged rollup (10 rows) over a grown base index (100000 rows) is reported stale and DELETE
+        // STALE removes an entry a query can still apply
+        long baseIndexId = 10;
+        long rollupIndexId = 20;
+        long partitionId = 100;
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
+        Mockito.when(table.getPartitionIds()).thenReturn(ImmutableList.of(partitionId));
+        Mockito.when(table.getPartitionNum()).thenReturn(1);
+        Mockito.when(table.getRowCountForPartitionIndex(partitionId, baseIndexId, true)).thenReturn(100000L);
+        Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(100000L);
+        Mockito.when(table.getRowCountForPartitionIndex(partitionId, rollupIndexId, true)).thenReturn(10L);
+        Mockito.when(table.getRowCountForIndex(rollupIndexId, true)).thenReturn(10L);
+
+        HboScanDescriptor recorded = HboScanDescriptor.parse("internal.db.t#ix:20,v3,r10");
+        Assertions.assertEquals(rollupIndexId, HboStructFreshness.indexIdOf(recorded, table));
+        HboScanDescriptor.Rows live = HboScanDescriptor.rowsOf(table,
+                new ArrayList<>(table.getPartitionIds()),
+                HboStructFreshness.indexIdOf(recorded, table));
+        Assertions.assertEquals(10, live.getRows(), "the rollup's rows are compared with the rollup's rows");
+        Assertions.assertEquals(HboScanDescriptor.RowsKind.MEASURED, live.getKind());
+
+        // an entry which names no index read the base index: the rows of the base index are compared
+        HboScanDescriptor base = HboScanDescriptor.parse("internal.db.t,v3,r100000");
+        Assertions.assertEquals(baseIndexId, HboStructFreshness.indexIdOf(base, table));
+
+        // a hand written marker which is not an index id leaves the verdict unknown rather than failing
+        // the statement which reads it
+        Assertions.assertEquals(HboScanDescriptor.UNKNOWN, HboStructFreshness.indexIdOf(
+                HboScanDescriptor.parse("internal.db.t#ix:notAnIndex,v3,r10"), table));
     }
 }
