@@ -2,11 +2,11 @@
 -- !1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalIntersect build RFs:RF0 a1->b1 RF1 a1->b1 RF2 a1->c1 RF3 a1->c1 
+----PhysicalIntersect build RFs:RF0 b1->a1 RF1 b1->a1 RF2 b1->c1 RF3 b1->c1 
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[a]
+--------PhysicalOlapScan[b]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[b] apply RFs: RF0 RF1
+--------PhysicalOlapScan[a] apply RFs: RF0 RF1
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[c] apply RFs: RF2 RF3
 
