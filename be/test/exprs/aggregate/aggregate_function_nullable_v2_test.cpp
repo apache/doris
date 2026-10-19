@@ -186,55 +186,57 @@ public:
     mutable size_t max_arena_used = 0;
 };
 
-TEST(NullableAggregationV2Test, StreamingStatesAreAlignedAndTemporaryPayloadsAreRowLocal) {
+void check_streaming_arena_mode(int mode) {
     constexpr size_t rows = 64;
     constexpr size_t width = 8192;
+    auto values = ColumnString::create();
+    for (size_t row = 0; row < rows; ++row) {
+        values->insert_value(std::string(width, static_cast<char>('a' + row % 26)));
+    }
+    auto* probe = new StreamingArenaProbe;
+    AggregateFunctionPtr function;
+    ColumnPtr values_column = std::move(values);
+    ColumnPtr input = values_column;
+    if (mode == 0) {
+        function.reset(probe);
+    } else {
+        auto nulls = ColumnUInt8::create(rows, 0);
+        for (size_t row = 0; row < rows; ++row) {
+            nulls->get_data()[row] = mode == 2 && row % 3 == 0;
+        }
+        input = ColumnNullable::create(values_column, std::move(nulls));
+        function = std::make_shared<AggregateFunctionNullUnaryInlineV2<StreamingArenaProbe, true>>(
+                probe, DataTypes {make_nullable(std::make_shared<DataTypeString>())}, false);
+    }
+    Arena caller_arena;
+    const IColumn* columns[] = {input.get()};
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, rows, caller_arena);
+    EXPECT_EQ(caller_arena.used_size(), 0);
+    EXPECT_LE(probe->max_arena_used, width);
+    EXPECT_EQ(probe->creates, mode == 2 ? 42 : rows);
+    EXPECT_EQ(probe->destroys, probe->creates);
+    const IColumn* payload = serialized.get();
+    if (mode != 0) {
+        payload = &assert_cast<const ColumnNullable&>(*serialized).get_nested_column();
+    }
+    for (size_t row = 0; row < rows; ++row) {
+        if (mode == 2 && row % 3 == 0) {
+            EXPECT_TRUE(serialized->is_null_at(row));
+            continue;
+        }
+        // Read after the temporary arenas were destroyed: serialized rows own the bytes.
+        VectorBufferReader reader(assert_cast<const ColumnString&>(*payload).get_data_at(row));
+        StringRef decoded;
+        reader.read_binary(decoded);
+        EXPECT_EQ(decoded, values_column->get_data_at(row));
+    }
+}
+
+TEST(NullableAggregationV2Test, StreamingStatesAreAlignedAndTemporaryPayloadsAreRowLocal) {
     // Bare generic, nullable/no NULL, and nullable/sparse NULL take different streaming paths.
     for (int mode : {0, 1, 2}) {
-        auto values = ColumnString::create();
-        for (size_t row = 0; row < rows; ++row) {
-            values->insert_value(std::string(width, static_cast<char>('a' + row % 26)));
-        }
-        auto* probe = new StreamingArenaProbe;
-        AggregateFunctionPtr function;
-        ColumnPtr values_column = std::move(values);
-        ColumnPtr input = values_column;
-        if (mode == 0) {
-            function.reset(probe);
-        } else {
-            auto nulls = ColumnUInt8::create(rows, 0);
-            for (size_t row = 0; row < rows; ++row) {
-                nulls->get_data()[row] = mode == 2 && row % 3 == 0;
-            }
-            input = ColumnNullable::create(values_column, std::move(nulls));
-            function =
-                    std::make_shared<AggregateFunctionNullUnaryInlineV2<StreamingArenaProbe, true>>(
-                            probe, DataTypes {make_nullable(std::make_shared<DataTypeString>())},
-                            false);
-        }
-        Arena caller_arena;
-        const IColumn* columns[] = {input.get()};
-        auto serialized = function->create_serialize_column();
-        function->streaming_agg_serialize_to_column(columns, serialized, rows, caller_arena);
-        EXPECT_EQ(caller_arena.used_size(), 0);
-        EXPECT_LE(probe->max_arena_used, width);
-        EXPECT_EQ(probe->creates, mode == 2 ? 42 : rows);
-        EXPECT_EQ(probe->destroys, probe->creates);
-        const IColumn* payload = serialized.get();
-        if (mode != 0) {
-            payload = &assert_cast<const ColumnNullable&>(*serialized).get_nested_column();
-        }
-        for (size_t row = 0; row < rows; ++row) {
-            if (mode == 2 && row % 3 == 0) {
-                EXPECT_TRUE(serialized->is_null_at(row));
-                continue;
-            }
-            // Read after the temporary arenas were destroyed: serialized rows own the bytes.
-            VectorBufferReader reader(assert_cast<const ColumnString&>(*payload).get_data_at(row));
-            StringRef decoded;
-            reader.read_binary(decoded);
-            EXPECT_EQ(decoded, values_column->get_data_at(row));
-        }
+        check_streaming_arena_mode(mode);
     }
 }
 
@@ -333,45 +335,48 @@ TEST(NullableAggregationV2Test, VariadicNullableArgumentsAtEveryPosition) {
     }
 }
 
-TEST(NullableAggregationV2Test, LegacyWireCodecKeepsIncrementalWindowExecution) {
+void check_legacy_incremental_window(const char* name) {
     auto type = make_nullable(std::make_shared<DataTypeInt64>());
     auto input = nullable_ints({0, 0, 3, 5}, {1, 1, 0, 0});
     const IColumn* columns[] = {input.get()};
-    for (const auto* name : {"sum", "avg"}) {
-        AggregateFunctionAttr attr;
-        attr.is_window_function = true;
-        auto function = AggregateFunctionSimpleFactory::instance().get(name, {type}, nullptr, true,
-                                                                       19, attr);
-        auto codec = make_nullable_wire_compatible_function(function, 19, false);
-        EXPECT_TRUE(codec->supported_incremental_mode());
-        EXPECT_EQ(codec->result_column_could_resize(), function->result_column_could_resize());
-        EXPECT_TRUE(codec->needs_deserialize_and_merge_scratch());
-        AggregateFunctionGuard state(codec.get());
-        Arena arena;
-        auto result = codec->get_return_type()->create_column();
-        UInt8 use_null_result = 0;
-        UInt8 could_use_previous = 0;
-        for (int64_t row = 0; row < 4; ++row) {
-            codec->execute_function_with_incremental(
-                    0, 4, std::max<int64_t>(0, row - 1), row + 1, state.data(), columns, arena,
-                    row >= 2 && input->is_null_at(row - 2), input->is_null_at(row), true,
-                    &use_null_result, &could_use_previous);
-            codec->insert_result_into(state.data(), *result);
-            could_use_previous = 1;
-        }
-        EXPECT_TRUE(result->is_null_at(0));
-        EXPECT_TRUE(result->is_null_at(1));
-        const auto& nested = assert_cast<const ColumnNullable&>(*result).get_nested_column();
-        if (std::string_view(name) == "sum") {
-            const auto& values = assert_cast<const ColumnInt64&>(nested).get_data();
-            EXPECT_EQ(values[2], 3);
-            EXPECT_EQ(values[3], 8);
-        } else {
-            const auto& values = assert_cast<const ColumnFloat64&>(nested).get_data();
-            EXPECT_DOUBLE_EQ(values[2], 3);
-            EXPECT_DOUBLE_EQ(values[3], 4);
-        }
+    AggregateFunctionAttr attr;
+    attr.is_window_function = true;
+    auto function =
+            AggregateFunctionSimpleFactory::instance().get(name, {type}, nullptr, true, 19, attr);
+    auto codec = make_nullable_wire_compatible_function(function, 19, false);
+    EXPECT_TRUE(codec->supported_incremental_mode());
+    EXPECT_EQ(codec->result_column_could_resize(), function->result_column_could_resize());
+    EXPECT_TRUE(codec->needs_deserialize_and_merge_scratch());
+    AggregateFunctionGuard state(codec.get());
+    Arena arena;
+    auto result = codec->get_return_type()->create_column();
+    UInt8 use_null_result = 0;
+    UInt8 could_use_previous = 0;
+    for (int64_t row = 0; row < 4; ++row) {
+        codec->execute_function_with_incremental(
+                0, 4, std::max<int64_t>(0, row - 1), row + 1, state.data(), columns, arena,
+                row >= 2 && input->is_null_at(row - 2), input->is_null_at(row), true,
+                &use_null_result, &could_use_previous);
+        codec->insert_result_into(state.data(), *result);
+        could_use_previous = 1;
     }
+    EXPECT_TRUE(result->is_null_at(0));
+    EXPECT_TRUE(result->is_null_at(1));
+    const auto& nested = assert_cast<const ColumnNullable&>(*result).get_nested_column();
+    if (std::string_view(name) == "sum") {
+        const auto& values = assert_cast<const ColumnInt64&>(nested).get_data();
+        EXPECT_EQ(values[2], 3);
+        EXPECT_EQ(values[3], 8);
+    } else {
+        const auto& values = assert_cast<const ColumnFloat64&>(nested).get_data();
+        EXPECT_DOUBLE_EQ(values[2], 3);
+        EXPECT_DOUBLE_EQ(values[3], 4);
+    }
+}
+
+TEST(NullableAggregationV2Test, LegacyWireCodecKeepsIncrementalWindowExecution) {
+    check_legacy_incremental_window("sum");
+    check_legacy_incremental_window("avg");
 }
 
 TEST(NullableAggregationV2Test, WideStringReadersSkipNullPartialsBeforeDecoding) {
