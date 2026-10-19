@@ -195,9 +195,12 @@ final class IcebergPartitionUtils {
 
     /**
      * The serialized value for <b>every</b> partition field (identity + transform), in spec order, used for
-     * {@code partition_data_json}. Mirrors legacy {@code IcebergUtils.getPartitionValues}. A field whose
-     * value cannot be serialized (BINARY/FIXED) yields a {@code null} entry (not dropped) to keep positional
-     * alignment with the spec.
+     * {@code partition_data_json}. Mirrors legacy {@code IcebergUtils.getPartitionValues}. A non-null value whose
+     * type cannot be serialized (a historical field whose source column was dropped) throws
+     * {@link UnsupportedOperationException}: these values also identify the partition of the delete files
+     * BE writes for DML, so an unsupported value must never become a {@code null} entry. A null needs no type,
+     * so the void field a v1 table keeps for a removed partition field stays {@code null} after its source
+     * column is dropped.
      */
     static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec, ZoneId zone) {
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -206,15 +209,8 @@ final class IcebergPartitionUtils {
 
         List<String> partitionValues = new ArrayList<>(fields.size());
         for (int i = 0; i < fields.size(); i++) {
-            NestedField field = fields.get(i);
             Object value = partitionData.get(i);
-            try {
-                partitionValues.add(serializePartitionValue(field.type(), value, zone));
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
-                        e.getMessage());
-                partitionValues.add(null);
-            }
+            partitionValues.add(value == null ? null : serializePartitionValue(fields.get(i).type(), value, zone));
         }
         return partitionValues;
     }
@@ -225,9 +221,32 @@ final class IcebergPartitionUtils {
      * content is identical.
      */
     static String getPartitionDataJson(PartitionData partitionData, PartitionSpec partitionSpec, ZoneId zone) {
-        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, zone);
+        return toJsonArray(getPartitionValues(partitionData, partitionSpec, zone));
+    }
+
+    /**
+     * Identifies a partition tuple {@link #getPartitionValues} cannot serialize, for the scanned-partition count
+     * only: a JSON array of the raw values in spec order (binary as hex), so each distinct tuple counts once, as
+     * legacy {@code IcebergScanNode} keyed the count by the {@link PartitionData} itself.
+     */
+    static String getRawPartitionKey(PartitionData partitionData) {
+        List<String> values = new ArrayList<>(partitionData.size());
+        for (int i = 0; i < partitionData.size(); i++) {
+            Object value = partitionData.get(i);
+            if (value == null) {
+                values.add(null);
+            } else if (value instanceof java.nio.ByteBuffer) {
+                values.add(binaryHex((java.nio.ByteBuffer) value));
+            } else {
+                values.add(value.toString());
+            }
+        }
+        return toJsonArray(values);
+    }
+
+    private static String toJsonArray(List<String> values) {
         try {
-            return JsonUtil.mapper().writeValueAsString(partitionValues);
+            return JsonUtil.mapper().writeValueAsString(values);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize iceberg partition data to JSON, error message is:"
                     + e.getMessage(), e);
@@ -382,10 +401,7 @@ final class IcebergPartitionUtils {
                 if (value == null) {
                     return null;
                 }
-                java.nio.ByteBuffer bytes = ((java.nio.ByteBuffer) value).duplicate();
-                byte[] copy = new byte[bytes.remaining()];
-                bytes.get(copy);
-                return "0x" + java.util.HexFormat.of().formatHex(copy);
+                return binaryHex((java.nio.ByteBuffer) value);
             case DATE:
                 if (value == null) {
                     return null;
@@ -428,6 +444,13 @@ final class IcebergPartitionUtils {
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }
+    }
+
+    private static String binaryHex(java.nio.ByteBuffer value) {
+        java.nio.ByteBuffer bytes = value.duplicate();
+        byte[] copy = new byte[bytes.remaining()];
+        bytes.get(copy);
+        return "0x" + java.util.HexFormat.of().formatHex(copy);
     }
 
     // Canonical partition-timestamp format ("yyyy-MM-dd HH:mm:ss" with an optional micro/nano fraction),
@@ -491,6 +514,9 @@ final class IcebergPartitionUtils {
                 case DATE:
                     // Iceberg date is days since epoch (1970-01-01).
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIME:
+                    // Iceberg time is microseconds since midnight, the inverse of serializePartitionValue.
+                    return LocalTime.parse(valueStr, DateTimeFormatter.ISO_LOCAL_TIME).toNanoOfDay() / 1000;
                 case TIMESTAMP_NANO:
                     // Match the sink cast: a date-only static partition denotes midnight.
                     if (valueStr.length() == 10) {
