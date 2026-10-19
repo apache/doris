@@ -595,7 +595,7 @@ Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) 
 // if the kafka brokers and topic are same,
 // we considered this consumer as matched, thus can be reused.
 bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
-    if (ctx->load_src_type != TLoadSourceType::KAFKA) {
+    if (ctx->load_src_type != TLoadSourceType::KAFKA || ctx->kafka_info->use_share_consumer) {
         return false;
     }
     if (_brokers != ctx->kafka_info->brokers || _topic != ctx->kafka_info->topic) {

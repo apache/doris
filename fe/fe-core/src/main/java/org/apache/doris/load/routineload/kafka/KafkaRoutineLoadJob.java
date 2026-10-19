@@ -133,6 +133,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // Will be updated periodically by calling updateKafkaPartitions();
     private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
 
+    @SerializedName(value = "useShareConsumer")
+    private boolean useShareConsumer;
+
+    public boolean isUseShareConsumer() {
+        return useShareConsumer;
+    }
+
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
         super(-1, LoadDataSourceType.KAFKA);
@@ -314,7 +321,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public int calculateCurrentConcurrentTaskNum() {
-        int partitionNum = currentKafkaPartitions.size();
+        int partitionNum = useShareConsumer ? Integer.MAX_VALUE : currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
@@ -371,7 +378,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
-        updateProgressAndOffsetsCache(attachment);
+        if (!useShareConsumer) {
+            updateProgressAndOffsetsCache(attachment);
+        }
         super.updateProgress(attachment);
         updateReadCommittedLagHint(attachment);
     }
@@ -430,6 +439,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void unprotectUpdateProgress() throws UserException {
+        if (useShareConsumer) {
+            return;
+        }
         // For cloud mode, should update cloud progress from meta service,
         // then update progress with default offset from Kafka if necessary.
         if (Config.isCloudMode()) {
@@ -440,6 +452,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected boolean refreshKafkaPartitions(boolean needAutoResume) throws UserException {
+        if (useShareConsumer) {
+            return true;
+        }
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE || needAutoResume) {
@@ -478,6 +493,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // current kafka partitions = customKafkaPartitions == 0 ? all partition of kafka topic : customKafkaPartitions
     @Override
     protected boolean unprotectNeedReschedule() throws UserException {
+        if (useShareConsumer) {
+            return false;
+        }
         // only running and need_schedule job need to be changed current kafka partitions
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
             return isKafkaPartitionsChanged();
@@ -680,6 +698,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super.setOptional(info);
         KafkaDataSourceProperties kafkaDataSourceProperties
                 = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        useShareConsumer = kafkaDataSourceProperties.isUseShareConsumer();
+        if (useShareConsumer && Config.isCloudMode()) {
+            throw new DdlException("Share consumption is experimental and does not support cloud mode");
+        }
         if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
             setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
         }
@@ -725,6 +747,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
+        dataSourceProperties.put("consumerMode", useShareConsumer ? "share" : "classic");
         List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
         Collections.sort(sortedPartitions);
         dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
@@ -767,6 +790,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
+        dataSourceProperties.put(KafkaDataSourceProperties.KAFKA_CONSUMER_MODE,
+                useShareConsumer ? "share" : "classic");
         return dataSourceProperties;
     }
 
@@ -779,6 +804,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        if (useShareConsumer && dataSourceProperties != null
+                && MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+            throw new DdlException("Share consumer source properties cannot be altered; create a new job");
+        }
         if (null != dataSourceProperties) {
             // if the partition offset is set by timestamp, convert it to real offset
             convertOffset(dataSourceProperties);
@@ -948,6 +977,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
     public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
+        if (useShareConsumer) {
+            return true;
+        }
         boolean needUpdateCache = false;
         // it is need check all partitions, for some partitions offset may be out of time
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
@@ -1061,6 +1093,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public String getLag() {
+        if (useShareConsumer) {
+            return "N/A (share acknowledgements)";
+        }
         Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
         Gson gson = new Gson();
         return gson.toJson(partitionIdToOffsetLag);

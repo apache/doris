@@ -33,6 +33,7 @@
 #include "common/status.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/routine_load/data_consumer_group.h"
+#include "load/routine_load/kafka_share_consumer.h"
 #include "load/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 
@@ -61,7 +62,11 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
     std::shared_ptr<DataConsumer> consumer;
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA:
-        consumer = std::make_shared<KafkaDataConsumer>(ctx);
+        if (ctx->kafka_info->use_share_consumer) {
+            consumer = std::make_shared<KafkaShareConsumer>();
+        } else {
+            consumer = std::make_shared<KafkaDataConsumer>(ctx);
+        }
         break;
     case TLoadSourceType::KINESIS:
         consumer = std::make_shared<KinesisDataConsumer>(ctx);
