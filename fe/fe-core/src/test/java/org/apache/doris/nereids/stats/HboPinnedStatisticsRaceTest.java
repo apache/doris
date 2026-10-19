@@ -60,4 +60,26 @@ public class HboPinnedStatisticsRaceTest {
             Config.hbo_persist_pinned_to_internal_db = persist;
         }
     }
+
+    @Test
+    public void testAReplayedRemovalOnlyCoversTheRowItJudged() {
+        // the removal judged the row which was created at 1000; a row another FE sets afterwards
+        // carries a newer creation time, and replaying the failed removal must neither suppress it on
+        // load nor delete it from the table: that FE acknowledged the write
+        PinnedHboStatistics judged = entry(1000);
+        Assertions.assertTrue(HboPlanStatisticsManager.tombstoneCovers(judged.getCreateTime(), entry(1000)),
+                "the very row the removal judged must be suppressed");
+        Assertions.assertFalse(
+                HboPlanStatisticsManager.tombstoneCovers(judged.getCreateTime(), entry(2000)),
+                "a row which was set again after the removal must survive the replayed removal");
+        // a removal which did not find the entry in memory records the time it ran: a row which is
+        // older than that is the one it intended to delete, a newer row is a later write
+        Assertions.assertTrue(HboPlanStatisticsManager.tombstoneCovers(3000, entry(2000)));
+        Assertions.assertFalse(HboPlanStatisticsManager.tombstoneCovers(1500, entry(2000)));
+    }
+
+    private static PinnedHboStatistics entry(long createTime) {
+        return new PinnedHboStatistics("fp", 10, PinnedType.EXACT, STRUCT, 0,
+                HboPlanStatisticsManager.LiteralMode.NO_LITERAL, createTime);
+    }
 }
