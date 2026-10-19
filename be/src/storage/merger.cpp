@@ -99,12 +99,7 @@ Status set_key_range(TabletReader::ReaderParams* reader_params, const TabletSche
     return Status::OK();
 }
 
-// Compaction reorders and filters rows, so COMPACTION_ROWID_COL carries the original
-// (rowset_id, segment_id, row_id) alongside each surviving row through filtering and merge.
-// For example, source (rs1, 3, 7) may become output (rs2, 0, 2). Extract the source locations
-// so row-id conversion can map them to the new output positions for delete-bitmap conversion
-// and inverted-index compaction. Remove this synthetic column before writing the data;
-// it is never persisted in the output segment.
+// Extract row locations from the rowid column and remove it from the output block.
 Block prepare_compaction_output_block(const Block& block, int32_t rowid_ordinal,
                                       std::vector<RowLocation>* row_locations) {
     DORIS_CHECK_GE(rowid_ordinal, 0);

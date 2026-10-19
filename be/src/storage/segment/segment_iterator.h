@@ -437,8 +437,9 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // Selected positions within the current batch after predicate and expression evaluation.
+    // Number of selected rows in the current batch.
     uint16_t _selected_size;
+    // Positions of selected rows within the current batch.
     std::vector<uint16_t> _sel_rowid_idx;
 
     // Rows already produced by this iterator. Used together with
