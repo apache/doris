@@ -691,7 +691,8 @@ static void open_expr(const VExprSPtr& expr, VExprContext* context) {
     RuntimeState state;
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static void open_expr_with_batch_size(const VExprSPtr& expr, VExprContext* context,
@@ -702,7 +703,8 @@ static void open_expr_with_batch_size(const VExprSPtr& expr, VExprContext* conte
     state.set_query_options(query_options);
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static void open_expr_with_block_budget(const VExprSPtr& expr, VExprContext* context,
@@ -714,7 +716,8 @@ static void open_expr_with_block_budget(const VExprSPtr& expr, VExprContext* con
     state.set_query_options(query_options);
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static const ColumnInt32& get_int_array_values(const ColumnPtr& result) {
@@ -868,12 +871,18 @@ TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRo
     FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
                                  false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -906,12 +915,18 @@ TEST(ArrayEnumerateUniqFunctionTest, EqualHiddenOffsetsReuseInputOffsets) {
     FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
                                  false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     auto status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -951,8 +966,11 @@ TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
 
     FunctionUtils function_utils(result_type, {nullable_array_int_type, array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
 
     auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
@@ -964,8 +982,11 @@ TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t execution_peak = tracker->peak_consumption() - baseline;
 
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("must be equal"), std::string::npos) << status;
     EXPECT_LT(execution_peak, max_execution_bytes);
@@ -1003,12 +1024,18 @@ TEST(ArraySortByFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffset
     FunctionUtils function_utils(nullable_array_int_type,
                                  {nullable_array_int_type, nullable_array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, nullable_array_int_type, "result"});
     status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -1049,16 +1076,22 @@ TEST(ArrayEnumerateUniqFunctionTest, AllNullLaterArgumentSkipsEarlierConstantExp
 
     FunctionUtils function_utils(result_type, {array_int_type, nullable_array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t baseline = tracker->consumption();
     auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t execution_peak = tracker->peak_consumption() - baseline;
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(block.get_by_position(2).column->only_null());

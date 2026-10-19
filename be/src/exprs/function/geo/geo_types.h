@@ -109,7 +109,7 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
 
-    GeoShapeType type() const override { return GEO_SHAPE_POINT; }
+    GeoShapeType type() const override { return GeoShapeType::GEO_SHAPE_POINT; }
 
     const S2Point* point() const { return _point.get(); }
 
@@ -158,7 +158,7 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
 
-    GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
+    GeoShapeType type() const override { return GeoShapeType::GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
     std::string GeometryType() const override { return "ST_LINESTRING"; }
@@ -193,7 +193,7 @@ public:
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
     std::unique_ptr<GeoCoordinateListList> to_coords() const;
 
-    GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
+    GeoShapeType type() const override { return GeoShapeType::GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
 
     bool intersects(const GeoShape* rhs) const override;
@@ -234,7 +234,7 @@ public:
     GeoParseStatus from_coords(const std::vector<GeoCoordinateListList>& list);
     std::vector<std::unique_ptr<GeoCoordinateListList>> to_coords() const;
 
-    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
+    GeoShapeType type() const override { return GeoShapeType::GEO_SHAPE_MULTI_POLYGON; }
     const std::vector<std::unique_ptr<GeoPolygon>>& polygons() const { return _polygons; }
 
     bool intersects(const GeoShape* rhs) const override;
@@ -268,7 +268,7 @@ public:
 
     GeoParseStatus init(double lng, double lat, double radius);
 
-    GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
+    GeoShapeType type() const override { return GeoShapeType::GEO_SHAPE_CIRCLE; }
 
     const S2Cap* circle() const { return _cap.get(); }
 

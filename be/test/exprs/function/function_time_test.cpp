@@ -2024,8 +2024,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
 
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
         block.insert({nullptr, return_type, "result"});
         ColumnNumbers args;
@@ -2040,8 +2040,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }
 
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     }
 
     // Test curtime with precision
@@ -2067,8 +2067,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
 
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
         block.insert({nullptr, return_type, "result"});
         ColumnNumbers args = {0};
@@ -2083,8 +2083,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }
 
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     }
 }
 

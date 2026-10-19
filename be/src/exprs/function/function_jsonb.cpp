@@ -140,12 +140,13 @@ public:
         if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
             std::shared_ptr<FunctionJsonbParseState> state =
                     std::make_shared<FunctionJsonbParseState>();
-            context->set_function_state(FunctionContext::FRAGMENT_LOCAL, state);
+            context->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL, state);
         }
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-                auto* state = reinterpret_cast<FunctionJsonbParseState*>(
-                        context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                auto* state =
+                        reinterpret_cast<FunctionJsonbParseState*>(context->get_function_state(
+                                FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
                 if (state) {
                     if (context->get_num_args() == 2) {
                         if (context->is_col_constant(1)) {
@@ -232,8 +233,8 @@ public:
         const ColumnString* default_value_str_col = nullptr;
         const NullMap* default_value_nullmap = nullptr;
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
-            auto* state = reinterpret_cast<FunctionJsonbParseState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            auto* state = reinterpret_cast<FunctionJsonbParseState*>(context->get_function_state(
+                    FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
             if (state && state->has_const_default_value) {
                 constant_default_value = state->default_value;
                 default_value_null_const = state->default_is_null;
@@ -2436,7 +2437,7 @@ private:
         LikeState* state = nullptr;
         if (search_is_const) {
             state = reinterpret_cast<LikeState*>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+                    context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         }
 
         bool is_one = false;
@@ -2528,7 +2529,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         if (context->is_col_constant(2)) {

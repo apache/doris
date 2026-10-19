@@ -90,7 +90,7 @@ static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTyp
 
     GeoParseStatus status;
     auto shape = GeoShape::from_wkb_bytes(value.data, value.size, status);
-    return status == GEO_PARSE_OK ? std::move(shape) : nullptr;
+    return status == GeoParseStatus::GEO_PARSE_OK ? std::move(shape) : nullptr;
 }
 
 static bool any_geo_argument_is_null(const Block& block, const ColumnNumbers& arguments,
@@ -108,7 +108,7 @@ static Status decode_calculation_shape(StringRef value, const DataTypePtr& type,
     // Reject it for typed calculations just like empty points/lines, leaving raw WKB untouched.
     if (is_spatial_type(type) &&
         (*shape == nullptr ||
-         ((*shape)->type() == GEO_SHAPE_POLYGON &&
+         ((*shape)->type() == GeoShapeType::GEO_SHAPE_POLYGON &&
           assert_cast<const GeoPolygon&>(**shape).polygon()->num_loops() == 0))) {
         return Status::NotSupported("Function {} does not support this Geography WKB shape",
                                     function_name);
@@ -133,7 +133,7 @@ static S2Point canonical_geography_point(const S2Point& point) {
 
 static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* index) {
     switch (shape.type()) {
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const auto* line = assert_cast<const GeoLine&>(shape).polyline();
         std::vector<S2Point> vertices;
         for (int i = 0; i < line->num_vertices(); ++i) {
@@ -142,7 +142,7 @@ static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* in
         index->Add(std::make_unique<S2LaxPolylineShape>(vertices));
         break;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const auto* polygon = assert_cast<const GeoPolygon&>(shape).polygon();
         std::vector<S2LaxPolygonShape::Loop> loops;
         for (int i = 0; i < polygon->num_loops(); ++i) {
@@ -163,15 +163,15 @@ static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* in
 
 static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
                                      const GeoShape& rhs) {
-    const auto& point_shape = lhs.type() == GEO_SHAPE_POINT ? lhs : rhs;
-    const auto& other = lhs.type() == GEO_SHAPE_POINT ? rhs : lhs;
+    const auto& point_shape = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? lhs : rhs;
+    const auto& other = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? rhs : lhs;
     const auto point =
             canonical_geography_point(*assert_cast<const GeoPoint&>(point_shape).point());
     bool interior = false;
     bool boundary = false;
-    if (other.type() == GEO_SHAPE_POINT) {
+    if (other.type() == GeoShapeType::GEO_SHAPE_POINT) {
         interior = point == canonical_geography_point(*assert_cast<const GeoPoint&>(other).point());
-    } else if (other.type() == GEO_SHAPE_LINE_STRING) {
+    } else if (other.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
         const auto* line = assert_cast<const GeoLine&>(other).polyline();
         bool member = false;
         // S2 Boolean operations symbolically move points off edge interiors. Use its
@@ -187,7 +187,7 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
         boundary = first != last && (point == first || point == last);
         interior = member && !boundary;
     } else {
-        DCHECK_EQ(other.type(), GEO_SHAPE_POLYGON);
+        DCHECK(other.type() == GeoShapeType::GEO_SHAPE_POLYGON);
         const auto* polygon = assert_cast<const GeoPolygon&>(other).polygon();
         // Polygon rings have closing edges; open polylines above do not.
         for (int i = 0; i < polygon->num_loops(); ++i) {
@@ -219,11 +219,14 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     const auto& value = name == "st_within" ? lhs : rhs;
     // Legacy base contains() returns false even for p within itself. Complex containment
     // and touches pairs need interior/boundary semantics that are not implemented here.
-    if (((name == "st_contains" || name == "st_within") && value.type() != GEO_SHAPE_POINT) ||
-        (name == "st_touches" && lhs.type() != GEO_SHAPE_POINT && rhs.type() != GEO_SHAPE_POINT)) {
+    if (((name == "st_contains" || name == "st_within") &&
+         value.type() != GeoShapeType::GEO_SHAPE_POINT) ||
+        (name == "st_touches" && lhs.type() != GeoShapeType::GEO_SHAPE_POINT &&
+         rhs.type() != GeoShapeType::GEO_SHAPE_POINT)) {
         return Status::NotSupported("Function {} does not support this Geography shape pair", name);
     }
-    if (lhs.type() == GEO_SHAPE_POINT || rhs.type() == GEO_SHAPE_POINT) {
+    if (lhs.type() == GeoShapeType::GEO_SHAPE_POINT ||
+        rhs.type() == GeoShapeType::GEO_SHAPE_POINT) {
         *result = geography_point_relation(name, lhs, rhs);
         return Status::OK();
     }
@@ -245,7 +248,7 @@ static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
     double longitude;
     double latitude;
     const auto status = WkbParse::point_coordinates(wkb.data, wkb.size, &longitude, &latitude);
-    DCHECK_EQ(status, GEO_PARSE_OK);
+    DCHECK_EQ(status, GeoParseStatus::GEO_PARSE_OK);
     // Use original coordinates: reconstructing a shared longitude from two S2 vectors
     // can turn due north into a tiny negative bearing that wraps to almost 2*pi.
     if (std::abs(latitude) == 90) {
@@ -357,7 +360,7 @@ struct StPoint {
         std::string buf;
         for (size_t row = 0; row < size; ++row) {
             auto cur_res = point.from_coord(x_col.value_at(row), y_col.value_at(row));
-            if (cur_res != GEO_PARSE_OK) {
+            if (cur_res != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -404,7 +407,7 @@ struct StAsText {
             if (is_spatial_type(input_type)) {
                 std::string wkt;
                 if (WkbParse::wkb_to_wkt(shape_value.data, shape_value.size, &wkt) ==
-                    GEO_PARSE_OK) {
+                    GeoParseStatus::GEO_PARSE_OK) {
                     res->insert_data(wkt.data(), wkt.size());
                     continue;
                 }
@@ -452,7 +455,7 @@ struct StX {
                 double x;
                 double y;
                 if (WkbParse::point_coordinates(point_value.data, point_value.size, &x, &y) ==
-                    GEO_PARSE_OK) {
+                    GeoParseStatus::GEO_PARSE_OK) {
                     res->insert_value(x);
                     continue;
                 }
@@ -501,7 +504,7 @@ struct StY {
                 double x;
                 double y;
                 if (WkbParse::point_coordinates(point_value.data, point_value.size, &x, &y) ==
-                    GEO_PARSE_OK) {
+                    GeoParseStatus::GEO_PARSE_OK) {
                     res->insert_value(y);
                     continue;
                 }
@@ -862,7 +865,7 @@ struct StCircle {
             auto radius_value = radius.value_at(row);
 
             auto value = circle.init(lng_value, lat_value, radius_value);
-            if (value != GEO_PARSE_OK) {
+            if (value != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -960,37 +963,37 @@ struct StWithinFunc {
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 struct StGeomFromText {
     static constexpr auto NAME = "st_geomfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
 };
 
 struct StLineFromText {
     static constexpr auto NAME = "st_linefromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_LINE_STRING;
 };
 
 struct StLineStringFromText {
     static constexpr auto NAME = "st_linestringfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_LINE_STRING;
 };
 
 struct StPolygon {
     static constexpr auto NAME = "st_polygon";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 struct StPolyFromText {
     static constexpr auto NAME = "st_polyfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 struct StPolygonFromText {
     static constexpr auto NAME = "st_polygonfromtext";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_POLYGON;
 };
 
 template <typename Impl>
@@ -1012,8 +1015,9 @@ struct StGeoFromText {
         for (size_t row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             auto shape = GeoShape::from_wkt(value.data, value.size, status);
-            if (shape == nullptr || status != GEO_PARSE_OK ||
-                (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
+            if (shape == nullptr || status != GeoParseStatus::GEO_PARSE_OK ||
+                (Impl::shape_type != GeoShapeType::GEO_SHAPE_ANY &&
+                 shape->type() != Impl::shape_type)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1030,25 +1034,25 @@ struct StGeoFromText {
 
 struct StGeometryFromWKB {
     static constexpr auto NAME = "st_geometryfromwkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
     static constexpr PrimitiveType OUTPUT_TYPE = TYPE_STRING;
 };
 
 struct StGeomFromWKB {
     static constexpr auto NAME = "st_geomfromwkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
     static constexpr PrimitiveType OUTPUT_TYPE = TYPE_STRING;
 };
 
 struct StGeogFromWKB {
     static constexpr auto NAME = "st_geogfromwkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
     static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOGRAPHY;
 };
 
 struct StGeometryFromWKBTyped {
     static constexpr auto NAME = "st_geometryfromwkbtyped";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr GeoShapeType shape_type = GeoShapeType::GEO_SHAPE_ANY;
     static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
 };
 
@@ -1070,7 +1074,7 @@ struct LegacyStGeoFromWkb {
         for (size_t row = 0; row < size; ++row) {
             const auto value = geo->get_data_at(row);
             auto shape = GeoShape::from_wkb(value.data, value.size, status);
-            if (shape == nullptr || status != GEO_PARSE_OK) {
+            if (shape == nullptr || status != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1111,7 +1115,7 @@ struct StGeoFromWkb {
                     *remove_nullable(block.get_data_type(result)));
             status = WkbParse::validate_wkb_bytes(wkb.data(), wkb.size(),
                                                   spatial.requires_geographic_coordinates());
-            if (status != GEO_PARSE_OK) {
+            if (status != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1285,7 +1289,7 @@ struct StGeometryType {
             if (is_spatial_type(input_type)) {
                 std::string geo_type;
                 if (WkbParse::geometry_type(shape_value.data, shape_value.size, &geo_type) ==
-                    GEO_PARSE_OK) {
+                    GeoParseStatus::GEO_PARSE_OK) {
                     res->insert_data(geo_type.data(), geo_type.size());
                     continue;
                 }
@@ -1497,7 +1501,7 @@ public:
                 continue;
             }
 
-            if (shape->type() == GEO_SHAPE_MULTI_POLYGON) {
+            if (shape->type() == GeoShapeType::GEO_SHAPE_MULTI_POLYGON) {
                 auto* multi_polygon = static_cast<GeoMultiPolygon*>(shape.get());
                 const auto& polygons = multi_polygon->polygons();
 

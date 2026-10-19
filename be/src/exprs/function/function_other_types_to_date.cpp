@@ -478,7 +478,7 @@ struct DateTrunc {
     }
 
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         // The time unit is a constant, but a constant expression such as an arithmetic one is not
@@ -523,7 +523,7 @@ struct DateTrunc {
                     "Illegal second argument column of function date_trunc. now only support "
                     "[second,minute,hour,day,week,month,quarter,year]");
         }
-        context->set_function_state(FunctionContext::THREAD_LOCAL, state);
+        context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, state);
         return Status::OK();
     }
 
@@ -538,13 +538,14 @@ struct DateTrunc {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         }
-        if (context->get_function_state(FunctionContext::THREAD_LOCAL) == nullptr) {
+        if (context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL) ==
+            nullptr) {
             RETURN_IF_ERROR(
                     create_state(context, block.get_by_position(arguments[DateArgIsFirst ? 1 : 0])
                                                   .column->get_data_at(0)));
         }
         auto* state = reinterpret_cast<State*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         state->callback_function(datetime_column, *res, input_rows_count, state->timezone,
                                  state->clamp_to_timestamp_ns_min);
         block.replace_by_position(result, std::move(res));

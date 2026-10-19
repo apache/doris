@@ -469,7 +469,7 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
@@ -865,7 +865,7 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
         for (auto c : _children) {
             std::shared_ptr<ColumnPtrWrapper> const_col;
@@ -875,10 +875,11 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
         fn_ctx->set_constant_cols(constant_cols);
     }
 
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(
+                function->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
-    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
     return Status::OK();
 }
 
@@ -887,9 +888,11 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         // `close_function_context` is called in VExprContext's destructor so do not throw exceptions here.
-        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(
+                function->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+            static_cast<void>(
+                    function->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         }
     }
 }

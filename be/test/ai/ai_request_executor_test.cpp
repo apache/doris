@@ -194,8 +194,10 @@ protected:
         auto second_context = context->clone();
         if (share_executor) {
             auto shared_executor = std::make_shared<AIRequestExecutor>();
-            context->set_function_state(FunctionContext::THREAD_LOCAL, shared_executor);
-            second_context->set_function_state(FunctionContext::THREAD_LOCAL, shared_executor);
+            context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                        shared_executor);
+            second_context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                               shared_executor);
         }
         std::mutex gate_mutex;
         std::condition_variable gate;
@@ -220,8 +222,9 @@ protected:
         EXPECT_TRUE(first.get().ok());
         EXPECT_TRUE(second.get().ok());
         EXPECT_TRUE(both_arrived);
-        EXPECT_EQ(context->get_function_state(FunctionContext::THREAD_LOCAL) ==
-                          second_context->get_function_state(FunctionContext::THREAD_LOCAL),
+        EXPECT_EQ(context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL) ==
+                          second_context->get_function_state(
+                                  FunctionContext::FunctionStateScope::THREAD_LOCAL),
                   share_executor);
         EXPECT_EQ(connection_count(), 2);
         handler.on_request = {};
@@ -308,7 +311,8 @@ TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNu
     EXPECT_NE(handler.bodies[0].find("first"), std::string::npos);
     EXPECT_NE(handler.bodies[1].find("second"), std::string::npos);
     std::weak_ptr<void> owner = context->_thread_local_fn_state;
-    ASSERT_TRUE(function.close(context.get(), FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function.close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     EXPECT_TRUE(owner.expired());
 }
 

@@ -149,9 +149,10 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
     context->set_constant_cols(constant_columns);
 
     Function function;
-    RETURN_IF_ERROR(function.open(context.get(), FunctionContext::THREAD_LOCAL));
-    const auto* state =
-            static_cast<LikeState*>(context->get_function_state(FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(
+            function.open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    const auto* state = static_cast<LikeState*>(
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     check_scalar_path(*state, path);
     Block block;
     block.insert({std::move(values), string_type, "value"});
@@ -166,7 +167,7 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
                                                StringRef(pattern), &scalar_result));
         EXPECT_EQ(scalar_result != 0, matches->back()) << "row " << i;
     }
-    return function.close(context.get(), FunctionContext::THREAD_LOCAL);
+    return function.close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
 }
 
 // Interpret the public boolean query without reusing its compiler or simplifier.
