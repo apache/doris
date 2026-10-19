@@ -5230,16 +5230,16 @@ TEST(CheckerTest, inverted_check_multi_vault) {
     }
     // Objects of both vaults are checked
     ASSERT_EQ(checker.do_inverted_check(), 0);
-    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get(instance_id)->get_value(), 60);
-    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get(instance_id)->get_value(), 0);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 60);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
 
     // A leaked segment in each vault: one of a tablet without rowsets, one listed after the live
     // rowsets of its tablet ("zzz" sorts after the numeric test rowset ids)
     ASSERT_EQ(vault1->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
     ASSERT_EQ(vault2->put_file(segment_path(10015, "zzz", 0), ""), 0);
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get(instance_id)->get_value(), 62);
-    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get(instance_id)->get_value(), 2);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 62);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 2);
 }
 
 TEST(CheckerTest, inverted_check_same_location_once) {
@@ -5260,8 +5260,8 @@ TEST(CheckerTest, inverted_check_same_location_once) {
     }
     ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(g_bvar_inverted_checker_num_scanned.get(instance_id)->get_value(), 11);
-    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get(instance_id)->get_value(), 1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 11);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 1);
 }
 
 TEST(CheckerTest, inverted_check_leak_after_live_rowset) {
@@ -5281,7 +5281,7 @@ TEST(CheckerTest, inverted_check_leak_after_live_rowset) {
     // one of the same tablet and is checked against the cached rowsets of the tablet
     ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(g_bvar_inverted_checker_num_check_failed.get(instance_id)->get_value(), 1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 1);
 }
 
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
