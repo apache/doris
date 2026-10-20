@@ -66,6 +66,8 @@ suite("test_changelog_property_keys") {
             "changelog.enable" = "true"
         )
     """
+    // Every table whose SHOW CREATE TABLE is checked sets storage_format, or is a LIKE copy of one that does:
+    // SHOW CREATE TABLE prints the format, and in fuzzy mode a table created without it may get V3.
     sql """
         CREATE TABLE test_changelog_property_keys_ccr_tbl (
             k1 INT NOT NULL,
@@ -75,7 +77,8 @@ suite("test_changelog_property_keys") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true"
+            "binlog.enable" = "true",
+            "storage_format" = "V2"
         )
     """
     order_qt_table_format """
@@ -293,7 +296,8 @@ suite("test_changelog_property_keys") {
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "storage_format" = "V2"
         )
     """
     qt_temporary_table "SHOW CREATE TABLE test_changelog_property_keys_default_db.test_changelog_property_keys_tmp_tbl"
@@ -309,7 +313,8 @@ suite("test_changelog_property_keys") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "changelog.enable" = "false"
+            "changelog.enable" = "false",
+            "storage_format" = "V2"
         )
     """
     qt_opt_out_table "SHOW CREATE TABLE test_changelog_property_keys_default_db.test_changelog_property_keys_dup_tbl"
@@ -339,7 +344,8 @@ suite("test_changelog_property_keys") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "changelog.enable" = "false"
+            "changelog.enable" = "false",
+            "storage_format" = "V2"
         )
     """
     sql """
@@ -357,7 +363,8 @@ suite("test_changelog_property_keys") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "false",
-            "changelog.enable" = "false"
+            "changelog.enable" = "false",
+            "storage_format" = "V2"
         )
     """
     sql """
