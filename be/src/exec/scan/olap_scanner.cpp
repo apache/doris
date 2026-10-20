@@ -72,6 +72,7 @@ using ReadSource = TabletReadSource;
 OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
+          _tablet_collection_statistics(std::move(params.tablet_collection_statistics)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .aggregation = params.aggregation,
@@ -295,9 +296,16 @@ Status OlapScanner::prepare() {
                 _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        if (_tablet_collection_statistics != nullptr) {
+            RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
+                    _state, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx,
+                    _tablet_reader_params.collection_statistics.get()));
+        } else {
+            RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                    _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        }
     }
 
     _has_prepared = true;

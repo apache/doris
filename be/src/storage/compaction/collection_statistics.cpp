@@ -237,6 +237,38 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
     return Status::OK();
 }
 
+void CollectionStatistics::copy_collected_from(const CollectionStatistics& other) {
+    _total_num_docs = other._total_num_docs;
+    _total_num_tokens = other._total_num_tokens;
+    _term_doc_freqs = other._term_doc_freqs;
+    _avg_dl_by_col.clear();
+    _idf_by_col_term.clear();
+}
+
+TabletCollectionStatistics::TabletCollectionStatistics(std::vector<RowSetSplits> rs_splits)
+        : _rs_splits(std::move(rs_splits)) {}
+
+TabletCollectionStatistics::~TabletCollectionStatistics() = default;
+
+Status TabletCollectionStatistics::copy_to(RuntimeState* state,
+                                           const TabletSchemaSPtr& tablet_schema,
+                                           const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                           io::IOContext* io_ctx,
+                                           CollectionStatistics* statistics) {
+    DORIS_CHECK(statistics != nullptr);
+    std::lock_guard lock(_mutex);
+    if (!_collected) {
+        _status = _statistics.collect(state, _rs_splits, tablet_schema, common_expr_ctxs_push_down,
+                                      io_ctx);
+        _collected = true;
+        // Do not hold the rowsets any longer than needed.
+        _rs_splits.clear();
+    }
+    RETURN_IF_ERROR(_status);
+    statistics->copy_collected_from(_statistics);
+    return Status::OK();
+}
+
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
                                                         const std::wstring& term) {
     if (!_term_doc_freqs.contains(lucene_col_name)) {
