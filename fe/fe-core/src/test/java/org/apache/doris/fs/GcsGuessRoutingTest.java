@@ -57,6 +57,47 @@ public class GcsGuessRoutingTest {
     }
 
     @Test
+    public void testProviderNamesPreserveLegacySchemalessUriError() {
+        for (String provider : new String[] {"S3", "OSS", "COS", "OBS", "AZURE", "GCS", "GCP"}) {
+            Map<String, String> props = properties("https://storage.googleapis.com");
+            props.put("provider", provider);
+            props.put("uri", "bucket/regression/load/data/example_0.csv");
+            props.put("s3.access_key", "ak");
+            props.put("s3.secret_key", "sk");
+            IllegalArgumentException primary = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> StorageAdapter.of(props), provider);
+            Assertions.assertTrue(primary.getMessage().contains("Invalid uri: bucket/"), primary.getMessage());
+            IllegalArgumentException all = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> StorageAdapter.ofAll(props), provider);
+            Assertions.assertTrue(all.getMessage().contains("Invalid uri: bucket/"), all.getMessage());
+        }
+    }
+
+    @Test
+    public void testGcpAndGcsAliasesSelectTheSameBindings() {
+        for (String provider : new String[] {"GCP", "GCS", "gcp", "gcs"}) {
+            Map<String, String> props = properties("https://storage.googleapis.com");
+            props.put("provider", provider);
+            bindings(props, "GCS");
+            props.put("s3.access_key", "ak");
+            props.put("s3.secret_key", "sk");
+            bindings(props, "GCS");
+        }
+    }
+
+    @Test
+    public void testExplicitHdfsFlagIsNotOverriddenByProviderName() {
+        Map<String, String> props = properties("https://storage.googleapis.com");
+        props.put("provider", "S3");
+        props.put("fs.hdfs.support", "true");
+        props.put("uri", "hdfs://namenode/path");
+        Assertions.assertEquals("HDFS", StorageAdapter.of(props).getStorageName());
+        List<StorageAdapter> all = StorageAdapter.ofAll(props);
+        Assertions.assertEquals(1, all.size());
+        Assertions.assertEquals("HDFS", all.get(0).getStorageName());
+    }
+
+    @Test
     public void testInferredGcsEndpointsBindNativeAndHmacWithoutMinio() {
         for (String endpoint : ENDPOINTS) {
             Map<String, String> props = properties(endpoint);

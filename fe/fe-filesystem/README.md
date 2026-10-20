@@ -175,17 +175,21 @@ changed. Plugins must be rebuilt against the matching host APIs.
 
 ### Overlapping provider matches
 
-The binding registry honors an explicit registered `provider` name or `fs.<x>.support` flags before
-heuristic matching. A provider can declare `fallbackProviders()` to suppress general-purpose
+The binding registry preserves the existing provider order and `fs.<x>.support` flag semantics.
+It does not treat a `provider` property as a global override; each plugin owns its interpretation
+of that property. A provider can declare `fallbackProviders()` to suppress general-purpose
 heuristic matches when it also matches. This applies to both primary and multi-provider binding;
-explicit matches are never suppressed. Providers without this declaration retain their existing
-multi-match behavior. The default HDFS binding for catalogs is preserved.
+explicit filesystem flags are never suppressed. Providers without this declaration retain their
+existing multi-match behavior. The default HDFS binding and HDFS URI validation are preserved.
 
 `validateProperties()` runs on every loaded provider before selection, so invalid provider-owned
 credentials cannot silently disappear when another plugin is chosen. It must be deterministic and
 perform no I/O. Forced provider binding validates with the effective provider name too.
 
 GCS owns its endpoint/credential recognition and declares S3 and MinIO as heuristic fallbacks.
+Within this family, `provider=S3` retains S3 authentication and disables GCS/MinIO guessing;
+`provider=GCS` and `provider=GCP` are both recognized by GCS. These choices do not override the
+existing HDFS, OSS, COS, OBS, or Azure routing order.
 S3 and its shared protocol library do not depend on GCS authentication classes. Filesystem plugin
 API 5.0 includes these two default hooks; all plugins must be rebuilt for that host API.
 

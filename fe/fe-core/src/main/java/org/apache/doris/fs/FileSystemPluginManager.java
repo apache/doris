@@ -55,9 +55,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 1. ServiceLoader scan (classpath-based built-ins / test overrides)
  * 2. DirectoryPluginRuntimeManager scan (production plugin directories)
  *
- * <p>Explicit selections precede heuristic matches, and matching providers may supersede their
- * declared fallbacks. Remaining ties retain registration order. Classpath providers have higher
- * priority than directory-loaded providers.
+ * <p>The first supporting provider is used unless a matching provider supersedes its declared
+ * heuristic fallbacks. Classpath providers have higher priority than directory-loaded providers.
  */
 public class FileSystemPluginManager {
 
@@ -203,23 +202,15 @@ public class FileSystemPluginManager {
      */
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
         validateProperties(properties);
-        FileSystemProvider named = providerByName(properties.get("provider"));
-        if (named != null) {
-            return named.create(properties);
-        }
-        for (FileSystemProvider provider : providers) {
-            if (provider.supportsExplicit(properties)) {
-                return provider.create(properties);
-            }
-        }
         Set<String> fallbacks = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (FileSystemProvider<?> provider : providers) {
-            if (provider.supports(properties)) {
+            if (!provider.fallbackProviders().isEmpty() && provider.supports(properties)) {
                 fallbacks.addAll(provider.fallbackProviders());
             }
         }
         for (FileSystemProvider provider : providers) {
-            if (!fallbacks.contains(provider.name()) && provider.supports(properties)) {
+            if ((!fallbacks.contains(provider.name()) || provider.supportsExplicit(properties))
+                    && provider.supports(properties)) {
                 return provider.create(properties);
             }
         }
@@ -253,19 +244,12 @@ public class FileSystemPluginManager {
         }
     }
 
-    private boolean useGuess(Map<String, String> properties) {
-        return !hasAnyExplicitFsSupport(properties) && providerByName(properties.get("provider")) == null;
-    }
-
-    private static boolean matchesExplicit(FileSystemProvider<?> provider, Map<String, String> properties) {
-        return provider.name().equalsIgnoreCase(properties.get("provider")) || provider.supportsExplicit(properties);
-    }
-
     private Set<String> fallbackProviders(Map<String, String> properties, Map<String, String> probeView,
             boolean useGuess) {
         Set<String> fallbacks = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (FileSystemProvider<?> provider : providers) {
-            if (matchesExplicit(provider, properties) || (useGuess && provider.supportsGuess(probeView))) {
+            if (!provider.fallbackProviders().isEmpty()
+                    && (provider.supportsExplicit(properties) || (useGuess && provider.supportsGuess(probeView)))) {
                 fallbacks.addAll(provider.fallbackProviders());
             }
         }
@@ -274,20 +258,20 @@ public class FileSystemPluginManager {
 
     private static boolean matches(FileSystemProvider<?> provider, Map<String, String> properties,
             Map<String, String> probeView, boolean useGuess, Set<String> fallbacks) {
-        return matchesExplicit(provider, properties)
+        return provider.supportsExplicit(properties)
                 || (useGuess && !fallbacks.contains(provider.name()) && provider.supportsGuess(probeView));
     }
 
     /**
      * Binds the first matching provider for raw user properties, mirroring
      * {@code StorageProperties.createPrimary}: fixed priority, explicit {@code fs.<x>.support}
-     * flags first-class, heuristic guesses disabled by an explicit flag or a registered provider name,
+     * flags first-class, heuristic guesses disabled by an explicit flag,
      * matched plugins superseding their declared heuristic fallbacks,
      * and no default fallback — throws when nothing matches.
      */
     public FileSystemProperties bindPrimary(Map<String, String> properties) {
         validateProperties(properties);
-        boolean useGuess = useGuess(properties);
+        boolean useGuess = !hasAnyExplicitFsSupport(properties);
         Map<String, String> probeView = withProbeContext(properties);
         Set<String> fallbacks = fallbackProviders(properties, probeView, useGuess);
         for (StorageRegistry.Provider meta : StorageRegistry.Provider.values()) {
@@ -325,7 +309,7 @@ public class FileSystemPluginManager {
      */
     public List<FileSystemProperties> bindAll(Map<String, String> properties) {
         validateProperties(properties);
-        boolean useGuess = useGuess(properties);
+        boolean useGuess = !hasAnyExplicitFsSupport(properties);
         Map<String, String> probeView = withProbeContext(properties);
         Set<String> fallbacks = fallbackProviders(properties, probeView, useGuess);
         List<FileSystemProperties> result = new ArrayList<>();
@@ -372,7 +356,7 @@ public class FileSystemPluginManager {
                 result.add(bound);
             }
         }
-        if (!hasAnyExplicitFsSupport(properties) && !hdfsFamilyMatched) {
+        if (useGuess && !hdfsFamilyMatched) {
             FileSystemProvider hdfs = providerByName("HDFS");
             if (hdfs != null) {
                 result.add(0, hdfs.bind(properties));
@@ -401,7 +385,7 @@ public class FileSystemPluginManager {
      */
     private FileSystemProperties tryBindUnlisted(FileSystemProvider provider,
             Map<String, String> properties, boolean useGuess, Map<String, String> probeView) {
-        boolean typedMatch = matchesExplicit(provider, properties)
+        boolean typedMatch = provider.supportsExplicit(properties)
                 || (useGuess && provider.supportsGuess(probeView));
         if (!typedMatch) {
             if (useGuess && provider.supports(properties)) {

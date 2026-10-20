@@ -144,17 +144,11 @@ public class FileSystemPluginManagerTest {
     }
 
     @Test
-    public void explicitSelectionWinsAndMultipleExplicitFlagsRemainSupported() {
+    public void explicitFlagsWinAndMultipleExplicitFlagsRemainSupported() {
         FileSystemPluginManager manager = new FileSystemPluginManager();
         manager.registerProvider(routingProvider("custom", Set.of("s3")));
         manager.registerProvider(routingProvider("S3", Set.of()));
         Map<String, String> props = new HashMap<>(Map.of("custom.match", "true", "S3.match", "true"));
-        props.put("provider", "s3");
-        Assertions.assertEquals("S3", manager.bindPrimary(props).providerName());
-        Assertions.assertEquals(1, manager.bindAll(props).size());
-        Assertions.assertEquals("S3", Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> manager.createFileSystem(props)).getMessage());
-        props.remove("provider");
         props.put("fs.s3.support", "true");
         Assertions.assertEquals("S3", manager.bindPrimary(props).providerName());
         Assertions.assertEquals(1, manager.bindAll(props).size());
@@ -165,15 +159,62 @@ public class FileSystemPluginManagerTest {
     }
 
     @Test
-    public void namedProviderPreservesDefaultHdfsAndExplicitFlagsDisableIt() {
+    public void objectStorageGuessPreservesDefaultHdfsAndExplicitFlagsDisableIt() {
         FileSystemPluginManager manager = new FileSystemPluginManager();
         manager.registerProvider(routingProvider("S3", Set.of()));
         manager.registerProvider(routingProvider("HDFS", Set.of()));
-        List<FileSystemProperties> bindings = manager.bindAll(Map.of("provider", "s3"));
+        List<FileSystemProperties> bindings = manager.bindAll(Map.of("provider", "s3", "S3.match", "true"));
         Assertions.assertEquals(2, bindings.size());
         Assertions.assertEquals("HDFS", bindings.get(0).providerName());
         Assertions.assertEquals("S3", bindings.get(1).providerName());
         Assertions.assertEquals(1, manager.bindAll(Map.of("fs.s3.support", "true")).size());
+    }
+
+    @Test
+    public void providerNameDoesNotOverrideExistingMatchOrder() throws Exception {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(routingProvider("S3", Set.of()));
+        manager.registerProvider(routingProvider("HDFS", Set.of()));
+        Map<String, String> props = new HashMap<>(Map.of(
+                "provider", "S3", "S3.match", "true", "HDFS.match", "true"));
+        Assertions.assertEquals("HDFS", manager.bindPrimary(props).providerName());
+        Assertions.assertEquals(2, manager.bindAll(props).size());
+        Assertions.assertEquals("HDFS", Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> manager.createFileSystem(props)).getMessage());
+
+        props.put("fs.hdfs.support", "true");
+        Assertions.assertEquals("HDFS", manager.bindPrimary(props).providerName());
+        Assertions.assertEquals(1, manager.bindAll(props).size());
+        Assertions.assertEquals("HDFS", Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> manager.createFileSystem(props)).getMessage());
+    }
+
+    @Test
+    public void unrelatedGuessesAreNotEvaluatedBeforePrimaryMatch() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(routingProvider("S3", Set.of()));
+        manager.registerProvider(new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public String name() {
+                return "unused";
+            }
+
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                throw new AssertionError("A later unrelated provider must not be probed");
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                throw new AssertionError("A later unrelated provider must not be created");
+            }
+
+            @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                throw new AssertionError("A later unrelated provider must not be probed");
+            }
+        });
+        Assertions.assertEquals("S3", manager.bindPrimary(Map.of("S3.match", "true")).providerName());
     }
 
     @Test
