@@ -142,8 +142,8 @@ public class PhysicalCTEAnchor<
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> resetLogicalProperties() {
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
-                statistics, child(0), child(1));
+        return rebuildKeepingStates(this, new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
+                statistics, child(0), child(1)));
     }
 
     @Override

@@ -106,6 +106,16 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     }
 
     @Override
+    public String getDbName() {
+        return dbName;
+    }
+
+    @Override
+    public long getFunctionId() {
+        return functionId;
+    }
+
+    @Override
     public boolean hasVarArguments() {
         return signature.hasVarArgs;
     }
