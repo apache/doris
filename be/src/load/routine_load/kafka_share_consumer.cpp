@@ -25,6 +25,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/routine_load/consumer_group_helpers.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 
@@ -47,7 +48,14 @@ Status share_status(rd_kafka_error_t* error) {
 }
 } // namespace
 
+KafkaShareConsumer::KafkaShareConsumer()
+        : _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "KafkaShareConsumer")) {}
+
 KafkaShareConsumer::~KafkaShareConsumer() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    // Release pooled buffer capacity before detaching its tracker.
+    Defer release_records {[&] { decltype(_records)().swap(_records); }};
     if (_consumer != nullptr) {
         if (!_records.empty()) {
             auto status = acknowledge(false);
@@ -127,7 +135,7 @@ Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
     int64_t bytes = 0;
     size_t count = batch == nullptr ? 0 : rd_kafka_messages_count(batch);
     share_received_records << count;
-    _records.reserve(count);
+    reserve_records(count);
     for (size_t i = 0; i < count; ++i) {
         auto* message = rd_kafka_messages_get(batch, i);
         _records.emplace_back(message->partition, message->offset);
@@ -153,6 +161,11 @@ Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
     DorisMetrics::instance()->routine_load_consume_rows->increment(_processed);
     DorisMetrics::instance()->routine_load_consume_bytes->increment(bytes);
     return pipe->finish();
+}
+
+void KafkaShareConsumer::reserve_records(size_t count) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _records.reserve(count);
 }
 
 Status KafkaShareConsumer::acknowledge(bool committed) {

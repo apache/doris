@@ -24,8 +24,11 @@
 
 namespace doris {
 
+class MemTrackerLimiter;
+
 class KafkaShareConsumer : public DataConsumer {
 public:
+    KafkaShareConsumer();
     ~KafkaShareConsumer() override;
 
     Status init(std::shared_ptr<StreamLoadContext> ctx) override;
@@ -41,7 +44,9 @@ protected:
 
 private:
     Status acknowledge(bool committed);
+    void reserve_records(size_t count);
 
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     rd_kafka_share_t* _consumer = nullptr;
     DorisVector<std::pair<int32_t, int64_t>> _records;
     size_t _processed = 0;
