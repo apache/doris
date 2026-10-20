@@ -1820,6 +1820,10 @@ DECLARE_mInt64(s3_put_bytes_per_second_max);
 DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+// Max number of cached native Azure clients. Each SAS token is a separate client, so without a
+// bound a catalog that vends a fresh SAS per query keeps adding clients; expired ones are
+// evicted first, then the least recently used.
+DECLARE_mInt32(azure_client_cache_capacity);
 // When meet s3 429 error, the "get" request will
 // sleep s3_read_base_wait_time_ms (*1, *2, *3, *4) ms
 // get try again.

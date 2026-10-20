@@ -21,6 +21,7 @@
 
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/obj_storage/azure_credential_validator.h"
 #include "io/obj_storage/obj_client_factory.h"
@@ -34,7 +35,6 @@
 #include <fstream>
 #include <variant>
 
-#include "common/config.h"
 #include "cpp/obj-client/auth/azure_auth_factory.h"
 #include "cpp/obj-client/azure_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
@@ -136,7 +136,15 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         return ResultError(std::move(client_result).error());
     }
     auto obj_client = apply_rate_limit_policy(std::move(client_result).value(), config.usage);
-    return _cache.publish(config, obj_client);
+    // Building can outlast a short-lived SAS; an expired client must not enter the cache.
+    int64_t now_ms = UnixMillis();
+    RETURN_IF_ERROR_RESULT(AzureCredentialValidator::validate(azure.auth, now_ms));
+    auto expiry = AzureCredentialValidator::expiry_ms(azure.auth);
+    if (!expiry.has_value()) {
+        return ResultError(std::move(expiry).error());
+    }
+    return _cache.publish(config, obj_client, expiry.value(), now_ms,
+                          static_cast<size_t>(config::azure_client_cache_capacity));
 }
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(
