@@ -111,6 +111,12 @@ public class CollectList extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // Nested aggregate cells use delimiter-based text state serialization. Raw WKB
+        // can contain commas/brackets (e.g. POINT(14 2)), corrupting the merged value.
+        if (getArgumentType(0).isComplexType()
+                && getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("collect_list does not support nested spatial arguments");
+        }
         if (arity() == 2 && !getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "collect_list requires second parameter must be a constant: "

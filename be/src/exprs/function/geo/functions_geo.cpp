@@ -33,6 +33,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -169,6 +170,12 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
             canonical_geography_point(*assert_cast<const GeoPoint&>(point_shape).point());
     bool interior = false;
     bool boundary = false;
+    // S2LatLng::ToPoint has up to 1.5*epsilon error, plus degrees-to-radians
+    // rounding. Allow only conversion-scale error for the point and edge endpoints:
+    // POINT(10 45.5) is on LINESTRING(10 45,10 46), but their rounded vectors
+    // are not exactly coplanar. This is about 1e-8 metres, not a user snap radius.
+    const auto conversion_error =
+            S1ChordAngle(S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
     if (other.type() == GeoShapeType::GEO_SHAPE_POINT) {
         interior = point == canonical_geography_point(*assert_cast<const GeoPoint&>(other).point());
     } else if (other.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
@@ -180,7 +187,7 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
             member = member ||
                      s2pred::CompareEdgeDistance(point, canonical_geography_point(line->vertex(i)),
                                                  canonical_geography_point(line->vertex(i + 1)),
-                                                 S1ChordAngle::Zero()) <= 0;
+                                                 conversion_error) <= 0;
         }
         const auto first = canonical_geography_point(line->vertex(0));
         const auto last = canonical_geography_point(line->vertex(line->num_vertices() - 1));
@@ -196,7 +203,7 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
                 boundary = boundary || s2pred::CompareEdgeDistance(
                                                point, canonical_geography_point(loop->vertex(j)),
                                                canonical_geography_point(loop->vertex(j + 1)),
-                                               S1ChordAngle::Zero()) <= 0;
+                                               conversion_error) <= 0;
             }
         }
         interior = !boundary && polygon->Contains(point);
@@ -449,6 +456,7 @@ struct StX {
         auto& null_map_data = null_map->get_data();
         res->reserve(size);
 
+        GeoPoint point;
         for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
             if (is_spatial_type(input_type)) {
@@ -463,14 +471,13 @@ struct StX {
                 res->insert_default();
                 continue;
             }
-            auto shape = decode_geo_shape(point_value, input_type);
-            auto* point = shape ? dynamic_cast<GeoPoint*>(shape.get()) : nullptr;
-            if (point == nullptr) {
+            // Legacy STRING points reuse their storage instead of allocating a shape per row.
+            if (!point.decode_from(point_value.data, point_value.size)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            auto x_value = point->x();
+            auto x_value = point.x();
             res->insert_value(x_value);
         }
         block.replace_by_position(result,
@@ -498,6 +505,7 @@ struct StY {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
+        GeoPoint point;
         for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
             if (is_spatial_type(input_type)) {
@@ -512,14 +520,13 @@ struct StY {
                 res->insert_default();
                 continue;
             }
-            auto shape = decode_geo_shape(point_value, input_type);
-            auto* point = shape ? dynamic_cast<GeoPoint*>(shape.get()) : nullptr;
-            if (point == nullptr) {
+            // Legacy STRING points reuse their storage instead of allocating a shape per row.
+            if (!point.decode_from(point_value.data, point_value.size)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            auto y_value = point->y();
+            auto y_value = point.y();
             res->insert_value(y_value);
         }
         block.replace_by_position(result,
@@ -623,6 +630,9 @@ struct StAngle {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
+        GeoPoint legacy_point1;
+        GeoPoint legacy_point2;
+        GeoPoint legacy_point3;
 
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
@@ -635,12 +645,29 @@ struct StAngle {
             std::unique_ptr<GeoShape> point1;
             std::unique_ptr<GeoShape> point2;
             std::unique_ptr<GeoShape> point3;
-            RETURN_IF_ERROR(decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
-            RETURN_IF_ERROR(decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
-            RETURN_IF_ERROR(decode_calculation_shape(p3->get_data_at(row), p3_type, &point3, NAME));
-            auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
-            auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
-            auto* pt3 = point3 ? dynamic_cast<GeoPoint*>(point3.get()) : nullptr;
+            auto* pt1 = &legacy_point1;
+            auto* pt2 = &legacy_point2;
+            auto* pt3 = &legacy_point3;
+            // Typed WKB needs shape validation; legacy STRING keeps direct point decoding
+            // and reuses the same three objects for the whole block.
+            if (is_spatial_type(p1_type)) {
+                RETURN_IF_ERROR(
+                        decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
+                RETURN_IF_ERROR(
+                        decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
+                RETURN_IF_ERROR(
+                        decode_calculation_shape(p3->get_data_at(row), p3_type, &point3, NAME));
+                pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
+                pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
+                pt3 = point3 ? dynamic_cast<GeoPoint*>(point3.get()) : nullptr;
+            } else {
+                const auto value1 = p1->get_data_at(row);
+                const auto value2 = p2->get_data_at(row);
+                const auto value3 = p3->get_data_at(row);
+                pt1 = legacy_point1.decode_from(value1.data, value1.size) ? pt1 : nullptr;
+                pt2 = legacy_point2.decode_from(value2.data, value2.size) ? pt2 : nullptr;
+                pt3 = legacy_point3.decode_from(value3.data, value3.size) ? pt3 : nullptr;
+            }
             if (pt1 == nullptr || pt2 == nullptr || pt3 == nullptr) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -695,6 +722,8 @@ struct StAzimuth {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
+        GeoPoint legacy_point1;
+        GeoPoint legacy_point2;
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
             // empty payload, not a WKB shape.
@@ -704,13 +733,23 @@ struct StAzimuth {
                 continue;
             }
             std::unique_ptr<GeoShape> point1;
-            RETURN_IF_ERROR(
-                    decode_calculation_shape(left_col->get_data_at(row), left_type, &point1, NAME));
             std::unique_ptr<GeoShape> point2;
-            RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
-                                                     &point2, NAME));
-            auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
-            auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
+            auto* pt1 = &legacy_point1;
+            auto* pt2 = &legacy_point2;
+            // Preserve the reusable legacy point path; only typed WKB allocates shapes.
+            if (is_spatial_type(left_type)) {
+                RETURN_IF_ERROR(decode_calculation_shape(left_col->get_data_at(row), left_type,
+                                                         &point1, NAME));
+                RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
+                                                         &point2, NAME));
+                pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
+                pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
+            } else {
+                const auto value1 = left_col->get_data_at(row);
+                const auto value2 = right_col->get_data_at(row);
+                pt1 = legacy_point1.decode_from(value1.data, value1.size) ? pt1 : nullptr;
+                pt2 = legacy_point2.decode_from(value2.data, value2.size) ? pt2 : nullptr;
+            }
 
             if (!(pt1 && pt2)) {
                 null_map_data[row] = 1;

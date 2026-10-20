@@ -565,6 +565,22 @@ public class CreateIcebergSpatialV3Table {
         from spatial_dml_values
     """
     // A remote schema created by another engine must obey the same write restrictions.
+    // Partial aggregate text states cannot preserve delimiter-bearing nested WKB.
+    // Reject before execution, including the two-phase plan and both spatial kinds.
+    for (String constructor : ["ST_GeometryFromWKBTyped", "ST_GeogFromWKB"]) {
+        for (String limit : ["", ", 2"]) {
+            test {
+                sql """select /*+ SET_VAR(agg_phase=2) */ collect_list(array(
+                    ${constructor}('01010000000000000000002c400000000000000040'))${limit})
+                    from geometry_values"""
+                exception "collect_list does not support nested spatial arguments"
+            }
+        }
+    }
+    test {
+        sql """select /*+ SET_VAR(agg_phase=2) */ collect_list(shapes) from nested_spatial_values"""
+        exception "collect_list does not support nested spatial arguments"
+    }
     order_qt_nested_spatial_values """
         select size(shapes), ST_AsText(shapes[1]), hex(ST_AsBinary(shapes[1]))
         from nested_spatial_values

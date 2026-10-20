@@ -354,6 +354,57 @@ TEST(VGeoFunctionsTest, GeographyRelationsUseCompleteSphericalEdgesAndAliases) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyMeridianMembershipAllowsOnlyConversionRoundoff) {
+    struct Case {
+        std::string shape;
+        std::string point;
+        bool member;
+        bool boundary;
+    };
+    const std::vector<Case> cases {
+            {"0102000000020000000000000000002440000000000080464000000000000024400000000000004740",
+             "010100000000000000000024400000000000c04640", true, false},
+            {"0102000000020000000000000000002440000000000080464000000000000024400000000000004740",
+             "0101000000e7db0000000024400000000000c04640", false, false},
+            {"0102000000020000000000000000002440000000000080464000000000000024400000000000004740",
+             "010100000000000000000024400000000000804640", true, true},
+            {"0103000000010000000500000000000000000024400000000000804640000000000000264000000000008"
+             "0464000000000000026400000000000004740000000000000244000000000000047400000000000002440"
+             "0000000000804640",
+             "010100000000000000000024400000000000c04640", true, true},
+            {"0103000000010000000500000000000000000024400000000000804640000000000000264000000000008"
+             "0464000000000000026400000000000004740000000000000244000000000000047400000000000002440"
+             "0000000000804640",
+             "0101000000e7db0000000024400000000000c04640", true, false},
+            {"0103000000010000000500000000000000000024400000000000804640000000000000264000000000008"
+             "0464000000000000026400000000000004740000000000000244000000000000047400000000000002440"
+             "0000000000804640",
+             "01010000001924ffffffff23400000000000c04640", false, false},
+    };
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.shape + " versus " + value.point);
+        for (bool reversed : {false, true}) {
+            const Strings arguments = reversed ? Strings {value.point, value.shape}
+                                               : Strings {value.shape, value.point};
+            for (const auto& name : {"st_intersects", "st_disjoint", "st_touches",
+                                     reversed ? "st_within" : "st_contains"}) {
+                Block block;
+                ASSERT_TRUE(execute_geography_test(name, arguments, result_type, &block).ok());
+                const std::string_view function_name(name);
+                const bool expected =
+                        (function_name == "st_intersects" && value.member) ||
+                        (function_name == "st_disjoint" && !value.member) ||
+                        (function_name == "st_touches" && value.boundary) ||
+                        ((function_name == "st_contains" || function_name == "st_within") &&
+                         value.member && !value.boundary);
+                EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), expected)
+                        << name << " reversed=" << reversed;
+            }
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyContainmentAndTouchesRejectUnimplementedPairs) {
     const std::string point = "0101000000000000000000f03f0000000000000040";
     const std::string line =
@@ -1156,7 +1207,10 @@ TEST(VGeoFunctionsTest, function_geo_st_x) {
         std::string buf;
         point.encode_to(&buf);
 
-        DataSet data_set = {{{buf}, (double)24.7}, {{Null()}, Null()}};
+        DataSet data_set = {{{buf}, 24.7},
+                            {{std::string("invalid")}, Null()},
+                            {{Null()}, Null()},
+                            {{buf}, 24.7}};
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
@@ -1173,7 +1227,10 @@ TEST(VGeoFunctionsTest, function_geo_st_y) {
         std::string buf;
         point.encode_to(&buf);
 
-        DataSet data_set = {{{buf}, (double)56.7}, {{Null()}, Null()}};
+        DataSet data_set = {{{buf}, 56.7},
+                            {{std::string("invalid")}, Null()},
+                            {{Null()}, Null()},
+                            {{buf}, 56.7}};
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
@@ -1246,7 +1303,9 @@ TEST(VGeoFunctionsTest, function_geo_st_angle) {
         DataSet data_set = {{{buf1, buf2, buf3}, (double)4.71238898038469},
                             {{buf1, buf2, Null()}, Null()},
                             {{buf1, Null(), buf3}, Null()},
-                            {{Null(), buf2, buf3}, Null()}};
+                            {{Null(), buf2, buf3}, Null()},
+                            {{buf1, std::string("invalid"), buf3}, Null()},
+                            {{buf3, buf2, buf1}, 1.5707963267948966}};
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
@@ -1268,7 +1327,9 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
 
     DataSet data_set = {{{buf1, buf2}, (double)1.5707963267948966},
                         {{buf1, Null()}, Null()},
-                        {{Null(), buf2}, Null()}};
+                        {{Null(), buf2}, Null()},
+                        {{std::string("invalid"), buf2}, Null()},
+                        {{buf1, buf2}, 1.5707963267948966}};
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 

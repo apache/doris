@@ -21,16 +21,21 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +43,31 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialAggregateLegalityTest {
+    @Test
+    public void nestedSpatialCollectListIsRejectedBeforeStateSerialization() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType nested : List.of(ArrayType.of(spatial), ArrayType.of(ArrayType.of(spatial)),
+                    MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                Expression value = new SlotReference("shapes", nested);
+                for (BoundFunction function : List.of(new CollectList(value),
+                        new CollectList(value, new IntegerLiteral(2)), new CollectList(true, value))) {
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            function::checkLegalityBeforeTypeCoercion);
+                    Assertions.assertEquals("collect_list does not support nested spatial arguments",
+                            error.getMessage());
+                }
+            }
+        }
+        // Ordinary complex values and nonnested spatial cells keep their existing admission.
+        for (DataType type : List.of(ArrayType.of(IntegerType.INSTANCE),
+                new GeometryType("OGC:CRS84"), new GeographyType("OGC:CRS84", "spherical"))) {
+            CollectList function = new CollectList(new SlotReference("value", type));
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+        }
+    }
+
     @Test
     public void unsupportedSpatialAggregateKernelsAreRejectedBeforeCoercion() {
         for (DataType type : List.of(new GeometryType("OGC:CRS84"),
