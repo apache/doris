@@ -70,10 +70,18 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -604,7 +612,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitCast(Cast cast, SQLRelation context) {
-        if (!cast.isExplicitType() && !preservesLoweredAccumulator(cast)) {
+        if (!cast.isExplicitType() && !preservesLoweredAccumulator(cast)
+                && !preservesTypeConstructorFallback(cast)) {
             // analyzer / optimizer inserted coercion CAST (type alignment, DECIMAL scale
             // adjustment for division, placeholder typing, ...) - an execution
             // detail that would otherwise pin the result type/scale in the frozen planSql.
@@ -668,6 +677,87 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // historical behavior and cannot break a bound plan
             return false;
         }
+    }
+
+    /**
+     * Whether the cast IS the parser's TYPE-CONSTRUCTOR fallback.
+     *
+     * `DATE 'x'` / `TIMESTAMP 'x'` folds to a typed literal when x PARSES, and to
+     * `CAST(x AS DATE|DATETIME)` when it does not (LogicalPlanBuilder#visitTypeConstructor).
+     * That cast carries the user's TYPE - `SELECT DATE 'not-a-date'` executes as a typed DATE
+     * NULL - so stripping it froze `Project(ph1 AS d)` and the replay returned the raw STRING
+     * 'not-a-date' (the CREATE probe only re-plans the text, so it accepted that projection).
+     *
+     * The detector is the fallback's own cause: the literal does NOT parse as the target type.
+     * An ordinary implicit coercion of a VALID literal (`d = '2020-01-01'` also becomes
+     * `CAST('2020-01-01' AS DATE)`) still parses, so it is still stripped and re-derived by the
+     * replay's own analysis exactly as before - which keeps the frozen text of the ordinary
+     * date-filter shape unchanged.
+     *
+     * @param cast the parser-inserted cast
+     * @return true when the cast must survive into the frozen SQL
+     */
+    private static boolean preservesTypeConstructorFallback(Cast cast) {
+        String text = constantText(cast.child());
+        if (text == null) {
+            return false;
+        }
+        DataType target = cast.getDataType();
+        if (target == null) {
+            return false;
+        }
+        return !parsesAs(target, text);
+    }
+
+    /**
+     * The STRING value behind a constant subtree: the literal itself before parameterization,
+     * or the placeholder's payload afterwards (the frozen text substitutes the payload's
+     * VALUE by placeholder id, so the payload is what a replay would receive).
+     *
+     * @param expr the expression to unwrap
+     * @return the string value, or null when the subtree is not a constant string
+     */
+    private static String constantText(Expression expr) {
+        if (expr instanceof org.apache.doris.nereids.spm.placeholder.SpmConstVar) {
+            return constantText(
+                    ((org.apache.doris.nereids.spm.placeholder.SpmConstVar) expr).getValue());
+        }
+        if (expr instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) expr).getStringValue();
+        }
+        return null;
+    }
+
+    /**
+     * Whether the text is a LEGAL value of the target date / time type, i.e. whether the
+     * parser would have folded the constructor instead of emitting the fallback cast.
+     *
+     * @param target the cast's target type
+     * @param text   the literal text
+     * @return whether the text parses as that type (true for any other type)
+     */
+    private static boolean parsesAs(DataType target, String text) {
+        try {
+            if (target instanceof DateV2Type) {
+                new DateV2Literal(text);
+                return true;
+            }
+            if (target instanceof DateType) {
+                new DateLiteral(text);
+                return true;
+            }
+            if (target instanceof DateTimeV2Type) {
+                new DateTimeV2Literal(text);
+                return true;
+            }
+            if (target instanceof DateTimeType) {
+                new DateTimeLiteral(text);
+                return true;
+            }
+        } catch (RuntimeException e) {
+            return false;
+        }
+        return true;
     }
 
     @Override

@@ -6455,18 +6455,47 @@ public final class SPMPlanTreeSupport {
         } catch (RuntimeException e) {
             return; // an unreadable table is not part of the fingerprint either way
         }
+        // OVERWRITE, do not keep the first value: CollectRelation resolves (and caches) a
+        // relation BEFORE NereidsPlanner#collectAndLockTable takes the planning locks, so the
+        // first hash of a table can describe a schema a concurrent ALTER TABLE already
+        // replaced - the locked bind then froze the NEW schema's output slots while the entry
+        // still described the OLD one, and re-adding the dropped column restored that old
+        // name/type string, letting an identical query replay the stale column set (round-75
+        // #1). The capture context re-records every collected table once the locks are held
+        // (see recordTableFingerprints), which only works when a later hash may replace an
+        // earlier one.
         if (qualifier != null && !qualifier.isEmpty()) {
-            out.putIfAbsent(String.join(".", qualifier).toLowerCase(Locale.ROOT), entry);
+            out.put(String.join(".", qualifier).toLowerCase(Locale.ROOT), entry);
         }
-        out.putIfAbsent(table.getName().toLowerCase(Locale.ROOT), entry);
+        out.put(table.getName().toLowerCase(Locale.ROOT), entry);
         if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
-            out.putIfAbsent((table.getDatabase().getFullName() + "." + table.getName())
+            out.put((table.getDatabase().getFullName() + "." + table.getName())
                     .toLowerCase(Locale.ROOT), entry);
         }
         if (table.getDatabase() != null && table.getDatabase().getCatalog() != null) {
-            out.putIfAbsent((table.getDatabase().getCatalog().getName() + "."
+            out.put((table.getDatabase().getCatalog().getName() + "."
                     + table.getDatabase().getFullName() + "." + table.getName())
                     .toLowerCase(Locale.ROOT), entry);
+        }
+    }
+
+    /**
+     * Re-records EVERY collected table's fingerprint, overwriting whatever an earlier
+     * (pre-lock) resolution put there - the capture context calls this right after the
+     * planning locks are acquired, so every stored entry describes the schema the LOCKED bind
+     * freezes (see recordTableFingerprint and SPMOptimizer's capture statement context).
+     *
+     * @param out    the name-to-entry map to fill
+     * @param tables the statement's resolved tables, keyed by the qualifier they were
+     *               resolved with
+     */
+    public static void recordTableFingerprints(Map<String, String> out,
+            Map<List<String>, TableIf> tables) {
+        if (out == null || tables == null || tables.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<List<String>, TableIf> resolved : tables.entrySet()) {
+            recordTableFingerprint(out, resolved.getValue(), resolved.getKey());
         }
     }
 
