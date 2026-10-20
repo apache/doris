@@ -450,31 +450,53 @@ TEST(TimestampNsFunctionTest, differences_keep_submicrosecond_ordering) {
                      .ok()));
 }
 
-// Keep the two argument orders and all diff units in one matrix to make semantic drift visible.
+TEST(TimestampNsFunctionTest, differences_require_homogeneous_temporal_arguments) {
+    const auto timestamp_ns = std::make_shared<DataTypeTimeStampNs>();
+    const auto datetimev2 = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto integer = std::make_shared<DataTypeInt32>();
+    const auto bigint = std::make_shared<DataTypeInt64>();
+    const auto time = std::make_shared<DataTypeTimeV2>(6);
+    const std::pair<std::string, DataTypePtr> functions[] = {
+            {"datediff", integer},         {"timediff", time},
+            {"years_diff", bigint},        {"quarters_diff", bigint},
+            {"months_diff", bigint},       {"weeks_diff", bigint},
+            {"days_diff", bigint},         {"hours_diff", bigint},
+            {"minutes_diff", bigint},      {"seconds_diff", bigint},
+            {"milliseconds_diff", bigint}, {"microseconds_diff", bigint},
+            {"nanoseconds_diff", bigint}};
+    for (const auto& [name, result_type] : functions) {
+        SCOPED_TRACE(name);
+        for (const auto& left : {DataTypePtr(timestamp_ns), DataTypePtr(datetimev2)}) {
+            const DataTypePtr right =
+                    left == timestamp_ns ? DataTypePtr(datetimev2) : DataTypePtr(timestamp_ns);
+            const ColumnsWithTypeAndName arguments = {{nullptr, left, "left"},
+                                                      {nullptr, right, "right"}};
+            EXPECT_EQ(SimpleFunctionFactory::instance().get_function(name, arguments, result_type),
+                      nullptr);
+        }
+    }
+}
+
+// FE promotes mixed temporal arguments to TIMESTAMP_NS before selecting these kernels.
 // NOLINTNEXTLINE(readability-function-size)
-TEST(TimestampNsFunctionTest, mixed_datetimev2_differences_do_not_narrow_datetimev2) {
-    const InputTypeSet timestamp_ns_first = {{PrimitiveType::TYPE_TIMESTAMP_NS},
-                                             {PrimitiveType::TYPE_DATETIMEV2, 6}};
-    const InputTypeSet datetimev2_first = {{PrimitiveType::TYPE_DATETIMEV2, 6},
-                                           {PrimitiveType::TYPE_TIMESTAMP_NS}};
+TEST(TimestampNsFunctionTest, differences_use_timestamp_ns_arguments) {
+    const InputTypeSet arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
+                                    {PrimitiveType::TYPE_TIMESTAMP_NS}};
 
     EXPECT_TRUE(
-            (check_function<DataTypeInt32, true>("datediff", timestamp_ns_first,
+            (check_function<DataTypeInt32, true>("datediff", arguments,
                                                  {{{std::string("2024-01-02 00:00:00.000000001"),
                                                     std::string("2024-01-01 23:59:59.999999")},
-                                                   int32_t(1)},
-                                                  {{std::string("2262-04-11 23:47:16.854775807"),
-                                                    std::string("9999-05-11 23:47:16.000000")},
-                                                   int32_t(-2825911)}})
+                                                   int32_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt32, true>("datediff", datetimev2_first,
+            (check_function<DataTypeInt32, true>("datediff", arguments,
                                                  {{{std::string("2024-01-01 23:59:59.999999"),
                                                     std::string("2024-01-02 00:00:00.000000001")},
                                                    int32_t(-1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeTimeV2, true>("timediff", timestamp_ns_first,
+            (check_function<DataTypeTimeV2, true>("timediff", arguments,
                                                   {{{std::string("2024-01-02 00:00:00.000001789"),
                                                      std::string("2024-01-02 00:00:00.000000")},
                                                     std::string("00:00:00.000001")}},
@@ -482,76 +504,73 @@ TEST(TimestampNsFunctionTest, mixed_datetimev2_differences_do_not_narrow_datetim
                      .ok()));
 
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("years_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("years_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:00.000000001"),
                                                     std::string("2023-01-01 00:00:00.000000")},
-                                                   int64_t(1)},
-                                                  {{std::string("2262-04-11 23:47:16.854775807"),
-                                                    std::string("9999-05-11 23:47:16.000000")},
-                                                   int64_t(-7737)}})
+                                                   int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("quarters_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("quarters_diff", arguments,
                                                  {{{std::string("2024-04-01 00:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("months_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("months_diff", arguments,
                                                  {{{std::string("2024-02-01 00:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("weeks_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("weeks_diff", arguments,
                                                  {{{std::string("2024-01-08 00:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("days_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("days_diff", arguments,
                                                  {{{std::string("2024-01-02 00:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("hours_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("hours_diff", arguments,
                                                  {{{std::string("2024-01-01 01:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("minutes_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("minutes_diff", arguments,
                                                  {{{std::string("2024-01-01 00:01:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("seconds_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("seconds_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:01.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("milliseconds_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("milliseconds_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:00.001000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("microseconds_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("microseconds_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:00.000001001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("nanoseconds_diff", timestamp_ns_first,
+            (check_function<DataTypeInt64, true>("nanoseconds_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:00.000000001"),
                                                     std::string("2024-01-01 00:00:00.000000")},
                                                    int64_t(1)}})
                      .ok()));
     EXPECT_TRUE(
-            (check_function<DataTypeInt64, true>("nanoseconds_diff", datetimev2_first,
+            (check_function<DataTypeInt64, true>("nanoseconds_diff", arguments,
                                                  {{{std::string("2024-01-01 00:00:00.000000"),
                                                     std::string("2024-01-01 00:00:00.000000001")},
                                                    int64_t(-1)}})

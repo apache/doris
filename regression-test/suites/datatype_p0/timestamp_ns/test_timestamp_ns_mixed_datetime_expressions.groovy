@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_timestamp_ns_mixed_datetime_expressions") {
+suite("test_timestamp_ns_mixed_datetime_expressions", "nonConcurrent") {
     sql "set time_zone = '+08:00'"
     sql "set enable_strict_cast = false"
     sql "drop table if exists timestamp_ns_mixed_datetime_expressions"
@@ -373,7 +373,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         contains "hashJoin"
     }
 
-    // All difference functions accept mixed columns without narrowing DATETIMEV2.
+    // All difference functions promote mixed columns to TIMESTAMP_NS before BE execution.
     def diffFunctions = [
         "timediff", "nanoseconds_diff", "microseconds_diff", "milliseconds_diff",
         "seconds_diff", "minutes_diff", "hours_diff", "days_diff",
@@ -521,6 +521,22 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         order by id
     """
 
+    // Keep DATE and DATETIME casts as V1 types rather than aliases of the V2 types.
+    setFeConfigTemporary(["enable_date_conversion": false]) {
+        (["datediff"] + diffFunctions).each { functionName ->
+            "order_qt_mixed_date_family_${functionName}" """
+                select id,
+                       ${functionName}(ts, cast(d as date)), ${functionName}(cast(d as date), ts),
+                       ${functionName}(ts, d2), ${functionName}(d2, ts),
+                       ${functionName}(ts, cast(dt as datetime)), ${functionName}(cast(dt as datetime), ts),
+                       ${functionName}(ts, tz), ${functionName}(tz, ts)
+                from timestamp_ns_mixed_date_families
+                where id in (1, 2, 6)
+                order by id
+            """
+        }
+    }
+
     sql "drop table if exists timestamp_ns_mixed_datetime_overflow"
     sql """
         create table timestamp_ns_mixed_datetime_overflow (
@@ -538,6 +554,41 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         (1, '2500-01-01 00:00:00', '2500-01-01 00:00:00.000000',
             cast('2262-04-11 23:47:16.854776+08:00' as timestamptz(6)))
     """
+
+    setFeConfigTemporary(["enable_date_conversion": false]) {
+        // Every difference unit must fail in the strict cast before executing a homogeneous kernel.
+        for (def strictCast : [false, true]) {
+            sql "set enable_strict_cast = ${strictCast}"
+            for (def functionName : ["datediff"] + diffFunctions) {
+                for (def peer : ["cast(dt as datetime)", "dtv2", "cast(dt as date)", "cast(dt as datev2)", "tz"]) {
+                    def timestamp = "cast('1970-01-01 00:00:00.000000001' as timestamp_ns)"
+                    for (def arguments : ["${timestamp}, ${peer}", "${peer}, ${timestamp}"]) {
+                        test {
+                            sql """
+                                select ${functionName}(${arguments})
+                                from timestamp_ns_mixed_datetime_overflow
+                            """
+                            exception (peer == "tz" ? "can not cast timestamptz" : "TIMESTAMP_NS overflow")
+                        }
+                    }
+                }
+            }
+        }
+        sql "set enable_strict_cast = false"
+        // Literal folding must preserve the same overflow contract on both sides of the epoch range.
+        for (def functionName : ["datediff"] + diffFunctions) {
+            for (def year : [1600, 9999]) {
+                def timestamp = "cast('1970-01-01 00:00:00.000000001' as timestamp_ns)"
+                def peer = "cast('${year}-01-01 00:00:00' as datetimev2(6))"
+                for (def arguments : ["${timestamp}, ${peer}", "${peer}, ${timestamp}"]) {
+                    test {
+                        sql "select ${functionName}(${arguments})"
+                        exception "outside Int64 epoch nanosecond range"
+                    }
+                }
+            }
+        }
+    }
 
     // Conversion overflow fails even when the session disables strict explicit casts.
     for (def expression : [
