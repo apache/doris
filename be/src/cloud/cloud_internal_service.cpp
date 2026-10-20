@@ -125,6 +125,19 @@ void submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_po
         int64_t failed = 0;
         g_cloud_sync_tablet_meta_requests_total << 1;
         for (const auto tablet_id : request->tablet_ids()) {
+            if (request->discover_row_binlog_ttl()) {
+                if (config::disable_auto_compaction || !config::enable_feature_binlog) {
+                    ++skipped;
+                    continue;
+                }
+                auto st = engine->submit_row_binlog_ttl(tablet_id, true);
+                if (st.ok()) {
+                    ++synced;
+                } else {
+                    ++failed;
+                }
+                continue;
+            }
             auto tablet = engine->tablet_mgr().get_tablet_if_cached(tablet_id);
             if (!tablet) {
                 ++skipped;
@@ -711,6 +724,10 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    // Startup restore needs the caller's tablet; older clients omit rowset_meta.
+    if (request->has_rowset_meta()) {
+        ctx.tablet_id = request->rowset_meta().tablet_id();
+    }
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))

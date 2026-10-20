@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "format/arrow/arrow_array_normalizer.h"
 #include "format/parquet/arrow_memory_pool.h"
 #include "format_v2/column_mapper.h"
@@ -137,6 +138,11 @@ Status validate_arrow_type(const arrow::DataType& arrow_type, const DataTypePtr&
     const auto nested_doris_type = remove_nullable(doris_type);
     const auto primitive_type = nested_doris_type->get_primitive_type();
     const auto mismatch = [&]() { return arrow_type_mismatch(path, arrow_type, doris_type); };
+
+    // The FE maps the Variant extension to the V2 carrier, not to its binary storage fields.
+    if (primitive_type == TYPE_VARIANT) {
+        return DataTypeVariantV2SerDe::is_native_arrow_type(arrow_type) ? Status::OK() : mismatch();
+    }
 
     switch (arrow_type.id()) {
     case arrow::Type::BOOL:

@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -59,6 +60,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
@@ -87,15 +89,17 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -346,6 +350,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
+        if (!paimonHandle.isSystemTable() && PaimonTableDecorators.isChainTable(table)) {
+            // A chain table reads a partition its main branch lacks from its snapshot and delta branches.
+            // Doris plans neither those partitions nor the chain splits yet, so it would read them as empty.
+            throw new DorisConnectorException("Reading Paimon chain table " + paimonHandle.getDatabaseName() + "."
+                    + paimonHandle.getTableName() + " (chain-table.enabled) is not supported yet");
+        }
         return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
     }
 
@@ -550,13 +560,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+                    request.getFilter(), request.getLimit(), request.isCountPushdown(),
+                    request.isAggregatePushdown(),
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
         }
         if (paimonHandle.isSystemTable()) {
             // System tables resolve their snapshot on the BE and carry deferred side effects
             // (authorized file enumeration); never reuse their planned ranges.
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+                    request.getFilter(), request.getLimit(), request.isCountPushdown(),
+                    request.isAggregatePushdown(),
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
         }
         // Resolve the table ONCE at the statement scope so both the scan-planning path (here) and
         // the properties path (getScanNodeProperties) observe the SAME table generation. Without
@@ -565,17 +579,20 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveScanTableConsistent(session, paimonHandle);
         long generation = resolvePaimonGeneration(paimonHandle, table);
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
-        // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key.
+        // branch/options pin, same generation, same projection shape, same backend Rust eligibility,
+        // same filter, same limit, same aggregate pushdown) plans once and every duplicated relation
+        // shares the result. Session variables are constant within a statement and deliberately
+        // absent from the key. Every scan of a statement is planned within one plan, so the memo is
+        // dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request, generation);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
-                        request.getLimit(), request.isCountPushdown(), table)));
+                        request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
+                        request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY), table)));
     }
 
     private long resolvePaimonGeneration(PaimonTableHandle handle, Table table) {
@@ -760,9 +777,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter,
             long limit,
-            boolean countPushdown) {
+            boolean countPushdown,
+            boolean aggregatePushdown,
+            boolean backendsSupportRust) {
         return planScanInternal(session, handle, columns, filter, limit, countPushdown,
-                resolveScanTable((PaimonTableHandle) handle));
+                aggregatePushdown, backendsSupportRust, resolveScanTable((PaimonTableHandle) handle));
     }
 
     private List<ConnectorScanRange> planScanInternal(
@@ -772,6 +791,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
+            boolean aggregatePushdown,
+            boolean backendsSupportRust,
             Table table) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
@@ -890,6 +911,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        boolean incrementalRead = pinnedOptions.containsKey("incremental-between")
+                || pinnedOptions.containsKey("incremental-between-timestamp");
+        PaimonRustReaderSelector rustReaderSelector = table instanceof FileStoreTable
+                && !requiresMetadataColumns
+                ? new PaimonRustReaderSelector(session, backendsSupportRust,
+                        (FileStoreTable) table, columns, backendStorageProperties(),
+                        usesFallbackRead(table, paimonHandle), incrementalRead, hasVariantProjection)
+                : null;
+        RustScanMetadata rustScanMetadata = null;
+
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
@@ -942,6 +973,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
                 : Collections.emptySet();
 
+        // Schema IDs are branch-local, even when both branches expose the same current row type.
+        Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
+        Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
+        // Native INT96/ORC materialization currently narrows these values to microseconds.
+        // JNI retains the source precision, including nested and filter-only timestamp fields.
+        boolean needsNanosecondReader = rowType.getFields().stream()
+                .anyMatch(field -> readFieldIds.contains(field.id()) && containsNanosecondTimestamp(field.type()));
+        // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
+        java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
+                () -> resolveSchemaDictTable(table, paimonHandle));
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -958,9 +999,30 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), hasVariantProjection,
-                    physicalVariantSchemaIds, optRawFiles)) {
+            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
+                    isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
+            boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
+            boolean legacyOrcTimestamp = false;
+            if (nativeEligible && (!rustEligible || aggregatePushdown)) {
+                FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
+                legacyOrcTimestamp = requiresLegacyOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
+                        legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()));
+            }
+            // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
+            // Keep ordinary compatible scans on Rust, but preserve native aggregate pushdown.
+            if (rustEligible && !(aggregatePushdown && nativeEligible && !legacyOrcTimestamp)) {
+                // Rust consumes logical splits, so IGNORE_JNI applies just as on branch-4.1.
+                if (ignoreJni) {
+                    continue;
+                }
+                if (rustScanMetadata == null) {
+                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                }
+                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                        defaultFileFormat, partitionValues, weightDenominator));
+                continue;
+            }
+            if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
                         throw new DorisConnectorException(
@@ -991,12 +1053,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             dataSplit.bucket()));
                 }
             } else {
-                // JNI reader path
+                // Logical fallback after Rust/native eligibility checks.
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                if (requiresMetadataColumns) {
+                // Lossless timestamp fallbacks can expose metadata through the SDK's physical iterator.
+                // Raw convertibility alone does not select the SDK raw reader: historical primary-key
+                // files without delete counts require merging and lose physical file/row positions.
+                if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
+                        || !supportsJniPhysicalMetadata(
+                        legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
@@ -1014,6 +1081,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    private static boolean supportsJniPhysicalMetadata(Table table, DataSplit split) {
+        if (!split.rawConvertible() || split.isStreaming()) {
+            return false;
+        }
+        // Match Paimon's PrimaryKeyTableRawFileSplitReadProvider eligibility, not convertToRawFiles().
+        return table.primaryKeys().isEmpty()
+                || split.dataFiles().stream().allMatch(file -> file.deleteRowCount().isPresent());
     }
 
     private static boolean usesFallbackRead(Table scanTable, PaimonTableHandle handle) {
@@ -1226,11 +1302,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // emitted as ANONYMOUS for credential-less catalogs — a fe-filesystem parity gap (out of P1 whitelist),
         // tracked as a follow-up; only affects OSS/COS/OBS catalogs with no static ak/sk.
         if (context != null) {
-            Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : storage().getStorageProperties()) {
-                sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
-            }
-            for (Map.Entry<String, String> e : backendStorageProps.entrySet()) {
+            for (Map.Entry<String, String> e : backendStorageProperties().entrySet()) {
                 props.put(ScanNodePropertyKeys.LOCATION_PREFIX + e.getKey(), e.getValue());
             }
         }
@@ -1480,18 +1552,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        return pinCatalogSnapshotOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable),
+                PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable pinCatalogSnapshotOfBranches(FileStoreTable target, FileStoreTable source) {
         if (source instanceof FallbackReadFileStoreTable) {
             if (!(target instanceof FallbackReadFileStoreTable)) {
                 throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
             }
             FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
-            return new FallbackReadFileStoreTable(
-                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
-                    PaimonReaderOptions.isWrappedFirst(targetPair));
+            // A chain table nests its snapshot and delta branches in a pair of their own; pin those too.
+            return PaimonTableDecorators.rebuildFallbackPair(targetPair,
+                    pinCatalogSnapshotOfBranches(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotOfBranches(targetPair.other(), sourcePair.other()));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1529,15 +1604,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (dataTable.catalogEnvironment().catalogLoader() == null) {
             return dataTable;
         }
-        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        if (undecorated instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
-            return new FallbackReadFileStoreTable(
-                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
-                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
+        return dropCatalogLoaderOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable dropCatalogLoaderOfBranches(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            // A chain table nests its snapshot and delta branches in a pair of their own; rebuild those too.
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    dropCatalogLoaderOfBranches(pair.wrapped()), dropCatalogLoaderOfBranches(pair.other()));
         }
-        return rebuildWithoutCatalogLoader(undecorated);
+        return rebuildWithoutCatalogLoader(table);
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
@@ -1648,6 +1725,39 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             builder.bucket(((DataSplit) split).bucket());
         }
         return builder.build();
+    }
+
+    private PaimonScanRange buildRustScanRange(DataSplit split, RustScanMetadata metadata,
+            PaimonTableHandle handle, String defaultFileFormat,
+            Map<String, String> partitionValues, long weightDenominator) {
+        return new PaimonScanRange.Builder()
+                .fileFormat(dataSplitFileFormat(split, defaultFileFormat))
+                .rustSplit(encodeDataSplit(split), metadata.tableLocation, handle.getDatabaseName(),
+                        handle.getTableName(), metadata.schemaJson, metadata.branch)
+                .partitionValues(partitionValues)
+                .selfSplitWeight(computeSplitWeight(split))
+                .targetSplitSize(weightDenominator)
+                .bucket(split.bucket())
+                .build();
+    }
+
+    static final class RustScanMetadata {
+        final String tableLocation;
+        final String schemaJson;
+        final String branch;
+
+        private RustScanMetadata(String tableLocation, String schemaJson, String branch) {
+            this.tableLocation = tableLocation;
+            this.schemaJson = schemaJson;
+            this.branch = branch;
+        }
+
+        static RustScanMetadata from(FileStoreTable table) {
+            TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
+            String branch = CoreOptions.branch(schema.options());
+            return new RustScanMetadata(table.location().toString(), encodeTableSchema(schema),
+                    Identifier.DEFAULT_MAIN_BRANCH.equals(branch) ? null : branch);
+        }
     }
 
     /**
@@ -1899,6 +2009,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return physicalVariantSchemaIds;
     }
 
+    static boolean containsNanosecondTimestamp(DataType type) {
+        if (type instanceof org.apache.paimon.types.TimestampType) {
+            return ((org.apache.paimon.types.TimestampType) type).getPrecision() > 6;
+        }
+        switch (type.getTypeRoot()) {
+            case ARRAY:
+                return containsNanosecondTimestamp(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return containsNanosecondTimestamp(map.getKeyType())
+                        || containsNanosecondTimestamp(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .anyMatch(field -> containsNanosecondTimestamp(field.type()));
+            default:
+                return false;
+        }
+    }
+
     private static boolean containsVariant(DataType type) {
         switch (type.getTypeRoot()) {
             case VARIANT:
@@ -1925,6 +2054,81 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .mapToInt(column -> fieldNames.indexOf(column.getName().toLowerCase()))
                 .filter(index -> index >= 0)
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
+    }
+
+    private static Set<Integer> scanReadFieldIds(RowType rowType, List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        Set<String> names = columns.stream().filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .filter(column -> !column.isMetadataColumn())
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        filter.ifPresent(expression -> collectFilterColumnNames(expression, names));
+        return rowType.getFields().stream()
+                .filter(field -> names.contains(field.name().toLowerCase(Locale.ROOT)))
+                .map(DataField::id).collect(Collectors.toSet());
+    }
+
+    private static void collectFilterColumnNames(ConnectorExpression expression, Set<String> names) {
+        if (expression instanceof ConnectorColumnRef) {
+            names.add(((ConnectorColumnRef) expression).getColumnName().toLowerCase(Locale.ROOT));
+        }
+        expression.getChildren().forEach(child -> collectFilterColumnNames(child, names));
+    }
+
+    static FileStoreTable legacyOrcSplitTable(FileStoreTable table, DataSplit split) {
+        FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
+        if (base instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+            boolean fallback = ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback();
+            // Match the SDK reader's branch selection before reading either options or historical schemas.
+            return PaimonReaderOptions.isWrappedFirst(pair) != fallback ? pair.wrapped() : pair.other();
+        }
+        return base;
+    }
+
+    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        if (readFieldIds.isEmpty() || !rawFiles.isPresent()
+                || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
+                || !new org.apache.paimon.options.Options(table.options()).get(
+                        org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+            return false;
+        }
+        // Only fields present in a file require SDK timezone conversion. A newly added nullable LTZ
+        // column reads as NULL in older files and must not disable their native metadata scans.
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        for (RawFile file : rawFiles.get()) {
+            if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),
+                    id -> readsTimestampLtz(
+                            fileStoreTable.schemaManager().schema(id).logicalRowType(), readFieldIds))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean readsTimestampLtz(RowType rowType, Set<Integer> readFieldIds) {
+        return rowType.getFields().stream().anyMatch(
+                field -> readFieldIds.contains(field.id()) && containsTimestampLtz(field.type()));
+    }
+
+    private static boolean containsTimestampLtz(DataType type) {
+        if (type instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof org.apache.paimon.types.ArrayType) {
+            return containsTimestampLtz(((org.apache.paimon.types.ArrayType) type).getElementType());
+        }
+        if (type instanceof org.apache.paimon.types.MapType) {
+            org.apache.paimon.types.MapType map = (org.apache.paimon.types.MapType) type;
+            return containsTimestampLtz(map.getKeyType()) || containsTimestampLtz(map.getValueType());
+        }
+        if (type instanceof org.apache.paimon.types.MultisetType) {
+            return containsTimestampLtz(((org.apache.paimon.types.MultisetType) type).getElementType());
+        }
+        return type instanceof RowType
+                && ((RowType) type).getFieldTypes().stream().anyMatch(PaimonScanPlanProvider::containsTimestampLtz);
     }
 
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
@@ -1967,7 +2171,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 result.put(partitionKeys.get(i), value);
             } catch (UnsupportedOperationException e) {
                 // Legacy parity (PaimonUtil.getPartitionInfoMap): an unsupported partition column
-                // type (e.g. binary/varbinary) drops the ENTIRE map — BE then materializes no
+                // type drops the ENTIRE map — BE then materializes no
                 // columnsFromPath for this split, rather than emitting non-deterministic [B@hash
                 // garbage. Legacy returned null; the connector returns an empty map, which
                 // PaimonScanRange.populateRangeParams treats identically (no columnsFromPath emitted).
@@ -1981,10 +2185,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Renders one Paimon partition value to the canonical string BE expects in columnsFromPath.
-     * Byte-faithful port of legacy PaimonUtil.serializePartitionValue. Pure static (no Table /
-     * ReadBuilder needed) so the correctness-critical per-type rendering is unit-testable offline.
-     * Only TIMESTAMP_WITH_LOCAL_TIME_ZONE consumes {@code timeZone} (session zone, UTC-&gt;session
-     * shift); all other cases ignore it.
+     * Pure static (no Table / ReadBuilder needed) so per-type rendering is testable offline.
+     * Zoned timestamps carry an explicit UTC offset and binary keys carry lossless hex, independent
+     * of the session time zone.
      *
      * <p>For native ORC/Parquet reads, partition columns are NOT stored in the data files — BE
      * materializes them from this string. A raw {@code Object.toString()} corrupts several types:
@@ -2006,8 +2209,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 return value == null ? null : Float.toString((Float) value);
             case DOUBLE:
                 return value == null ? null : Double.toString((Double) value);
-            // BINARY / VARBINARY intentionally unsupported (falls to default -> throws -> map
-            // dropped): a utf8 string render can corrupt the bytes (legacy comment).
+            case BINARY:
+            case VARBINARY:
+                // Native files omit partition columns; the VARBINARY path decoder needs lossless hex.
+                return value == null ? null : "0x" + java.util.HexFormat.of().withUpperCase().formatHex((byte[]) value);
             case DATE:
                 return value == null ? null
                         : LocalDate.ofEpochDay((Integer) value).format(DateTimeFormatter.ISO_LOCAL_DATE);
@@ -2025,10 +2230,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     return null;
                 }
                 return ((Timestamp) value).toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                        .atOffset(java.time.ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException(
                         "Unsupported type for serializePartitionValue: " + type);
@@ -2584,6 +2787,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return encodeObjectToString(split);
     }
 
+    static String encodeDataSplit(DataSplit split) {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            split.serialize(new DataOutputViewStreamWrapper(output));
+            return Base64.getEncoder().encodeToString(output.toByteArray());
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to serialize Paimon DataSplit", e);
+        }
+    }
+
+    static String encodeTableSchema(TableSchema schema) {
+        try {
+            return JsonSerdeUtil.toJson(schema);
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to serialize Paimon table schema", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> String encodeObjectToString(T obj) {
         try {
@@ -2601,6 +2822,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    private Map<String, String> backendStorageProperties() {
+        if (context == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> properties = new HashMap<>();
+        for (StorageProperties storageProperties : storage().getStorageProperties()) {
+            storageProperties.toBackendProperties()
+                    .ifPresent(backend -> properties.putAll(backend.toMap()));
+        }
+        return properties;
     }
 
     /** Full identity used to resolve one statement-scoped Paimon {@link Table}. */
@@ -2652,9 +2885,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * selectors), the projected columns in order, the pushed filter, the limit and the COUNT
      * pushdown flag. The generation fences latest-dependent scans against same-path table
      * recreation or schema change between two aliases: without it, alias A's ranges (from
-     * generation A) could be paired with alias B's serialized table (from generation B). System
-     * tables are excluded upstream, and session variables are statement-constant, so both stay out
-     * of the key.
+     * generation A) could be paired with alias B's serialized table (from generation B). Nested
+     * projection shape and the common BE Rust capability are included because both change JNI/Rust
+     * routing even when the projected root-column names are identical. System tables are excluded
+     * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class PaimonScanReuseKey {
         private final String databaseName;
@@ -2663,9 +2897,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         private final Map<String, String> scanOptions;
         private final long generation;
         private final List<String> columnNames;
+        private final List<Boolean> nestedProjections;
+        private final boolean rustBackendCapable;
         private final Optional<ConnectorExpression> filter;
         private final long limit;
         private final boolean countPushdown;
+        private final boolean aggregatePushdown;
 
         private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request,
                 long generation) {
@@ -2682,17 +2919,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             this.columnNames = request.getColumns().stream()
                     .map(PaimonScanReuseKey::toPaimonColumnName)
                     .collect(Collectors.toList());
+            this.nestedProjections = request.getColumns().stream()
+                    .map(PaimonScanReuseKey::hasNestedProjection)
+                    .collect(Collectors.toList());
+            this.rustBackendCapable = request.allBackendsSupport(
+                    PaimonRustReaderSelector.BACKEND_CAPABILITY);
             this.filter = request.getFilter();
             this.limit = request.getLimit();
             this.countPushdown = request.isCountPushdown();
+            this.aggregatePushdown = request.isAggregatePushdown();
         }
 
         private static String toPaimonColumnName(ConnectorColumnHandle column) {
-            if (!(column instanceof PaimonColumnHandle)) {
-                throw new IllegalArgumentException(
-                        "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
+            return asPaimonColumn(column).getName().toLowerCase(Locale.ROOT);
+        }
+
+        private static boolean hasNestedProjection(ConnectorColumnHandle column) {
+            return asPaimonColumn(column).hasNestedProjection();
+        }
+
+        private static PaimonColumnHandle asPaimonColumn(ConnectorColumnHandle column) {
+            if (column instanceof PaimonColumnHandle) {
+                return (PaimonColumnHandle) column;
             }
-            return ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT);
+            throw new IllegalArgumentException(
+                    "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
         }
 
         @Override
@@ -2707,18 +2958,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return generation == that.generation
                     && limit == that.limit
                     && countPushdown == that.countPushdown
+                    && aggregatePushdown == that.aggregatePushdown
+                    && rustBackendCapable == that.rustBackendCapable
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(branchName, that.branchName)
                     && Objects.equals(scanOptions, that.scanOptions)
                     && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(nestedProjections, that.nestedProjections)
                     && Objects.equals(filter, that.filter);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(databaseName, tableName, branchName,
-                    scanOptions, generation, columnNames, filter, limit, countPushdown);
+                    scanOptions, generation, columnNames, nestedProjections,
+                    rustBackendCapable, filter, limit, countPushdown, aggregatePushdown);
         }
 
         @Override

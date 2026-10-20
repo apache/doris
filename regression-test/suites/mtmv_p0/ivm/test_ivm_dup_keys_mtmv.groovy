@@ -47,7 +47,9 @@ suite("test_ivm_dup_keys_mtmv") {
             (3, 30, 'ccc');
     """
 
-    // 3. Create IVM MV (simple scan, no aggregation)
+    // 3. Create IVM MV. The aggregate is what keeps it on the unique-key model, which is the model the
+    //    row-id assertions below are about; the base table stays an append-only detail table, whose scan
+    //    row-id is its row-binlog lsn.
     sql """
         CREATE MATERIALIZED VIEW test_ivm_dup_keys_mtmv_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
@@ -55,14 +57,15 @@ suite("test_ivm_dup_keys_mtmv") {
         PROPERTIES (
             'replication_num' = '1'
         )
-        AS SELECT * FROM test_ivm_dup_keys_mtmv_base;
+        AS SELECT k1, v1, v2, COUNT(*) AS cnt FROM test_ivm_dup_keys_mtmv_base GROUP BY k1, v1, v2;
     """
 
     // 4. Verify MV metadata
     def mvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_dup_keys_mtmv_mv'"""
     assertTrue(mvInfos.toString().contains("INIT"))
 
-    // 5. Verify MV is UNIQUE_KEYS (IVM MV is always MOW regardless of base table type)
+    // 5. Verify the MV is UNIQUE_KEYS: the aggregate settles the model on the unique-key one, whatever the
+    //    base table's key model is.
     def descResult = sql """desc test_ivm_dup_keys_mtmv_mv all"""
     assertTrue(descResult.toString().contains("UNIQUE_KEYS"))
 
@@ -89,8 +92,8 @@ suite("test_ivm_dup_keys_mtmv") {
     def rowCount = sql """SELECT COUNT(*) FROM test_ivm_dup_keys_mtmv_mv"""
     assertEquals(5, rowCount[0][0] as int)
 
-    // 10. Verify row_ids are the base table's row lsn values (DUP_KEYS row-id is the
-    //     __DORIS_ROW_LSN_COL__ slot, deterministic)
+    // 10. Verify every group has a row-id of its own (the grouped row-id is derived from the group keys,
+    //     so it is deterministic)
     sql """SET show_hidden_columns = true;"""
     def rowIds = sql """SELECT __DORIS_IVM_ROW_ID_COL__ FROM test_ivm_dup_keys_mtmv_mv ORDER BY __DORIS_IVM_ROW_ID_COL__"""
     sql """SET show_hidden_columns = false;"""

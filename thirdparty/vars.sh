@@ -105,10 +105,10 @@ SNAPPY_SOURCE=snappy-1.2.1
 SNAPPY_MD5SUM="dd6f9b667e69491e1dbf7419bdf68823"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.10.tar.gz
-GPERFTOOLS_SOURCE=gperftools-2.10
-GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.18.1/gperftools-2.18.1.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.18.1.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.18.1
+GPERFTOOLS_MD5SUM="129c01f6f5297f0482b33d431b5ec555"
 
 # zlib
 ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
@@ -617,11 +617,11 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Includes lance-c #94: synchronous index prewarm through the upstream C/C++ APIs.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/98468344bc9d56aa7ed4a4192e844afa62b34ba1"
-LANCE_C_NAME="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1.tar.gz"
-LANCE_C_SOURCE="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1"
-LANCE_C_MD5SUM="b452bab5d05f5bce5f0bfebe8b1fb831"
+# Includes lance-c #91/#94: search filters and synchronous index prewarm.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_NAME="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d.tar.gz"
+LANCE_C_SOURCE="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d"
+LANCE_C_MD5SUM="9e32aa626caf1cea3bfe62d12d60a2c8"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"

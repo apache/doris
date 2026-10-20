@@ -272,6 +272,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
@@ -748,7 +749,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setComment(table.getComment());
+                            // TABLE_COMMENT is a required Thrift field, so it must always be
+                            // set — but for some external tables (e.g. Iceberg since #64263)
+                            // getComment() loads the full table metadata from the remote
+                            // catalog. Only pay that lookup when the scan actually projects
+                            // TABLE_COMMENT, same as the other pruned status columns.
+                            status.setComment(needTableStatusColumn(requiredColumns, "TABLE_COMMENT")
+                                    ? table.getComment()
+                                    : "");
                             if (needTableStatusColumn(requiredColumns, "ENGINE")) {
                                 status.setEngine(table.getEngine());
                             }
@@ -996,7 +1004,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // values such as AGG and DUP that no MySQL client knows what to do with.
                         Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
                                 ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
-                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        List<Column> baseSchema = table.getBaseSchemaForDisplayOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
@@ -1372,6 +1380,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private UserIdentity resolveForwardedAuthUserIdentity(String fullUserName, String passwd, String clientIp,
             ForwardedCertificateInfo certInfo) throws AuthenticationException {
+
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(fullUserName, clientIp) != null) {
+            throw new AuthenticationException("Authentication-bound users must authenticate through their integration");
+        }
         CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
                 CERT_RUNTIME_AUTH_SERVICE, fullUserName, clientIp, certInfo);
         if (certDecision.isReject()) {
@@ -1379,7 +1391,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     ? "TLS certificate verification failed"
                     : certDecision.getErrorMessage());
         }
-        if (certDecision.shouldSkipPasswordVerification()) {
+        if (certDecision.shouldSkipPasswordVerification()
+                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
             return certDecision.getUserIdentity();
         }
 
@@ -3187,6 +3200,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return httpStreamParams;
     }
 
+    private void setHttpStreamLoadTableProperties(HttpStreamParams httpStreamParams,
+            TStreamLoadPutResult result) {
+        OlapTable table = (OlapTable) httpStreamParams.getTable();
+        TOlapTableSink sink = httpStreamParams.getParams().getFragment().getOutputSink().getOlapTableSink();
+        result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+        result.getPipelineParams().setEnableTso(table.enableTso());
+        result.setTableId(sink.getTableId());
+        result.setBaseSchemaVersion(sink.getBaseSchemaVersion());
+        result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());
+        result.setGroupCommitDataBytes(table.getGroupCommitDataBytes());
+    }
+
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
@@ -3245,14 +3270,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
-            result.getPipelineParams()
-                    .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
-            result.getPipelineParams().setEnableTso(((OlapTable) httpStreamParams.getTable()).enableTso());
             result.setDbId(httpStreamParams.getDb().getId());
-            result.setTableId(httpStreamParams.getTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
+            setHttpStreamLoadTableProperties(httpStreamParams, result);
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -3883,12 +3902,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
                         // Also collect secondary backends (may have cached data during primary failover)
-                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
-                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
-                            if (secondaryBe != null) {
-                                backends.add(secondaryBe);
-                            }
-                        }
+                        backends.addAll(cloudReplica.getAllSecondaryBes());
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,

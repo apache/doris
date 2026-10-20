@@ -37,7 +37,6 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -70,7 +69,7 @@
 #include "exprs/vstruct_literal.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
@@ -390,15 +389,13 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
-    _data_type = get_data_type_with_default_argument(
-            DataTypeFactory::instance().create_data_type(node.type, is_nullable));
+    _data_type = DataTypeFactory::instance().create_data_type(node.type, is_nullable);
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(DataTypePtr type, bool is_slotref)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _data_type(get_data_type_with_default_argument(type)) {
+        : _opcode(TExprOpcode::INVALID_OPCODE), _data_type(std::move(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -472,7 +469,7 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
@@ -745,7 +742,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
-        auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
+        auto real_expr_type = ctxs[i]->root()->data_type();
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
@@ -868,7 +865,7 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
         for (auto c : _children) {
             std::shared_ptr<ColumnPtrWrapper> const_col;
@@ -878,10 +875,11 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
         fn_ctx->set_constant_cols(constant_cols);
     }
 
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(
+                function->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
-    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
     return Status::OK();
 }
 
@@ -890,9 +888,11 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         // `close_function_context` is called in VExprContext's destructor so do not throw exceptions here.
-        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(
+                function->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+            static_cast<void>(
+                    function->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         }
     }
 }

@@ -28,6 +28,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
@@ -138,6 +139,32 @@ public class PaimonConnectorMetadataColumnEvolutionTest {
                 SchemaChange.UpdateColumnDefaultValue.class, ops.lastSchemaChanges.get(2));
         Assertions.assertInstanceOf(
                 SchemaChange.UpdateColumnPosition.class, ops.lastSchemaChanges.get(3));
+    }
+
+    @Test
+    public void modifyColumnKeepsRemoteNanosecondTimestampPrecision() {
+        // A comment-only modification must preserve the remote nanosecond precision.
+        List<DataField> fields = Arrays.asList(
+                new DataField(0, "id", new IntType(false)),
+                new DataField(1, "ts", new TimestampType(9)));
+        FakePaimonTable table = new FakePaimonTable(
+                "t", new RowType(fields), Collections.emptyList(), Collections.singletonList("id"));
+        RecordingPaimonCatalogOps tsOps = new RecordingPaimonCatalogOps();
+        tsOps.table = table;
+        tsOps.latestSchema = Optional.of(new PaimonCatalogOps.PaimonSchemaSnapshot(
+                fields, Collections.emptyList(), Collections.singletonList("id")));
+        PaimonConnectorMetadata tsMetadata = new PaimonConnectorMetadata(
+                tsOps, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        PaimonTableHandle tsHandle = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.singletonList("id"));
+        tsHandle.setPaimonTable(table);
+
+        tsMetadata.modifyColumn(null, tsHandle, new ConnectorColumn(
+                "ts", ConnectorType.of("TIMESTAMP_NS"), "event time", true, null), null);
+
+        Assertions.assertEquals(1, tsOps.lastSchemaChanges.size());
+        Assertions.assertInstanceOf(SchemaChange.UpdateColumnComment.class, tsOps.lastSchemaChanges.get(0),
+                "the projected type did not change, so the remote TIMESTAMP(9) must stay");
     }
 
     @Test

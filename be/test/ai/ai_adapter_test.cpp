@@ -32,6 +32,146 @@
 #include "exprs/function/ai/ai_summarize.h"
 
 namespace doris {
+
+TEST(AI_ADAPTER_TEST, parses_only_reported_usage_fields) {
+    struct UsageCase {
+        const char* provider;
+        const char* body;
+        std::optional<int64_t> prompt;
+        std::optional<int64_t> completion;
+        std::optional<int64_t> total;
+    };
+    const UsageCase cases[] = {
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"total_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":0,"completion_tokens":0}})",
+             .prompt = 0,
+             .completion = 0,
+             .total = std::nullopt},
+            {.provider = "DEEPSEEK",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MOONSHOT",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MINIMAX",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ZHIPU",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "BAICHUAN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ANTHROPIC",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":20}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "GEMINI",
+             .body = R"({"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3,"totalTokenCount":12}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 12},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "LOCAL",
+             .body = R"({"prompt_eval_count":7,"eval_count":3})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "LOCAL",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "VOYAGEAI",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "JINA",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"error":{"message":"rate limited"},"usage":{"prompt_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = std::nullopt},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.provider);
+        SCOPED_TRACE(test.body);
+        const auto adapter = AIAdapterFactory::create_adapter(test.provider);
+        const auto usage = adapter->parse_usage(test.body);
+        EXPECT_EQ(usage.prompt_tokens, test.prompt);
+        EXPECT_EQ(usage.completion_tokens, test.completion);
+        EXPECT_EQ(usage.total_tokens, test.total);
+    }
+}
+
+TEST(AI_ADAPTER_TEST, missing_or_malformed_usage_is_absent) {
+    for (const auto* provider :
+         {"OPENAI", "ANTHROPIC", "GEMINI", "QWEN", "LOCAL", "VOYAGEAI", "MOCK"}) {
+        const auto adapter = AIAdapterFactory::create_adapter(provider);
+        for (const auto* body :
+             {"", "not json", "null", "[]", "{}", R"({"usage":[]})",
+              R"({"usage":null,"usageMetadata":false})",
+              R"({"usage":{"prompt_tokens":-1,"completion_tokens":"3","total_tokens":1.5,"input_tokens":true,"output_tokens":null},"usageMetadata":{"promptTokenCount":-1,"candidatesTokenCount":"3","totalTokenCount":1.5},"prompt_eval_count":-1,"eval_count":false})",
+              R"({"usage":{"total_tokens":9223372036854775808}})"}) {
+            SCOPED_TRACE(provider);
+            SCOPED_TRACE(body);
+            const auto usage = adapter->parse_usage(body);
+            EXPECT_FALSE(usage.prompt_tokens.has_value());
+            EXPECT_FALSE(usage.completion_tokens.has_value());
+            EXPECT_FALSE(usage.total_tokens.has_value());
+        }
+    }
+}
+
+TEST(AI_ADAPTER_TEST, malformed_usage_field_does_not_discard_other_counts) {
+    OpenAIAdapter adapter;
+    const auto usage = adapter.parse_usage(
+            R"({"usage":{"prompt_tokens":-1,"completion_tokens":3,"total_tokens":9223372036854775807}})");
+    EXPECT_FALSE(usage.prompt_tokens.has_value());
+    EXPECT_EQ(usage.completion_tokens, 3);
+    EXPECT_EQ(usage.total_tokens, INT64_MAX);
+}
+
 class MockHttpClient : public HttpClient {
 public:
     curl_slist* get() { return this->_header_list; }

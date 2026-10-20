@@ -27,11 +27,11 @@ f_double	double	Yes	true	\N
 f_decimal	decimal(20,4)	Yes	true	\N	
 f_char	char(5)	Yes	true	\N	
 f_string	text	Yes	true	\N	
-f_binary	text	Yes	true	\N	
-f_bytes	text	Yes	true	\N	
+f_binary	varbinary(3)	Yes	true	\N	
+f_bytes	varbinary(2147483647)	Yes	true	\N	
 f_date	date	Yes	true	\N	
 f_timestamp	datetime(6)	Yes	true	\N	
-f_timestamp_ltz	datetime(3)	Yes	true	\N	WITH_TIMEZONE
+f_timestamp_ltz	timestamptz(3)	Yes	true	\N	WITH_TIMEZONE
 f_array	array<int>	Yes	true	\N	
 f_map	map<text,int>	Yes	true	\N	
 f_row	struct<r_int:int,r_string:text>	Yes	true	\N	
@@ -48,17 +48,17 @@ f_double	double	Yes	true	\N	NONE
 f_decimal	decimal(20,4)	Yes	true	\N	NONE
 f_char	char(5)	Yes	true	\N	NONE
 f_string	text	Yes	true	\N	NONE
-f_binary	text	Yes	true	\N	NONE
-f_bytes	text	Yes	true	\N	NONE
+f_binary	varbinary(3)	Yes	true	\N	NONE
+f_bytes	varbinary(2147483647)	Yes	true	\N	NONE
 f_date	date	Yes	true	\N	NONE
 f_timestamp	datetime(6)	Yes	true	\N	NONE
-f_timestamp_ltz	datetime(3)	Yes	true	\N	NONE
+f_timestamp_ltz	timestamptz(3)	Yes	true	\N	NONE
 f_array	array<int>	Yes	true	\N	NONE
 f_map	map<text,int>	Yes	true	\N	NONE
 f_row	struct<r_int:int,r_string:text>	Yes	true	\N	NONE
 
 -- !lake_types_row --
-1	true	1	2	3	4	1.5	2.5	123.4567	char1	string1	010203	0A0B	2026-01-01	2026-01-01T01:02:03.456789	2026-01-01T09:02:03.456	[1, 2, 3]	["k1", "k2"]	[1, 2]	{"r_int":1, "r_string":"nested1"}
+1	true	1	2	3	4	1.5	2.5	123.4567	char1	string1	010203	0A0B	2026-01-01	2026-01-01T01:02:03.456789	2026-01-01 09:02:03.456+08:00	[1, 2, 3]	["k1", "k2"]	[1, 2]	{"r_int":1, "r_string":"nested1"}
 
 -- !lake_types_count --
 1

@@ -49,7 +49,6 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -101,6 +100,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private final Map<String, String> sessionVariables;
     private boolean enableIvm;
     private DataType sequenceDataType = BigIntType.INSTANCE;
+    /**
+     * Whether the MV being created is an append-only detail table, as the normalize settled it. The
+     * distribution and table-information passes lay the MV out differently per table model.
+     */
+    private boolean ivmAppendOnlyDupModel;
     private String ivmPlanSignature;
 
     /**
@@ -184,9 +188,14 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
-        KeysType distributionKeysType = isEnableIvm() ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
-        boolean userHashDistributionForIvm = isEnableIvm() && distribution != null && distribution.isHash();
-        if (isEnableIvm()) {
+        // Which key model the MV is built on settles its distribution: the unique-key model is maintained
+        // through a row-id, so it is distributed on that unless the user hashed on something themselves,
+        // while an append-only detail MV holds the query's own rows and is distributed like any other DUP
+        // table -- which is what a non-IVM MV gets as well.
+        boolean ivmUniqueKeyModel = isEnableIvm() && !ivmAppendOnlyDupModel;
+        KeysType distributionKeysType = ivmUniqueKeyModel ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        boolean userHashDistributionForIvm = ivmUniqueKeyModel && distribution != null && distribution.isHash();
+        if (ivmUniqueKeyModel) {
             if (!userHashDistributionForIvm) {
                 distribution = buildIvmRowIdDistribution(distribution);
             }
@@ -356,12 +365,16 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
-        if (isEnableIvm()) {
+        ivmAppendOnlyDupModel = isEnableIvm()
+                && mtmvAnalyzeQueryInfo.getIvmRewriteResult().isAppendOnlyDupTable();
+        if (isEnableIvm() && !ivmAppendOnlyDupModel) {
+            // The unique-key model orders what its delta writes against what the MV already holds, so its
+            // sequence column type is part of the MV's properties, and the layout it reads is pinned down by
+            // a signature. An append-only detail MV has neither.
             sequenceDataType = calculateSequenceDataType(mtmvAnalyzeQueryInfo.getIvmNormalizedPlan());
             this.properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                     + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, sequenceDataType.toCatalogDataType().toSql());
-            IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
-            this.ivmPlanSignature = planSignature.getSha256();
+            this.ivmPlanSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature().getSha256();
         } else {
             this.ivmPlanSignature = null;
         }
@@ -446,13 +459,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        if (isEnableIvm()) {
+        if (isEnableIvm() && !ivmAppendOnlyDupModel) {
+            // The unique-key model merges on write, which is what its row-id, delete sign and sequence
+            // column are for.
             this.setKeysType(KeysType.UNIQUE_KEYS);
             if (properties == null) {
                 properties = Maps.newHashMap();
             }
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         } else {
+            // A non-IVM MV and an append-only detail MV are both plain DUP tables: the detail one holds the
+            // query's own rows and only appends them, so there is nothing for merge-on-write to do.
             this.setKeysType(KeysType.DUP_KEYS);
         }
         this.analyzeUniqueKeyMergeOnWrite();
@@ -480,10 +497,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
-        // CreateMTMVInfo does not run CreateTableInfo.validate(), but an IVM MV
-        // is physically a MOW UNIQUE table. Reuse the ordinary MOW partition
-        // rule so partition columns must be key columns after IVM key rewrite.
-        boolean validateAsMow = isEnableIvm() || isEnableMergeOnWrite();
+        // CreateMTMVInfo does not run CreateTableInfo.validate(), and the partition rule an MV is checked
+        // against is the one its own table model has. The unique-key model is physically a MOW UNIQUE
+        // table, so its partition columns must be key columns after the IVM key rewrite; an append-only
+        // detail MV is a plain DUP table, whose partition column may be one of its value columns.
+        boolean validateAsMow = isEnableIvm() ? !ivmAppendOnlyDupModel : isEnableMergeOnWrite();
         getPartitionTableInfo().validatePartitionInfo(
                 columnMap,
                 properties,

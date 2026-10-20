@@ -46,7 +46,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -125,6 +124,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -192,9 +192,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // to invalidate stale partition pruning metadata without reacting to ordinary data writes. This is transient and
     // rebuilt from zero after deserialization because prepared statement cache is also in-memory.
     private transient AtomicLong partitionTopologyVersion = new AtomicLong(0L);
-    // handled in postgsonprocess
+    // handled in postgsonprocess. Sorted, and weakly consistent so that lock-free readers
+    // (e.g. EXPLAIN plan rendering) never hit ConcurrentModificationException while the table
+    // write lock holder adds/drops partitions.
     @Getter
-    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = new ConcurrentSkipListMap<>();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -2430,6 +2432,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getBinlogConfig().isEnableForStreaming();
     }
 
+    public boolean hasRowBinlogTtl() {
+        return getBinlogConfig().isRowTtlEnabled();
+    }
+
     // Whether the base table physically stores the row LSN column (dup table with row binlog).
     public boolean hasRowLsnColumn() {
         return getBaseSchema(true).stream().anyMatch(Column::isRowLsnColumn);
@@ -4127,11 +4133,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String childName = child.getName();
                 if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
                     try {
-                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
-                        if (compiled.matcher(subPathString).matches()) {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
                             fieldPattern = childName;
                         }
-                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
+                    } catch (Exception e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {

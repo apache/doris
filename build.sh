@@ -884,6 +884,8 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # plugin directories. -am would reach them, but they are named here so this list stays a
     # complete enumeration.
     modules+=("be-java-extensions/plugin-toolkit")
+    modules+=("be-java-extensions/fluss-client-patch")
+    modules+=("be-java-extensions/paimon-common-patch")
     modules+=("be-java-extensions/hive-udf-shade")
     modules+=("be-java-extensions/hive-apache-shade")
 
@@ -956,6 +958,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
     update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+    update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
         compile_bench_phase_end
     fi
@@ -1379,26 +1382,16 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     done
     unset AUTHZ_PLUGIN_DIR authz_module authz_plugin_target authz_module_dir authz_zip
 
-    # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
-    # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
-    # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
-    # com.aliyun.jindodata is child-first (only org.apache.doris.connector./.filesystem. and
-    # org.apache.hadoop. are parent-first, see ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES),
-    # so without its OWN copy JindoOssFileSystem resolves from the parent 'app' classloader.
-    # Historically that could not be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem;
-    # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
-    # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
-    # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
-    # Naturally gated: a no-op unless jindofs was packaged (DISABLE_BUILD_JINDOFS=OFF, or
-    # post-build.sh --jindofs; build.sh itself takes no such flag).
-    # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
-    # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
-    # fe/lib/jindofs in the same FE process.
-    PAIMON_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/paimon/lib"
-    if [[ -d "${PAIMON_CONN_LIB}" && -d "${DORIS_OUTPUT}/fe/lib/jindofs" ]]; then
-        cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"*.jar "${PAIMON_CONN_LIB}/" 2>/dev/null || true
+    # DlfFileIO implements Iceberg interfaces that only the connector loader can see. Keep the
+    # adapter beside iceberg-core, but leave the Jindo SDK/native runtime in the parent loader:
+    # duplicating its native libraries in another connector can load them twice in the same JVM.
+    # Paimon likewise bundles only paimon-jindo (its FileIOLoader adapter) through Maven; both
+    # adapters share the optional fe/lib/jindofs runtime and the parent-loaded Hadoop FileSystem.
+    ICEBERG_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/iceberg/lib"
+    if [[ -d "${ICEBERG_CONN_LIB}" && -d "${DORIS_OUTPUT}/fe/lib/jindofs" ]]; then
+        cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"bennett-iceberg-plugin-*.jar "${ICEBERG_CONN_LIB}/" 2>/dev/null || true
     fi
-    unset PAIMON_CONN_LIB
+    unset ICEBERG_CONN_LIB
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"

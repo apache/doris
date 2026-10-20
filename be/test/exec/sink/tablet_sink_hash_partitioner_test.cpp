@@ -534,7 +534,7 @@ TEST(TabletSinkHashPartitionerTest, TimeStampNsRangePartitionKey) {
     auto column = slot->get_empty_mutable_column();
     const TimeStampNsValue min_value(std::numeric_limits<int64_t>::min());
     column->insert_data(reinterpret_cast<const char*>(&min_value), 0);
-    Block block({{std::move(column), slot->get_data_type_ptr(), slot->col_name()}});
+    Block block({{std::move(column), slot->type(), slot->col_name()}});
 
     VOlapTablePartition* result = nullptr;
     EXPECT_TRUE(partitions.find_partition(&block, 0, result));

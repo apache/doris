@@ -232,7 +232,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
         }
-        validateStorageProperties(catalogProperty);
+        validateStorageProperties(catalogProperty, catalogProperty.getProperties());
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
@@ -256,7 +256,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        validateStorageProperties(candidateProperty);
+        validateStorageProperties(candidateProperty, updatedProperties);
         checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
@@ -266,13 +266,15 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * Bind Hive catalog storage properties during DDL validation so HDFS configuration errors are
      * reported by CREATE/ALTER instead of being deferred until the first table access.
      */
-    private void validateStorageProperties(CatalogProperty property) throws DdlException {
+    private void validateStorageProperties(CatalogProperty property, Map<String, String> submittedProperties)
+            throws DdlException {
         if (!"hms".equalsIgnoreCase(getType())) {
             return;
         }
-        String nameservices = property.getProperties().get("dfs.nameservices");
+        // Reject newly submitted empty values without blocking unrelated ALTERs of legacy catalogs.
+        String nameservices = submittedProperties.get("dfs.nameservices");
         if (nameservices != null
-                && java.util.Arrays.stream(nameservices.split(","))
+                && Arrays.stream(nameservices.split(","))
                 .map(String::trim).noneMatch(value -> !value.isEmpty())) {
             throw new DdlException("Property dfs.nameservices must contain a nameservice");
         }
@@ -1382,6 +1384,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         long updateTime = System.currentTimeMillis();
         try {
             metadata.replacePartitionField(session, handle, ConnectorPartitionFieldConverter.toReplaceChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... SET ("key" = "value", ...)} with connector-native properties through the
+     * SPI's {@code ConnectorTableOps#setTableProperties}. The whole map goes to the connector in one call, which
+     * commits all of it or none of it, and {@link #afterExternalDdl} runs only after that call returns, so a
+     * rejected update neither writes the refresh editlog nor refreshes the cached table.
+     */
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.setTableProperties(session, handle, properties);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

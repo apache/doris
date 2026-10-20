@@ -34,8 +34,8 @@
 #include "exprs/function/match.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
@@ -825,7 +825,7 @@ TEST(FunctionMatchTest, null_array_elements_do_not_match_hidden_payload) {
             &runtime_state, std::make_shared<DataTypeUInt8>(), {array_type, string_type});
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
     analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
-    context->set_function_state(FunctionContext::FRAGMENT_LOCAL, analyzer_ctx);
+    context->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL, analyzer_ctx);
 
     auto check_match = [&](const FunctionMatchBase& function) {
         auto values = ColumnString::create();

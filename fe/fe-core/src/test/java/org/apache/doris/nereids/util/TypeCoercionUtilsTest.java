@@ -17,17 +17,21 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -38,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -45,8 +50,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -104,6 +111,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 public class TypeCoercionUtilsTest {
@@ -376,6 +384,57 @@ public class TypeCoercionUtilsTest {
                     new InPredicate(timestampTz, ImmutableList.of(exactTimestampNs)));
             timestampTzIn.children().forEach(child -> Assertions.assertEquals(
                     TimeStampTzType.MAX, child.getDataType()));
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testDecimalArithmeticWithWiderOperandInDecimal128Mode() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableDecimal256 = false;
+        connectContext.setThreadLocalInfo();
+        try {
+            // a decimal256 column, or a view output analyzed with enable_decimal256 on
+            SlotReference wide = new SlotReference("d256", DecimalV3Type.createDecimalV3TypeNoCheck(76, 10));
+            DecimalV3Literal narrow = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(38, 10),
+                    new BigDecimal("1.0000000000"));
+            DecimalV3Type expected = DecimalV3Type.createDecimalV3Type(38, 10);
+
+            List<BinaryArithmetic> arithmetics = ImmutableList.of(new Add(wide, narrow), new Subtract(wide, narrow),
+                    new Mod(wide, narrow), new Add(narrow, wide), new Add(wide, new IntegerLiteral(1)));
+            for (BinaryArithmetic arithmetic : arithmetics) {
+                Expression coerced = TypeCoercionUtils.processBinaryArithmetic(arithmetic);
+                Assertions.assertEquals(expected, coerced.getDataType(), arithmetic.toSql());
+                Assertions.assertEquals(expected, coerced.child(0).getDataType(), arithmetic.toSql());
+                Assertions.assertEquals(expected, coerced.child(1).getDataType(), arithmetic.toSql());
+            }
+            Expression add = TypeCoercionUtils.processBinaryArithmetic(new Add(wide, narrow));
+            Assertions.assertInstanceOf(Cast.class, add.child(0));
+            Assertions.assertEquals(wide, add.child(0).child(0));
+
+            // an operand whose integral part fits in decimal128 keeps it, only the scale is reduced
+            SlotReference wideScale = new SlotReference("multi", DecimalV3Type.createDecimalV3TypeNoCheck(41, 11));
+            Expression addWideScale = TypeCoercionUtils.processBinaryArithmetic(
+                    new Add(wideScale, new IntegerLiteral(1)));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 8), addWideScale.getDataType());
+            Assertions.assertEquals(new Cast(wideScale, DecimalV3Type.createDecimalV3Type(38, 8)),
+                    addWideScale.child(0));
+
+            // multiply does not cast its children to the return type, so the wide operand is kept
+            Expression multiply = TypeCoercionUtils.processBinaryArithmetic(new Multiply(wide, narrow));
+            Assertions.assertEquals(wide, multiply.child(0));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 6), multiply.getDataType());
+
+            // decimal256 mode keeps the wide result type
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            Expression add256 = TypeCoercionUtils.processBinaryArithmetic(new Add(wide, narrow));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(76, 10), add256.getDataType());
+            Assertions.assertEquals(wide, add256.child(0));
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {
@@ -767,15 +826,26 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantToJsonImplicitCastRequiresExplicitCast() {
-        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
-                VariantType.INSTANCE, JsonType.INSTANCE).isEmpty());
+    public void testVariantToJsonImplicitCast() {
+        Assertions.assertEquals(JsonType.INSTANCE,
+                TypeCoercionUtils.implicitCast(VariantType.INSTANCE, JsonType.INSTANCE).get());
     }
 
     @Test
-    public void testVariantToJsonFunctionSignatureRequiresExplicitCast() {
-        Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
+    public void testVariantToJsonFunctionSignature() {
+        Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
                 JsonType.INSTANCE, VariantType.INSTANCE));
+    }
+
+    @Test
+    public void testToJsonAcceptsVariantArgument() {
+        SlotReference variant = new SlotReference("v", new VariantType(100));
+        FunctionSignature signature = new ToJson(variant).getSignature();
+        Assertions.assertEquals(JsonType.INSTANCE, signature.returnType);
+        Assertions.assertEquals(variant.getDataType(), signature.getArgType(0));
+        // JSON builders keep converting a Variant argument through to_json.
+        Expression array = new JsonArray(variant).rewriteWhenAnalyze();
+        Assertions.assertEquals(new ToJson(variant), array.child(0));
     }
 
     @Test
@@ -910,7 +980,7 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testInPredicateStructCastKeepsNullableCastResult() {
+    public void testInPredicateStructIsRejected() {
         StructLiteral stringStruct = new StructLiteral(ImmutableList.of(
                 new IntegerLiteral(1), new StringLiteral("2")));
         StructLiteral integerStruct = new StructLiteral(ImmutableList.of(
@@ -918,11 +988,10 @@ public class TypeCoercionUtilsTest {
         InPredicate predicate = new InPredicate(stringStruct,
                 ImmutableList.of(integerStruct, NullLiteral.INSTANCE));
 
-        InPredicate coerced = (InPredicate) TypeCoercionUtils.processInPredicate(predicate);
-
-        StructType commonType = (StructType) coerced.getCompareExpr().getDataType();
-        Assertions.assertTrue(commonType.getFields().get(1).isNullable(),
-                "String-to-decimal coercion can produce NULL inside the struct field");
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processInPredicate(predicate));
+        Assertions.assertTrue(error.getMessage().contains("in predicate could not contains complex type"),
+                error.getMessage());
     }
 
     @Test
@@ -1054,13 +1123,26 @@ public class TypeCoercionUtilsTest {
         ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
         ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
 
-        AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
-        Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+        // Variant equality uses canonical comparison, so it is accepted without a cast.
+        EqualTo equality = new EqualTo(variant, anotherVariant);
+        Assertions.assertSame(equality, TypeCoercionUtils.processComparisonPredicate(equality));
 
-        AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
-        Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
+        NullSafeEqual nullSafeEquality = new NullSafeEqual(variant, anotherVariant);
+        Assertions.assertSame(nullSafeEquality, TypeCoercionUtils.processComparisonPredicate(nullSafeEquality));
+
+        // A bare NULL takes the Variant type on either side; an ordering comparison stays rejected.
+        for (ComparisonPredicate bareNull : ImmutableList.of(
+                new EqualTo(variant, NullLiteral.INSTANCE), new EqualTo(NullLiteral.INSTANCE, variant),
+                new NullSafeEqual(variant, NullLiteral.INSTANCE),
+                new NullSafeEqual(NullLiteral.INSTANCE, variant))) {
+            Expression coerced = TypeCoercionUtils.processComparisonPredicate(bareNull);
+            Assertions.assertEquals(bareNull.getClass(), coerced.getClass());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(0).getDataType());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(1).getDataType());
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new GreaterThan(variant, NullLiteral.INSTANCE)));
 
         AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
@@ -1081,9 +1163,8 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(subpathComparison.child(0).getDataType(),
                 subpathComparison.child(1).getDataType());
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(
-                        new EqualTo(variantSubpath, anotherVariantSubpath)));
+        EqualTo subpathEquality = new EqualTo(variantSubpath, anotherVariantSubpath);
+        Assertions.assertSame(subpathEquality, TypeCoercionUtils.processComparisonPredicate(subpathEquality));
 
         Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
                 new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));
@@ -1196,6 +1277,17 @@ public class TypeCoercionUtilsTest {
                 coercedArg.getDataType().equals(DoubleType.INSTANCE) || coercedArg.getDataType().isNumericType(),
                 "The argument of AVG should be of a numeric type after type coercion."
         );
+    }
+
+    @Test
+    public void testProcessSum0JsonArgument() {
+        SlotReference jsonCol = new SlotReference("c_json", JsonType.INSTANCE);
+        Expression coerced = TypeCoercionUtils.processBoundFunction(new Sum0(jsonCol));
+        Assertions.assertEquals(DoubleType.INSTANCE, coerced.child(0).getDataType());
+
+        SlotReference bitmapCol = new SlotReference("c_bitmap", BitmapType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processBoundFunction(new Sum0(bitmapCol)));
     }
 
     @Test

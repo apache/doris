@@ -64,8 +64,8 @@ struct BinaryArithmeticRunner {
         }
         ctx = FunctionContext::create_context(nullptr, res_type, {type_a, type_b});
         ctx->set_check_overflow_for_decimal(true);
-        if (!func->open(ctx.get(), FunctionContext::FRAGMENT_LOCAL).ok() ||
-            !func->open(ctx.get(), FunctionContext::THREAD_LOCAL).ok()) {
+        if (!func->open(ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok() ||
+            !func->open(ctx.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok()) {
             throw std::runtime_error(name + " open failed");
         }
         block.insert({nullptr, res_type, "result"});

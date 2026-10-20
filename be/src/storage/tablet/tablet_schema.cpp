@@ -17,6 +17,7 @@
 
 #include "storage/tablet/tablet_schema.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
@@ -46,8 +47,8 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -574,6 +575,24 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
+}
+
+std::string TabletColumn::debug_string() const {
+    const std::string path = _column_path == nullptr ? "<none>" : _column_path->get_path();
+    return fmt::format(
+            "TabletColumn(uid={}, name={}, type={}, aggregation={}, is_key={}, is_nullable={}, "
+            "length={}, index_length={}, precision={}, frac={}, parent_uid={}, path={}, "
+            "subcolumn_count={}, has_default_value={}, variant={{max_subcolumns_count={}, "
+            "enable_typed_paths_to_sparse={}, max_sparse_column_statistics_size={}, "
+            "sparse_hash_shard_count={}, enable_doc_mode={}, doc_materialization_min_rows={}, "
+            "doc_hash_shard_count={}, enable_nested_group={}}})",
+            _unique_id, _col_name, get_string_by_field_type(_type), _aggregation_name, _is_key,
+            _is_nullable, _length, _index_length, _precision, _frac, _parent_col_unique_id, path,
+            _sub_column_count, _has_default_value, _variant.max_subcolumns_count,
+            _variant.enable_typed_paths_to_sparse, _variant.max_sparse_column_statistics_size,
+            _variant.sparse_hash_shard_count, _variant.enable_doc_mode,
+            _variant.doc_materialization_min_rows, _variant.doc_hash_shard_count,
+            _variant.enable_nested_group);
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
@@ -1105,9 +1124,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
     _row_lsn_col_idx = schema.row_lsn_col_idx();
-    _binlog_tso_col_idx = schema.binlog_tso_col_idx();
-    _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
-    _binlog_op_col_idx = schema.binlog_op_col_idx();
+    // The binlog column cids are not persisted; derive them from the column names.
+    _binlog_tso_col_idx = field_index(BINLOG_TSO_COL);
+    _binlog_lsn_col_idx = field_index(BINLOG_LSN_COL);
+    _binlog_op_col_idx = field_index(BINLOG_OP_COL);
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1444,9 +1464,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
     tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
-    tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
-    tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
-    tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());

@@ -532,6 +532,9 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
                         block_holder->reset_block();
                     }
 
+                    RETURN_IF_ERROR(block_holder->prepare_serialized_block(
+                            local_state._sink_buffer->send_multi_blocks(),
+                            local_state._rpc_channels_num));
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;

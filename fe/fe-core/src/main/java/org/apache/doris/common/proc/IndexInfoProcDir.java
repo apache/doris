@@ -144,7 +144,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
                 }
             } else {
-                schema = table.getBaseSchema();
+                schema = table.getBaseSchemaForDisplay();
             }
             return new IndexSchemaProcNode(schema, bfColumns);
         } finally {

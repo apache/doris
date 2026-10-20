@@ -174,6 +174,7 @@ public class Column implements GsonPostProcessable {
     // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
     // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
     private transient String connectorDefaultValueSql;
+    private transient Type connectorStringWriteType;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -407,6 +408,7 @@ public class Column implements GsonPostProcessable {
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.connectorDefaultValueSql = column.connectorDefaultValueSql;
+        this.connectorStringWriteType = column.connectorStringWriteType;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
@@ -679,6 +681,14 @@ public class Column implements GsonPostProcessable {
         }
     }
 
+    public Type getConnectorStringWriteType() {
+        return connectorStringWriteType;
+    }
+
+    public void setConnectorStringWriteType(Type connectorStringWriteType) {
+        this.connectorStringWriteType = connectorStringWriteType;
+    }
+
     public String getConnectorDefaultValueSql() {
         return connectorDefaultValueSql;
     }
@@ -896,7 +906,7 @@ public class Column implements GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
         }

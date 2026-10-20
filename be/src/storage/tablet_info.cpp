@@ -531,16 +531,16 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 auto& expr_type = _partition_function[it->second]->data_type();
                 _partition_block.insert({expr_type->create_column(), expr_type, slot->col_name()});
             } else {
-                _partition_block.insert({slot->get_empty_mutable_column(),
-                                         slot->get_data_type_ptr(), slot->col_name()});
+                _partition_block.insert(
+                        {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
             }
         }
         VLOG_TRACE << _partition_block.dump_structure();
     } else {
         // we insert all. but not all will be used. it will controlled by _partition_slot_locs
         for (auto* slot : _slots) {
-            _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                                     slot->col_name()});
+            _partition_block.insert(
+                    {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
         }
     }
 }

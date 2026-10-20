@@ -18,11 +18,18 @@
 #include "service/http/http_client.h"
 
 #include <absl/strings/str_split.h>
+#include <fcntl.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <mutex>
 #include <ostream>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -281,29 +288,90 @@ HttpClient::~HttpClient() {
     }
 }
 
+std::string HttpClient::_get_ca_certificate_path(const std::string& configured_paths) {
+    struct CertificatePathCache {
+        std::mutex mutex;
+        std::string configured_paths;
+        std::string selected_path;
+        std::chrono::steady_clock::time_point refresh_after;
+    };
+    static CertificatePathCache cache;
+    std::scoped_lock lock(cache.mutex);
+    const auto now = std::chrono::steady_clock::now();
+    if (cache.configured_paths != configured_paths || now >= cache.refresh_after) {
+        cache.selected_path.clear();
+        const std::vector<std::string> candidates =
+                absl::StrSplit(configured_paths, ';', absl::SkipEmpty());
+        for (const auto& path : candidates) {
+            std::error_code error;
+            if (!std::filesystem::is_regular_file(path, error) || error) {
+                continue;
+            }
+            std::ifstream file(path);
+            if (file.good()) {
+                cache.selected_path = path;
+                break;
+            }
+        }
+        cache.configured_paths = configured_paths;
+        // Configuration changes refresh immediately; also refresh filesystem changes periodically.
+        cache.refresh_after = now + std::chrono::minutes(1);
+    }
+    return cache.selected_path;
+}
+
+Status HttpClient::_set_ca_certificate_from_config() {
+    std::string configured_paths;
+    {
+        std::scoped_lock lock(*config::get_mutable_string_config_lock());
+        configured_paths = config::ca_cert_file_paths;
+    }
+    const auto path = _get_ca_certificate_path(configured_paths);
+    if (path.empty()) {
+        // No usable candidate: retain libcurl's default CA settings and verification.
+        return Status::OK();
+    }
+
+    const auto code = curl_easy_setopt(_curl, CURLOPT_CAINFO, path.c_str());
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "failed to set CURLOPT_CAINFO, path=" << path
+                     << ", errmsg=" << _to_errmsg(code);
+        return Status::InternalError("failed to set CA certificate {}: {}", path, _to_errmsg(code));
+    }
+    return Status::OK();
+}
+
+void HttpClient::reset() {
+    if (_curl != nullptr) {
+        curl_easy_reset(_curl);
+    }
+    if (_header_list != nullptr) {
+        curl_slist_free_all(_header_list);
+        _header_list = nullptr;
+    }
+    _abort_callback = nullptr;
+    _callback = nullptr;
+    _error_buf[0] = 0;
+    _last_curl_code = CURLE_OK;
+    _method = GET;
+}
+
 Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
+    reset();
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
             return Status::InternalError("fail to initialize curl");
         }
-    } else {
-        curl_easy_reset(_curl);
     }
-
-    if (_header_list != nullptr) {
-        curl_slist_free_all(_header_list);
-        _header_list = nullptr;
-    }
-    // curl_easy_reset() dropped the progress callback options, so drop the functor too.
-    _abort_callback = nullptr;
-    // set error_buf
-    _error_buf[0] = 0;
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_ERRORBUFFER, msg=" << _to_errmsg(code);
         return Status::InternalError("fail to set error buffer");
     }
+    // Apply runtime CA paths after reset, including HTTP requests redirected to HTTPS.
+    RETURN_IF_ERROR(_set_ca_certificate_from_config());
+
     // forbid signals
     code = curl_easy_setopt(_curl, CURLOPT_NOSIGNAL, 1L);
     if (code != CURLE_OK) {
@@ -450,6 +518,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
+    _last_curl_code = code;
     if (code != CURLE_OK) {
         std::string url = mask_token(_get_url());
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code)
@@ -464,22 +533,47 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     return Status::OK();
 }
 
-Status HttpClient::get_content_md5(std::string* md5) const {
-    struct curl_header* header_ptr;
-    auto code = curl_easy_header(_curl, HttpHeaders::CONTENT_MD5, 0, CURLH_HEADER, 0, &header_ptr);
+Status HttpClient::get_response_header(const char* name, std::string* value) const {
+    struct curl_header* header = nullptr;
+    // -1 selects the final response after redirects, rather than the first request.
+    const auto code = curl_easy_header(_curl, name, 0, CURLH_HEADER, -1, &header);
+    value->clear();
     if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
-        // no such headers exists
-        md5->clear();
         return Status::OK();
-    } else if (code != CURLHE_OK) {
-        auto msg = fmt::format("failed to get http header {}: {} ({})", HttpHeaders::CONTENT_MD5,
-                               header_error_msg(code), code);
-        LOG(WARNING) << msg << ", trace=" << get_stack_trace();
-        return Status::HttpError(std::move(msg));
     }
-
-    *md5 = header_ptr->value;
+    if (code != CURLHE_OK) {
+        auto message = fmt::format("failed to get http header {}: {} ({})", name,
+                                   header_error_msg(code), code);
+        LOG(WARNING) << message << ", trace=" << get_stack_trace();
+        return Status::HttpError(std::move(message));
+    }
+    *value = header->value;
     return Status::OK();
+}
+
+Status HttpClient::get_content_md5(std::string* md5) const {
+    return get_response_header(HttpHeaders::CONTENT_MD5, md5);
+}
+
+HttpTransferMetrics HttpClient::get_transfer_metrics() const {
+    const auto time_ns = [this](CURLINFO info) -> int64_t {
+        curl_off_t time_us = 0;
+        curl_easy_getinfo(_curl, info, &time_us);
+        return time_us * 1000;
+    };
+    HttpTransferMetrics metrics;
+    long connections = 0;
+    curl_easy_getinfo(_curl, CURLINFO_NUM_CONNECTS, &connections);
+    metrics.new_connections = connections;
+    metrics.dns_time_ns = time_ns(CURLINFO_NAMELOOKUP_TIME_T);
+    const auto connected_ns = time_ns(CURLINFO_CONNECT_TIME_T);
+    const auto tls_connected_ns = time_ns(CURLINFO_APPCONNECT_TIME_T);
+    // curl reports zero connect times for reused connections and zero appconnect for HTTP.
+    metrics.connect_time_ns = std::max<int64_t>(0, connected_ns - metrics.dns_time_ns);
+    metrics.tls_time_ns = std::max<int64_t>(0, tls_connected_ns - connected_ns);
+    metrics.first_byte_time_ns = time_ns(CURLINFO_STARTTRANSFER_TIME_T);
+    metrics.total_time_ns = time_ns(CURLINFO_TOTAL_TIME_T);
+    return metrics;
 }
 
 Status HttpClient::download(const std::string& local_path) {

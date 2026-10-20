@@ -119,6 +119,10 @@ public class TableQueryPlanAction extends RestBaseController {
 
         try {
             String postContent = HttpUtils.getBody(request);
+            if ("true".equals(request.getParameter("forward")) && checkForwardToMaster(request)) {
+                // Use POST internally so forwarding a GET request preserves the SQL body.
+                return forwardToMaster(request, postContent, "POST");
+            }
             // may be these common validate logic should be moved to one base class
             if (Strings.isNullOrEmpty(postContent)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");

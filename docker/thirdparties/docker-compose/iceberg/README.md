@@ -24,6 +24,28 @@ tools:
     save_docker.sh: save the current docker state
 ```
 
+## Trino JDBC regressions
+
+The Iceberg stack publishes Trino on `TRINO_JDBC_PORT` (8080 by default in
+`iceberg.env`). The health check executes `SELECT 1`, so startup with `--wait`
+waits for Trino to accept queries.
+
+To run `test_trino_timestamp_query_tvf` and `test_trino_uuid_predicates`, start
+the stack with `docker/thirdparties/run-thirdparties-docker.sh -c iceberg` and
+set these regression options:
+
+```groovy
+enableTrinoJdbcTest = true
+externalEnvIp = "<docker-host>"
+trino_jdbc_port = 8080
+```
+
+Both FE and BE must be able to reach the Docker host at that port. If the host
+port is already occupied, change `TRINO_JDBC_PORT` in `iceberg.env`, recreate
+the Trino container, and use the same value for `trino_jdbc_port`. Trino's
+container port remains 8080. The pinned Trino image supports `WITH SESSION`
+and includes the `memory` catalog used by the UUID regression.
+
 ## Run on Apple Silicon macOS
 
 Install Docker Desktop and Bash 4 or newer first. The macOS system Bash

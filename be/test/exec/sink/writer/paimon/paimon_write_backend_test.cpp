@@ -19,10 +19,14 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+#include <utility>
+
 #include "agent/be_exec_version_manager.h"
 #include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "exec/sink/writer/paimon/paimon_table_writer.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -63,11 +67,11 @@ TEST(PaimonWriteBackendTest, ReportsConcreteBackendType) {
 }
 
 TEST(PaimonWriteBackendTest, AdvertisesPaimonWriteExecVersion) {
-    // The Paimon write version must stay within the accepted range; once later versions land
-    // (e.g. the distribution hash type version) it is no longer the newest one, so a newer
-    // version being accepted is expected rather than a regression.
-    EXPECT_GE(BeExecVersionManager::get_newest_version(), SUPPORT_PAIMON_WRITE_VERSION);
+    EXPECT_LE(SUPPORT_PAIMON_WRITE_VERSION, BeExecVersionManager::get_newest_version());
     EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION).ok());
+    EXPECT_FALSE(BeExecVersionManager::check_be_exec_version(
+                         BeExecVersionManager::get_newest_version() + 1)
+                         .ok());
 }
 
 TEST(PaimonTableSinkOperatorTest, InitializesAsBlockingSink) {
@@ -85,6 +89,35 @@ TEST(PaimonTableSinkOperatorTest, InitializesAsBlockingSink) {
 
     MockRuntimeState state;
     EXPECT_TRUE(sink_operator.prepare(&state).ok());
+}
+
+TEST(PaimonTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) {
+    TPaimonTableSink paimon_sink;
+    TDataSink data_sink;
+    data_sink.__set_type(TDataSinkType::PAIMON_TABLE_SINK);
+    data_sink.__set_paimon_table_sink(paimon_sink);
+    VExprContextSPtrs output_exprs;
+    PaimonTableWriter writer(std::move(data_sink), output_exprs);
+    RuntimeState state;
+    RuntimeProfile profile("test");
+
+    Status status = writer.open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
+}
+
+TEST(PaimonTableWriterTest, ClosesCancelledWriterBeforeOpen) {
+    TPaimonTableSink paimon_sink;
+    TDataSink data_sink;
+    data_sink.__set_type(TDataSinkType::PAIMON_TABLE_SINK);
+    data_sink.__set_paimon_table_sink(paimon_sink);
+    VExprContextSPtrs output_exprs;
+    PaimonTableWriter writer(std::move(data_sink), output_exprs);
+
+    Status status = writer.close(Status::Cancelled("cancelled before open"));
+
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
 }
 
 } // namespace doris

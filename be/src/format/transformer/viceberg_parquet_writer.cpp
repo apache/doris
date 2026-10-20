@@ -21,6 +21,8 @@
 #include <parquet/schema.h>
 
 #include <algorithm>
+#include <optional>
+#include <unordered_set>
 
 #include "format/table/iceberg/iceberg_arrow_block_convertor.h"
 #include "format/table/parquet_utils.h"
@@ -51,6 +53,33 @@ static std::string encode_iceberg_bound(const ::parquet::Statistics& stats, std:
     encoded.erase(0, start);
     return encoded;
 }
+
+namespace {
+
+// The Iceberg field whose metrics a Parquet leaf column feeds.
+struct IcebergMetricColumn {
+    int field_id;
+    bool is_variant_metadata;
+};
+
+// The leaves of a Variant carry no Iceberg field id. Its metadata leaf counts the values and nulls
+// of the Variant field, and its value leaf feeds no metric: its byte statistics are no logical
+// Variant statistics.
+std::optional<IcebergMetricColumn> iceberg_metric_column(const ::parquet::schema::Node& leaf) {
+    const auto* parent = leaf.parent();
+    const bool is_variant_leaf = parent != nullptr && parent->logical_type() != nullptr &&
+                                 parent->logical_type()->is_variant();
+    if (is_variant_leaf && leaf.name() != "metadata") {
+        return std::nullopt;
+    }
+    const int field_id = is_variant_leaf ? parent->field_id() : leaf.field_id();
+    // Every field of the Iceberg schema the file is written with carries its id.
+    DORIS_CHECK_GE(field_id, 0);
+    return IcebergMetricColumn {field_id, is_variant_leaf};
+}
+
+} // namespace
+
 VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter* file_writer,
                                              const VExprContextSPtrs& output_vexpr_ctxs,
                                              std::vector<std::string> column_names,
@@ -97,16 +126,28 @@ Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumn
     std::map<int, std::string> lower_bounds;
     std::map<int, std::string> upper_bounds;
     std::map<int, std::shared_ptr<::parquet::Statistics>> merged_column_stats;
+    // Variant fields get value and null counts, but no column size and no bounds.
+    std::unordered_set<int> variant_field_ids;
 
     const int num_row_groups = file_metadata->num_row_groups();
     const int num_columns = file_metadata->num_columns();
     for (int col_idx = 0; col_idx < num_columns; ++col_idx) {
-        auto field_id = file_metadata->schema()->Column(col_idx)->schema_node()->field_id();
+        const auto metric_column =
+                iceberg_metric_column(*file_metadata->schema()->Column(col_idx)->schema_node());
+        if (!metric_column.has_value()) {
+            continue;
+        }
+        const auto [field_id, is_variant_metadata] = *metric_column;
+        if (is_variant_metadata) {
+            variant_field_ids.insert(field_id);
+        }
 
         for (int rg_idx = 0; rg_idx < num_row_groups; ++rg_idx) {
             auto row_group = file_metadata->RowGroup(rg_idx);
             auto column_chunk = row_group->ColumnChunk(col_idx);
-            column_sizes[field_id] += column_chunk->total_compressed_size();
+            if (!is_variant_metadata) {
+                column_sizes[field_id] += column_chunk->total_compressed_size();
+            }
 
             if (column_chunk->is_stats_set()) {
                 auto column_stat = column_chunk->statistics();
@@ -129,7 +170,7 @@ Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumn
             null_value_counts[field_id] = null_count;
             value_counts[field_id] += null_count;
         }
-        if (column_stat->HasMinMax()) {
+        if (!variant_field_ids.contains(field_id) && column_stat->HasMinMax()) {
             has_any_min_max = true;
             lower_bounds[field_id] = encode_iceberg_bound(*column_stat, column_stat->EncodeMin());
             upper_bounds[field_id] = encode_iceberg_bound(*column_stat, column_stat->EncodeMax());

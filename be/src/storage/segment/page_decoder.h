@@ -19,6 +19,7 @@
 
 #include "common/status.h" // for Status
 #include "core/column/column.h"
+#include "storage/olap_define.h" // for DISALLOW_COPY_AND_ASSIGN
 
 namespace doris {
 namespace segment_v2 {
@@ -27,6 +28,8 @@ namespace segment_v2 {
 class PageDecoder {
 public:
     PageDecoder() {}
+    PageDecoder(const PageDecoder&) = delete;
+    PageDecoder& operator=(const PageDecoder&) = delete;
 
     virtual ~PageDecoder() {}
 
@@ -86,9 +89,6 @@ public:
     virtual Status get_dict_word_info(StringRef* dict_word_info) {
         return Status::NotSupported("get_dict_word_info not implement");
     }
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(PageDecoder);
 };
 
 } // namespace segment_v2

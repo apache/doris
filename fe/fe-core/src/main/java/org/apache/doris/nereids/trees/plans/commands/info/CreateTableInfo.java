@@ -325,7 +325,7 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() {
+    private boolean isEffectiveRowBinlogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         BinlogConfig binlogConfig = db == null
                 ? BinlogConfig.fromProperties(properties)
@@ -485,13 +485,6 @@ public class CreateTableInfo {
             }
             if (columnDef.getType().isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
-            }
-            if (columnDef.getType().isVariantType()) {
-                if (columnNameUpperCase.indexOf('.') != -1) {
-                    throw new AnalysisException(
-                        "Disable to create table of `VARIANT` type column named with a `.` character: "
-                                + columnNameUpperCase);
-                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(

@@ -136,6 +136,8 @@ Usage: $0 <options>
 
   Environment variables:
      EXTRA_FE_MODULES     Optional FE feature modules in feature=module_path format, separated by commas.
+     FE_UT_JAVA_OPTS      Forked fe-core JVM options (set to empty for a baseline run).
+                         Default: -XX:ActiveProcessorCount=2 -XX:TieredStopAtLevel=1
 
   Eg.
     $0                                                                      build and run ut
@@ -219,7 +221,8 @@ FE_MODULES+=("fe-connector/fe-connector-fluss")
 # Listed one by one rather than as the aggregator: -pl on an aggregator selects that pom and none
 # of its children. Keep in sync with the module list in build.sh, which is the other complete
 # enumeration of this directory.
-for be_java_extension in jni-spi jni-bootstrap plugin-toolkit hive-apache-shade hive-udf-shade \
+for be_java_extension in jni-spi jni-bootstrap plugin-toolkit fluss-client-patch paimon-common-patch \
+    hive-apache-shade hive-udf-shade \
     hadoop-deps iceberg-metadata-scanner hadoop-hudi-scanner java-udf jdbc-scanner paimon-scanner \
     fluss-scanner max-compute-connector trino-connector-scanner java-writer; do
     FE_MODULES+=("be-java-extensions/${be_java_extension}")
@@ -257,6 +260,10 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+# Reduce GC/compiler overhead in short-lived test JVMs; an explicit empty value restores defaults.
+FE_UT_JAVA_OPTS="${FE_UT_JAVA_OPTS--XX:ActiveProcessorCount=2 -XX:TieredStopAtLevel=1}"
+echo "FE UT fork JVM options: ${FE_UT_JAVA_OPTS}"
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:
@@ -264,18 +271,18 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false -Dtest="$1"
     else
-        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dmaven.build.cache.enabled=false -Dtest="$1"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false \
             -Dmaven.test.failure.ignore=true
     else
-        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dmaven.build.cache.enabled=false
     fi
 

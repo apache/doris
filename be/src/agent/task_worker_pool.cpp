@@ -73,7 +73,6 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -910,12 +909,18 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
+            // The binlog policy is set when a row binlog tablet is created and never changes.
+            if (tablet->is_row_binlog_tablet()) {
+                status = Status::InvalidArgument(
+                        "can not change compaction policy of row binlog tablet {}",
+                        tablet_meta_info.tablet_id);
+                continue;
+            }
             if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_BINLOG_POLICY) {
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
-                        "time_series or binlog");
+                        "time_series");
                 continue;
             }
             tablet->tablet_meta()->set_compaction_policy(tablet_meta_info.compaction_policy);
@@ -1000,18 +1005,17 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     "new_binlog_config={}",
                     tablet_meta_info.tablet_id, tablet->tablet_meta()->binlog_config().to_string(),
                     new_binlog_config.to_string());
-            tablet->set_binlog_config(new_binlog_config);
+            auto st = tablet->set_binlog_config(new_binlog_config);
+            if (!st.ok()) {
+                status = st;
+                continue;
+            }
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
-                    tablet_meta_info.disable_auto_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_disable_auto_compaction(
-                        tablet_meta_info.disable_auto_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_disable_auto_compaction(
+            std::unique_lock wlock(tablet->get_header_lock());
+            // Scheduling reads the tablet property; rowset schemas are shared and immutable.
+            tablet->tablet_meta()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
             need_to_save = true;
         }
@@ -2198,7 +2202,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                    if (!tablet->tablet_meta()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
                         int32_t max_version_config = tablet->max_version_config();

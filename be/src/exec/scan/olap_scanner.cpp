@@ -42,6 +42,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache_profile.h"
@@ -54,8 +55,8 @@
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_profile.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/index/inverted/common/inverted_index_profile.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -278,7 +279,8 @@ Status OlapScanner::_prepare_impl() {
 
     if (_tablet_reader_params.score_runtime) {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
+                std::make_unique<SearchPredicateCollector>());
 
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
@@ -475,6 +477,9 @@ Status OlapScanner::_init_tablet_reader_params(
         const bool no_runtime_filters = _total_rf_num == 0;
         const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
         const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+        // Storage TopN compares key columns that TabletReader prepares only for DUP and
+        // merge-on-write tablets, so a MOR table read as DUP cannot use it.
+        const bool storage_topn_supported = storage_no_merge && !read_mor_as_dup;
 
         if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
             for (const auto& conjunct : _conjuncts) {
@@ -486,9 +491,10 @@ Status OlapScanner::_init_tablet_reader_params(
 
         // Segment LIMIT has only two legal states: completely disabled, or enabled after every
         // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
-        const bool can_push_down_segment_limit = _limit > 0 && no_runtime_filters &&
-                                                 _conjuncts.empty() && segment_limit_enabled &&
-                                                 storage_no_merge;
+        // A key TopN also needs storage TopN support, otherwise nothing is pushed.
+        const bool can_push_down_segment_limit =
+                _limit > 0 && no_runtime_filters && _conjuncts.empty() && segment_limit_enabled &&
+                storage_no_merge && (!has_key_topn || storage_topn_supported);
         if (can_push_down_segment_limit) {
             if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;
@@ -623,7 +629,7 @@ Status OlapScanner::_init_read_schema() {
         }
 
         read_columns.push_back(tablet_schema->columns()[index]);
-        expected_types.push_back(slot->get_data_type_ptr());
+        expected_types.push_back(slot->type());
         if (!slot->is_nullable() && tablet_schema->column(index).is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "slot(id: {}, name: {})'s nullable does not match "
@@ -884,7 +890,6 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
     local_state->_snii_prx_profile_counters.update(stats);
-    local_state->_snii_phrase_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,
@@ -923,6 +928,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_lookup_counter,
+                   stats.condition_cache_lookup_count);
     COUNTER_UPDATE(local_state->_condition_cache_hit_counter, stats.condition_cache_hit_seg_nums);
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);

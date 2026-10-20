@@ -104,6 +104,21 @@ public final class PaimonScanParams {
 
     private static final Set<String> INHERITED_READ_STATE_KEYS = buildInheritedReadStateKeys();
 
+    private static final Set<String> TIME_TRAVEL_SELECTOR_KEYS = ImmutableSet.of(
+            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
+            CoreOptions.SCAN_WATERMARK.key(),
+            CoreOptions.SCAN_VERSION.key(),
+            CoreOptions.SCAN_SNAPSHOT_ID.key(),
+            CoreOptions.SCAN_TAG_NAME.key());
+
+    private static final Set<String> SELECTOR_DEPENDENT_SCAN_MODES = ImmutableSet.of(
+            "from-snapshot",
+            "from-snapshot-full",
+            "from-timestamp",
+            "from-timestamp-full",
+            "from-file-creation-time",
+            "from-creation-timestamp");
+
     // FilesScan enumerates the latest partitions before applying its range-aware per-partition scan,
     // so it cannot safely read a range when a partition in that range has since been dropped.
     private static final Set<String> INCREMENTAL_SYSTEM_TABLES = ImmutableSet.of(
@@ -224,10 +239,9 @@ public final class PaimonScanParams {
                 fallbackOptions.remove(CoreOptions.BUCKET.key());
                 fallbackOptions.put(CoreOptions.BRANCH.key(), pair.other().coreOptions().branch());
                 fallbackOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
-                return new FallbackReadFileStoreTable(
+                return PaimonTableDecorators.rebuildFallbackPair(pair,
                         copyWithPinnedFallback(pair.wrapped(), dynamicOptions, coordinates, path),
-                        copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath),
-                        PaimonReaderOptions.isWrappedFirst(pair));
+                        copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath));
             }
         }
         if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
@@ -246,9 +260,9 @@ public final class PaimonScanParams {
             String fallbackPath = path + "fallback.";
             long fallbackId = PaimonSchemaPin.fallbackSchemaId(options, fallbackPath,
                     () -> pair.other().schemaManager().latest().orElseThrow(IllegalStateException::new).id());
-            return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId, options, path),
-                    restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath),
-                    PaimonReaderOptions.isWrappedFirst(pair));
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    restoreBoundSchema(pair.wrapped(), schemaId, options, path),
+                    restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath));
         }
         if (table instanceof DelegatedFileStoreTable) {
             FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
@@ -531,6 +545,25 @@ public final class PaimonScanParams {
         INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
         isolatedOptions.putAll(incrementalOptions);
         return isolatedOptions;
+    }
+
+    /**
+     * Removes planning-only time-travel selectors from the schema sent to paimon-rust. The
+     * serialized DataSplit already pins the data snapshot; resolving the selector again on BE can
+     * replace the statement-bound schema with an older snapshot schema.
+     */
+    public static TableSchema withoutTimeTravelSelectors(TableSchema schema) {
+        if (TIME_TRAVEL_SELECTOR_KEYS.stream().noneMatch(schema.options()::containsKey)) {
+            return schema;
+        }
+        Map<String, String> options = new HashMap<>(schema.options());
+        TIME_TRAVEL_SELECTOR_KEYS.forEach(options.keySet()::remove);
+        String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if (scanMode != null && SELECTOR_DEPENDENT_SCAN_MODES.contains(
+                scanMode.trim().toLowerCase(Locale.ROOT))) {
+            options.remove(CoreOptions.SCAN_MODE.key());
+        }
+        return schema.copy(options);
     }
 
     private static boolean isCompatibleStartupMode(String position, String mode) {

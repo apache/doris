@@ -156,6 +156,10 @@ public final class PaimonTypeMapping {
     private static ConnectorType toTimestampType(DataType dataType) {
         int scale = DEFAULT_TIMESTAMP_SCALE;
         if (dataType instanceof TimestampType) {
+            // Keep all source fractional digits instead of truncating high-precision wall-clock values.
+            if (((TimestampType) dataType).getPrecision() > MAX_TIMESTAMP_SCALE) {
+                return ConnectorType.of("TIMESTAMP_NS");
+            }
             scale = Math.min(((TimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
         } else if (dataType instanceof LocalZonedTimestampType) {
             scale = Math.min(((LocalZonedTimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
@@ -209,13 +213,10 @@ public final class PaimonTypeMapping {
      * Convert a Doris {@link ConnectorType} (as produced by the CREATE TABLE request path)
      * to a Paimon {@link DataType}.
      *
-     * <p>This is the faithful reverse of the legacy fe-core
-     * {@code DorisToPaimonTypeVisitor}: the scalar set is intentionally narrow (it mirrors
-     * the visitor's {@code atomic} branches and NOT MaxCompute's richer set), CHAR/VARCHAR/STRING
-     * all collapse to {@code VarChar(MAX)} (declared length dropped), DATETIME/DATETIMEV2 map to a
-     * plain {@code TimestampType()} (scale dropped), and the MAP key is forced non-null. Types the
-     * legacy visitor did not handle (TINYINT, SMALLINT, LARGEINT, TIME, IPV4/6, JSON, ...) throw,
-     * preserving the legacy gap.</p>
+     * <p>This is the connector-SPI equivalent of the former fe-core
+     * {@code DorisToPaimonTypeVisitor}. It preserves declared CHAR/VARCHAR bounds and timestamp
+     * precision because Paimon uses them when applying casts and interpreting numeric timestamp
+     * values. The MAP key remains non-null, matching Paimon's type contract.</p>
      *
      * <p>The returned type carries Paimon's default (nullable) flag; column-level nullability is
      * applied by the caller via {@code .copy(nullable)} (mirroring legacy
@@ -243,10 +244,11 @@ public final class PaimonTypeMapping {
             case "DOUBLE":
                 return new DoubleType();
             case "CHAR":
+                // DDL must retain bounds: widening to STRING changes historical narrowing casts.
+                return new CharType(type.getPrecision());
             case "VARCHAR":
+                return new VarCharType(type.getPrecision());
             case "STRING":
-                // Legacy parity: all char-family types collapse to VarChar(MAX); declared
-                // length is intentionally dropped (DorisToPaimonTypeVisitor.atomic isCharFamily).
                 return new VarCharType(VarCharType.MAX_LENGTH);
             case "DATE":
             case "DATEV2":
@@ -260,10 +262,13 @@ public final class PaimonTypeMapping {
                 return new DecimalType(type.getPrecision(), type.getScale());
             case "DATETIME":
             case "DATETIMEV2":
-                // Legacy parity: no-arg TimestampType (precision defaults to 6); the datetime
-                // scale is intentionally dropped to match DorisToPaimonTypeVisitor.atomic, and it
-                // is a plain timestamp (NOT LocalZonedTimestampType).
-                return new TimestampType();
+                // Paimon interprets numeric timestamp strings in units derived from this precision.
+                return new TimestampType("DATETIMEV2".equals(name) ? type.getPrecision() : 0);
+            case "TIMESTAMP_NS":
+                return new TimestampType(9);
+            case "TIMESTAMPTZ":
+                // Preserve the instant contract when deriving an external schema.
+                return new LocalZonedTimestampType(type.getPrecision());
             case "VARBINARY":
                 return new VarBinaryType(VarBinaryType.MAX_LENGTH);
             case "VARIANT":
@@ -319,8 +324,9 @@ public final class PaimonTypeMapping {
         private final boolean mapTimestampTz;
 
         public Options(boolean mapBinaryToVarbinary, boolean mapTimestampTz) {
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // The flags are retained for callers, but external logical mappings are mandatory.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public boolean isMapBinaryToVarbinary() {
