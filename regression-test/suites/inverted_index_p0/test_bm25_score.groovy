@@ -160,10 +160,11 @@ suite("test_bm25_score", "p0") {
         // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
         sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
 
-        test {
-            sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
+        // score() > 0.5 without ORDER BY and LIMIT is a supported minimum score filter. Its row count
+        // must match the score TopN path with a limit above the number of matching rows.
+        sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
+        qt_score_range_without_topn """ select count() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
+        qt_score_range_topn_control """ select count() from (select score() as s from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by s desc limit 1000) t; """
 
         log.info("All exception test cases completed successfully")
     } finally {

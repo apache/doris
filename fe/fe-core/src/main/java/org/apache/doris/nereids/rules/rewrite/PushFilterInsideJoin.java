@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -59,7 +60,9 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                     List<Expression> otherConditions = Lists.newArrayListWithExpectedSize(
                             filter.getConjuncts().size() + join.getOtherJoinConjuncts().size());
                     for (Expression expr : filter.getConjuncts()) {
-                        if (expr.containsVolatileOrNoneMovableExpression()) {
+                        // A score() predicate belongs to one scan: as a join condition without
+                        // slots, PushDownJoinOtherCondition would push it into the left child.
+                        if (expr.containsVolatileOrNoneMovableExpression() || expr.containsType(Score.class)) {
                             remainConditions.add(expr);
                         } else {
                             otherConditions.add(expr);

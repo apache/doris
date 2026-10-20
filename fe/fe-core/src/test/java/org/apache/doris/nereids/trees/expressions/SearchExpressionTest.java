@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Unit tests for SearchExpression
@@ -44,6 +45,20 @@ public class SearchExpressionTest {
             Expression parsed = new NereidsParser().parseExpression(searchExpr.toSql());
             Assertions.assertEquals(dsl, ((StringLikeLiteral) parsed.child(0)).getStringValue());
         }
+    }
+
+    @Test
+    public void testToSqlKeepsOptions() {
+        String options = "{\"default_field\":\"title\",\"default_operator\":\"or\"}";
+        SearchExpression searchExpr = new SearchExpression("hello world", Optional.of(options), createTestPlan(),
+                Arrays.asList(createTestSlot("title")));
+        Expression parsed = new NereidsParser().parseExpression(searchExpr.toSql());
+        Assertions.assertEquals(2, parsed.children().size());
+        Assertions.assertEquals("hello world", ((StringLikeLiteral) parsed.child(0)).getStringValue());
+        Assertions.assertEquals(options, ((StringLikeLiteral) parsed.child(1)).getStringValue());
+        Assertions.assertEquals(searchExpr, searchExpr.withChildren(searchExpr.children()));
+        Assertions.assertNotEquals(searchExpr, new SearchExpression("hello world", searchExpr.getQsPlan(),
+                searchExpr.children()));
     }
 
     private SearchDslParser.QsPlan createTestPlan() {

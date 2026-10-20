@@ -24,3 +24,30 @@
 1	sweet	0.4700036
 2	sour	0.4700036
 
+-- !count_score_range --
+2
+
+-- !count_score_range_without_pushdown --
+2
+
+-- !count_high_score_range --
+0
+
+-- !select_star_score_range --
+1	apple red	sweet
+2	apple green	sour
+
+-- !in_subquery_score_range --
+1
+
+-- !not_exists_score_range --
+2
+
+-- !left_join_score_range --
+1	\N
+2	\N
+
+-- !join_scored_subquery --
+1	sweet
+2	sour
+

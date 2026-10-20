@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -126,6 +127,21 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
                 }
                 Set<Slot> slots = p.collect(SlotReference.class::isInstance);
                 if (slots.isEmpty()) {
+                    if (p.containsType(Score.class)) {
+                        // score() is the relevance of the current row computed by the scan that
+                        // evaluates MATCH or SEARCH, not a constant, so it must not be copied into
+                        // both children. Like ReorderJoin, push it only into the child whose rows
+                        // all reach the output of an outer, semi or anti join. Inner, cross and full
+                        // joins mix the rows of both children: keep it above for CheckScoreUsage.
+                        if (join.getJoinType().isLeftJoin()) {
+                            leftPredicates.add(p);
+                        } else if (join.getJoinType().isRightJoin()) {
+                            rightPredicates.add(p);
+                        } else {
+                            remainingPredicates.add(p);
+                        }
+                        continue;
+                    }
                     leftPredicates.add(p);
                     rightPredicates.add(p);
                     continue;

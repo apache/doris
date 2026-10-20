@@ -17,18 +17,22 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.stream.Stream;
 
@@ -49,6 +53,13 @@ class CheckScoreUsageTest extends TestWithFeService {
                     + "PROPERTIES ('replication_num' = '1', "
                     + "'inverted_index_storage_format' = '" + format + "')");
         }
+        createTable("CREATE TABLE score_usage_ann ("
+                + "id INT NOT NULL, c1 TEXT, embedding ARRAY<FLOAT> NOT NULL, "
+                + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english'), "
+                + "INDEX idx_ann (embedding) USING ANN PROPERTIES "
+                + "('index_type' = 'hnsw', 'metric_type' = 'l2_distance', 'dim' = '2')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'inverted_index_storage_format' = 'V3')");
     }
 
     static Stream<Arguments> scoringPredicates() {
@@ -205,6 +216,98 @@ class CheckScoreUsageTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
                 .analyze("SELECT id FROM score_usage_" + format + " WHERE " + predicate)
                 .rewrite());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"c1 MATCH 'apple'", "search('c1:apple')"})
+    void testScoreRangeKeepsAnnTopN(String predicate) {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT id, l2_distance_approximate(embedding, [0.0, 0.0]) AS dist FROM score_usage_ann"
+                        + " WHERE " + predicate + " AND score() > 0.5 ORDER BY dist LIMIT 1",
+                planner -> {
+                    Assertions.assertEquals(1, planner.getScanNodes().size());
+                    TPlanNode thriftScan = planner.getScanNodes().get(0).treeToThrift().getNodes().get(0);
+                    Assertions.assertNotNull(thriftScan.olap_scan_node.ann_sort_info);
+                    Assertions.assertEquals(1, thriftScan.olap_scan_node.ann_sort_limit);
+                    Assertions.assertEquals(0, thriftScan.olap_scan_node.score_sort_limit);
+                    Assertions.assertEquals(TExprOpcode.GT, thriftScan.olap_scan_node.score_range_info.op);
+                });
+    }
+
+    @Test
+    void testScoreFilterAboveJoinIsRejected() {
+        String join = "SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b ON a.id = b.id"
+                + " WHERE a.c1 MATCH 'apple'";
+        String error = "score() filter must be in the WHERE clause of a query on one table";
+        assertScoreUsageError(join + " AND score() > 0.00001", error);
+        // With MATCH on both sides, score() must not silently filter each side by its own score.
+        assertScoreUsageError(join + " AND b.c1 MATCH 'apple' AND score() > 0.00001", error);
+        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a, score_usage_V3 b"
+                + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001", error);
+        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b"
+                + " ON a.id = b.id AND score() > 0.00001 WHERE a.c1 MATCH 'apple'",
+                "can not contains Score expression");
+    }
+
+    @Test
+    void testScoredSubqueryCanBeJoined() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a.id, b.c2 FROM (SELECT id FROM score_usage_V2"
+                        + " WHERE c1 MATCH 'apple' AND score() > 0.00001) a"
+                        + " JOIN score_usage_V3 b ON a.id = b.id",
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+    }
+
+    @Test
+    void testScoreFilterFollowsPreservedSideOfOuterJoin() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a.id, b.c2 FROM score_usage_V2 a LEFT JOIN score_usage_V3 b ON a.id = b.id"
+                        + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a.id, b.c2 FROM score_usage_V3 b RIGHT JOIN score_usage_V2 a ON a.id = b.id"
+                        + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "id IN (SELECT id FROM score_usage_V3)",
+            "id NOT IN (SELECT id FROM score_usage_V3)",
+            "EXISTS (SELECT 1 FROM score_usage_V3 b WHERE b.id = score_usage_V2.id)",
+            "NOT EXISTS (SELECT 1 FROM score_usage_V3 b WHERE b.id = score_usage_V2.id)"})
+    void testScoreFilterStaysOnOuterScanOfSubquery(String subqueryPredicate) {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001 AND "
+                        + subqueryPredicate,
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+    }
+
+    @Test
+    void testCountAndSelectStarWithScoreRange() {
+        assertScoreRangeWithoutTopN("SELECT count(*) FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.00001");
+        // The hidden score slot must not become an output column.
+        assertScoreRangeWithoutTopN("SELECT * FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.00001", 3);
+    }
+
+    @Test
+    void testExplainShowsScoreRange() throws Exception {
+        String explain = getSQLPlanOrErrorMsg("EXPLAIN SELECT id FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() >= 0.5");
+        Assertions.assertTrue(explain.contains("SCORE SORT LIMIT: 0"), explain);
+        Assertions.assertTrue(explain.contains("SCORE RANGE: score() >= 0.5"), explain);
+    }
+
+    private void assertOnlyScanWithScoreRange(NereidsPlanner planner, String tableName) {
+        Assertions.assertEquals(2, planner.getScanNodes().size());
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            String scanTable = ((OlapScanNode) scanNode).getOlapTable().getName();
+            TPlanNode thriftScan = scanNode.treeToThrift().getNodes().get(0);
+            Assertions.assertEquals(scanTable.equals(tableName),
+                    thriftScan.olap_scan_node.isSetScoreRangeInfo(), scanTable);
+        }
     }
 
     private void assertScoreRangeWithoutTopN(String sql) {

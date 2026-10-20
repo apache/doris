@@ -77,20 +77,21 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                             LogicalOlapScan scan = filter.child();
                             return pushDown(topN, project, filter, scan);
                         }).toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN),
-                logicalProject(logicalFilter(logicalOlapScan()))
+                logicalProject(logicalFilter(logicalOlapScan()).when(this::hasScorePredicate))
                         .then(project -> pushDownScoreRange(project))
                         .toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN),
-                logicalFilter(logicalOlapScan())
+                logicalFilter(logicalOlapScan()).when(this::hasScorePredicate)
                         .then(filter -> pushDownScoreRange(filter))
                         .toRule(RuleType.PUSH_DOWN_SCORE_TOPN_INTO_OLAP_SCAN));
+    }
+
+    private boolean hasScorePredicate(LogicalFilter<LogicalOlapScan> filter) {
+        return filter.getConjuncts().stream().anyMatch(conjunct -> conjunct.containsType(Score.class));
     }
 
     private LogicalProject<Plan> pushDownScoreRange(
             LogicalProject<LogicalFilter<LogicalOlapScan>> project) {
         LogicalFilter<Plan> filter = pushDownScoreRange(project.child());
-        if (filter == null) {
-            return null;
-        }
         LogicalOlapScan scan = (LogicalOlapScan) filter.child();
         Expression scoreSlot = scan.getScoreOrderKeys().get(0).getExpr();
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
@@ -104,35 +105,33 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     }
 
     private LogicalFilter<Plan> pushDownScoreRange(LogicalFilter<LogicalOlapScan> filter) {
-        Optional<Expression> scorePredicateOpt = findScoreRangePredicate(filter.getConjuncts());
-        if (!scorePredicateOpt.isPresent()) {
-            return null;
-        }
+        Expression scorePredicate = findScoreRangePredicate(filter.getConjuncts()).get();
         boolean hasMatchOrSearch = filter.getConjuncts().stream()
-                .anyMatch(conjunct -> !conjunct.collect(
-                        e -> e instanceof Match || e instanceof SearchExpression).isEmpty());
+                .anyMatch(conjunct -> conjunct.containsType(Match.class, SearchExpression.class));
         if (!hasMatchOrSearch) {
             throw new AnalysisException("WHERE clause must contain at least one MATCH or SEARCH function"
                     + " for score() filtering");
         }
-        Expression scorePredicate = scorePredicateOpt.get();
         Optional<ScoreRangeInfo> scoreRangeInfo = Optional.of(extractScoreRangeInfo(scorePredicate));
         Set<Expression> scoreFunctions = scorePredicate.collect(e -> e instanceof Score);
         Alias scoreAlias = new Alias(scoreFunctions.iterator().next(), "__score");
+        LogicalOlapScan scan = filter.child();
         // A zero score limit enables scoring without discarding candidates before other filters.
-        LogicalOlapScan scan = filter.child().appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
-                ImmutableList.of(), Optional.empty(),
+        // Keep an ANN TopN pushed by PushDownVectorTopNIntoOlapScan: the scan applies the score
+        // range before the ANN search, so the ANN candidates are already filtered by score.
+        LogicalOlapScan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
+                scan.getAnnOrderKeys(), scan.getAnnLimit(),
                 ImmutableList.of(new OrderKey(scoreAlias.toSlot(), false, false)), Optional.of(0L),
                 scoreRangeInfo);
         Set<Expression> remainingConjuncts = filter.getConjuncts().stream()
                 .filter(conjunct -> !conjunct.equals(scorePredicate))
                 .collect(ImmutableSet.toImmutableSet());
-        return filter.withConjunctsAndChild(remainingConjuncts, scan);
+        return filter.withConjunctsAndChild(remainingConjuncts, newScan);
     }
 
     private Optional<Expression> findScoreRangePredicate(Set<Expression> conjuncts) {
         List<Expression> scorePredicates = conjuncts.stream()
-                .filter(conjunct -> !conjunct.collect(e -> e instanceof Score).isEmpty())
+                .filter(conjunct -> conjunct.containsType(Score.class))
                 .collect(ImmutableList.toImmutableList());
         if (scorePredicates.size() > 1) {
             throw new AnalysisException(
@@ -173,6 +172,10 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         Optional<Expression> scorePredicate = findScoreRangePredicate(filter.getConjuncts());
         Optional<ScoreRangeInfo> scoreRangeInfo = scorePredicate.map(this::extractScoreRangeInfo);
         Expression extractedScorePredicate = scorePredicate.orElse(null);
+
+        // When a minimum score predicate exists, a TopN that fails requirement 4 or 5 is not an
+        // error: returning null leaves it as an ordinary TopN, and the project/filter rules below
+        // bind the predicate with a zero score limit so that every candidate gets scored.
 
         // 4. Requirement: TopN must have exactly one ordering expression.
         if (topN.getOrderKeys().size() != 1) {

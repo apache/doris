@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -172,7 +173,8 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
             normalizePlanFields(qsPlan.getRoot(), normalizedFields);
 
             // Create SearchExpression with slot children
-            return new SearchExpression(search.getDslString(), qsPlan, slotChildren);
+            return new SearchExpression(search.getDslString(), Optional.ofNullable(search.getOptionsJson()),
+                    qsPlan, slotChildren);
 
         } catch (Exception e) {
             throw new AnalysisException("Failed to rewrite search expression: " + e.getMessage(), e);

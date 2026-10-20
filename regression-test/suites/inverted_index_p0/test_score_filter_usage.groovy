@@ -91,4 +91,69 @@ suite("test_score_filter_usage", "p0") {
         """
         exception "score() predicate in WHERE clause must be in the form"
     }
+
+    // The scan applies the score range before COUNT_ON_INDEX counts the remaining rows.
+    qt_count_score_range """
+        SELECT /*+ SET_VAR(enable_count_on_index_pushdown=true) */ count(*) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+    qt_count_score_range_without_pushdown """
+        SELECT /*+ SET_VAR(enable_count_on_index_pushdown=false) */ count(*) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+    qt_count_high_score_range """
+        SELECT /*+ SET_VAR(enable_count_on_index_pushdown=true) */ count(*) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 1000000
+    """
+
+    order_qt_select_star_score_range """
+        SELECT * FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+
+    explain {
+        sql "SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() >= 0.5"
+        contains "SCORE SORT LIMIT: 0"
+        contains "SCORE RANGE: score() >= 0.5"
+    }
+
+    // A semi or anti join produces only the outer rows, so the score filter stays on the outer scan.
+    order_qt_in_subquery_score_range """
+        SELECT id FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+            AND id IN (SELECT id FROM test_score_filter_usage WHERE c2 = 'sweet')
+    """
+    order_qt_not_exists_score_range """
+        SELECT id FROM test_score_filter_usage t
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+            AND NOT EXISTS (SELECT 1 FROM test_score_filter_usage s WHERE s.id = t.id AND s.c2 = 'sweet')
+    """
+
+    // A left join returns every row of its left side, so the score filter applies to that side.
+    order_qt_left_join_score_range """
+        SELECT a.id, b.c2 FROM test_score_filter_usage a
+        LEFT JOIN test_score_filter_usage b ON a.id = b.id + 100
+        WHERE a.c1 MATCH 'apple' AND score() > 0.00001
+    """
+
+    // With an inner join score() cannot tell which table it belongs to; filter it in a subquery.
+    order_qt_join_scored_subquery """
+        SELECT a.id, b.c2 FROM (
+            SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.00001
+        ) a JOIN test_score_filter_usage b ON a.id = b.id
+    """
+    test {
+        sql """
+            SELECT a.id FROM test_score_filter_usage a JOIN test_score_filter_usage b ON a.id = b.id
+            WHERE a.c1 MATCH 'apple' AND score() > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+    test {
+        sql """
+            SELECT a.id FROM test_score_filter_usage a JOIN test_score_filter_usage b
+            ON a.id = b.id AND score() > 0.00001 WHERE a.c1 MATCH 'apple'
+        """
+        exception "can not contains Score expression"
+    }
 }

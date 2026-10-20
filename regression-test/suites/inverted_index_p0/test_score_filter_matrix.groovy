@@ -207,6 +207,18 @@ suite("test_score_filter_matrix", "p0") {
         FROM test_score_filter_ann WHERE c1 MATCH 'apple' AND score() > 0.5
         ORDER BY dist LIMIT 1
     """
+    // The scan keeps the ANN TopN: it filters by score before the ANN search, so the nearest
+    // row (id 1) is never chosen just to be discarded by the score filter afterwards.
+    explain {
+        sql """
+            SELECT id, l2_distance_approximate(embedding, [0.0, 0.0]) AS dist
+            FROM test_score_filter_ann WHERE c1 MATCH 'apple' AND score() > 0.5
+            ORDER BY dist LIMIT 1
+        """
+        contains "ANN SORT LIMIT: 1"
+        contains "SCORE SORT LIMIT: 0"
+        contains "SCORE RANGE: score() > 0.5"
+    }
 
     test {
         sql "SELECT id FROM test_score_filter_matrix WHERE score() > 0"

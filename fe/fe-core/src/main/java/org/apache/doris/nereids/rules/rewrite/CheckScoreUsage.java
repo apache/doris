@@ -43,6 +43,11 @@ public class CheckScoreUsage implements RewriteRuleFactory {
     private static final String SCORE_CONTEXT_ERROR =
             "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization, "
                     + "or a supported minimum score filter with MATCH or SEARCH";
+    private static final String SCORE_FILTER_CONTEXT_ERROR =
+            "score() filter must be in the WHERE clause of a query on one table with a MATCH or SEARCH "
+                    + "predicate. It cannot filter the result of an inner, cross or full join, an aggregation "
+                    + "or another operator; put the MATCH or SEARCH predicate and the score() filter in a "
+                    + "subquery on that table";
 
     @Override
     public List<Rule> buildRules() {
@@ -58,11 +63,13 @@ public class CheckScoreUsage implements RewriteRuleFactory {
                     throw new AnalysisException(SCORE_CONTEXT_ERROR);
                 }).toRule(RuleType.CHECK_SCORE_USAGE),
 
-            // A filter-only score() call otherwise evaluates the scalar placeholder as zero.
+            // A score() filter on a scan was bound by PushDownScoreTopNIntoOlapScan. One left here
+            // filters another operator, e.g. an inner join, and would evaluate the scalar placeholder
+            // as zero.
             logicalFilter(any())
                 .when(filter -> filter.getConjuncts().stream().anyMatch(this::containsScoreFunction))
                 .then(filter -> {
-                    throw new AnalysisException(SCORE_CONTEXT_ERROR);
+                    throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
                 }).toRule(RuleType.CHECK_SCORE_USAGE),
 
             logicalAggregate(any())
@@ -99,10 +106,7 @@ public class CheckScoreUsage implements RewriteRuleFactory {
     }
 
     private boolean containsScoreFunction(Expression expr) {
-        if (expr instanceof Score) {
-            return true;
-        }
-        return expr.children().stream().anyMatch(this::containsScoreFunction);
+        return expr.containsType(Score.class);
     }
 
     private boolean isScoreAlreadyOptimized(LogicalProject<?> project) {

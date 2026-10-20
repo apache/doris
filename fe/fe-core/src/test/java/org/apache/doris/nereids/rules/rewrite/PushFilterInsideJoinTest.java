@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -103,6 +105,24 @@ class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matchesFromRoot(
                         logicalJoin().when(join -> join.getOtherJoinConjuncts().get(0).equals(predicates)));
+    }
+
+    @Test
+    void testScorePredicateStaysInFilter() {
+        Expression scorePredicate = new GreaterThan(new Score(), new DoubleLiteral(0.5));
+        Expression predicate = new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                .filter(ImmutableSet.of(scorePredicate, predicate))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushFilterInsideJoin())
+                .matchesFromRoot(
+                        logicalFilter(logicalJoin()
+                                .when(join -> join.getOtherJoinConjuncts().equals(ImmutableList.of(predicate))))
+                                .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(scorePredicate))));
     }
 
     @Test
