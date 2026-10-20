@@ -211,7 +211,10 @@ SegmentReadAhead::SegmentReadAhead(io::FileReaderSPtr source_reader,
 }
 
 bool SegmentReadAhead::enabled() {
-    return config::enable_query_read_ahead && config::is_cloud_mode();
+    // Read-ahead fetches with NO_WRITE and relies on the async writer after consumption.
+    // With only read-ahead enabled, retain the original reader so cold pages still fill cache.
+    return config::enable_query_read_ahead && config::enable_async_file_cache_write &&
+           config::is_cloud_mode();
 }
 
 Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, ExecEnv* exec_env,
