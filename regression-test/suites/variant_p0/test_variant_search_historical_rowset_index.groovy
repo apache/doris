@@ -19,6 +19,9 @@
 // Write objects explicitly: an ordinary STRING-to-VARIANT cast remains a scalar string,
 // even when its displayed text looks like JSON, and cannot establish a subpath match.
 suite("test_variant_search_historical_rowset_index", "p0") {
+    // Cloud requires this flag and a non-tokenized index for metadata-only creation.
+    // A tokenized index uses full schema change and rebuilds the historical rowsets.
+    sql "SET enable_add_index_for_new_data = true"
     sql "DROP TABLE IF EXISTS test_variant_search_historical_rowset_index"
     sql """
         CREATE TABLE test_variant_search_historical_rowset_index (
@@ -44,7 +47,7 @@ suite("test_variant_search_historical_rowset_index", "p0") {
         (4, 'hit', parse_to_variant('{"missing":"hit"}'))"""
     sql "SYNC"
     sql """CREATE INDEX idx_v ON test_variant_search_historical_rowset_index(v)
-        USING INVERTED PROPERTIES("parser"="unicode", "support_phrase"="true")"""
+        USING INVERTED PROPERTIES("parser"="none")"""
     sql "SYNC"
 
     qt_historical_values """
