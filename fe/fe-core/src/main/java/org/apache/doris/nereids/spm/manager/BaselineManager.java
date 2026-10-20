@@ -232,6 +232,23 @@ public class BaselineManager {
     private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 120L;
 
     /**
+     * How far a row's stored update time may lead WALL time (epoch millis).
+     *
+     * Every SHARED fence of the durable protocol is bounded by wall clock: a mutation window is
+     * ignored after MUTATION_WINDOW_MAX_AGE_SECONDS and an unconfirmed fence expires after
+     * PENDING_MUTATION_FENCE_MILLIS. The stored second is deliberately pushed past wall time so
+     * a status statement's row becomes the durable winner (see nextStoredUpdateMillis), but an
+     * UNBOUNDED lead breaks the very inference those fences rely on: when the fence ages out
+     * the write is presumed LOST, yet a committed row whose stored second is still in the
+     * future keeps winning the durable pick and reverses the successor's successful ALTER
+     * (round-77 #8), and a prune publication hidden behind the same fence lets an inclusive
+     * `id >= lastId LIMIT n OFFSET m` reader keep the old status and skip the surviving newer
+     * version (round-77 #9). The bound therefore has to be shorter than the SHORTEST fence, so
+     * that "the fence expired" always implies "the stored second is already behind wall time".
+     */
+    private static final long MAX_STORED_UPDATE_LEAD_MILLIS = 60_000L;
+
+    /**
      * How many low bits of a mutation tick carry the window's FE identity (see
      * mutationTickSalt): enough range that two FEs writing in the same millisecond almost never
      * collide, small enough that the millisecond stays in the high bits (the clock's
@@ -968,16 +985,20 @@ public class BaselineManager {
     private static final class PendingDropKeyCleanup {
         private final BaselinePlan identity;
         /**
-         * The stored second the DROP's OWN rows carried at the instant the cleanup was
-         * retained: a resumed retirement only removes twins that already existed then. A
-         * CREATE of the same SQL that lands after this point carries a LATER stored second and
-         * is left alone (round-76 #2). 0 = unknown, which is treated as "now" on resume.
+         * The epoch MILLIS the DROP removed its own rows at: a resumed retirement only removes
+         * twins that already existed then. A CREATE of the same SQL that lands after this point
+         * carries a LATER update time and is left alone (round-76 #2).
+         *
+         * MILLIS, not seconds: {@link BaselinePlan#getUpdateTime()} is the stored epoch
+         * millisecond (see nextStoredUpdateMillis), so a seconds bound compared against it was
+         * ALWAYS smaller and the retirement skipped every twin - including the ones the failed
+         * attempt still owed (round-77).
          */
-        private final long retainedAtSeconds;
+        private final long retainedAtMillis;
 
-        PendingDropKeyCleanup(BaselinePlan identity, long retainedAtSeconds) {
+        PendingDropKeyCleanup(BaselinePlan identity, long retainedAtMillis) {
             this.identity = identity;
-            this.retainedAtSeconds = retainedAtSeconds;
+            this.retainedAtMillis = retainedAtMillis;
         }
     }
 
@@ -2920,7 +2941,7 @@ public class BaselineManager {
             return;
         }
         pendingDropKeyCleanups.put(identity.getId(), new PendingDropKeyCleanup(
-                identity.copyPersistedScalars(), System.currentTimeMillis() / 1000L));
+                identity.copyPersistedScalars(), System.currentTimeMillis()));
     }
 
     /**
@@ -2946,7 +2967,7 @@ public class BaselineManager {
             // The retirement is bounded to the rows that already existed when the DROP removed
             // its identity: a CREATE of the SAME SQL that landed afterwards is a NEW baseline
             // the retry must not retire (round-76 #2).
-            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedAtSeconds);
+            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedAtMillis);
         } catch (RuntimeException e) {
             // the twins retired by THIS attempt are gone durably: they must leave the warm
             // cache and keep their markers, and the retention makes the next retry resume
@@ -3015,7 +3036,7 @@ public class BaselineManager {
 
     /**
      * Retires the superseded same-key twins of a DROP (see the two-argument overload), bounded
-     * to the rows whose stored second is not LATER than {@code maxUpdateTimeSeconds}.
+     * to the rows whose stored instant is not LATER than {@code maxUpdateTimeMillis}.
      *
      * A RESUMED cleanup runs long after the DROP removed its identity, and by then the key can
      * name a NEWER baseline: the user re-CREATEd the very same SQL, the durable row carries the
@@ -3024,13 +3045,17 @@ public class BaselineManager {
      * (round-76 #2). The bound is the instant the DROP removed its own rows, so every real twin
      * (which existed BEFORE that instant) is still retired and every later CREATE is kept.
      *
+     * The bound and {@link BaselinePlan#getUpdateTime()} are BOTH epoch millis (round-77: the
+     * seconds bound this started with was always smaller than the stored millis value, so the
+     * retirement skipped every twin and the failed attempt's leftovers stayed durable).
+     *
      * @param alreadyDeleted       the row the DROP removed
      * @param retiredOut           collects the durably retired rows
-     * @param maxUpdateTimeSeconds the exclusive upper bound of a twin's stored second
+     * @param maxUpdateTimeMillis  the inclusive upper bound of a twin's update time
      *                             ({@code Long.MAX_VALUE} = unbounded, the DROP's own path)
      */
     private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
-            List<BaselinePlan> retiredOut, long maxUpdateTimeSeconds) {
+            List<BaselinePlan> retiredOut, long maxUpdateTimeMillis) {
         if (!persistence.isDurable()) {
             return;
         }
@@ -3059,7 +3084,7 @@ public class BaselineManager {
                             alreadyDeleted.getSchemaFingerprint())) {
                 continue;
             }
-            if (twin.getUpdateTime() > maxUpdateTimeSeconds) {
+            if (twin.getUpdateTime() > maxUpdateTimeMillis) {
                 // A baseline CREATED after the DROP removed its rows: same SQL, new
                 // incarnation the user owns - never a handoff twin of this DROP.
                 LOG.info("SPM kept baseline {} while retiring the same-key twins of dropped"
@@ -3727,7 +3752,33 @@ public class BaselineManager {
             throw new IllegalStateException("SPM cannot read the newest stored second of"
                     + " baseline " + id + "; retry the ALTER", e);
         }
-        return now / 1000L <= newestSecond ? (newestSecond + 1) * 1000L : now;
+        if (now / 1000L <= newestSecond) {
+            // The new stored second this statement would carry.
+            long bumped = (newestSecond + 1) * 1000L;
+            long leadMillis = bumped - now;
+            if (leadMillis > MAX_STORED_UPDATE_LEAD_MILLIS) {
+                // (round-77 #8/#9) The stored second may only lead wall time by a BOUNDED
+                // amount, because the SHARED fences that mask an unreadable committed write are
+                // time-bounded by wall clock: a mutation window is ignored after
+                // MUTATION_WINDOW_MAX_AGE_SECONDS, and an unconfirmed fence expires after
+                // PENDING_MUTATION_FENCE_MILLIS. A stored second that leads wall time by MORE
+                // than the shortest of those bounds silently breaks the inference "the fence
+                // expired, so the write is lost": the fenced row - an ALREADY COMMITTED no-op
+                // status intent, or the surviving version a prune publication still hides -
+                // would outlive the fence, still win the durable pick and reverse a successor's
+                // successful ALTER (a paginated reader then keeps the old status and skips the
+                // surviving newer version). The bound must hold for the LIFETIME of the row,
+                // not merely at the moment it is written, so a statement whose stored second
+                // would exceed it fails retryably instead of writing a row no fence can cover.
+                throw new IllegalStateException("SPM cannot make the status statement of"
+                        + " baseline " + id + " the durable winner: its stored second would lead"
+                        + " wall time by " + leadMillis + " ms, beyond the "
+                        + MAX_STORED_UPDATE_LEAD_MILLIS + " ms every shared fence is bounded by;"
+                        + " nothing was changed - retry the ALTER");
+            }
+            return bumped;
+        }
+        return now;
     }
 
     /** Outcome of the durable status probe (see updateStatus). */
@@ -6245,6 +6296,34 @@ public class BaselineManager {
         // keeps every pending row alive): close THIS window with the exact-row delete (see
         // PRUNE_HWM_OPEN_SQL). Best effort like the append itself: a lost delete only keeps
         // the fence retrying until the age bound elapses.
+        //
+        // CLOSE ONLY A WINDOW THIS PROCESS OWNS (round-77 #10): the tick carries this FE's salt
+        // plus the millisecond, so two FEs drawing the SAME salt in the SAME millisecond hold
+        // ONE identity - and then the exact-row delete removes BOTH markers, including the
+        // other writer's still-open one, whose statement may be in flight (a successor reading
+        // the clock right after that close sees QUIET and accepts a matching row the other
+        // statement then reverses). An OPEN-time probe cannot prove ownership here: the other
+        // marker may still be UNREADABLE when it runs, so it sees a single row. The CLOSE-time
+        // probe can: by now both markers are published (each writer waited for its own
+        // visibility), so a count above one means the identity is shared and neither writer may
+        // delete it - the rows then age out together, and the conservative direction (a noisy
+        // clock for one window bound) is exactly what the bound exists for.
+        try {
+            long holders = pendingWindowVisible(tick);
+            if (holders > 1) {
+                LOG.warn("SPM leaves mutation window {} open: {} rows carry that tick, so the"
+                        + " identity is shared with another FE's window and closing it would"
+                        + " remove their marker as well; both age out after {} s", tick, holders,
+                        MUTATION_WINDOW_MAX_AGE_SECONDS);
+                return;
+            }
+        } catch (Exception e) {
+            // an unanswerable count must not authorize the delete: it could be the shared case
+            LOG.warn("SPM cannot verify the ownership of mutation window {} ({}); leaving it to"
+                    + " its age bound instead of risking another FE's marker", tick,
+                    e.getMessage());
+            return;
+        }
         try {
             persistence.closeMutationWindow(tick);
         } catch (Exception e) {

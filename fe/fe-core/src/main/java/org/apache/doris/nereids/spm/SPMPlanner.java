@@ -1034,7 +1034,8 @@ public class SPMPlanner {
         // the symmetric revalidation.
         baseline.setSchemaFingerprint(
                 SPMPlanTreeSupport.schemaFingerprintForCreateFromLockedEntries(
-                        ctx, bindPlan, frozen.sql, optimizeResult.getTableFingerprints()));
+                        ctx, bindPlan, frozen.sql, optimizeResult.getTableFingerprints(),
+                        optimizeResult.getBindFunctionDependencies()));
         return baseline;
     }
 

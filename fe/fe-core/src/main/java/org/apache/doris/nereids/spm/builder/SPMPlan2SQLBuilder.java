@@ -2308,7 +2308,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (Map.Entry<ExprId, String> entry : left.getColumnNames().entrySet()) {
             String value = entry.getValue();
             String ref = value;
-            if (leftQualifier != null && ref.indexOf('.') < 0) {
+            if (leftQualifier != null && !hasUnquotedDot(ref)) {
                 ref = leftQualifier + "." + ref;
             }
             printRelation.registerRef(entry.getKey(), ref);
@@ -2395,6 +2395,43 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             normalized = normalized.substring(1, normalized.length() - 1).replace("``", "`");
         }
         return normalized.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Whether a rendered column reference already carries a RELATION qualifier, i.e. contains a
+     * dot that is NOT inside an identifier's backticks.
+     *
+     * A plain {@code indexOf('.')} test cannot tell `t.k` from a single column literally named
+     * `a.b` (rendered with backticks as one component). The residual of a NULL-AWARE anti join
+     * therefore left the preserved side's column BARE because of that false positive, and the
+     * frozen NOT IN subquery filtered its own inner relation with `a.b < a.b` - both sides bound
+     * to r, the subquery was empty and the replay KEPT the row the native join removes
+     * (round-77 #5). The frozen SQL still parsed, so neither the CREATE probe nor the metadata
+     * checks noticed.
+     *
+     * @param reference the rendered reference
+     * @return true when the reference is relation-qualified
+     */
+    private static boolean hasUnquotedDot(String reference) {
+        if (reference == null) {
+            return false;
+        }
+        boolean quoted = false;
+        for (int i = 0; i < reference.length(); i++) {
+            char c = reference.charAt(i);
+            if (c == '`') {
+                if (quoted && i + 1 < reference.length() && reference.charAt(i + 1) == '`') {
+                    i++; // a doubled backtick is an escaped character inside the identifier
+                    continue;
+                }
+                quoted = !quoted;
+                continue;
+            }
+            if (!quoted && c == '.') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when expr is an equality with exactly one side on the left relation. */

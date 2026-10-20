@@ -433,6 +433,14 @@ public class SPMOptimizer {
         // the TopN / CTE guards for the nested statement. Reject such hints up front -
         // CREATE then keeps the user's planSql text instead of freezing an unguarded plan.
         checkProtectedSetVarHints(logicalPlan);
+        // The FUNCTION definitions the bind text resolves to, captured BEFORE the nested plan is
+        // analyzed: analysis INLINES an alias-UDF body, so the frozen text keeps the OLD body
+        // while a fingerprint derived afterwards would describe whatever definition the registry
+        // holds then. CREATE compares this snapshot with the entries it derives (see
+        // SPMPlanTreeSupport#schemaFingerprintForCreateFromLockedEntries) and refuses to certify
+        // a baseline whose expansion and fingerprint disagree (round-77 #4).
+        java.util.TreeSet<String> bindFunctionSnapshot =
+                SPMPlanTreeSupport.bindFunctionDependencyEntries(ctx, logicalPlan);
         StatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
 
@@ -524,7 +532,8 @@ public class SPMOptimizer {
                     snapshotTables(statementContext.getTables()),
                     statementContext instanceof CaptureStatementContext
                             ? ((CaptureStatementContext) statementContext).getTableFingerprints()
-                            : java.util.Map.of());
+                            : java.util.Map.of(),
+                    bindFunctionSnapshot);
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -721,23 +730,56 @@ public class SPMOptimizer {
          */
         private final java.util.Map<String, String> tableFingerprints;
 
+        /**
+         * The FUNCTION dependency entries the bind text resolved to BEFORE the nested plan was
+         * analyzed (see SPMPlanTreeSupport#bindFunctionDependencyEntries), or null when the
+         * caller did not capture one.
+         *
+         * Analysis inlines an alias-UDF body, so the frozen text is a snapshot of the
+         * definition that was live at expansion time while the CREATE fingerprint derives its
+         * function entries from the LIVE registry afterwards. A redefinition inside that window
+         * made both checks pass with a body the registry no longer holds, and the replay
+         * returned the OLD implementation's result (round-77 #4). The snapshot lets CREATE
+         * prove the two agree.
+         */
+        private final java.util.Set<String> bindFunctionDependencies;
+
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
-            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of());
+            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null);
         }
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot) {
-            this(physicalPlan, cost, tableSnapshot, java.util.Map.of());
+            this(physicalPlan, cost, tableSnapshot, java.util.Map.of(), null);
         }
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
                 java.util.Map<String, String> tableFingerprints) {
+            this(physicalPlan, cost, tableSnapshot, tableFingerprints, null);
+        }
+
+        /**
+         * The full result: the physical plan, its cost, the under-lock table snapshot, the
+         * fingerprint entries hashed under the locks and the bind-side FUNCTION entries captured
+         * before analysis (see the field javadoc).
+         *
+         * @param physicalPlan           the optimized physical plan
+         * @param cost                   its estimated cost
+         * @param tableSnapshot          the under-lock bind-side tables
+         * @param tableFingerprints      the under-lock table fingerprint entries
+         * @param bindFunctionDependencies the pre-analysis function entries, or null
+         */
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
+                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
+                java.util.Map<String, String> tableFingerprints,
+                java.util.Set<String> bindFunctionDependencies) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
             this.tableFingerprints = tableFingerprints == null
                     ? java.util.Map.of() : tableFingerprints;
+            this.bindFunctionDependencies = bindFunctionDependencies;
         }
 
         public PhysicalPlan getPhysicalPlan() {
@@ -766,6 +808,16 @@ public class SPMOptimizer {
          */
         public java.util.Map<String, String> getTableFingerprints() {
             return tableFingerprints;
+        }
+
+        /**
+         * The FUNCTION dependency entries captured before the nested plan was analyzed (see the
+         * field javadoc), or null when the capture recorded none.
+         *
+         * @return the bind-side function entries captured at expansion time
+         */
+        public java.util.Set<String> getBindFunctionDependencies() {
+            return bindFunctionDependencies;
         }
     }
 
