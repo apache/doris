@@ -577,7 +577,7 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         }
     });
     if (!ret) {
-        offer_failed(response, done, _load_light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -599,7 +599,7 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
         }
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _load_light_work_pool);
         return;
     }
 }
