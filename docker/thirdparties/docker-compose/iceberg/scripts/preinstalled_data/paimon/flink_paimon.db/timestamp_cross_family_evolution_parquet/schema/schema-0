@@ -1,0 +1,32 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ntz_to_ltz",
+    "type" : "TIMESTAMP(6)"
+  }, {
+    "id" : 2,
+    "name" : "ltz_to_ntz",
+    "type" : "TIMESTAMP(6) WITH LOCAL TIME ZONE"
+  }, {
+    "id" : 3,
+    "name" : "ntz_to_ltz_control",
+    "type" : "TIMESTAMP(6)"
+  }, {
+    "id" : 4,
+    "name" : "ltz_to_ntz_control",
+    "type" : "TIMESTAMP(6) WITH LOCAL TIME ZONE"
+  } ],
+  "highestFieldId" : 4,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "file.format" : "parquet"
+  },
+  "timeMillis" : 1791883714991
+}
